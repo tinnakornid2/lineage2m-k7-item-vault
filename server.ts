@@ -10,6 +10,30 @@ dotenv.config();
 const currentFilename = typeof import.meta !== "undefined" && import.meta.url ? fileURLToPath(import.meta.url) : (typeof __filename !== "undefined" ? __filename : "");
 const currentDirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(currentFilename);
 
+// Helper to generate content with modern Gemini model fallback (3.6 -> 2.5 -> 2.0 -> 1.5)
+async function generateWithModelFallback(ai: GoogleGenAI, request: { contents: any; systemInstruction?: any }) {
+  const candidateModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+  let lastError: any = null;
+  for (const model of candidateModels) {
+    try {
+      const resp = await ai.models.generateContent({
+        ...request,
+        model
+      });
+      return resp;
+    } catch (err: any) {
+      lastError = err;
+      const msg = (err?.message || "").toLowerCase();
+      if (msg.includes("not found") || msg.includes("no longer available") || msg.includes("not_found")) {
+        console.warn(`Model ${model} not available, trying next model fallback...`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -48,8 +72,7 @@ async function startServer() {
 
       // Test key with a fast verification call to GoogleGenAI
       const ai = new GoogleGenAI({ apiKey: cleanKey });
-      await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+      await generateWithModelFallback(ai, {
         contents: "ping"
       });
 
@@ -179,8 +202,7 @@ Output strictly a JSON object with this exact structure:
 }
 Do not include markdown or explanations. Return pure JSON only.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+      const response = await generateWithModelFallback(ai, {
         contents: [
           {
             role: "user",
