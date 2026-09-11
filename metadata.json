@@ -1,0 +1,6 @@
+{
+  "name": "Lineage2M Clan Hub",
+  "description": "Lineage2M clan item management, claim distribution, queue tracking, and OCR player scanner.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

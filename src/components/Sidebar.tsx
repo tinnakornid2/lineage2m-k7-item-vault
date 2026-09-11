@@ -1,0 +1,535 @@
+import React from 'react';
+import {
+  Crown,
+  Shield,
+  Sword,
+  UserCheck,
+  Gem,
+  Sparkles,
+  Globe,
+  Volume2,
+  VolumeX,
+  LogOut,
+  X,
+  Menu,
+  LayoutDashboard,
+  Users,
+  Castle,
+  Clock,
+  Bell
+} from 'lucide-react';
+import { ActiveTab, Language, User } from '../types';
+import { translations } from '../translations';
+import { sounds } from '../utils/sound';
+
+export interface SidebarProps {
+  currentTab?: ActiveTab;
+  activeTab?: ActiveTab;
+  setCurrentTab?: (tab: ActiveTab) => void;
+  onTabChange?: (tab: ActiveTab) => void;
+  lang: Language;
+  setLang?: (lang: Language) => void;
+  onToggleLanguage?: () => void;
+  currentUser: User | null;
+  onOpenAuth: () => void;
+  onLogout: () => void;
+  vaultBalance: number;
+  onOpenVaultModal: () => void;
+  soundEnabled: boolean;
+  setSoundEnabled?: (enabled: boolean) => void;
+  onToggleSound?: () => void;
+  onOpenBgModal: () => void;
+  onOpenDiscordModal?: () => void;
+  onOpenClassModal?: () => void;
+  discordEnabled?: boolean;
+  pendingQueueCount?: number;
+  isMobileOpen: boolean;
+  setIsMobileOpen: (open: boolean) => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({
+  currentTab,
+  activeTab,
+  setCurrentTab,
+  onTabChange,
+  lang,
+  setLang,
+  onToggleLanguage,
+  currentUser,
+  onOpenAuth,
+  onLogout,
+  vaultBalance,
+  onOpenVaultModal,
+  soundEnabled,
+  setSoundEnabled,
+  onToggleSound,
+  onOpenBgModal,
+  onOpenDiscordModal,
+  onOpenClassModal,
+  discordEnabled = false,
+  pendingQueueCount = 0,
+  isMobileOpen,
+  setIsMobileOpen
+}) => {
+  const t = translations[lang];
+  const effectiveCurrentTab = currentTab || activeTab || 'dashboard';
+
+  const handleTabSelect = (tab: ActiveTab) => {
+    sounds.playClick();
+    if (setCurrentTab) setCurrentTab(tab);
+    if (onTabChange) onTabChange(tab);
+    // Auto-close mobile drawer when selecting a tab
+    setIsMobileOpen(false);
+  };
+
+  const toggleLang = () => {
+    sounds.playClick();
+    if (onToggleLanguage) {
+      onToggleLanguage();
+    } else if (setLang) {
+      setLang(lang === 'th' ? 'en' : 'th');
+    }
+  };
+
+  const toggleSound = () => {
+    if (onToggleSound) {
+      onToggleSound();
+    } else if (setSoundEnabled) {
+      sounds.enabled = !soundEnabled;
+      setSoundEnabled(!soundEnabled);
+      if (!soundEnabled) sounds.playClick();
+    }
+  };
+
+  const canAccessVault =
+    currentUser?.role === 'owner' ||
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'manager';
+
+  const allNavItems: {
+    id: ActiveTab;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    accentColor: string;
+    badge?: number;
+    restricted?: boolean;
+  }[] = [
+    {
+      id: 'dashboard',
+      label: t.tabDashboard,
+      icon: LayoutDashboard,
+      accentColor: 'text-sky-400'
+    },
+    {
+      id: 'vault',
+      label: t.tabVault,
+      icon: Sword,
+      accentColor: 'text-amber-400',
+      restricted: true
+    },
+    {
+      id: 'queue',
+      label: t.tabQueue,
+      icon: Clock,
+      accentColor: 'text-purple-400',
+      badge: pendingQueueCount > 0 ? pendingQueueCount : undefined
+    },
+    {
+      id: 'all_members',
+      label: t.tabMembers,
+      icon: Users,
+      accentColor: 'text-emerald-400'
+    },
+    {
+      id: 'clan',
+      label: t.tabClans,
+      icon: Castle,
+      accentColor: 'text-yellow-400',
+      restricted: true
+    }
+  ];
+
+  const navItems = allNavItems.filter(
+    (item) => !item.restricted || canAccessVault
+  );
+
+  return (
+    <>
+      {/* 1. MOBILE TOP NAVIGATION BAR (Visible on screens < lg) */}
+      <header className="lg:hidden sticky top-0 z-30 w-full bg-[#070c18]/90 border-b border-[#1c2942]/80 backdrop-blur-xl px-4 py-3 flex items-center justify-between shadow-xl">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              sounds.playClick();
+              setIsMobileOpen(!isMobileOpen);
+            }}
+            aria-label="Toggle menu"
+            className="p-2 rounded-lg bg-[#0d1627] border border-[#1e2e4b] text-slate-300 hover:text-[#f5d77f] hover:border-[#d4af37]/60 transition-all cursor-pointer"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+
+          <div
+            onClick={() => handleTabSelect('dashboard')}
+            className="flex items-center gap-2 cursor-pointer select-none"
+          >
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#d4af37] via-[#91711e] to-[#45330a] p-[1.5px] shadow-sm">
+              <div className="w-full h-full bg-[#090f1d] rounded-[6px] flex items-center justify-center">
+                <Crown className="w-4 h-4 text-[#f5d77f]" />
+              </div>
+            </div>
+            <div>
+              <span className="font-cinzel text-sm font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#c99a22]">
+                LINEAGE <span className="text-[#38bdf8]">2M</span>
+              </span>
+              <span className="ml-1 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[#d4af37]/20 border border-[#d4af37]/30 text-[#f5d77f] uppercase">
+                CLAN HUB
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Mobile Actions: Diamond Count, Class, Discord & Wallpaper */}
+        <div className="flex items-center gap-2">
+          {canAccessVault && onOpenClassModal && (
+            <button
+              onClick={() => {
+                sounds.playClick();
+                onOpenClassModal();
+              }}
+              className="p-1.5 rounded-lg bg-[#0c1424]/80 border border-[#d4af37]/40 text-[#f5d77f] hover:text-white cursor-pointer"
+              title={lang === 'th' ? 'จัดการรายชื่ออาชีพ' : 'Manage Classes'}
+              aria-label="Manage Classes"
+            >
+              <Sword className="w-4 h-4" />
+            </button>
+          )}
+
+          {canAccessVault && onOpenDiscordModal && (
+            <button
+              onClick={() => {
+                sounds.playClick();
+                onOpenDiscordModal();
+              }}
+              className="relative p-1.5 rounded-lg bg-[#0c1424]/80 border border-[#5865F2]/50 text-[#8ea1e1] hover:text-white cursor-pointer"
+              title={lang === 'th' ? 'ตั้งค่าแจ้งเตือน Discord' : 'Discord Webhook'}
+              aria-label="Discord Webhook"
+            >
+              <Bell className="w-4 h-4" />
+              {discordEnabled && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-400 rounded-full shadow-[0_0_6px_#34d399]" />
+              )}
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              sounds.playClick();
+              onOpenVaultModal();
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#0d1627]/90 border border-[#38bdf8]/40 text-xs font-mono font-bold text-[#7dd3fc] cursor-pointer"
+          >
+            <Gem className="w-3.5 h-3.5 text-[#38bdf8]" />
+            <span>{vaultBalance.toLocaleString()}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              sounds.playClick();
+              onOpenBgModal();
+            }}
+            className="p-1.5 rounded-lg bg-[#0c1424]/80 border border-[#1e2e4b] text-[#f5d77f] cursor-pointer"
+            title={lang === 'th' ? 'ตั้งค่าพื้นหลัง' : 'Wallpaper'}
+          >
+            <Sparkles className="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
+      {/* 2. BACKDROP OVERLAY FOR MOBILE (When sidebar is open) */}
+      {isMobileOpen && (
+        <div
+          onClick={() => setIsMobileOpen(false)}
+          className="lg:hidden fixed inset-0 z-40 bg-black/75 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in"
+        />
+      )}
+
+      {/* 3. MAIN LEFT SIDEBAR CONTAINER */}
+      <aside
+        className={`fixed top-0 bottom-0 left-0 z-50 w-64 xl:w-72 bg-[#070c18]/95 lg:bg-[#070c18]/85 border-r border-[#1c2942]/80 backdrop-blur-2xl shadow-2xl flex flex-col transition-transform duration-300 ease-in-out ${
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
+        {/* SIDEBAR HEADER / BRAND */}
+        <div className="p-4 sm:p-5 border-b border-[#1c2942]/70 flex items-center justify-between">
+          <div
+            id="brand-logo"
+            onClick={() => handleTabSelect('dashboard')}
+            className="flex items-center gap-3 cursor-pointer group select-none flex-1 min-w-0"
+          >
+            <div className="relative w-10 h-10 rounded-xl bg-gradient-to-br from-[#d4af37] via-[#91711e] to-[#45330a] p-[1.5px] shadow-lg shadow-[#d4af37]/20 group-hover:shadow-[#d4af37]/40 transition-all duration-300 shrink-0">
+              <div className="w-full h-full bg-[#090f1d] rounded-[10px] flex items-center justify-center">
+                <Crown className="w-5 h-5 text-[#f5d77f] group-hover:scale-110 transition-transform duration-300" />
+              </div>
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="font-cinzel text-base xl:text-lg font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#c99a22] truncate">
+                  LINEAGE <span className="text-[#38bdf8]">2M</span>
+                </span>
+                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[#d4af37]/20 border border-[#d4af37]/40 text-[#f5d77f] tracking-wide uppercase shrink-0">
+                  CLAN HUB
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 truncate">
+                {t.appSubtitle}
+              </p>
+            </div>
+          </div>
+
+          {/* Close button on mobile */}
+          <button
+            type="button"
+            onClick={() => setIsMobileOpen(false)}
+            className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors ml-2 cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* DIAMOND VAULT QUICK CARD IN SIDEBAR */}
+        <div className="p-3 sm:p-4">
+          <div
+            id="diamond-vault-trigger"
+            onClick={() => {
+              sounds.playClick();
+              onOpenVaultModal();
+            }}
+            className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-[#0c182c] via-[#091222] to-[#050b16] border border-[#38bdf8]/40 hover:border-[#38bdf8] p-3 shadow-lg shadow-black/50 transition-all duration-200 cursor-pointer"
+          >
+            {/* Ambient inner glow */}
+            <div className="absolute top-0 right-0 w-24 h-24 bg-[#38bdf8]/10 rounded-full blur-xl pointer-events-none -mr-6 -mt-6" />
+
+            <div className="relative flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-[#38bdf8]/15 border border-[#38bdf8]/30 group-hover:scale-105 transition-transform">
+                  <Gem className="w-4 h-4 text-[#38bdf8]" />
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 group-hover:text-slate-200 flex items-center gap-1">
+                    <span>{t.diamondVault}</span>
+                    <Sparkles className="w-2.5 h-2.5 text-[#e0f2fe] animate-pulse" />
+                  </div>
+                  <div className="text-base sm:text-lg font-bold font-mono text-[#7dd3fc] tracking-tight">
+                    {vaultBalance.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-right">
+                <span className="text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-medium group-hover:bg-sky-500/30 transition-colors">
+                  {lang === 'th' ? 'เปิดคลัง' : 'Open'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* NAVIGATION LINKS LIST */}
+        <div className="flex-1 overflow-y-auto px-3 py-1 space-y-1.5 custom-scrollbar">
+          <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            {lang === 'th' ? 'เมนูระบบกิลด์' : 'Guild Navigation'}
+          </div>
+
+          {navItems.map((item) => {
+            const isActive = effectiveCurrentTab === item.id;
+            const IconComponent = item.icon;
+
+            return (
+              <button
+                key={item.id}
+                id={`nav-tab-${item.id}`}
+                onClick={() => handleTabSelect(item.id)}
+                className={`relative w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all group select-none cursor-pointer ${
+                  isActive
+                    ? 'bg-gradient-to-r from-[#d4af37]/20 via-[#d4af37]/10 to-transparent text-[#f5d77f] border border-[#d4af37]/60 shadow-lg shadow-black/40 font-semibold'
+                    : 'text-slate-300 hover:text-white hover:bg-[#111929]/80 border border-transparent'
+                }`}
+              >
+                {/* Active left indicator bar */}
+                {isActive && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[#d4af37] rounded-r-full shadow-[0_0_8px_#d4af37]" />
+                )}
+
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`p-1.5 rounded-lg transition-colors ${
+                      isActive
+                        ? 'bg-[#d4af37]/25 text-[#f5d77f]'
+                        : 'bg-slate-900/60 text-slate-400 group-hover:text-slate-200 group-hover:bg-slate-800/80'
+                    }`}
+                  >
+                    <IconComponent
+                      className={`w-4 h-4 ${isActive ? 'text-[#f5d77f]' : item.accentColor}`}
+                    />
+                  </div>
+                  <span className="tracking-wide">{item.label}</span>
+                </div>
+
+                {/* Optional notification badge (e.g. queue items count) */}
+                {typeof item.badge === 'number' && item.badge > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-purple-500/25 border border-purple-500/50 text-purple-300 shadow-sm">
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* SIDEBAR FOOTER: USER PROFILE & UTILITIES */}
+        <div className="p-3 sm:p-4 border-t border-[#1c2942]/80 bg-[#050913]/70 space-y-3">
+          
+          {/* User Profile Card */}
+          {currentUser ? (
+            <div className="p-2.5 rounded-xl bg-[#0a101f]/80 border border-slate-800/80 flex items-center justify-between gap-2 shadow-inner">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-bold text-slate-200 truncate">
+                    {currentUser.inGameName || currentUser.username}
+                  </span>
+                  {currentUser.role === 'owner' && (
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/50 font-semibold uppercase">
+                      {t.ownerBadge}
+                    </span>
+                  )}
+                  {currentUser.role === 'admin' && (
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/50 font-semibold uppercase">
+                      {t.adminBadge}
+                    </span>
+                  )}
+                  {currentUser.role === 'member' && (
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-700 text-slate-300 border border-slate-600 font-semibold uppercase">
+                      {t.memberBadge}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                  <span className="text-amber-400 font-mono font-medium">
+                    {(currentUser.powerLevel || 0).toLocaleString()} CP
+                  </span>{' '}
+                  • {currentUser.clan || 'No Clan'}
+                </div>
+              </div>
+
+              <button
+                id="btn-logout"
+                onClick={() => {
+                  sounds.playClick();
+                  onLogout();
+                }}
+                className="p-2 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 hover:text-white transition-all cursor-pointer shrink-0"
+                title={t.logout}
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              id="btn-open-login"
+              onClick={() => {
+                sounds.playClick();
+                onOpenAuth();
+              }}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#aa841c] hover:from-[#f5d77f] hover:to-[#c99a22] text-slate-950 font-bold text-xs shadow-md transition-all cursor-pointer"
+            >
+              <UserCheck className="w-4 h-4" />
+              <span>{t.login}</span>
+            </button>
+          )}
+
+          {/* Quick Utility Icons Row (Wallpaper, Sound, Language) */}
+          <div className="flex items-center justify-between gap-1.5 pt-1">
+            {/* Wallpaper Settings */}
+            <button
+              id="btn-wallpaper-settings"
+              onClick={() => {
+                sounds.playClick();
+                onOpenBgModal();
+              }}
+              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#0b1220]/80 border border-[#1e2e4b] hover:border-[#d4af37]/60 text-slate-300 hover:text-[#f5d77f] text-[11px] font-medium transition-all shadow-sm cursor-pointer"
+              title={lang === 'th' ? 'ตั้งค่าภาพพื้นหลังปราสาท' : 'Wallpaper Settings'}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#d4af37]" />
+              <span>{lang === 'th' ? 'พื้นหลัง' : 'Theme'}</span>
+            </button>
+
+            {/* Discord Webhook Settings (For Admin / Owner) */}
+            {canAccessVault && onOpenDiscordModal && (
+              <button
+                id="btn-discord-settings"
+                onClick={() => {
+                  sounds.playClick();
+                  onOpenDiscordModal();
+                }}
+                className="relative p-1.5 rounded-lg border border-[#5865F2]/40 bg-[#5865F2]/15 hover:bg-[#5865F2]/30 text-[#8ea1e1] hover:text-white transition-all cursor-pointer"
+                title={lang === 'th' ? 'ตั้งค่าแจ้งเตือน Discord' : 'Discord Webhook'}
+                aria-label="Discord Webhook"
+              >
+                <Bell className="w-4 h-4" />
+                {discordEnabled && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-400 rounded-full shadow-[0_0_6px_#34d399]" />
+                )}
+              </button>
+            )}
+
+            {/* Class Management Settings (For Admin / Owner) */}
+            {canAccessVault && onOpenClassModal && (
+              <button
+                id="btn-class-settings"
+                onClick={() => {
+                  sounds.playClick();
+                  onOpenClassModal();
+                }}
+                className="relative p-1.5 rounded-lg border border-[#d4af37]/40 bg-[#d4af37]/15 hover:bg-[#d4af37]/30 text-[#f5d77f] hover:text-white transition-all cursor-pointer"
+                title={lang === 'th' ? 'จัดการรายชื่ออาชีพ' : 'Manage Classes'}
+                aria-label="Manage Classes"
+              >
+                <Sword className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Sound Toggle */}
+            <button
+              id="btn-sound-toggle"
+              onClick={toggleSound}
+              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                soundEnabled
+                  ? 'border-[#d4af37]/40 text-[#f5d77f] bg-[#1a2332]/80'
+                  : 'border-slate-800 text-slate-500 bg-[#0d121d]/80'
+              }`}
+              title={t.soundToggle}
+              aria-label={t.soundToggle}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+
+            {/* Language Switcher */}
+            <button
+              id="btn-language-toggle"
+              onClick={toggleLang}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#d4af37]/40 bg-[#162030]/80 hover:bg-[#1f2d45] text-[11px] font-semibold text-[#f5d77f] hover:text-white transition-all shadow-sm cursor-pointer"
+              title="Switch Language / เปลี่ยนภาษา"
+            >
+              <Globe className="w-3.5 h-3.5 text-[#d4af37]" />
+              <span>{lang === 'th' ? 'TH' : 'EN'}</span>
+            </button>
+          </div>
+
+        </div>
+
+      </aside>
+    </>
+  );
+};

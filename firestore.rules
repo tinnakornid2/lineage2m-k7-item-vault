@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Lineage2M Clan Hub rules
+    // Allow read and write to clan vault collections
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
