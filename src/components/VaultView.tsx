@@ -117,7 +117,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
   // Section 7 Scan Results Copy & View Mode State
   const [hunterResultViewMode, setHunterResultViewMode] = useState<'cards' | 'text'>('cards');
-  const [copyFormatWithClan, setCopyFormatWithClan] = useState<boolean>(false);
+  const [hunterTextFormat, setHunterTextFormat] = useState<'by-clan' | 'plain' | 'inline' | 'comma'>('by-clan');
+  const [textClanFilter, setTextClanFilter] = useState<string>('all');
   const [copiedHunters, setCopiedHunters] = useState<boolean>(false);
 
   // Section Hunter Checklist Picker State
@@ -249,17 +250,62 @@ export const VaultView: React.FC<VaultViewProps> = ({
     setHunters((prev) => prev.filter((h) => !filteredKeys.has(h.name.trim().toLowerCase())));
   };
 
-  // Copy all hunters to clipboard (newline or comma separated, with or without clan)
-  const handleCopyAllHunters = (format: 'plain' | 'clan' | 'comma' = 'plain') => {
-    if (hunters.length === 0) return;
-    let textToCopy = '';
+  // Helper to generate formatted text based on format and clan filter
+  const getFormattedHunterText = (
+    format: 'by-clan' | 'plain' | 'inline' | 'comma' = hunterTextFormat,
+    targetClan: string = textClanFilter
+  ): string => {
+    if (hunters.length === 0) return '';
+
+    const sourceHunters =
+      targetClan === 'all'
+        ? hunters
+        : hunters.filter((h) => (h.clan || 'Clan:VoltZ').toLowerCase() === targetClan.toLowerCase());
+
+    if (sourceHunters.length === 0) return '';
+
     if (format === 'comma') {
-      textToCopy = hunters.map((h) => h.name).join(', ');
-    } else if (format === 'clan') {
-      textToCopy = hunters.map((h) => `${h.name} (${h.clan})`).join('\n');
-    } else {
-      textToCopy = hunters.map((h) => h.name).join('\n');
+      return sourceHunters.map((h) => h.name).join(', ');
     }
+
+    if (format === 'plain') {
+      return sourceHunters.map((h) => h.name).join('\n');
+    }
+
+    if (format === 'inline') {
+      return sourceHunters
+        .map((h, i) => `${i + 1}. ${h.name} (${h.clan || 'Clan:VoltZ'})`)
+        .join('\n');
+    }
+
+    // Default: 'by-clan' (Grouped cleanly by Clan with headers and member counts)
+    const grouped = sourceHunters.reduce((acc, h) => {
+      const clanKey = h.clan || 'Clan:VoltZ';
+      if (!acc[clanKey]) acc[clanKey] = [];
+      acc[clanKey].push(h.name);
+      return acc;
+    }, {} as Record<string, string[]>);
+
+    return (Object.entries(grouped) as [string, string[]][])
+      .map(([clan, names]) => {
+        const clanHeader = `[${clan}] (${names.length} ${lang === 'th' ? 'คน' : 'members'})`;
+        const memberList = names.map((name, idx) => `${idx + 1}. ${name}`).join('\n');
+        return `${clanHeader}\n${memberList}`;
+      })
+      .join('\n\n');
+  };
+
+  // Copy all hunters to clipboard with chosen format and clan filter
+  const handleCopyAllHunters = (
+    customFormat?: 'by-clan' | 'plain' | 'inline' | 'comma',
+    customClan?: string
+  ) => {
+    if (hunters.length === 0) return;
+    const textToCopy = getFormattedHunterText(
+      customFormat || hunterTextFormat,
+      customClan !== undefined ? customClan : textClanFilter
+    );
+    if (!textToCopy) return;
 
     navigator.clipboard.writeText(textToCopy);
     setCopiedHunters(true);
@@ -922,6 +968,15 @@ Do not include markdown or explanations. Return pure JSON only.`;
     return acc;
   }, {} as Record<string, string[]>);
 
+  // List of unique clans present in scanned hunters
+  const uniqueClansInHunters = useMemo(() => {
+    const clanSet = new Set<string>();
+    hunters.forEach((h) => {
+      if (h.clan) clanSet.add(h.clan.trim());
+    });
+    return Array.from(clanSet);
+  }, [hunters]);
+
   const distributedItems = vaultItems.filter((i) => i.status === 'distributed');
 
   return (
@@ -1440,7 +1495,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                       <button
                         type="button"
                         id="btn-copy-all-hunters"
-                        onClick={() => handleCopyAllHunters(copyFormatWithClan ? 'clan' : 'plain')}
+                        onClick={() => handleCopyAllHunters()}
                         className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-600/70 hover:border-emerald-500 text-emerald-300 hover:text-emerald-200 text-[11px] font-bold transition-all cursor-pointer shadow-sm"
                         title={lang === 'th' ? 'คัดลอกรายชื่อทั้งหมดลงคลิปบอร์ด' : 'Copy all hunter names to clipboard'}
                       >
@@ -1479,10 +1534,10 @@ Do not include markdown or explanations. Return pure JSON only.`;
                     {t.noHuntersFound}
                   </div>
                 ) : hunterResultViewMode === 'text' ? (
-                  /* TEXT VIEW (Copyable format) */
-                  <div className="p-3.5 rounded-xl bg-[#0b101c] border border-amber-500/30 space-y-2.5 shadow-inner">
-                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800">
-                      <div className="flex items-center gap-2">
+                  /* TEXT VIEW (Copyable format with Clan Separation) */
+                  <div className="p-3.5 rounded-xl bg-[#0b101c] border border-amber-500/30 space-y-3 shadow-inner">
+                    <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
                           <FileText className="w-3.5 h-3.5 text-amber-400" />
                           <span>{t.viewAsText}</span>
@@ -1490,69 +1545,178 @@ Do not include markdown or explanations. Return pure JSON only.`;
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
                           {hunters.length} {lang === 'th' ? 'คน' : 'names'}
                         </span>
+                        {uniqueClansInHunters.length > 0 && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800/50 text-amber-300 font-mono">
+                            {uniqueClansInHunters.length} {t.clansCount}
+                          </span>
+                        )}
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        {/* Format selector: Plain names vs Names with Clan */}
-                        <div className="flex items-center gap-1 bg-[#111726] p-0.5 rounded-lg border border-slate-700 text-[11px]">
-                          <button
-                            type="button"
-                            onClick={() => setCopyFormatWithClan(false)}
-                            className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
-                              !copyFormatWithClan ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
-                            }`}
-                          >
-                            {t.plainNamesOnly}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setCopyFormatWithClan(true)}
-                            className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
-                              copyFormatWithClan ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
-                            }`}
-                          >
-                            {t.namesWithClan}
-                          </button>
-                        </div>
-
-                        {/* Comma-separated copy button */}
+                      {/* Format selector: By Clan vs Plain vs Inline vs Comma */}
+                      <div className="flex items-center gap-1 bg-[#111726] p-0.5 rounded-lg border border-slate-700 text-[11px] flex-wrap">
                         <button
                           type="button"
-                          onClick={() => handleCopyAllHunters('comma')}
-                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-medium transition-all cursor-pointer flex items-center gap-1"
-                          title={lang === 'th' ? 'คัดลอกแบบคั่นด้วยลูกน้ำ เช่น Name1, Name2' : 'Copy as comma-separated: Name1, Name2'}
+                          onClick={() => {
+                            sounds.playClick();
+                            setHunterTextFormat('by-clan');
+                          }}
+                          className={`px-2.5 py-1 rounded transition-all cursor-pointer flex items-center gap-1 ${
+                            hunterTextFormat === 'by-clan'
+                              ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                          title={lang === 'th' ? 'แยกรายชื่อตามแคลน พร้อมหัวข้อแคลน' : 'Group list by clan with headers'}
                         >
-                          <Copy className="w-3 h-3 text-amber-400" />
-                          <span>{t.copyCommaSeparated}</span>
+                          <Layers className="w-3 h-3" />
+                          <span>{t.formatByClan}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sounds.playClick();
+                            setHunterTextFormat('plain');
+                          }}
+                          className={`px-2.5 py-1 rounded transition-all cursor-pointer ${
+                            hunterTextFormat === 'plain'
+                              ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                          title={lang === 'th' ? 'แสดงเฉพาะชื่อตัวละคร' : 'Plain character names only'}
+                        >
+                          <span>{t.formatPlain}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sounds.playClick();
+                            setHunterTextFormat('inline');
+                          }}
+                          className={`px-2.5 py-1 rounded transition-all cursor-pointer ${
+                            hunterTextFormat === 'inline'
+                              ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                          title={lang === 'th' ? 'ชื่อพร้อมแคลนต่อท้าย' : 'Names with clan in parentheses'}
+                        >
+                          <span>{t.formatInline}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sounds.playClick();
+                            setHunterTextFormat('comma');
+                          }}
+                          className={`px-2.5 py-1 rounded transition-all cursor-pointer ${
+                            hunterTextFormat === 'comma'
+                              ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                          title={lang === 'th' ? 'คั่นด้วยจุลภาค เช่น Name1, Name2' : 'Comma separated: Name1, Name2'}
+                        >
+                          <span>{t.formatComma}</span>
                         </button>
                       </div>
                     </div>
+
+                    {/* Clan Filter Tabs inside Text View (if multiple clans exist) */}
+                    {uniqueClansInHunters.length > 1 && (
+                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                        <span className="text-[11px] text-slate-400 font-medium mr-1 flex items-center gap-1">
+                          <Filter className="w-3 h-3 text-slate-400" />
+                          <span>{lang === 'th' ? 'กรองแคลน:' : 'Filter Clan:'}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sounds.playClick();
+                            setTextClanFilter('all');
+                          }}
+                          className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer ${
+                            textClanFilter === 'all'
+                              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/50'
+                              : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 border border-transparent'
+                          }`}
+                        >
+                          {t.allClansFilter} ({hunters.length})
+                        </button>
+                        {uniqueClansInHunters.map((clanName) => {
+                          const count = hunters.filter(
+                            (h) => (h.clan || 'Clan:VoltZ').toLowerCase() === clanName.toLowerCase()
+                          ).length;
+                          return (
+                            <button
+                              key={clanName}
+                              type="button"
+                              onClick={() => {
+                                sounds.playClick();
+                                setTextClanFilter(clanName);
+                              }}
+                              className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                                textClanFilter.toLowerCase() === clanName.toLowerCase()
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
+                                  : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 border border-transparent'
+                              }`}
+                            >
+                              <span>{clanName}</span>
+                              <span className="opacity-75">({count})</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     {/* Copyable Text Area */}
                     <div className="relative">
                       <textarea
                         readOnly
-                        rows={Math.min(12, Math.max(5, hunters.length))}
-                        value={
-                          copyFormatWithClan
-                            ? hunters.map((h, i) => `${i + 1}. ${h.name} (${h.clan})`).join('\n')
-                            : hunters.map((h) => h.name).join('\n')
-                        }
+                        rows={Math.min(14, Math.max(6, (getFormattedHunterText().split('\n').length || 6) + 1))}
+                        value={getFormattedHunterText()}
                         onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-                        className="w-full px-3 py-2 rounded-lg bg-[#070b13] border border-slate-800 hover:border-amber-500/50 text-xs font-mono text-slate-200 leading-relaxed focus:outline-none focus:border-amber-400 cursor-text resize-y shadow-inner select-all"
+                        className="w-full px-3.5 py-2.5 rounded-lg bg-[#070b13] border border-slate-800 hover:border-amber-500/50 text-xs font-mono text-slate-200 leading-relaxed focus:outline-none focus:border-amber-400 cursor-text resize-y shadow-inner select-all"
                         placeholder={lang === 'th' ? 'รายชื่อผู้ล่าจะแสดงที่นี่...' : 'Hunter names will appear here...'}
                       />
-                      <div className="absolute top-2 right-2 flex items-center gap-1">
+                      <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handleCopyAllHunters(copyFormatWithClan ? 'clan' : 'plain')}
-                          className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1"
+                          onClick={() => handleCopyAllHunters()}
+                          className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 hover:text-amber-200 text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
                         >
-                          <Copy className="w-3 h-3 text-amber-300" />
-                          <span>{copiedHunters ? (lang === 'th' ? 'คัดลอกแล้ว' : 'Copied') : t.copyAllHunters}</span>
+                          {copiedHunters ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="text-emerald-300">{lang === 'th' ? 'คัดลอกแล้ว!' : 'Copied!'}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5 text-amber-300" />
+                              <span>{t.copyAllHunters}</span>
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>
+
+                    {/* Quick Clan Copy Buttons Row (when multiple clans are present) */}
+                    {uniqueClansInHunters.length > 1 && textClanFilter === 'all' && (
+                      <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-800/80">
+                        <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+                          <Copy className="w-3 h-3 text-amber-400" />
+                          <span>{lang === 'th' ? 'คัดลอกด่วนแยกแคลน:' : 'Quick Copy Clan:'}</span>
+                        </span>
+                        {uniqueClansInHunters.map((clanName) => (
+                          <button
+                            key={clanName}
+                            type="button"
+                            onClick={() => handleCopyAllHunters('plain', clanName)}
+                            className="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-amber-950/40 border border-slate-700 hover:border-amber-600/50 text-slate-300 hover:text-amber-300 text-[10px] font-medium transition-all cursor-pointer flex items-center gap-1"
+                            title={lang === 'th' ? `คัดลอกเฉพาะรายชื่อของ ${clanName}` : `Copy names of ${clanName}`}
+                          >
+                            <Copy className="w-2.5 h-2.5" />
+                            <span>{clanName}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   /* CARDS VIEW */
