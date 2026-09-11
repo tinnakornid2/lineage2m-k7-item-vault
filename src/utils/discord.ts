@@ -153,6 +153,7 @@ export async function sendDiscordNotification(
     return { success: false, message: 'Invalid notification event or payload' };
   }
 
+  // 1. Try local/backend proxy first
   try {
     const res = await fetch('/api/discord-webhook', {
       method: 'POST',
@@ -163,18 +164,32 @@ export async function sendDiscordNotification(
       })
     });
 
-    const resText = await res.text();
-    let result: any = {};
-    try {
-      result = JSON.parse(resText);
-    } catch {
-      result = { success: false, error: 'Server returned non-JSON response' };
+    if (res.ok) {
+      const resText = await res.text();
+      try {
+        const result = JSON.parse(resText);
+        if (result.success) return { success: true };
+      } catch {
+        // Fallback to direct fetch below
+      }
     }
-    if (result.success) {
+  } catch {
+    // Backend unavailable, fallback to direct fetch below
+  }
+
+  // 2. Direct Discord webhook call (Fallback for Vercel / Static hosting)
+  try {
+    const directRes = await fetch(settings.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (directRes.ok || directRes.status === 204) {
       return { success: true };
-    } else {
-      return { success: false, message: result.error || 'Failed to deliver webhook' };
     }
+    const errText = await directRes.text();
+    return { success: false, message: `Discord returned ${directRes.status}: ${errText}` };
   } catch (err: any) {
     console.error('Error sending discord notification:', err);
     return { success: false, message: err.message || 'Network error sending webhook' };
