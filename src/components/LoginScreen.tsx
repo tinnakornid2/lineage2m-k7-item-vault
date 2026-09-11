@@ -35,7 +35,6 @@ interface LoginScreenProps {
   }) => Promise<{ success: boolean; message?: string }>;
   users: UserType[];
   clans: ClanGroup[];
-  characterClasses?: string[];
   onOpenBgModal?: () => void;
 }
 
@@ -48,7 +47,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   onRegister,
   users,
   clans,
-  characterClasses,
   onOpenBgModal
 }) => {
   const t = translations[lang];
@@ -137,7 +135,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         password: finalPassword,
         inGameName: finalInGameName,
         clan: finalClan,
-        characterClass: regClass,
+        characterClass: '',
+        classes: [],
         powerLevel: isNaN(parsedPowerLevel) ? 0 : parsedPowerLevel
       });
 
@@ -250,7 +249,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 CLAN HUB SYSTEM
               </span>
               <span className="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/35 text-[10px] font-mono font-bold text-sky-300">
-                v1.4.0
+                v1.5.0
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-2 font-prompt">
@@ -535,7 +534,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   </label>
                   {regPowerLevel && !isNaN(parseInt(regPowerLevel.replace(/,/g, ''), 10)) && (
                     <span className="text-[11px] font-mono font-bold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 shadow-sm animate-in fade-in">
-                      ⚡ {parseInt(regPowerLevel.replace(/,/g, ''), 10).toLocaleString()} CP
+                      ⚡ {parseInt(regPowerLevel.replace(/,/g, ''), 10).toLocaleString()} PL
                     </span>
                   )}
                 </div>
@@ -552,7 +551,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 <p className="text-[10px] text-slate-500 mt-1">
                   {lang === 'th'
                     ? 'ใส่ค่าพลังปัจจุบันของคุณ (หากมีการอัปเดตภายหลังต้องรอ Admin หรือ Owner อนุมัติ)'
-                    : 'Enter your character CP (future updates will require Admin or Owner approval)'}
+                    : 'Enter your character PL (future updates will require Admin or Owner approval)'}
                 </p>
               </div>
 
@@ -598,26 +597,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 )}
               </div>
 
-              {/* 5. Character Class */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {t.characterClass}
-                </label>
-                <select
-                  id="select-reg-class"
-                  value={regClass}
-                  onChange={(e) => setRegClass(e.target.value as CharacterClass)}
-                  className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700/80 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none cursor-pointer transition-all shadow-inner"
-                >
-                  {(characterClasses && characterClasses.length > 0
-                    ? characterClasses
-                    : CHARACTER_CLASSES
-                  ).map((cls) => (
-                    <option key={cls} value={cls}>
-                      {cls}
-                    </option>
-                  ))}
-                </select>
+              {/* Note about Character Profile */}
+              <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-750 text-[11px] text-slate-400">
+                {lang === 'th'
+                  ? '💡 อาชีพ (Multi-class), เลเวล และสถิติสเตตัส สามารถระบุและแก้ไขได้ในหน้า "สถิติของฉัน (My Stats)" หลังเข้าสู่ระบบ'
+                  : '💡 Class (Multi-class), level, and stats can be configured in "My Stats" after logging in.'}
               </div>
 
               {/* Submit Register Button */}

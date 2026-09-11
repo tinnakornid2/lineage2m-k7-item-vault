@@ -70,10 +70,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   const t = translations[lang];
   const [itemToDelete, setItemToDelete] = React.useState<VaultItem | null>(null);
+  const [filterAvailableToMe, setFilterAvailableToMe] = React.useState(false);
+
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
     currentUser?.role === 'admin' ||
     currentUser?.role === 'manager';
+
+  const displayedAvailableItems = React.useMemo(() => {
+    if (!filterAvailableToMe || !currentUser) return availableItems;
+    const userPower = Number(currentUser.powerLevel || 0);
+    const isPrivileged = currentUser.role === 'owner' || currentUser.role === 'admin';
+    return availableItems.filter((item) => isPrivileged || userPower >= Number(item.minPowerLevel || 0));
+  }, [availableItems, filterAvailableToMe, currentUser]);
 
   const formatTimeAgo = (timestamp: number) => {
     const diff = Date.now() - timestamp;
@@ -320,7 +329,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Filter: Available to me */}
+            {currentUser && (
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  setFilterAvailableToMe(!filterAvailableToMe);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                  filterAvailableToMe
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md shadow-amber-500/20'
+                    : 'bg-slate-800/90 text-slate-300 border-slate-700 hover:border-slate-600'
+                }`}
+                title={lang === 'th' ? 'กรองเฉพาะไอเทมที่พลังของคุณถึงเกณฑ์ขอรับได้' : 'Show only items you can claim'}
+              >
+                <Zap className={`size-3.5 ${filterAvailableToMe ? 'text-slate-950 fill-slate-950' : 'text-amber-400'}`} />
+                <span>{lang === 'th' ? '⚡ พลังถึงเกณฑ์' : '⚡ Available to me'}</span>
+              </button>
+            )}
+
             {currentUser?.role === 'owner' && onOpenOwnerResetModal && (
               <button
                 id="btn-dash-owner-reset"
@@ -351,10 +380,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {availableItems.length === 0 ? (
+        {displayedAvailableItems.length === 0 ? (
           <div className="rounded-xl border border-slate-800 bg-[#0d131f]/60 p-6 text-center text-slate-400 space-y-1.5">
-            <p className="text-xs sm:text-sm font-medium">{t.noAvailableItems}</p>
-            {isAdminOrOwner && (
+            <p className="text-xs sm:text-sm font-medium">
+              {filterAvailableToMe
+                ? (lang === 'th' ? 'ไม่มีไอเทมที่พลังของคุณถึงเกณฑ์ในขณะนี้' : 'No items matching your Power Level right now')
+                : t.noAvailableItems}
+            </p>
+            {filterAvailableToMe ? (
+              <button
+                onClick={() => setFilterAvailableToMe(false)}
+                className="text-xs text-amber-400 hover:underline"
+              >
+                {lang === 'th' ? 'แสดงไอเทมทั้งหมด' : 'Show all items'}
+              </button>
+            ) : isAdminOrOwner && (
               <button
                 onClick={() => onNavigateTab('vault')}
                 className="text-xs text-[#f5d77f] hover:underline"
@@ -378,7 +418,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#18233a]/70 text-xs">
-                  {availableItems.map((item) => {
+                  {displayedAvailableItems.map((item) => {
                     const hasClaimed = Boolean(
                       currentUser &&
                       item.claimants?.some(
@@ -447,22 +487,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           </div>
                         </td>
 
-                        {/* 4. Min Power (CP) */}
+                        {/* 4. Min Power (PL) */}
                         <td className="py-1.5 px-3">
                           <div className="space-y-0.5">
                             <div className="flex items-center gap-1 font-mono font-bold text-xs text-amber-300">
                               <Zap className="w-3 h-3 text-amber-400 shrink-0" />
-                              <span>{item.minPowerLevel.toLocaleString()} CP</span>
+                              <span>⚡ {item.minPowerLevel.toLocaleString()} PL</span>
                             </div>
                             {currentUser && (
                               <div className="text-[9px]">
                                 {hasEnoughPower ? (
                                   <span className="text-emerald-400 font-medium">
-                                    ✓ {t.eligibleToClaim} ({userPower.toLocaleString()} CP)
+                                    ✓ {t.eligibleToClaim} (⚡ {userPower.toLocaleString()} PL)
                                   </span>
                                 ) : (
                                   <span className="text-red-400 font-medium">
-                                    ✗ {t.insufficientPower} ({userPower.toLocaleString()} CP)
+                                    ✗ {t.insufficientPower} (⚡ {userPower.toLocaleString()} PL)
                                   </span>
                                 )}
                               </div>

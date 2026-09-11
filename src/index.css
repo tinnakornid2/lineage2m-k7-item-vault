@@ -258,3 +258,76 @@
   white-space: nowrap;
   animation: marquee 30s linear infinite;
 }
+
+/* Kain7 Screenshot Guide Trigger with Rotating Neon Border */
+@property --sgt-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.screenshot-guide-trigger {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(63, 63, 70, 0.85);
+  background: rgba(18, 18, 22, 0.85);
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+}
+
+.screenshot-guide-trigger:hover {
+  border-color: rgba(113, 113, 122, 0.95);
+  background: rgba(28, 28, 34, 0.95);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  transform: translateY(-1px);
+}
+
+.screenshot-guide-trigger-border {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--sgt-angle),
+    transparent 0deg,
+    rgba(6, 182, 212, 0.08) 8deg,
+    rgba(6, 182, 212, 0.45) 18deg,
+    rgba(6, 182, 212, 1) 24deg,
+    rgba(14, 165, 233, 1) 26deg,
+    rgba(20, 184, 166, 0.6) 31deg,
+    rgba(20, 184, 166, 0.1) 38deg,
+    transparent 44deg,
+    transparent 178deg,
+    rgba(6, 182, 212, 0.08) 186deg,
+    rgba(6, 182, 212, 0.45) 196deg,
+    rgba(6, 182, 212, 1) 202deg,
+    rgba(14, 165, 233, 1) 204deg,
+    rgba(20, 184, 166, 0.6) 209deg,
+    rgba(20, 184, 166, 0.1) 216deg,
+    transparent 222deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 4px rgba(6, 182, 212, 0.8));
+  animation: sgt-spin 3.8s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.screenshot-guide-trigger:hover .screenshot-guide-trigger-border {
+  filter: drop-shadow(0 0 6px rgba(14, 165, 233, 0.95));
+}
+
+@keyframes sgt-spin {
+  to {
+    --sgt-angle: 360deg;
+  }
+}
+

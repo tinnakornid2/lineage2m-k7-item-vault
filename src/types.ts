@@ -1,22 +1,27 @@
-export const DEFAULT_CHARACTER_CLASSES = [
-  'Orb',
-  'Spear',
-  'Sword',
-  'Greatsword',
-  'Chainblade',
-  'Dual Blade',
-  'Dagger',
-  'Bow',
-  'Crossbow',
-  'Staff',
-  'Rapier',
-  'Magic Cannon',
-  'Soul Breaker'
-] as const;
+export interface ClassMeta {
+  id: string;
+  nameEn: string;
+  nameTh: string;
+  icon: string;
+}
+
+export const OFFICIAL_CLASSES: ClassMeta[] = [
+  { id: 'dualblades', nameEn: 'Dual Blades', nameTh: 'ดาบคู่ (Dual Blades)', icon: '/assets/classes/dualblades.png' },
+  { id: 'orb', nameEn: 'Priest', nameTh: 'พระ / ลูกแก้ว (Priest)', icon: '/assets/classes/orb.png' },
+  { id: 'spear', nameEn: 'Spear', nameTh: 'หอก (Spear)', icon: '/assets/classes/spear.png' },
+  { id: 'greatsword', nameEn: 'Greatsword', nameTh: 'ดาบใหญ่ (Greatsword)', icon: '/assets/classes/greatsword.png' },
+  { id: 'staff', nameEn: 'Mage', nameTh: 'เวทย์ / คทา (Mage)', icon: '/assets/classes/staff.png' },
+  { id: 'bow', nameEn: 'Archer', nameTh: 'ธนู (Archer)', icon: '/assets/classes/bow.png' },
+  { id: 'dagger', nameEn: 'Assassin', nameTh: 'มีดสั้น (Assassin)', icon: '/assets/classes/dagger.png' },
+  { id: 'sword', nameEn: 'One-Handed Sword', nameTh: 'ดาบโล่ (One-Handed Sword)', icon: '/assets/classes/sword.png' },
+  { id: 'xbow', nameEn: 'Crossbow', nameTh: 'หน้าไม้ (Crossbow)', icon: '/assets/classes/xbow.png' }
+];
+
+export const DEFAULT_CHARACTER_CLASSES = OFFICIAL_CLASSES.map((c) => c.nameEn);
 
 export const CHARACTER_CLASSES = DEFAULT_CHARACTER_CLASSES;
 
-export type CharacterClass = (typeof DEFAULT_CHARACTER_CLASSES)[number] | string;
+export type CharacterClass = string;
 
 export type ItemRarity = 'RARE' | 'EPIC' | 'LAGEND' | 'MYTHIC';
 
@@ -31,13 +36,30 @@ export interface User {
   inGameName: string;
   powerLevel: number;
   clan: string;
-  characterClass: CharacterClass;
+  characterClass?: CharacterClass;
+  classes?: string[];
+  level?: number;
+  legendClasses?: number;
+  legendAgathions?: number;
   role: UserRole;
   status: UserStatus;
   createdAt: number;
   lastLoginAt?: number;
   pendingPowerLevel?: number | null;
   pendingPowerLevelRequestedAt?: number | null;
+  // Dynamic Stats & Verification
+  stats?: Record<string, number>;
+  spiritEnhancements?: Record<string, number>;
+  pendingStats?: Record<string, number>;
+  pendingSpiritEnhancements?: Record<string, number>;
+  pendingClasses?: string[];
+  pendingLevel?: number;
+  pendingLegendClasses?: number;
+  pendingLegendAgathions?: number;
+  pendingStatScreenshotUrl?: string;
+  statRejectionReason?: string;
+  statRejectionAt?: number;
+  lastStatUpdatedAt?: number;
 }
 
 export interface QuickItem {
@@ -103,10 +125,22 @@ export interface QueueItem {
   createdAt: number;
 }
 
+export type ClanFundTxType = 'credit' | 'deduction' | 'adjust' | 'expenditure' | 'deposit' | 'withdraw';
+
 export interface DiamondVaultRecord {
   id: string;
-  type: 'deposit' | 'withdraw';
+  type: ClanFundTxType;
   amount: number;
+  grossAmount?: number;
+  taxPct?: number;
+  taxAmount?: number;
+  netAmount?: number;
+  clanScope?: string;
+  recipientUserId?: string;
+  recipientName?: string;
+  recipientClan?: string;
+  proofImageUrl?: string;
+  balanceAfter?: number;
   note?: string;
   performedBy: {
     userId: string;
@@ -122,11 +156,20 @@ export interface DiamondVault {
   updatedAt: number;
 }
 
+
 export interface ClanGroup {
   id: string;
   name: string;
   color?: string;
+  order?: number;
 }
+
+export const OFFICIAL_CLANS: ClanGroup[] = [
+  { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0 },
+  { id: 'clan_levels', name: 'LevelS', color: '#ef4444', order: 1 },
+  { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2 },
+  { id: 'clan_noclan', name: 'no-clan', color: '#3b82f6', order: 3 }
+];
 
 /**
  * Strips the 'Clan:' or 'clan:' prefix to save space across the UI (e.g. 'Clan:VoltZ' -> 'VoltZ')
@@ -138,7 +181,7 @@ export function cleanClanName(clan?: string | null): string {
 
 export const DEFAULT_CLAN = 'VoltZ';
 
-export type ActiveTab = 'dashboard' | 'vault' | 'queue' | 'all_members' | 'clan';
+export type ActiveTab = 'dashboard' | 'vault' | 'queue' | 'all_members' | 'clans' | 'my_stats' | 'stat_approvals';
 
 export type Language = 'th' | 'en';
 
@@ -156,7 +199,75 @@ export interface DiscordSettings {
   enabled: boolean;
   notifyOnNewItem: boolean;
   notifyOnDistribute: boolean;
+  notifyOnStatRequest?: boolean;
   botName?: string;
   updatedBy?: string;
   updatedAt?: number;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Power Formula & Dynamic Stat Engine Types
+// ─────────────────────────────────────────────────────────────
+
+export type StatInputType = 'number' | 'percentage' | 'spirit_card' | 'tier_select' | 'boolean';
+
+export type StatCategory = 'combat' | 'defense' | 'spirit' | 'special' | 'custom';
+
+export interface SpiritConfig {
+  icon: string;
+  accentColor: string;
+  enhancementOptions: number[];
+  enhancementBonus?: Record<number, number>;
+}
+
+export interface StatDefinition {
+  id: string;
+  labelTh: string;
+  labelEn: string;
+  category: StatCategory;
+  inputType: StatInputType;
+  multiplier: number;
+  calcMethod: 'linear' | 'divisor' | 'tier_bonus' | 'flat';
+  divisorValue?: number;
+  spiritConfig?: SpiritConfig;
+  isActive: boolean;
+  includeInTransfer: boolean;
+  isRequired: boolean;
+  order: number;
+}
+
+export type FormulaPreset = 'standard' | 'pvp_war' | 'pve_boss' | 'custom';
+
+export interface FormulaSettings {
+  name?: string;
+  activePreset: FormulaPreset;
+  stats: StatDefinition[];
+  freezeStatsUntil?: number | null;
+  updatedBy?: string;
+  updatedAt?: number;
+}
+
+export interface PendingStatRequest {
+  userId: string;
+  inGameName: string;
+  clan: string;
+  characterClass: string;
+  currentPowerLevel: number;
+  newPowerLevel: number;
+  currentStats?: Record<string, number>;
+  newStats: Record<string, number>;
+  currentSpiritEnhancements?: Record<string, number>;
+  newSpiritEnhancements?: Record<string, number>;
+  screenshotUrl?: string;
+  requestedAt: number;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Bulk Swap Types
+// ─────────────────────────────────────────────────────────────
+
+export interface PendingSwap {
+  memberId: string;
+  fromClan: string;
+  toClan: string;
 }

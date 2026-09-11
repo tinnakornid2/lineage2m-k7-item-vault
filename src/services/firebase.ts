@@ -146,8 +146,10 @@ export const INITIAL_MEMBERS: User[] = [
 ];
 
 export const INITIAL_CLANS: ClanGroup[] = [
-  { id: 'clan_voltz', name: 'VoltZ', color: '#3b82f6' },
-  { id: 'clan_levels', name: 'LevelS', color: '#10b981' }
+  { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0 },
+  { id: 'clan_levels', name: 'LevelS', color: '#ef4444', order: 1 },
+  { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2 },
+  { id: 'clan_noclan', name: 'no-clan', color: '#3b82f6', order: 3 }
 ];
 
 export const INITIAL_QUICK_ITEMS: QuickItem[] = [
@@ -772,6 +774,8 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
         if (c.name) c.name = cleanClanName(c.name);
         clans.push(c);
       });
+      // Sort by order property
+      clans.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
       callback(clans);
     },
     (err) => {
@@ -781,12 +785,13 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
   );
 }
 
-export async function addClanDoc(clan: { name: string; color?: string }) {
+export async function addClanDoc(clan: { name: string; color?: string; order?: number }) {
   const newId = 'clan_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
   const fullClan: ClanGroup = {
     id: newId,
     name: cleanClanName(clan.name),
-    color: clan.color || '#d4af37'
+    color: clan.color || '#d4af37',
+    order: clan.order ?? 99
   };
   const cleanClan = sanitizeForFirestore(fullClan);
   try {
@@ -796,6 +801,20 @@ export async function addClanDoc(clan: { name: string; color?: string }) {
     throw err;
   }
   return fullClan;
+}
+
+export async function updateClanDoc(clanId: string, updates: Partial<ClanGroup>) {
+  try {
+    const ref = doc(db, CLANS_COLLECTION, clanId);
+    const sanitized = sanitizeForFirestore({
+      ...updates,
+      ...(updates.name ? { name: cleanClanName(updates.name) } : {})
+    });
+    await setDoc(ref, sanitized, { merge: true });
+  } catch (err) {
+    console.error('Failed to update clan doc:', err);
+    throw err;
+  }
 }
 
 export async function deleteClanDoc(clanId: string) {
@@ -847,6 +866,27 @@ export async function addDiamondTransactionDoc(record: Omit<DiamondVaultRecord, 
   }
   return fullRecord;
 }
+
+export async function updateDiamondTransactionNoteDoc(recordId: string, note: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, VAULT_COLLECTION, recordId), {
+      note: note || ''
+    });
+  } catch (err) {
+    console.error('Failed to updateDiamondTransactionNoteDoc:', err);
+    throw err;
+  }
+}
+
+export async function deleteDiamondTransactionDoc(recordId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, VAULT_COLLECTION, recordId));
+  } catch (err) {
+    console.error('Failed to deleteDiamondTransactionDoc:', err);
+    throw err;
+  }
+}
+
 
 // 7. Guild Theme & Background Settings (Global Sync for All Clan Members)
 export const APP_SETTINGS_COLLECTION = 'app_settings';

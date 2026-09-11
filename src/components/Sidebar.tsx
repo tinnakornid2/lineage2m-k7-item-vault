@@ -18,9 +18,14 @@ import {
   Clock,
   Bell,
   Zap,
-  Cpu
+  Cpu,
+  Sliders,
+  ArrowRightLeft,
+  CheckSquare,
+  Check,
+  ChevronDown
 } from 'lucide-react';
-import { ActiveTab, Language, User, cleanClanName } from '../types';
+import { ActiveTab, Language, User, ClanGroup, cleanClanName } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -42,11 +47,19 @@ export interface SidebarProps {
   onToggleSound?: () => void;
   onOpenBgModal: () => void;
   onOpenDiscordModal?: () => void;
-  onOpenClassModal?: () => void;
   onOpenGeminiModal?: () => void;
   onOpenRequestCp?: () => void;
+  onOpenMyStats?: () => void;
+  onOpenPowerFormula?: () => void;
+  onOpenBulkSwap?: () => void;
+  onOpenStatApproval?: () => void;
+  pendingStatApprovalCount?: number;
   discordEnabled?: boolean;
   pendingQueueCount?: number;
+  selectedClanScope?: string;
+  onSelectClanScope?: (scope: string) => void;
+  clans?: ClanGroup[];
+  allMembers?: User[];
   isMobileOpen: boolean;
   setIsMobileOpen: (open: boolean) => void;
 }
@@ -69,11 +82,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleSound,
   onOpenBgModal,
   onOpenDiscordModal,
-  onOpenClassModal,
   onOpenGeminiModal,
   onOpenRequestCp,
+  onOpenMyStats,
+  onOpenPowerFormula,
+  onOpenBulkSwap,
+  onOpenStatApproval,
+  pendingStatApprovalCount = 0,
   discordEnabled = false,
   pendingQueueCount = 0,
+  selectedClanScope = 'all',
+  onSelectClanScope,
+  clans = [],
+  allMembers = [],
   isMobileOpen,
   setIsMobileOpen
 }) => {
@@ -148,16 +169,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
       accentColor: 'text-emerald-400'
     },
     {
-      id: 'clan',
-      label: t.tabClans,
-      icon: Castle,
-      accentColor: 'text-yellow-400',
-      restricted: true
+      id: 'clans',
+      label: lang === 'th' ? (canAccessVault ? 'จัดการแคลน' : 'ทำเนียบแคลน') : (canAccessVault ? 'Clan Management' : 'Clan Rosters'),
+      icon: Shield,
+      accentColor: 'text-rose-400',
+      restricted: false
+    },
+    {
+      id: 'my_stats',
+      label: t.tabMyStats,
+      icon: Zap,
+      accentColor: 'text-amber-400'
     }
   ];
 
+  const [isClanPickerOpen, setIsClanPickerOpen] = React.useState(false);
+  const currentClanObj = clans.find((c) => cleanClanName(c.name).toLowerCase() === cleanClanName(selectedClanScope).toLowerCase());
+
   const navItems = allNavItems.filter(
-    (item) => !item.restricted || canAccessVault
+    (item) => (!item.restricted || canAccessVault) && (item.id !== 'my_stats' || !!currentUser)
   );
 
   return (
@@ -197,21 +227,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Right Mobile Actions: Diamond Count, Class, Discord & Wallpaper */}
+        {/* Right Mobile Actions: Diamond Count, Discord & Wallpaper */}
         <div className="flex items-center gap-2">
-          {canAccessVault && onOpenClassModal && (
-            <button
-              onClick={() => {
-                sounds.playClick();
-                onOpenClassModal();
-              }}
-              className="p-1.5 rounded-lg bg-[#0c1424]/80 border border-[#d4af37]/40 text-[#f5d77f] hover:text-white cursor-pointer"
-              title={lang === 'th' ? 'จัดการรายชื่ออาชีพ' : 'Manage Classes'}
-              aria-label="Manage Classes"
-            >
-              <Sword className="w-4 h-4" />
-            </button>
-          )}
 
           {canAccessVault && onOpenDiscordModal && (
             <button
@@ -319,6 +336,105 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
+        {/* GLOBAL CLAN SCOPE SWITCHER */}
+        <div className="px-3 sm:px-4 pt-2 pb-1">
+          <div className="relative">
+            <button
+              id="sidebar-clan-scope-btn"
+              type="button"
+              onClick={() => {
+                sounds.playClick();
+                setIsClanPickerOpen(!isClanPickerOpen);
+              }}
+              className="w-full flex items-center justify-between gap-2 p-2 rounded-xl bg-gradient-to-r from-[#0c1424] to-[#070b14] border border-slate-700/70 hover:border-[#d4af37]/60 text-slate-200 transition-all cursor-pointer shadow-sm"
+              title={lang === 'th' ? 'สลับมุมมองตามแคลน' : 'Switch clan scope'}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <div
+                  className="w-6 h-6 rounded-md flex items-center justify-center font-bold text-[10px] text-white shadow-sm shrink-0"
+                  style={{
+                    backgroundColor: currentClanObj ? (currentClanObj.color || '#3b82f6') : '#475569'
+                  }}
+                >
+                  {currentClanObj ? currentClanObj.name.substring(0, 2).toUpperCase() : 'ALL'}
+                </div>
+                <div className="text-left min-w-0">
+                  <div className="text-xs font-bold truncate text-slate-200">
+                    {selectedClanScope === 'all' ? (lang === 'th' ? 'ทุกแคลน' : 'All Clans') : selectedClanScope}
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono leading-none">
+                    {selectedClanScope === 'all' ? `${allMembers.length} คน` : `${allMembers.filter(m => cleanClanName(m.clan).toLowerCase() === cleanClanName(selectedClanScope).toLowerCase()).length} คน`}
+                  </div>
+                </div>
+              </div>
+              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${isClanPickerOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isClanPickerOpen && (
+              <div className="absolute top-full inset-x-0 mt-1 z-50 rounded-xl bg-[#090f1d] border border-slate-700 p-1.5 shadow-2xl space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                  {lang === 'th' ? 'สลับมุมมองแคลน' : 'Switch Clan Scope'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playClick();
+                    if (onSelectClanScope) onSelectClanScope('all');
+                    setIsClanPickerOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between p-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                    selectedClanScope === 'all'
+                      ? 'bg-[#1b273d] text-[#f5d77f] font-bold border border-[#d4af37]/40'
+                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded bg-slate-700 flex items-center justify-center font-bold text-[9px] text-white">
+                      ALL
+                    </div>
+                    <span>{lang === 'th' ? 'ทุกแคลน (All Clans)' : 'All Clans'}</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-400">{allMembers.length}</span>
+                </button>
+
+                <div className="h-px bg-slate-800 my-1" />
+
+                {clans.map((c) => {
+                  const isSelected = cleanClanName(selectedClanScope).toLowerCase() === cleanClanName(c.name).toLowerCase();
+                  const cCount = allMembers.filter(m => cleanClanName(m.clan).toLowerCase() === cleanClanName(c.name).toLowerCase()).length;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        if (onSelectClanScope) onSelectClanScope(c.name);
+                        setIsClanPickerOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between p-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#1b273d] text-[#f5d77f] font-bold border border-[#d4af37]/40'
+                          : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-5 h-5 rounded flex items-center justify-center font-bold text-[9px] text-white shadow-sm"
+                          style={{ backgroundColor: c.color || '#3b82f6' }}
+                        >
+                          {c.name.substring(0, 2).toUpperCase()}
+                        </div>
+                        <span className="truncate">{c.name}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-slate-400">{cCount}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* DIAMOND VAULT QUICK CARD IN SIDEBAR */}
         <div className="p-3 sm:p-4">
           <div
@@ -407,6 +523,81 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             );
           })}
+
+          {/* Dedicated Section: Power Formula & Clan Management Tools (Admin) */}
+          {canAccessVault && (
+            <div className="pt-2 pb-1">
+              <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                {lang === 'th' ? 'ระบบค่าพลัง & จัดทัพ' : 'Power & Organization'}
+              </div>
+
+              {/* Admin Power Formula Button */}
+              {onOpenPowerFormula && (
+                <button
+                  id="btn-sidebar-power-formula"
+                  onClick={() => {
+                    sounds.playClick();
+                    onOpenPowerFormula();
+                    setIsMobileOpen(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-slate-800/70 transition-all cursor-pointer mb-1"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Sliders className="size-3.5 text-cyan-400" />
+                    <span>{lang === 'th' ? 'สูตรค่าพลัง (Power Formula)' : 'Power Formula'}</span>
+                  </div>
+                </button>
+              )}
+
+              {/* Admin Bulk Swap Button */}
+              {onOpenBulkSwap && (
+                <button
+                  id="btn-sidebar-bulk-swap"
+                  onClick={() => {
+                    sounds.playClick();
+                    onOpenBulkSwap();
+                    setIsMobileOpen(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-slate-800/70 transition-all cursor-pointer mb-1"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <ArrowRightLeft className="size-3.5 text-purple-400" />
+                    <span>{lang === 'th' ? 'จัดสรรแคลน (Bulk Swap)' : 'Bulk Swap Clans'}</span>
+                  </div>
+                </button>
+              )}
+
+              {/* Admin Stat Approvals Button with Badge */}
+              {onOpenStatApproval && (
+                <button
+                  id="btn-sidebar-stat-approvals"
+                  onClick={() => {
+                    sounds.playClick();
+                    handleTabSelect('stat_approvals');
+                    if (onOpenStatApproval) onOpenStatApproval();
+                    setIsMobileOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                    effectiveCurrentTab === 'stat_approvals'
+                      ? 'bg-rose-500/25 text-rose-200 border border-rose-500/60 font-semibold shadow-inner'
+                      : pendingStatApprovalCount > 0
+                      ? 'bg-rose-500/15 text-rose-300 border border-rose-500/40 hover:bg-rose-500/25 font-semibold'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <CheckSquare className="size-3.5 text-rose-400" />
+                    <span>{lang === 'th' ? 'ตรวจคำขอสเตตัส' : 'Stat Approvals'}</span>
+                  </div>
+                  {pendingStatApprovalCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500 text-white animate-pulse">
+                      {pendingStatApprovalCount}
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* SIDEBAR FOOTER: USER PROFILE & UTILITIES */}
@@ -442,13 +633,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     type="button"
                     onClick={() => {
                       sounds.playClick();
-                      onOpenRequestCp?.();
+                      if (onOpenMyStats) onOpenMyStats();
+                      else onOpenRequestCp?.();
                     }}
                     className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 font-mono text-[10px] font-medium transition-all cursor-pointer group shadow-sm"
-                    title={lang === 'th' ? 'คลิกเพื่อขออัปเดตค่าพลัง' : 'Click to request CP update'}
+                    title={lang === 'th' ? 'คลิกเพื่อเปิดหน้าสเตตัสของฉัน (My Stats)' : 'Click to open My Stats'}
                   >
                     <Zap className="w-2.5 h-2.5 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
-                    <span>{(currentUser.powerLevel || 0).toLocaleString()} CP</span>
+                    <span>⚡ {(currentUser.powerLevel || 0).toLocaleString()} PL</span>
                     {currentUser.pendingPowerLevel && currentUser.pendingPowerLevel > 0 && (
                       <span className="ml-0.5 px-1 py-0.2 rounded bg-amber-400/25 text-[#f5d77f] text-[8px] font-sans font-bold animate-pulse">
                         ⏳
@@ -522,22 +714,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             )}
 
-            {/* Class Management Settings (For Admin / Owner) */}
-            {canAccessVault && onOpenClassModal && (
-              <button
-                id="btn-class-settings"
-                onClick={() => {
-                  sounds.playClick();
-                  onOpenClassModal();
-                }}
-                className="relative p-1.5 rounded-lg border border-[#d4af37]/40 bg-[#d4af37]/15 hover:bg-[#d4af37]/30 text-[#f5d77f] hover:text-white transition-all cursor-pointer"
-                title={lang === 'th' ? 'จัดการรายชื่ออาชีพ' : 'Manage Classes'}
-                aria-label="Manage Classes"
-              >
-                <Sword className="w-4 h-4" />
-              </button>
-            )}
-
             {/* Gemini AI OCR Settings (For Owner Only) */}
             {isOwner && onOpenGeminiModal && (
               <button
@@ -591,7 +767,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>v1.4.0</span>
+              <span>v1.5.0</span>
             </div>
           </div>
 

@@ -12,7 +12,7 @@ import {
   Sparkles,
   ChevronDown
 } from 'lucide-react';
-import { Language, User, VaultItem } from '../types';
+import { Language, User, VaultItem, OFFICIAL_CLASSES } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -36,6 +36,7 @@ interface RecipientInfo {
   userId?: string;
   powerLevel?: number;
   characterClass?: string;
+  classes?: string[];
   isClaimant?: boolean;
 }
 
@@ -118,16 +119,31 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
 
   if (!isOpen || !item) return null;
 
+  const classMap = useMemo(() => new Map(OFFICIAL_CLASSES.map((c) => [c.nameEn.toLowerCase(), c])), []);
+
+  const getClassMeta = (nameOrId?: string) => {
+    if (!nameOrId) return null;
+    const lower = nameOrId.toLowerCase().trim();
+    return OFFICIAL_CLASSES.find(
+      (c) =>
+        c.id.toLowerCase() === lower ||
+        c.nameEn.toLowerCase() === lower ||
+        c.nameTh.toLowerCase().includes(lower)
+    ) || null;
+  };
+
   // Filtered members for profile cards
   const filteredMembers = activeMembers.filter((m) => {
     const matchesClan = clanFilter === 'all' || m.clan === clanFilter;
     const q = searchQuery.trim().toLowerCase();
+    const classList = (m.classes && m.classes.length > 0) ? m.classes : (m.characterClass ? [m.characterClass] : []);
+    const matchesClass = classList.some((c) => c.toLowerCase().includes(q));
     const matchesQuery =
       !q ||
       m.inGameName.toLowerCase().includes(q) ||
       m.username.toLowerCase().includes(q) ||
       m.clan.toLowerCase().includes(q) ||
-      m.characterClass.toLowerCase().includes(q);
+      matchesClass;
     return matchesClan && matchesQuery;
   });
 
@@ -150,11 +166,14 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
         (cl) => cl.userId === idOrName || cl.inGameName === idOrName
       );
       if (c) {
+        const foundMember = allMembers.find((mem) => (c.userId && mem.id === c.userId) || mem.inGameName.toLowerCase() === c.inGameName.toLowerCase());
         setSelectedRecipient({
           name: c.inGameName,
           clan: c.clan || 'No Clan',
           userId: c.userId,
           powerLevel: c.powerLevel,
+          characterClass: foundMember?.characterClass,
+          classes: foundMember?.classes || (foundMember?.characterClass ? [foundMember.characterClass] : []),
           isClaimant: true
         });
       }
@@ -168,6 +187,7 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
           userId: m.id,
           powerLevel: m.powerLevel,
           characterClass: m.characterClass,
+          classes: m.classes || (m.characterClass ? [m.characterClass] : []),
           isClaimant: claimants.some(
             (c) => c.userId === m.id || c.inGameName.toLowerCase() === m.inGameName.toLowerCase()
           )
@@ -180,11 +200,14 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
   // Select from Claimant Card
   const handleSelectClaimant = (c: { userId?: string; inGameName: string; clan?: string; powerLevel?: number }) => {
     sounds.playClick();
+    const foundMember = allMembers.find((mem) => (c.userId && mem.id === c.userId) || mem.inGameName.toLowerCase() === c.inGameName.toLowerCase());
     setSelectedRecipient({
       name: c.inGameName,
       clan: c.clan || 'No Clan',
       userId: c.userId,
       powerLevel: c.powerLevel,
+      characterClass: foundMember?.characterClass,
+      classes: foundMember?.classes || (foundMember?.characterClass ? [foundMember.characterClass] : []),
       isClaimant: true
     });
   };
@@ -198,6 +221,7 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
       userId: m.id,
       powerLevel: m.powerLevel,
       characterClass: m.characterClass,
+      classes: m.classes || (m.characterClass ? [m.characterClass] : []),
       isClaimant: claimants.some(
         (c) => c.userId === m.id || c.inGameName.toLowerCase() === m.inGameName.toLowerCase()
       )
@@ -221,6 +245,7 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
         userId: m.id,
         powerLevel: m.powerLevel,
         characterClass: m.characterClass,
+        classes: m.classes || (m.characterClass ? [m.characterClass] : []),
         isClaimant: claimants.some(
           (c) => c.userId === m.id || c.inGameName.toLowerCase() === m.inGameName.toLowerCase()
         )
@@ -360,18 +385,21 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
               >
                 {claimants.map((c, idx) => (
                   <option key={`c-${idx}`} value={`claimant:${c.userId || c.inGameName}`}>
-                    ★ [ผู้เครม] {c.inGameName} ({c.clan || 'No Clan'}) - {(c.powerLevel || 0).toLocaleString()} CP
+                    ★ [ผู้เครม] {c.inGameName} ({c.clan || 'No Clan'}) - ⚡ {(c.powerLevel || 0).toLocaleString()} PL
                   </option>
                 ))}
               </optgroup>
             )}
             {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, members]) => (
               <optgroup key={clanName} label={`🛡️ ${clanName} (${members.length} คน)`}>
-                {members.map((m) => (
-                  <option key={m.id} value={`member:${m.id}`}>
-                    {m.inGameName} | {m.clan} {m.powerLevel ? `(${(m.powerLevel).toLocaleString()} CP)` : ''} {m.characterClass ? `• ${m.characterClass}` : ''}
-                  </option>
-                ))}
+                {members.map((m) => {
+                  const mClasses = (m.classes && m.classes.length > 0) ? m.classes : (m.characterClass ? [m.characterClass] : []);
+                  return (
+                    <option key={m.id} value={`member:${m.id}`}>
+                      {m.inGameName} | {m.clan} {m.powerLevel ? `(⚡ ${(m.powerLevel).toLocaleString()} PL)` : ''} {mClasses.length > 0 ? `• ${mClasses.join(', ')}` : ''}
+                    </option>
+                  );
+                })}
               </optgroup>
             ))}
           </select>
@@ -484,7 +512,7 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                     </option>
                     {dropdownMembers.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.inGameName} | {m.clan} {m.powerLevel ? `(${(m.powerLevel).toLocaleString()} CP)` : ''} {m.characterClass ? `• ${m.characterClass}` : ''}
+                        {m.inGameName} | {m.clan} {m.powerLevel ? `(⚡ ${(m.powerLevel).toLocaleString()} PL)` : ''} {m.characterClass ? `• ${m.characterClass}` : ''}
                       </option>
                     ))}
                   </select>
@@ -492,40 +520,66 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
               </div>
 
               {/* Character Details Preview Card */}
-              {selectedRecipient ? (
-                <div className="p-3.5 rounded-xl bg-gradient-to-br from-[#1b273d] to-[#111929] border border-[#d4af37]/60 shadow-lg space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      {lang === 'th' ? 'ข้อมูลตัวละครผู้รับที่เลือก' : 'Selected Recipient Preview'}
-                    </span>
-                    {selectedRecipient.isClaimant && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
-                        ⚡ {lang === 'th' ? 'ลงชื่อเครมไว้' : 'Claimant'}
+              {selectedRecipient ? (() => {
+                const recClasses = (selectedRecipient.classes && selectedRecipient.classes.length > 0)
+                  ? selectedRecipient.classes
+                  : (selectedRecipient.characterClass ? [selectedRecipient.characterClass] : []);
+                const firstMeta = recClasses.length > 0 ? getClassMeta(recClasses[0]) : null;
+
+                return (
+                  <div className="p-3.5 rounded-xl bg-gradient-to-br from-[#1b273d] to-[#111929] border border-[#d4af37]/60 shadow-lg space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        {lang === 'th' ? 'ข้อมูลตัวละครผู้รับที่เลือก' : 'Selected Recipient Preview'}
                       </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#d4af37] text-slate-950 flex items-center justify-center font-bold text-sm shadow">
-                      {selectedRecipient.characterClass
-                        ? selectedRecipient.characterClass.substring(0, 2).toUpperCase()
-                        : 'L2'}
-                    </div>
-                    <div>
-                      <div className="text-sm font-bold text-white flex items-center gap-2">
-                        <span>{selectedRecipient.name}</span>
-                        <span className="text-[11px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                          {selectedRecipient.clan}
+                      {selectedRecipient.isClaimant && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
+                          ⚡ {lang === 'th' ? 'ลงชื่อเครมไว้' : 'Claimant'}
                         </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-xl bg-slate-800 border border-[#d4af37]/50 p-1 flex items-center justify-center shrink-0 shadow">
+                        {firstMeta ? (
+                          <img src={firstMeta.icon} alt={firstMeta.nameEn} className="w-full h-full object-contain" />
+                        ) : (
+                          <span className="font-bold text-sm text-[#d4af37]">L2</span>
+                        )}
                       </div>
-                      <div className="text-xs text-amber-400 font-mono mt-0.5">
-                        {selectedRecipient.powerLevel ? `${selectedRecipient.powerLevel.toLocaleString()} CP` : ''}
-                        {selectedRecipient.characterClass ? ` • ${selectedRecipient.characterClass}` : ''}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-bold text-white flex items-center gap-2">
+                          <span className="truncate">{selectedRecipient.name}</span>
+                          <span className="text-[11px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700 shrink-0">
+                            {selectedRecipient.clan}
+                          </span>
+                        </div>
+                        <div className="text-xs text-amber-400 font-mono mt-0.5">
+                          {selectedRecipient.powerLevel ? `⚡ ${selectedRecipient.powerLevel.toLocaleString()} PL` : ''}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          {recClasses.length > 0 ? (
+                            recClasses.map((clsName, idx) => {
+                              const meta = getClassMeta(clsName);
+                              return (
+                                <span
+                                  key={idx}
+                                  className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-slate-900 text-slate-200 border border-slate-700/80"
+                                >
+                                  {meta && <img src={meta.icon} alt={meta.nameEn} className="w-3.5 h-3.5 object-contain" />}
+                                  <span>{meta?.nameEn || clsName}</span>
+                                </span>
+                              );
+                            })
+                          ) : (
+                            <span className="text-xs text-slate-500">-</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ) : (
+                );
+              })() : (
                 <div className="p-5 rounded-xl bg-[#090e1a]/80 border border-dashed border-slate-800 text-center text-xs text-slate-400">
                   <UserCheck className="w-6 h-6 mx-auto mb-1 text-slate-600" />
                   <p>{lang === 'th' ? 'เลือกชื่อตัวละครจากดรอปดาวน์ด้านบน เพื่อเตรียมแจกไอเทม' : 'Select a character from the dropdown above'}</p>
@@ -558,6 +612,16 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                   {claimants.map((c, idx) => {
                     const isSelected =
                       selectedRecipient?.name.toLowerCase() === c.inGameName.toLowerCase();
+                    const claimantMember = allMembers.find(
+                      (m) =>
+                        (c.userId && m.id === c.userId) ||
+                        m.inGameName.toLowerCase() === c.inGameName.toLowerCase()
+                    );
+                    const cClasses = (claimantMember?.classes && claimantMember.classes.length > 0)
+                      ? claimantMember.classes
+                      : (claimantMember?.characterClass ? [claimantMember.characterClass] : (c.characterClass ? [c.characterClass] : []));
+                    const firstMeta = cClasses.length > 0 ? getClassMeta(cClasses[0]) : null;
+
                     return (
                       <div
                         key={c.userId || `c-${idx}`}
@@ -568,29 +632,47 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                             : 'bg-[#090e1a] border-slate-800 text-slate-300 hover:bg-[#111929]'
                         }`}
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
                           <div
-                            className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
+                            className={`w-9 h-9 rounded-lg flex items-center justify-center p-1 shrink-0 ${
                               isSelected
-                                ? 'bg-[#d4af37] text-slate-950'
-                                : 'bg-slate-800 text-slate-300'
+                                ? 'bg-[#d4af37]/25 border border-[#d4af37]'
+                                : 'bg-slate-800/90 border border-slate-700'
                             }`}
                           >
-                            <UserCheck className="w-4 h-4" />
+                            {firstMeta ? (
+                              <img src={firstMeta.icon} alt={firstMeta.nameEn} className="w-full h-full object-contain" />
+                            ) : (
+                              <UserCheck className="w-4 h-4 text-slate-400" />
+                            )}
                           </div>
-                          <div>
-                            <div className="text-xs font-bold flex items-center gap-2">
-                              <span>{c.inGameName}</span>
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold flex items-center gap-2 truncate">
+                              <span className="text-slate-100">{c.inGameName}</span>
                               <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 border border-slate-700 text-slate-400">
                                 {c.clan}
                               </span>
                             </div>
-                            <div className="text-[11px] text-amber-400 font-mono mt-0.5">
-                              {(c.powerLevel || 0).toLocaleString()} CP
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                              <span className="text-[11px] text-amber-400 font-mono font-medium">
+                                ⚡ {(c.powerLevel || 0).toLocaleString()} PL
+                              </span>
+                              {cClasses.map((clsName, cIdx) => {
+                                const meta = getClassMeta(clsName);
+                                return (
+                                  <span
+                                    key={cIdx}
+                                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60"
+                                  >
+                                    {meta && <img src={meta.icon} alt={meta.nameEn} className="w-3 h-3 object-contain" />}
+                                    <span>{meta?.nameEn || clsName}</span>
+                                  </span>
+                                );
+                              })}
                             </div>
                           </div>
                         </div>
-                        {isSelected && <CheckCircle className="w-5 h-5 text-[#d4af37]" />}
+                        {isSelected && <CheckCircle className="w-5 h-5 text-[#d4af37] shrink-0 ml-2" />}
                       </div>
                     );
                   })}
@@ -651,6 +733,11 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                   filteredMembers.map((m) => {
                     const isSelected =
                       selectedRecipient?.name.toLowerCase() === m.inGameName.toLowerCase();
+                    const memberClasses = (m.classes && m.classes.length > 0)
+                      ? m.classes
+                      : (m.characterClass ? [m.characterClass] : []);
+                    const firstMeta = memberClasses.length > 0 ? getClassMeta(memberClasses[0]) : null;
+
                     return (
                       <div
                         key={m.id}
@@ -662,17 +749,19 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                             : 'bg-[#090e1a] border-slate-800/80 text-slate-300 hover:bg-[#121927]'
                         }`}
                       >
-                        <div className="flex items-center gap-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
                           <div
-                            className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
+                            className={`w-9 h-9 rounded-lg flex items-center justify-center p-1 shrink-0 ${
                               isSelected
-                                ? 'bg-[#d4af37] text-slate-950'
-                                : 'bg-[#141d2e] text-slate-300'
+                                ? 'bg-[#d4af37]/20 border border-[#d4af37]'
+                                : 'bg-[#141d2e] border border-slate-800'
                             }`}
                           >
-                            {m.characterClass
-                              ? m.characterClass.substring(0, 2).toUpperCase()
-                              : 'L2'}
+                            {firstMeta ? (
+                              <img src={firstMeta.icon} alt={firstMeta.nameEn} className="w-full h-full object-contain" />
+                            ) : (
+                              <span className="font-bold text-xs text-slate-400">L2</span>
+                            )}
                           </div>
                           <div className="min-w-0">
                             <div className="text-xs font-bold flex items-center gap-1.5 truncate">
@@ -684,20 +773,30 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                                 {m.clan}
                               </span>
                             </div>
-                            <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-0.5">
-                              <span className="text-amber-400 font-mono font-medium">
-                                {(m.powerLevel || 0).toLocaleString()} CP
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                              <span className="text-amber-400 font-mono text-[11px] font-medium">
+                                ⚡ {(m.powerLevel || 0).toLocaleString()} PL
                               </span>
-                              <span>•</span>
-                              <span>{m.characterClass}</span>
+                              {memberClasses.map((clsName, cIdx) => {
+                                const meta = getClassMeta(clsName);
+                                return (
+                                  <span
+                                    key={cIdx}
+                                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60"
+                                  >
+                                    {meta && <img src={meta.icon} alt={meta.nameEn} className="w-3 h-3 object-contain" />}
+                                    <span>{meta?.nameEn || clsName}</span>
+                                  </span>
+                                );
+                              })}
                             </div>
                           </div>
                         </div>
 
                         {isSelected ? (
-                          <CheckCircle className="w-5 h-5 text-[#d4af37] shrink-0" />
+                          <CheckCircle className="w-5 h-5 text-[#d4af37] shrink-0 ml-2" />
                         ) : (
-                          <span className="text-[10px] px-2 py-1 rounded bg-[#162235] text-slate-400 hover:text-white border border-slate-700">
+                          <span className="text-[10px] px-2 py-1 rounded bg-[#162235] text-slate-400 hover:text-white border border-slate-700 shrink-0 ml-2">
                             {lang === 'th' ? 'เลือก' : 'Select'}
                           </span>
                         )}
@@ -724,7 +823,7 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
               </div>
               {selectedRecipient.powerLevel ? (
                 <span className="text-amber-400 font-mono font-bold">
-                  {selectedRecipient.powerLevel.toLocaleString()} CP
+                  ⚡ {selectedRecipient.powerLevel.toLocaleString()} PL
                 </span>
               ) : null}
             </div>

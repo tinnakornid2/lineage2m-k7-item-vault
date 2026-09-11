@@ -425,7 +425,7 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
 
                       <div className="text-right">
                         <div className="text-xs font-mono font-bold text-amber-400">
-                          {m.powerLevel ? m.powerLevel.toLocaleString() : '0'} CP
+                          ⚡ {m.powerLevel ? m.powerLevel.toLocaleString() : '0'} PL
                         </div>
                         <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-800/60 font-semibold">
                           {lang === 'th' ? 'ยังไม่ได้ของ' : '0 Items'}

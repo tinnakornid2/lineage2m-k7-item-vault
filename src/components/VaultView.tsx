@@ -1491,7 +1491,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                         type="number"
                         min="0"
                         required
-                        placeholder={lang === 'th' ? 'ระบุพลังขั้นต่ำ (CP)' : 'Min CP required'}
+                        placeholder={lang === 'th' ? 'ระบุพลังขั้นต่ำ (PL)' : 'Min PL required'}
                         value={minPowerLevel}
                         onChange={(e) => {
                           const val = e.target.value;

@@ -19,11 +19,17 @@ function getRarityColor(rarity: ItemRarity): number {
  */
 export async function sendDiscordNotification(
   settings: DiscordSettings,
-  event: 'new_item' | 'distribute' | 'test',
+  event: 'new_item' | 'distribute' | 'test' | 'stat_request' | 'stat_approval',
   data?: {
     item?: VaultItem;
     distributeInfo?: DistributedInfo;
     actorName?: string;
+    memberName?: string;
+    memberClan?: string;
+    oldPowerLevel?: number;
+    newPowerLevel?: number;
+    screenshotUrl?: string;
+    statsSummary?: string;
   }
 ): Promise<{ success: boolean; message?: string }> {
   if (!settings.enabled || !settings.webhookUrl) {
@@ -88,8 +94,8 @@ export async function sendDiscordNotification(
               inline: true
             },
             {
-              name: '🛡️ พลังรบขั้นต่ำ (Min CP)',
-              value: `**${item.minPowerLevel.toLocaleString()} CP**`,
+              name: '🛡️ พลังรบขั้นต่ำ (Min PL)',
+              value: `**⚡ ${item.minPowerLevel.toLocaleString()} PL**`,
               inline: true
             },
             {
@@ -142,6 +148,79 @@ export async function sendDiscordNotification(
           ],
           footer: {
             text: `แจกจ่ายเมื่อ: ${new Date(dist.distributedAt).toLocaleString('th-TH')} • Lineage 2M Clan Hub`
+          },
+          timestamp: new Date().toISOString()
+        }
+      ]
+    };
+  } else if (event === 'stat_request') {
+    const prev = data?.oldPowerLevel || 0;
+    const next = data?.newPowerLevel || 0;
+    const diff = next - prev;
+
+    payload = {
+      username: settings.botName || 'Lineage 2M Clan Hub',
+      avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
+      embeds: [
+        {
+          title: `⚡ มีคำขออัปเดตสเตตัสและค่าพลังใหม่!`,
+          description: `สมาชิก **${data?.memberName}** แห่ง **${cleanClanName(data?.memberClan) || 'Alliance'}** ส่งคำขออัปเดตสเตตัสเพื่อคำนวณ Power Level ใหม่ แอดมินสามารถเปิดหน้าเว็บเพื่อตรวจสเตตัสได้ทันที`,
+          color: 0xf59e0b, // Amber
+          image: data?.screenshotUrl && !data.screenshotUrl.startsWith('data:') ? { url: data.screenshotUrl } : undefined,
+          fields: [
+            {
+              name: '👤 สมาชิก',
+              value: `**${data?.memberName}** (${cleanClanName(data?.memberClan) || 'VoltZ'})`,
+              inline: true
+            },
+            {
+              name: '⚡ พลังรบใหม่ (PL)',
+              value: `**${next.toLocaleString()} PL** (${diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString()})`,
+              inline: true
+            },
+            {
+              name: '📊 สถานะการตรวจ',
+              value: '⏳ รอแอดมินตรวจสอบและอนุมัติ',
+              inline: true
+            }
+          ],
+          footer: {
+            text: 'Lineage 2M Clan Hub • Stat Verification'
+          },
+          timestamp: new Date().toISOString()
+        }
+      ]
+    };
+  } else if (event === 'stat_approval') {
+    const next = data?.newPowerLevel || 0;
+
+    payload = {
+      username: settings.botName || 'Lineage 2M Clan Hub',
+      avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
+      embeds: [
+        {
+          title: `✅ อนุมัติการอัปเดตสเตตัสเรียบร้อย!`,
+          description: `ยินดีกับ **${data?.memberName}** สเตตัสได้รับการอนุมัติแล้ว และค่าพลังอย่างเป็นทางการถูกอัปเดตทั่วทั้งระบบ`,
+          color: 0x10b981, // Emerald
+          fields: [
+            {
+              name: '👤 สมาชิก',
+              value: `**${data?.memberName}** (${cleanClanName(data?.memberClan) || 'VoltZ'})`,
+              inline: true
+            },
+            {
+              name: '⚡ พลังรบอย่างเป็นทางการ',
+              value: `**${next.toLocaleString()} PL**`,
+              inline: true
+            },
+            {
+              name: '👑 ผู้ตรวจอนุมัติ',
+              value: data?.actorName || 'Admin/Owner',
+              inline: true
+            }
+          ],
+          footer: {
+            text: 'Lineage 2M Clan Hub • Stat Verification'
           },
           timestamp: new Date().toISOString()
         }

@@ -196,7 +196,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     <div
       ref={containerRef}
       id="image-viewer-backdrop"
-      className="fixed inset-0 z-50 flex flex-col items-center justify-between p-3 bg-black/92 backdrop-blur-md animate-in fade-in duration-200 select-none overflow-hidden"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-between p-3 bg-black/92 backdrop-blur-md animate-in fade-in duration-200 select-none overflow-hidden"
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
     >

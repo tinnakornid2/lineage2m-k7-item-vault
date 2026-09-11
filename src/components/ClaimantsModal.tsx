@@ -10,7 +10,7 @@ import {
   CheckCircle,
   ExternalLink
 } from 'lucide-react';
-import { Language, User, VaultItem, Claimant } from '../types';
+import { Language, User, VaultItem, Claimant, OFFICIAL_CLASSES } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -20,6 +20,7 @@ interface ClaimantsModalProps {
   item: VaultItem | null;
   lang: Language;
   currentUser: User | null;
+  allMembers?: User[];
   onUnclaim: (
     itemId: string,
     targetUserId?: string,
@@ -34,11 +35,23 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
   item,
   lang,
   currentUser,
+  allMembers = [],
   onUnclaim,
   onDistributeToClaimant
 }) => {
   const t = translations[lang];
   const [isProcessing, setIsProcessing] = React.useState(false);
+
+  const getClassMeta = (nameOrId?: string) => {
+    if (!nameOrId) return null;
+    const lower = nameOrId.toLowerCase().trim();
+    return OFFICIAL_CLASSES.find(
+      (c) =>
+        c.id.toLowerCase() === lower ||
+        c.nameEn.toLowerCase() === lower ||
+        c.nameTh.toLowerCase().includes(lower)
+    ) || null;
+  };
 
   if (!isOpen || !item) return null;
 
@@ -144,9 +157,9 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
               </span>
               <span>•</span>
               <span>
-                {lang === 'th' ? 'เกณฑ์พลังขั้นต่ำ:' : 'Min CP:'}{' '}
+                {lang === 'th' ? 'เกณฑ์พลังขั้นต่ำ:' : 'Min PL:'}{' '}
                 <strong className="text-slate-200 font-mono">
-                  {item.minPowerLevel.toLocaleString()} CP
+                  ⚡ {item.minPowerLevel.toLocaleString()} PL
                 </strong>
               </span>
               <span>•</span>
@@ -195,6 +208,7 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
                   <tr>
                     <th className="py-2.5 px-3 w-10 text-center">#</th>
                     <th className="py-2.5 px-3">{t.inGameName}</th>
+                    <th className="py-2.5 px-3">{lang === 'th' ? 'อาชีพ' : 'Class'}</th>
                     <th className="py-2.5 px-3">{t.clanName}</th>
                     <th className="py-2.5 px-3">{t.powerLevel}</th>
                     <th className="py-2.5 px-3">{lang === 'th' ? 'เวลาลงชื่อ' : 'Claimed At'}</th>
@@ -221,6 +235,15 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
                       }
                     );
 
+                    const matchedMember = allMembers.find(
+                      (m) =>
+                        (c.userId && m.id === c.userId) ||
+                        m.inGameName.toLowerCase() === c.inGameName.toLowerCase()
+                    );
+                    const cClasses = (matchedMember?.classes && matchedMember.classes.length > 0)
+                      ? matchedMember.classes
+                      : (matchedMember?.characterClass ? [matchedMember.characterClass] : (c.characterClass ? [c.characterClass] : []));
+
                     return (
                       <tr
                         key={c.userId + index}
@@ -243,13 +266,34 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
                             )}
                           </div>
                         </td>
+                        <td className="py-2.5 px-3">
+                          <div className="flex flex-wrap items-center gap-1">
+                            {cClasses.length > 0 ? (
+                              cClasses.map((clsName, cIdx) => {
+                                const meta = getClassMeta(clsName);
+                                return (
+                                  <span
+                                    key={cIdx}
+                                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-200 border border-slate-700/60"
+                                    title={meta?.nameTh || clsName}
+                                  >
+                                    {meta && <img src={meta.icon} alt={meta.nameEn} className="w-3.5 h-3.5 object-contain" />}
+                                    <span>{meta?.nameEn || clsName}</span>
+                                  </span>
+                                );
+                              })
+                            ) : (
+                              <span className="text-slate-500 text-[11px]">-</span>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-2.5 px-3 text-slate-400">
                           <span className="px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700/60 text-[11px]">
                             {c.clan}
                           </span>
                         </td>
                         <td className="py-2.5 px-3 font-mono font-bold text-amber-300">
-                          {(c.powerLevel || 0).toLocaleString()} CP
+                          ⚡ {(c.powerLevel || 0).toLocaleString()} PL
                         </td>
                         <td className="py-2.5 px-3 text-slate-400 text-[11px] font-mono whitespace-nowrap">
                           {dateStr}

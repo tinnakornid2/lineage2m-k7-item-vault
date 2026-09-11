@@ -34,6 +34,7 @@ interface NavbarProps {
   onToggleSound?: () => void;
   onOpenBgModal: () => void;
   onOpenRequestCp?: () => void;
+  onOpenMyStats?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -53,7 +54,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   setSoundEnabled,
   onToggleSound,
   onOpenBgModal,
-  onOpenRequestCp
+  onOpenRequestCp,
+  onOpenMyStats
 }) => {
   const t = translations[lang];
   const effectiveCurrentTab = currentTab || activeTab || 'dashboard';
@@ -92,7 +94,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'vault', label: t.tabVault, restricted: true },
     { id: 'queue', label: t.tabQueue, restricted: true },
     { id: 'all_members', label: t.tabMembers },
-    { id: 'clan', label: t.tabClans },
+    { id: 'my_stats', label: t.tabMyStats },
   ];
 
   const navItems = allNavItems.filter(
@@ -128,7 +130,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   CLAN HUB
                 </span>
                 <span className="text-[9px] sm:text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300">
-                  v1.4.0
+                  v1.5.0
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 truncate max-w-[190px] sm:max-w-none">
@@ -234,13 +236,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       onClick={() => {
                         sounds.playClick();
-                        onOpenRequestCp?.();
+                        if (onOpenMyStats) onOpenMyStats();
+                        else onOpenRequestCp?.();
                       }}
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 font-mono text-[10px] font-medium transition-all cursor-pointer group shadow-sm"
-                      title={lang === 'th' ? 'คลิกเพื่อขออัปเดตค่าพลัง' : 'Click to request CP update'}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 font-mono text-[11px] font-bold transition-all cursor-pointer group shadow-sm"
+                      title={lang === 'th' ? 'คลิกเพื่อเปิดหน้าสเตตัสของฉัน (My Stats)' : 'Click to open My Stats'}
                     >
                       <Zap className="w-3 h-3 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
-                      <span>{(currentUser.powerLevel || 0).toLocaleString()} CP</span>
+                      <span>⚡ {(currentUser.powerLevel || 0).toLocaleString()} PL</span>
                       {currentUser.pendingPowerLevel && currentUser.pendingPowerLevel > 0 && (
                         <span className="ml-1 px-1 py-0.2 rounded bg-amber-400/25 text-[#f5d77f] text-[9px] font-sans font-bold animate-pulse">
                           ⏳ {t.pendingBadge}
@@ -304,7 +307,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {item.id === 'vault' && <Sword className="w-3.5 h-3.5 text-amber-400" />}
                 {item.id === 'queue' && <Crown className="w-3.5 h-3.5 text-purple-400" />}
                 {item.id === 'all_members' && <UserCheck className="w-3.5 h-3.5 text-emerald-400" />}
-                {item.id === 'clan' && <Shield className="w-3.5 h-3.5 text-yellow-400" />}
                 <span>{item.label}</span>
                 {isActive && (
                   <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-[2px] bg-[#d4af37] rounded-full shadow-[0_0_8px_#d4af37]" />

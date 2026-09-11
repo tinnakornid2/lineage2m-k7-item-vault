@@ -20,7 +20,6 @@ interface AuthModalProps {
   onLogin: (user: UserType) => void;
   onRegister: (newUser: Partial<UserType>) => Promise<{ success: boolean; message?: string }>;
   users: UserType[];
-  characterClasses?: string[];
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -29,8 +28,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   lang,
   onLogin,
   onRegister,
-  users,
-  characterClasses,
+  users
 }) => {
   const t = translations[lang];
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -108,7 +106,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         inGameName: regInGameName.trim(),
         powerLevel: isNaN(parsedPowerLevel) ? 0 : parsedPowerLevel,
         clan: cleanClanName(regClan.trim()) || DEFAULT_CLAN,
-        characterClass: regClass,
+        characterClass: '',
+        classes: [],
         role: 'member',
         status: 'pending_approval',
       });
@@ -347,7 +346,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </label>
                 {regPowerLevel && !isNaN(parseInt(regPowerLevel.replace(/,/g, ''), 10)) && (
                   <span className="text-[11px] font-mono font-bold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30">
-                    ⚡ {parseInt(regPowerLevel.replace(/,/g, ''), 10).toLocaleString()} CP
+                    ⚡ {parseInt(regPowerLevel.replace(/,/g, ''), 10).toLocaleString()} PL
                   </span>
                 )}
               </div>
@@ -377,26 +376,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               />
             </div>
 
-            {/* 6. Character Class */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                6. {t.characterClass}
-              </label>
-              <select
-                id="select-reg-class"
-                value={regClass}
-                onChange={(e) => setRegClass(e.target.value as CharacterClass)}
-                className="w-full px-3 py-2 rounded-lg bg-[#0a0e17] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none cursor-pointer"
-              >
-                {(characterClasses && characterClasses.length > 0
-                  ? characterClasses
-                  : CHARACTER_CLASSES
-                ).map((cls) => (
-                  <option key={cls} value={cls}>
-                    {cls}
-                  </option>
-                ))}
-              </select>
+            {/* Note about Character Profile */}
+            <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-750 text-[11px] text-slate-400">
+              {lang === 'th'
+                ? '💡 อาชีพ (Multi-class), เลเวล และสถิติสเตตัส สามารถระบุและแก้ไขได้ในหน้า "สถิติของฉัน (My Stats)" หลังเข้าสู่ระบบ'
+                : '💡 Class, level, and stats can be specified in "My Stats" after logging in.'}
             </div>
 
             <button

@@ -13,9 +13,13 @@ import {
   Search,
   Crown,
   AlertCircle,
-  Sword
+  Sword,
+  ArrowRightLeft,
+  ArrowRight,
+  LayoutGrid,
+  List
 } from 'lucide-react';
-import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, cleanClanName } from '../types';
+import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, OFFICIAL_CLASSES, cleanClanName, ClanGroup } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -23,8 +27,9 @@ interface MembersViewProps {
   lang: Language;
   currentUser: User | null;
   allMembers: User[];
-  characterClasses?: string[];
-  onOpenClassModal?: () => void;
+  clans?: ClanGroup[];
+  selectedClanScope?: string;
+  onSelectClanScope?: (scope: string) => void;
   onOpenRequestCp?: () => void;
   onApproveMember: (userId: string) => Promise<void>;
   onRejectMember: (userId: string) => Promise<void>;
@@ -32,21 +37,26 @@ interface MembersViewProps {
   onRejectCpUpdate?: (userId: string) => Promise<void>;
   onUpdateMember: (userId: string, updates: Partial<User>) => Promise<void>;
   onDeleteMember: (userId: string) => Promise<void>;
+  onOpenBulkSwap?: () => void;
+  onOpenStatApproval?: () => void;
 }
 
 export const MembersView: React.FC<MembersViewProps> = ({
   lang,
   currentUser,
   allMembers,
-  characterClasses,
-  onOpenClassModal,
+  clans = [],
+  selectedClanScope = 'all',
+  onSelectClanScope,
   onOpenRequestCp,
   onApproveMember,
   onRejectMember,
   onApproveCpUpdate,
   onRejectCpUpdate,
   onUpdateMember,
-  onDeleteMember
+  onDeleteMember,
+  onOpenBulkSwap,
+  onOpenStatApproval
 }) => {
   const t = translations[lang];
   const isOwner = currentUser?.role === 'owner';
@@ -76,27 +86,59 @@ export const MembersView: React.FC<MembersViewProps> = ({
     return false;
   };
 
+  const classMap = new Map(OFFICIAL_CLASSES.map((c) => [c.nameEn.toLowerCase(), c]));
+
   // Edit form state
   const [editInGameName, setEditInGameName] = useState('');
   const [editPowerLevel, setEditPowerLevel] = useState<number>(0);
   const [editClan, setEditClan] = useState('');
   const [editClass, setEditClass] = useState<CharacterClass>('Orb');
+  const [editClasses, setEditClasses] = useState<string[]>([]);
+  const [editLevel, setEditLevel] = useState<number>(0);
+  const [editLegendClasses, setEditLegendClasses] = useState<number>(0);
+  const [editLegendAgathions, setEditLegendAgathions] = useState<number>(0);
   const [editRole, setEditRole] = useState<UserRole>('member');
   const [editPassword, setEditPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // View mode: Table vs 4-Column Grid
+  const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
+
+  // Clan Scope & Filter
+  const [internalClanFilter, setInternalClanFilter] = useState<string>('all');
+  const activeClanScope = (selectedClanScope && selectedClanScope !== 'all') ? selectedClanScope : internalClanFilter;
+
+  const handleClanFilterChange = (clan: string) => {
+    sounds.playClick();
+    setInternalClanFilter(clan);
+    if (onSelectClanScope) {
+      onSelectClanScope(clan);
+    }
+  };
 
   // Filter members by pending vs active
   const pendingMembers = allMembers.filter((m) => m.status === 'pending_approval');
   const pendingCpMembers = allMembers.filter(
     (m) => m.status === 'active' && Boolean(m.pendingPowerLevel && m.pendingPowerLevel > 0)
   );
-  const activeMembers = allMembers.filter(
-    (m) =>
-      m.status === 'active' &&
-      (m.inGameName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.clan.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.username.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const activeMembers = allMembers.filter((m) => {
+    if (m.status !== 'active') return false;
+    if (activeClanScope !== 'all') {
+      if (cleanClanName(m.clan).toLowerCase() !== cleanClanName(activeClanScope).toLowerCase()) {
+        return false;
+      }
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const inIgn = m.inGameName.toLowerCase().includes(q);
+      const inClan = m.clan.toLowerCase().includes(q);
+      const inUser = m.username.toLowerCase().includes(q);
+      const inClass = m.characterClass && m.characterClass.toLowerCase().includes(q);
+      const inClasses = m.classes && m.classes.some((c) => c.toLowerCase().includes(q));
+      if (!inIgn && !inClan && !inUser && !inClass && !inClasses) return false;
+    }
+    return true;
+  });
 
   // Group active members by clan, sorted by powerLevel descending
   const clansMap = activeMembers.reduce((acc, mem) => {
@@ -111,6 +153,37 @@ export const MembersView: React.FC<MembersViewProps> = ({
     clansMap[clan].sort((a, b) => (b.powerLevel || 0) - (a.powerLevel || 0));
   });
 
+  // Dynamically sort clans according to the clans prop sequence (which reflects custom Firestore order)
+  const orderedClanNames = clans.map((c) => cleanClanName(c.name).toLowerCase());
+  const OFFICIAL_CLAN_ORDER = ['voltz', 'levels', 'stronk', 'no-clan'];
+  const CLAN_COLOR_FALLBACK: Record<string, string> = {
+    voltz: '#22c55e',
+    levels: '#ef4444',
+    stronk: '#eab308',
+    'no-clan': '#3b82f6'
+  };
+
+  const sortedClanEntries: [string, User[]][] = (Object.entries(clansMap) as [string, User[]][]).sort(([clanA], [clanB]) => {
+    const nameA = cleanClanName(clanA).toLowerCase();
+    const nameB = cleanClanName(clanB).toLowerCase();
+
+    // 1. Primary sort: Follow custom order from clans prop
+    const idxA = orderedClanNames.indexOf(nameA);
+    const idxB = orderedClanNames.indexOf(nameB);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+
+    // 2. Secondary fallback: Official default 4-clan sequence
+    const fallbackA = OFFICIAL_CLAN_ORDER.indexOf(nameA);
+    const fallbackB = OFFICIAL_CLAN_ORDER.indexOf(nameB);
+    if (fallbackA !== -1 && fallbackB !== -1) return fallbackA - fallbackB;
+    if (fallbackA !== -1) return -1;
+    if (fallbackB !== -1) return 1;
+
+    return clanA.localeCompare(clanB);
+  });
+
   const handleOpenEdit = (user: User) => {
     sounds.playClick();
     setEditingUser(user);
@@ -118,6 +191,10 @@ export const MembersView: React.FC<MembersViewProps> = ({
     setEditPowerLevel(user.powerLevel || 0);
     setEditClan(cleanClanName(user.clan));
     setEditClass(user.characterClass);
+    setEditClasses(user.classes || (user.characterClass ? [user.characterClass] : []));
+    setEditLevel(user.level || 0);
+    setEditLegendClasses(user.legendClasses || 0);
+    setEditLegendAgathions(user.legendAgathions || 0);
     setEditRole(user.role);
     setEditPassword(user.password || '');
   };
@@ -129,13 +206,18 @@ export const MembersView: React.FC<MembersViewProps> = ({
     setIsSaving(true);
     try {
       sounds.playClaim();
+      const primaryClass = editClasses.length > 0 ? editClasses[0] : editClass;
       await onUpdateMember(editingUser.id, {
         inGameName: editInGameName.trim(),
         powerLevel: Number(editPowerLevel) || 0,
         pendingPowerLevel: null,
         pendingPowerLevelRequestedAt: null,
         clan: cleanClanName(editClan.trim()) || 'VoltZ',
-        characterClass: editClass,
+        classes: editClasses,
+        characterClass: primaryClass,
+        level: Number(editLevel) || 0,
+        legendClasses: Number(editLegendClasses) || 0,
+        legendAgathions: Number(editLegendAgathions) || 0,
         role: editRole,
         password: editPassword.trim() || editingUser.password
       });
@@ -161,20 +243,21 @@ export const MembersView: React.FC<MembersViewProps> = ({
           </p>
         </div>
 
-        {/* Search & Class Management */}
+        {/* Search & Bulk Actions */}
         <div className="flex items-center gap-2.5 w-full sm:w-auto">
-          {onOpenClassModal && isAdminOrOwner && (
+
+          {onOpenBulkSwap && isAdminOrOwner && (
             <button
               type="button"
               onClick={() => {
                 sounds.playClick();
-                onOpenClassModal();
+                onOpenBulkSwap();
               }}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#d4af37]/20 via-[#d4af37]/15 to-[#aa841c]/20 hover:from-[#d4af37]/30 hover:to-[#aa841c]/30 border border-[#d4af37]/50 text-[#f5d77f] hover:text-white text-xs font-semibold transition-all shadow-md cursor-pointer shrink-0"
-              title={lang === 'th' ? 'จัดการรายชื่ออาชีพ' : 'Manage Classes'}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-500/20 via-purple-500/15 to-indigo-500/20 hover:from-purple-500/30 hover:to-indigo-500/30 border border-purple-500/50 text-purple-300 hover:text-white text-xs font-semibold transition-all shadow-md cursor-pointer shrink-0"
+              title={lang === 'th' ? 'จัดสรรแคลนแบบกลุ่ม' : 'Bulk Swap Clans'}
             >
-              <Sword className="w-3.5 h-3.5 text-[#d4af37]" />
-              <span>{lang === 'th' ? 'จัดการอาชีพ' : 'Manage Classes'}</span>
+              <ArrowRightLeft className="w-3.5 h-3.5 text-purple-400" />
+              <span>{lang === 'th' ? 'จัดสรรแคลน (Bulk Swap)' : 'Bulk Swap'}</span>
             </button>
           )}
 
@@ -188,6 +271,100 @@ export const MembersView: React.FC<MembersViewProps> = ({
               className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#0e1422] border border-slate-700 text-xs text-slate-100 placeholder:text-slate-500 focus:border-[#d4af37] focus:outline-none"
             />
           </div>
+        </div>
+      </div>
+
+      {/* Clan Filter Tabs / Scope Switcher & Layout Mode Toggle */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar flex-1">
+          <button
+            type="button"
+            onClick={() => handleClanFilterChange('all')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+              activeClanScope === 'all'
+                ? 'bg-[#d4af37]/20 border border-[#d4af37] text-[#f5d77f] shadow-lg shadow-[#d4af37]/10'
+                : 'bg-[#0e1422] border border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <Shield className="w-3.5 h-3.5" />
+            <span>{lang === 'th' ? 'ทุกแคลน' : 'All Clans'}</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] font-mono font-bold text-slate-300">
+              {allMembers.filter((m) => m.status === 'active').length}
+            </span>
+          </button>
+
+          {clans.map((c) => {
+            const isSelected = cleanClanName(activeClanScope).toLowerCase() === cleanClanName(c.name).toLowerCase();
+            const memberCount = allMembers.filter(
+              (m) => m.status === 'active' && cleanClanName(m.clan).toLowerCase() === cleanClanName(c.name).toLowerCase()
+            ).length;
+            const cleanName = cleanClanName(c.name);
+            const badgeText = cleanName.length >= 2 ? cleanName.substring(0, 2).toUpperCase() : cleanName.toUpperCase();
+
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => handleClanFilterChange(cleanName)}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+                  isSelected
+                    ? 'bg-slate-800/90 border text-white shadow-lg'
+                    : 'bg-[#0e1422] border border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                }`}
+                style={{
+                  borderColor: isSelected ? (c.color || '#e2b714') : undefined,
+                  boxShadow: isSelected ? `0 0 15px ${c.color || '#e2b714'}30` : undefined
+                }}
+              >
+                <div
+                  className="w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center font-mono text-white shrink-0"
+                  style={{ backgroundColor: c.color || '#64748b' }}
+                >
+                  {badgeText}
+                </div>
+                <span className={isSelected ? 'text-white font-bold' : ''}>{cleanName}</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] font-mono font-bold text-slate-300">
+                  {memberCount}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* View Mode Toggle: Table vs 4-Column Grid */}
+        <div className="flex items-center gap-1 bg-[#090d16] p-1 rounded-xl border border-slate-800 shrink-0 self-end sm:self-auto">
+          <button
+            type="button"
+            onClick={() => {
+              sounds.playClick();
+              setViewMode('table');
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              viewMode === 'table'
+                ? 'bg-slate-800 text-[#f5d77f] shadow border border-slate-700'
+                : 'text-slate-400 hover:text-white'
+            }`}
+            title={lang === 'th' ? 'มุมมองตาราง' : 'Table View'}
+          >
+            <List className="w-3.5 h-3.5" />
+            <span>{lang === 'th' ? 'ตาราง' : 'Table'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              sounds.playClick();
+              setViewMode('grid');
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              viewMode === 'grid'
+                ? 'bg-slate-800 text-[#f5d77f] shadow border border-slate-700'
+                : 'text-slate-400 hover:text-white'
+            }`}
+            title={lang === 'th' ? 'เรียง 4 แคลน' : '4 Clans Grid'}
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span>{lang === 'th' ? 'เรียง 4 แคลน' : '4 Clans'}</span>
+          </button>
         </div>
       </div>
 
@@ -238,7 +415,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                       <div>
                         {t.powerLevel}:{' '}
                         <span className="text-amber-400 font-mono font-bold">
-                          {(member.powerLevel || 0).toLocaleString()} CP
+                          ⚡ {(member.powerLevel || 0).toLocaleString()} PL
                         </span>
                       </div>
                     </div>
@@ -273,111 +450,171 @@ export const MembersView: React.FC<MembersViewProps> = ({
         </div>
       )}
 
-      {/* 2. PENDING CP UPDATE REQUESTS (คำขออัปเดตค่าพลังรออนุมัติ) */}
-      {isAdminOrOwner && (
-        <div className="p-5 rounded-2xl bg-gradient-to-b from-[#191526] to-[#100d1a] border border-amber-500/40 shadow-xl space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold font-cinzel text-amber-300 flex items-center gap-2">
-              <Zap className="w-4 h-4 text-amber-400" />
-              <span>{t.pendingCpRequests} ({pendingCpMembers.length})</span>
-            </h2>
-            <span className="text-[11px] text-slate-400">
-              {lang === 'th' ? 'ตรวจสอบและกดยืนยันเพื่ออัปเดตค่าพลังใหม่ของสมาชิก' : 'Review & confirm to apply member CP updates'}
-            </span>
+      {/* 2. PENDING STAT UPDATE BANNER NOTICE */}
+      {isAdminOrOwner && pendingCpMembers.length > 0 && (
+        <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/40 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+              <Zap className="size-4" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-amber-300 flex items-center gap-2">
+                <span>{lang === 'th' ? 'มีคำขออัปเดตสเตตัสรอการตรวจสอบ' : 'Pending Stat Update Requests'}</span>
+                <span className="px-2 py-0.2 rounded-full bg-amber-500 text-slate-950 font-black text-[10px]">
+                  {pendingCpMembers.length}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-400">
+                {lang === 'th'
+                  ? 'ตรวจสอบความถูกต้องของสเตตัส คลาส และภาพสกรีนช็อตได้ที่หน้าตรวจคำขอสเตตัส'
+                  : 'Verify member stats, classes, and screenshots in the Stat Approvals page'}
+              </div>
+            </div>
           </div>
-
-          {pendingCpMembers.length === 0 ? (
-            <div className="p-3 text-center text-xs text-slate-500 bg-[#0c0915] rounded-lg border border-slate-800">
-              {t.noPendingCpRequests}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {pendingCpMembers.map((member) => {
-                const cur = member.powerLevel || 0;
-                const req = member.pendingPowerLevel || 0;
-                const diff = req - cur;
-                return (
-                  <div
-                    key={member.id}
-                    className="p-3.5 rounded-xl bg-[#090710] border border-amber-500/30 flex flex-col justify-between gap-3 shadow-md"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-100">
-                          {member.inGameName}
-                        </span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
-                          {cleanClanName(member.clan)}
-                        </span>
-                      </div>
-
-                      <div className="text-[11px] text-slate-400 mt-2 space-y-1">
-                        <div>
-                          {t.characterClass}: <span className="text-slate-200">{member.characterClass}</span>
-                        </div>
-                        <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
-                          <div>
-                            <span className="text-slate-400">{t.currentCp}:</span>{' '}
-                            <span className="text-slate-300 font-mono">{cur.toLocaleString()} CP</span>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-slate-400">{t.newRequestedCp}:</span>{' '}
-                            <span className="text-[#f5d77f] font-mono font-bold">{req.toLocaleString()} CP</span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-1">
-                          <span className="text-[10px] text-slate-500">
-                            {member.pendingPowerLevelRequestedAt ? new Date(member.pendingPowerLevelRequestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                          </span>
-                          <span className={`text-[11px] font-mono font-bold px-1.5 py-0.2 rounded border ${
-                            diff >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
-                          }`}>
-                            {diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString()} CP
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 pt-2 border-t border-slate-800/80">
-                      <button
-                        onClick={() => {
-                          sounds.playClaim();
-                          onApproveCpUpdate?.(member.id);
-                        }}
-                        className="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-1 shadow cursor-pointer"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>{t.approveCp}</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          sounds.playClick();
-                          onRejectCpUpdate?.(member.id);
-                        }}
-                        className="p-1.5 rounded-lg bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 transition-all cursor-pointer"
-                        title={t.rejectCp}
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          {onOpenStatApproval && (
+            <button
+              onClick={() => {
+                sounds.playClick();
+                onOpenStatApproval();
+              }}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs transition shadow flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <span>{lang === 'th' ? 'ไปที่หน้าตรวจคำขอสเตตัส' : 'Go to Stat Approvals'}</span>
+              <ArrowRight className="size-3.5" />
+            </button>
           )}
         </div>
       )}
 
-      {/* 3. ALL ACTIVE MEMBERS GROUPED BY CLAN & SORTED BY POWER LEVEL */}
+      {/* 3. ALL ACTIVE MEMBERS GROUPED BY CLAN (SORTED BY OFFICIAL 4-CLAN SEQUENCE & POWER LEVEL) */}
       <div className="space-y-6">
-        {Object.keys(clansMap).length === 0 ? (
+        {sortedClanEntries.length === 0 ? (
           <div className="p-10 text-center rounded-xl bg-[#0c121e] border border-slate-800 text-xs text-slate-500">
             {lang === 'th' ? 'ไม่พบข้อมูลสมาชิกตามที่ค้นหา' : 'No members found'}
           </div>
+        ) : viewMode === 'grid' ? (
+          /* 4-COLUMN RESPONSIVE GRID VIEW */
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5">
+            {sortedClanEntries.map(([clanName, members]) => {
+              const cleanName = cleanClanName(clanName);
+              const registeredClan = clans.find((c) => cleanClanName(c.name) === cleanName);
+              const clanColor = registeredClan?.color || CLAN_COLOR_FALLBACK[cleanName.toLowerCase()] || '#64748b';
+              const clanInitial = cleanName.length >= 2 ? cleanName.substring(0, 2).toUpperCase() : cleanName.toUpperCase();
+              const clanPower = members.reduce((sum, m) => sum + (m.powerLevel || 0), 0);
+              const avgPower = members.length ? Math.round(clanPower / members.length) : 0;
+
+              return (
+                <div
+                  key={clanName}
+                  className="rounded-2xl bg-gradient-to-b from-[#111726] to-[#0a0f19] border border-slate-800 shadow-xl flex flex-col justify-between overflow-hidden"
+                >
+                  {/* Clan Header */}
+                  <div className="p-3.5 bg-[#0d1422] border-b border-slate-800 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white font-mono text-xs shrink-0 shadow-md border border-white/10"
+                        style={{ backgroundColor: clanColor }}
+                      >
+                        {clanInitial}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-bold font-cinzel text-slate-100 truncate">
+                          {cleanName}
+                        </h3>
+                        <div className="text-[10px] text-slate-400 flex items-center gap-1.5 truncate">
+                          <span>{members.length} {lang === 'th' ? 'คน' : 'members'}</span>
+                          <span>•</span>
+                          <span className="text-amber-400 font-mono font-bold">
+                            ⚡ {clanPower.toLocaleString()} PL
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Member list in this clan */}
+                  <div className="p-3 flex-1 space-y-2 min-h-[160px] max-h-[620px] overflow-y-auto">
+                    {members.map((mem, idx) => {
+                      const primaryClass = (mem.classes && mem.classes.length > 0) ? mem.classes[0] : (mem.characterClass || '');
+                      const meta = primaryClass ? classMap.get(primaryClass.toLowerCase()) : undefined;
+
+                      return (
+                        <div
+                          key={mem.id}
+                          className="p-2.5 rounded-xl border bg-[#0a0f19] border-slate-800 hover:border-slate-700 text-slate-200 transition-all flex items-center justify-between gap-2"
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span className="text-[10px] font-mono font-bold text-slate-500 w-4 shrink-0">
+                              #{idx + 1}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-bold text-slate-100 truncate flex items-center gap-1.5">
+                                <span className="truncate">{mem.inGameName}</span>
+                                {Boolean(mem.level && mem.level > 0) && (
+                                  <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono shrink-0">
+                                    Lv.{mem.level}
+                                  </span>
+                                )}
+                                {mem.role === 'owner' && (
+                                  <Crown className="w-3 h-3 text-amber-400 shrink-0" />
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate">
+                                {primaryClass && (
+                                  <span className="inline-flex items-center gap-1 text-purple-300 font-medium truncate">
+                                    {meta?.icon && (
+                                      <img
+                                        src={meta.icon}
+                                        alt={primaryClass}
+                                        className="size-3 object-contain shrink-0"
+                                        onError={(e) => {
+                                          (e.target as HTMLElement).style.display = 'none';
+                                        }}
+                                      />
+                                    )}
+                                    <span className="truncate">{primaryClass}</span>
+                                  </span>
+                                )}
+                                {primaryClass && <span>•</span>}
+                                <span className="text-amber-400 font-mono font-semibold shrink-0">
+                                  ⚡ {(mem.powerLevel || 0).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {isAdminOrOwner && (
+                            <button
+                              onClick={() => handleOpenEdit(mem)}
+                              className="p-1 rounded text-slate-500 hover:text-amber-300 hover:bg-slate-800 transition-all shrink-0 cursor-pointer"
+                              title={t.edit}
+                            >
+                              <Edit className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Footer info */}
+                  <div className="p-2.5 bg-[#090d16] border-t border-slate-800/80 text-[10px] text-slate-400 flex items-center justify-between">
+                    <span>{t.avgPower}: ⚡ {avgPower.toLocaleString()} PL</span>
+                    <span className="text-slate-500 font-mono">{members.length} {lang === 'th' ? 'คน' : 'members'}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
-          Object.entries(clansMap).map(([clanName, members]: [string, User[]]) => {
+          /* DETAILED TABLE VIEW (SORTED BY 4 OFFICIAL CLANS) */
+          sortedClanEntries.map(([clanName, members]: [string, User[]]) => {
+            const cleanName = cleanClanName(clanName);
+            const registeredClan = clans.find((c) => cleanClanName(c.name) === cleanName);
+            const clanColor = registeredClan?.color || CLAN_COLOR_FALLBACK[cleanName.toLowerCase()] || '#64748b';
+            const clanInitial = cleanName.length >= 2 ? cleanName.substring(0, 2).toUpperCase() : cleanName.toUpperCase();
             const clanPower = members.reduce((sum, m) => sum + (m.powerLevel || 0), 0);
+
             return (
               <div
                 key={clanName}
@@ -386,16 +623,19 @@ export const MembersView: React.FC<MembersViewProps> = ({
                 {/* Clan Header Strip */}
                 <div className="p-4 bg-[#0e1422] border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[#f5d77f]">
-                      <Shield className="w-5 h-5" />
+                    <div
+                      className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white font-mono text-xs shrink-0 shadow-md border border-white/10"
+                      style={{ backgroundColor: clanColor }}
+                    >
+                      {clanInitial}
                     </div>
                     <div>
                       <h3 className="text-base font-bold text-slate-100 font-cinzel">
-                        {cleanClanName(clanName)}
+                        {cleanName}
                       </h3>
                       <p className="text-xs text-slate-400">
                         {members.length} {lang === 'th' ? 'คน' : 'members'} •{' '}
-                        {t.totalPower}: <span className="font-mono text-amber-400 font-bold">{clanPower.toLocaleString()} CP</span>
+                        {t.totalPower}: <span className="font-mono text-amber-400 font-bold">⚡ {clanPower.toLocaleString()} PL</span>
                       </p>
                     </div>
                   </div>
@@ -410,7 +650,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                         <th className="py-2.5 px-4">{t.inGameName}</th>
                         <th className="py-2.5 px-4">{t.username}</th>
                         <th className="py-2.5 px-4">{t.characterClass}</th>
-                        <th className="py-2.5 px-4">{t.powerLevel}</th>
+                        <th className="py-2.5 px-4">{t.powerLevel} (PL)</th>
                         <th className="py-2.5 px-4">Role</th>
                         {isAdminOrOwner && (
                           <th className="py-2.5 px-4 text-right">{t.actions}</th>
@@ -418,97 +658,123 @@ export const MembersView: React.FC<MembersViewProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/40">
-                      {members.map((mem, idx) => (
-                        <tr key={mem.id} className="hover:bg-[#121c2e]/50 transition-colors">
-                          <td className="py-2.5 px-4 text-center font-mono font-bold text-slate-400">
-                            #{idx + 1}
-                          </td>
-                          <td className="py-2.5 px-4 font-bold text-slate-100 flex items-center gap-2">
-                            <span>{mem.inGameName}</span>
-                            {mem.role === 'owner' && (
-                              <Crown className="w-3.5 h-3.5 text-amber-400" />
-                            )}
-                          </td>
-                          <td className="py-2.5 px-4 text-slate-400 font-mono">
-                            {mem.username}
-                          </td>
-                          <td className="py-2.5 px-4 text-slate-300">
-                            {mem.characterClass}
-                          </td>
-                          <td className="py-2.5 px-4 font-mono">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-amber-300">{(mem.powerLevel || 0).toLocaleString()} CP</span>
-                              {mem.id === currentUser?.id && onOpenRequestCp && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    sounds.playClick();
-                                    onOpenRequestCp();
-                                  }}
-                                  className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 hover:text-white text-[10px] font-sans font-medium transition-all cursor-pointer flex items-center gap-1 shadow-sm"
-                                  title={t.requestCpUpdate}
-                                >
-                                  <Zap className="w-2.5 h-2.5 text-amber-400" />
-                                  <span>{t.requestCpUpdate}</span>
-                                </button>
+                      {members.map((mem, idx) => {
+                        const primaryClass = (mem.classes && mem.classes.length > 0) ? mem.classes[0] : (mem.characterClass || '');
+                        const meta = primaryClass ? classMap.get(primaryClass.toLowerCase()) : undefined;
+
+                        return (
+                          <tr key={mem.id} className="hover:bg-[#121c2e]/50 transition-colors">
+                            <td className="py-2.5 px-4 text-center font-mono font-bold text-slate-400">
+                              #{idx + 1}
+                            </td>
+                            <td className="py-2.5 px-4 font-bold text-slate-100 flex items-center gap-2">
+                              <span>{mem.inGameName}</span>
+                              {Boolean(mem.level && mem.level > 0) && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
+                                  Lv.{mem.level}
+                                </span>
                               )}
-                            </div>
-                            {mem.pendingPowerLevel && mem.pendingPowerLevel > 0 && (
-                              <div className="text-[10px] text-[#f5d77f] font-sans font-medium flex items-center gap-1 mt-0.5 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.2 rounded w-fit">
-                                <span className="animate-pulse">⏳</span> {t.cpPendingBadge}: {mem.pendingPowerLevel.toLocaleString()} CP
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-4">
-                            <span
-                              className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${
-                                mem.role === 'owner'
-                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                  : mem.role === 'admin'
-                                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
-                                  : mem.role === 'manager'
-                                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
-                                  : 'bg-slate-800 text-slate-300 border-slate-700'
-                              }`}
-                            >
-                              {mem.role === 'manager'
-                                ? t.roleManager
-                                : mem.role === 'admin'
-                                ? t.roleAdmin
-                                : mem.role === 'owner'
-                                ? t.roleOwner
-                                : t.roleMember}
-                            </span>
-                          </td>
-                          {isAdminOrOwner && (
-                            <td className="py-2.5 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  id={`btn-edit-member-${mem.id}`}
-                                  onClick={() => handleOpenEdit(mem)}
-                                  className="p-1.5 rounded-lg bg-[#162235] hover:bg-[#1f314d] text-[#f5d77f] border border-slate-700 transition-all cursor-pointer"
-                                  title={t.editProfile}
-                                >
-                                  <Edit className="w-3.5 h-3.5" />
-                                </button>
-                                {canDeleteMember(mem) && (
+                              {mem.role === 'owner' && (
+                                <Crown className="w-3.5 h-3.5 text-amber-400" />
+                              )}
+                            </td>
+                            <td className="py-2.5 px-4 text-slate-400 font-mono">
+                              {mem.username}
+                            </td>
+                            <td className="py-2.5 px-4 text-slate-300">
+                              {primaryClass ? (
+                                <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-200 border border-purple-500/30 shadow-sm">
+                                  {meta?.icon && (
+                                    <img
+                                      src={meta.icon}
+                                      alt={primaryClass}
+                                      className="size-3.5 object-contain shrink-0"
+                                      onError={(e) => {
+                                        (e.target as HTMLElement).style.display = 'none';
+                                      }}
+                                    />
+                                  )}
+                                  <span>{primaryClass}</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 text-[11px]">-</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-4 font-mono">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-amber-300">⚡ {(mem.powerLevel || 0).toLocaleString()} PL</span>
+                                {mem.id === currentUser?.id && onOpenRequestCp && (
                                   <button
-                                    id={`btn-delete-member-${mem.id}`}
+                                    type="button"
                                     onClick={() => {
                                       sounds.playClick();
-                                      setMemberToDelete(mem);
+                                      onOpenRequestCp();
                                     }}
-                                    className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 hover:border-red-600 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
-                                    title={t.deleteMember}
+                                    className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 hover:text-white text-[10px] font-sans font-medium transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                                    title={t.requestCpUpdate}
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <Zap className="w-2.5 h-2.5 text-amber-400" />
+                                    <span>{t.requestCpUpdate}</span>
                                   </button>
                                 )}
                               </div>
+                              {mem.pendingPowerLevel && mem.pendingPowerLevel > 0 && (
+                                <div className="text-[10px] text-[#f5d77f] font-sans font-medium flex items-center gap-1 mt-0.5 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.2 rounded w-fit">
+                                  <span className="animate-pulse">⏳</span> {t.cpPendingBadge}: ⚡ {mem.pendingPowerLevel.toLocaleString()} PL
+                                </div>
+                              )}
                             </td>
-                          )}
-                        </tr>
-                      ))}
+                            <td className="py-2.5 px-4">
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${
+                                  mem.role === 'owner'
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                    : mem.role === 'admin'
+                                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                                    : mem.role === 'manager'
+                                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                                    : 'bg-slate-800 text-slate-300 border-slate-700'
+                                }`}
+                              >
+                                {mem.role === 'manager'
+                                  ? t.roleManager
+                                  : mem.role === 'admin'
+                                  ? t.roleAdmin
+                                  : mem.role === 'owner'
+                                  ? t.roleOwner
+                                  : t.roleMember}
+                              </span>
+                            </td>
+                            {isAdminOrOwner && (
+                              <td className="py-2.5 px-4 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    id={`btn-edit-member-${mem.id}`}
+                                    onClick={() => handleOpenEdit(mem)}
+                                    className="p-1.5 rounded-lg bg-[#162235] hover:bg-[#1f314d] text-[#f5d77f] border border-slate-700 transition-all cursor-pointer"
+                                    title={t.editProfile}
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+                                  {canDeleteMember(mem) && (
+                                    <button
+                                      id={`btn-delete-member-${mem.id}`}
+                                      onClick={() => {
+                                        sounds.playClick();
+                                        setMemberToDelete(mem);
+                                      }}
+                                      className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 hover:border-red-600 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                                      title={t.deleteMember}
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -578,25 +844,92 @@ export const MembersView: React.FC<MembersViewProps> = ({
                 />
               </div>
 
-              {/* Character Class */}
+              {/* Character Profile: Classes (multi) */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {t.changeClass}
+                  {lang === 'th' ? 'อาชีพของตัวละคร (Class multi):' : 'Character Classes (Class multi):'}
                 </label>
-                <select
-                  value={editClass}
-                  onChange={(e) => setEditClass(e.target.value as CharacterClass)}
-                  className="w-full px-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none"
-                >
-                  {(characterClasses && characterClasses.length > 0
-                    ? characterClasses
-                    : CHARACTER_CLASSES
-                  ).map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
+                <div className="p-2 rounded-lg bg-[#090d16] border border-slate-700 max-h-40 overflow-y-auto space-y-1">
+                  {OFFICIAL_CLASSES.map((cls) => {
+                    const isChecked = editClasses.includes(cls.nameEn);
+                    return (
+                      <label
+                        key={cls.id}
+                        className={`cursor-pointer flex items-center gap-2 px-2 py-1 rounded border text-xs transition ${
+                          isChecked
+                            ? 'border-purple-500 bg-purple-950/40 text-white'
+                            : 'border-slate-800 bg-slate-900/30 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setEditClasses([...editClasses, cls.nameEn]);
+                            } else {
+                              setEditClasses(editClasses.filter((c) => c !== cls.nameEn));
+                            }
+                          }}
+                          className="size-3.5 rounded accent-purple-500 cursor-pointer"
+                        />
+                        <img
+                          src={cls.icon}
+                          alt={cls.nameEn}
+                          className="size-4 object-contain shrink-0"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                        <span>{cls.nameEn}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Level, Legend Classes, Legend Agathions Grid */}
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Level
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="99"
+                    value={editLevel === 0 ? '' : editLevel}
+                    onChange={(e) => setEditLevel(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    placeholder="0"
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-center text-slate-100 focus:border-[#d4af37] focus:outline-none font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1 truncate" title="Legend Classes">
+                    Legend Class
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editLegendClasses === 0 ? '' : editLegendClasses}
+                    onChange={(e) => setEditLegendClasses(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    placeholder="0"
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-center text-slate-100 focus:border-[#d4af37] focus:outline-none font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1 truncate" title="Legend Agathions">
+                    Legend Agath.
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editLegendAgathions === 0 ? '' : editLegendAgathions}
+                    onChange={(e) => setEditLegendAgathions(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    placeholder="0"
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-center text-slate-100 focus:border-[#d4af37] focus:outline-none font-bold"
+                  />
+                </div>
               </div>
 
               {/* Role (Owner can set role) */}

@@ -232,7 +232,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
                       {lang === 'th' ? 'เมื่อมีไอเทมบอสใหม่เข้าคลัง' : 'When new boss item is registered'}
                     </div>
                     <div className="text-[10px] text-slate-400">
-                      {lang === 'th' ? 'ส่งการ์ดรูปภาพไอเทม ราคาเพชร และเกณฑ์พลังให้สมาชิกลงชื่อเครม' : 'Post embed with price, CP requirement and claim alert'}
+                      {lang === 'th' ? 'ส่งการ์ดรูปภาพไอเทม ราคาเพชร และเกณฑ์พลังให้สมาชิกลงชื่อเครม' : 'Post embed with price, PL requirement and claim alert'}
                     </div>
                   </div>
                 </div>

@@ -53,7 +53,7 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
     setSuccessMessage('');
 
     if (!hasValidNewPower) {
-      setErrorMessage(lang === 'th' ? 'กรุณากรอกค่าพลังที่ถูกต้องและมากกว่า 0' : 'Please enter a valid CP greater than 0');
+      setErrorMessage(lang === 'th' ? 'กรุณากรอกค่าพลังที่ถูกต้องและมากกว่า 0' : 'Please enter a valid PL greater than 0');
       return;
     }
 
@@ -61,7 +61,7 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
       setErrorMessage(
         lang === 'th'
           ? 'ค่าพลังใหม่ตรงกับค่าพลังปัจจุบัน กรุณากรอกค่าที่เปลี่ยนแปลง'
-          : 'New CP is the same as your current CP'
+          : 'New PL is the same as your current PL'
       );
       return;
     }
@@ -156,7 +156,7 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
                   <div className="mt-1 text-[11px] text-amber-200/80">
                     {lang === 'th' ? 'คำขอที่ส่งไปล่าสุด:' : 'Requested value:'}{' '}
                     <span className="font-mono font-bold text-[#f5d77f]">
-                      {currentUser.pendingPowerLevel.toLocaleString()} CP
+                      ⚡ {currentUser.pendingPowerLevel.toLocaleString()} PL
                     </span>
                   </div>
                 </div>
@@ -187,7 +187,7 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
             <div className="flex items-center gap-1.5">
               <span className="text-slate-400">{t.currentCp}:</span>
               <span className="font-mono font-bold text-amber-400">
-                {currentPower.toLocaleString()} CP
+                ⚡ {currentPower.toLocaleString()} PL
               </span>
             </div>
           </div>
@@ -200,7 +200,7 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
               <span>{t.newRequestedCp} <span className="text-amber-400">*</span></span>
               {hasValidNewPower && (
                 <span className="font-mono text-xs font-bold text-[#f5d77f]">
-                  ⚡ {parsedNewPower.toLocaleString()} CP
+                  ⚡ {parsedNewPower.toLocaleString()} PL
                 </span>
               )}
             </label>
@@ -224,9 +224,9 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
           {hasValidNewPower && diff !== 0 && (
             <div className="p-3.5 rounded-xl bg-[#0b1220] border border-slate-800 flex items-center justify-between text-xs animate-in fade-in">
               <div className="flex items-center gap-2">
-                <span className="text-slate-400 font-mono">{currentPower.toLocaleString()} CP</span>
+                <span className="text-slate-400 font-mono">{currentPower.toLocaleString()} PL</span>
                 <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
-                <span className="text-slate-100 font-mono font-bold">{parsedNewPower.toLocaleString()} CP</span>
+                <span className="text-slate-100 font-mono font-bold">{parsedNewPower.toLocaleString()} PL</span>
               </div>
 
               <div className="flex items-center gap-1.5">
@@ -234,12 +234,12 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
                 {diff > 0 ? (
                   <span className="flex items-center gap-1 font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
                     <TrendingUp className="w-3.5 h-3.5" />
-                    +{diff.toLocaleString()} CP
+                    +{diff.toLocaleString()} PL
                   </span>
                 ) : (
                   <span className="flex items-center gap-1 font-mono font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/30">
                     <TrendingDown className="w-3.5 h-3.5" />
-                    {diff.toLocaleString()} CP
+                    {diff.toLocaleString()} PL
                   </span>
                 )}
               </div>

@@ -14,7 +14,9 @@ import {
   VaultItem,
   Claimant,
   AnnouncementSettings,
-  DiscordSettings
+  DiscordSettings,
+  ClanFundTxType,
+  cleanClanName
 } from './types';
 import { translations } from './translations';
 import { sounds } from './utils/sound';
@@ -42,15 +44,14 @@ import {
   updateQuickItemDoc,
   deleteQuickItemDoc,
   addClanDoc,
+  updateClanDoc,
   deleteClanDoc,
   updateUserDoc,
   deleteUserDoc,
   addDiamondTransactionDoc,
+  updateDiamondTransactionNoteDoc,
   registerUserDoc,
   loginUserQuery,
-  listenToCharacterClasses,
-  saveCharacterClassesDoc,
-  DEFAULT_CHARACTER_CLASSES,
   INITIAL_QUICK_ITEMS,
   INITIAL_CLANS
 } from './services/firebase';
@@ -58,7 +59,6 @@ import {
 import { Sidebar } from './components/Sidebar';
 import { AnnouncementBar } from './components/AnnouncementBar';
 import { DiscordWebhookModal } from './components/DiscordWebhookModal';
-import { ClassSettingsModal } from './components/ClassSettingsModal';
 import { LoginScreen } from './components/LoginScreen';
 import { AuthModal } from './components/AuthModal';
 import { DiamondVaultModal } from './components/DiamondVaultModal';
@@ -74,12 +74,16 @@ import {
   BackgroundConfig,
   DEFAULT_BG_CONFIG
 } from './components/BackgroundSettingsModal';
+import { PowerFormulaSettingsModal } from './components/PowerFormulaSettingsModal';
+import { BulkSwapClanModal } from './components/BulkSwapClanModal';
 
 import { DashboardView } from './components/DashboardView';
 import { VaultView } from './components/VaultView';
 import { QueueView } from './components/QueueView';
 import { MembersView } from './components/MembersView';
 import { ClanView } from './components/ClanView';
+import { MyStatsView } from './components/MyStatsView';
+import { StatApprovalView } from './components/StatApprovalView';
 
 export const App: React.FC = () => {
   // 1. App-wide Language & Sound
@@ -134,10 +138,8 @@ export const App: React.FC = () => {
   const [showQuickItemsModal, setShowQuickItemsModal] = useState(false);
   const [showOwnerResetModal, setShowOwnerResetModal] = useState(false);
   const [showDiscordModal, setShowDiscordModal] = useState(false);
-  const [showClassModal, setShowClassModal] = useState(false);
   const [showRequestCpModal, setShowRequestCpModal] = useState(false);
   const [showGeminiModal, setShowGeminiModal] = useState(false);
-  const [characterClasses, setCharacterClasses] = useState<string[]>(DEFAULT_CHARACTER_CLASSES);
   const [announcementSettings, setAnnouncementSettings] = useState<AnnouncementSettings | null>(null);
   const [discordSettings, setDiscordSettings] = useState<DiscordSettings | null>(null);
   const [distributeTargetItem, setDistributeTargetItem] = useState<VaultItem | null>(null);
@@ -150,13 +152,20 @@ export const App: React.FC = () => {
     currentIndex?: number;
   } | null>(null);
 
+  // 5c. Kain7 Power Formula & Bulk Swap Modals State
+  const [isPowerFormulaOpen, setIsPowerFormulaOpen] = useState(false);
+  const [isMyStatsOpen, setIsMyStatsOpen] = useState(false);
+  const [isStatApprovalOpen, setIsStatApprovalOpen] = useState(false);
+  const [isBulkSwapOpen, setIsBulkSwapOpen] = useState(false);
+  const [selectedClanScope, setSelectedClanScope] = useState<string>('all');
+
   // 5b. In-App Toast Feedback State
   const [toast, setToast] = useState<{
     message: string;
-    type: 'info' | 'error' | 'success';
+    type: 'info' | 'error' | 'success' | 'warning';
   } | null>(null);
 
-  const showToast = (message: string, type: 'info' | 'error' | 'success' = 'info') => {
+  const showToast = (message: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
     setToast({ message, type });
   };
 
@@ -174,7 +183,7 @@ export const App: React.FC = () => {
     currentUser?.role === 'manager';
 
   useEffect(() => {
-    if (!canAccessAdminFeatures && (activeTab === 'vault' || activeTab === 'clan')) {
+    if (!canAccessAdminFeatures && activeTab === 'vault') {
       setActiveTab('dashboard');
     }
   }, [canAccessAdminFeatures, activeTab]);
@@ -238,11 +247,6 @@ export const App: React.FC = () => {
     const unsubDiscord = listenToDiscordSettings((settings) => {
       if (settings) setDiscordSettings(settings);
     });
-    const unsubClasses = listenToCharacterClasses((classList) => {
-      if (classList && classList.length > 0) {
-        setCharacterClasses(classList);
-      }
-    });
 
     return () => {
       unsubUsers();
@@ -254,14 +258,20 @@ export const App: React.FC = () => {
       unsubBg();
       unsubAnnouncement();
       unsubDiscord();
-      unsubClasses();
     };
   }, []);
 
-  // Calculate Diamond Vault Balance (Memoized)
+  // Calculate Diamond Vault / Clan Fund Balance (Memoized)
   const vaultBalance = useMemo(() => {
     return diamondLogs.reduce((acc, log) => {
-      return log.type === 'deposit' ? acc + log.amount : acc - log.amount;
+      if (log.type === 'credit' || log.type === 'deposit') {
+        return acc + (log.netAmount ?? log.amount);
+      } else if (log.type === 'deduction' || log.type === 'expenditure' || log.type === 'withdraw') {
+        return acc - Math.abs(log.amount);
+      } else if (log.type === 'adjust') {
+        return acc + log.amount; // delta can be positive or negative
+      }
+      return acc + log.amount;
     }, 150000); // 150,000 initial starting seed balance
   }, [diamondLogs]);
 
@@ -329,19 +339,49 @@ export const App: React.FC = () => {
     localStorage.removeItem('k7_logged_user');
   };
 
-  // Diamond Vault Transaction (Deposit / Withdraw)
-  const handleVaultTransaction = async (type: 'deposit' | 'withdraw', amount: number, note: string) => {
+  // Diamond Vault / Clan Fund Transaction
+  const handleVaultTransaction = async (
+    type: ClanFundTxType,
+    amount: number,
+    note: string,
+    details?: {
+      grossAmount?: number;
+      taxPct?: number;
+      taxAmount?: number;
+      netAmount?: number;
+      clanScope?: string;
+      recipientUserId?: string;
+      recipientName?: string;
+      recipientClan?: string;
+      proofImageUrl?: string;
+      balanceAfter?: number;
+    }
+  ) => {
     if (!currentUser) return;
     await addDiamondTransactionDoc({
       type,
       amount,
       note,
+      grossAmount: details?.grossAmount,
+      taxPct: details?.taxPct,
+      taxAmount: details?.taxAmount,
+      netAmount: details?.netAmount,
+      clanScope: details?.clanScope || 'all',
+      recipientUserId: details?.recipientUserId,
+      recipientName: details?.recipientName,
+      recipientClan: details?.recipientClan,
+      proofImageUrl: details?.proofImageUrl,
+      balanceAfter: details?.balanceAfter,
       performedBy: {
         userId: currentUser.id,
         name: currentUser.inGameName,
         role: currentUser.role
       }
     });
+  };
+
+  const handleUpdateVaultNote = async (recordId: string, newNote: string) => {
+    await updateDiamondTransactionNoteDoc(recordId, newNote);
   };
 
   // Announcement & Discord Settings Handlers
@@ -376,55 +416,6 @@ export const App: React.FC = () => {
         lang === 'th' ? 'เกิดข้อผิดพลาดในการบันทึกการตั้งค่า Discord' : 'Failed to save Discord settings',
         'error'
       );
-    }
-  };
-
-  // Character Classes Handlers (Owner Management)
-  const handleAddClass = async (newClass: string) => {
-    const trimmed = newClass.trim();
-    if (!trimmed) return;
-    if (characterClasses.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
-      showToast(lang === 'th' ? `มีอาชีพ "${trimmed}" ในระบบอยู่แล้ว` : `Class "${trimmed}" already exists`, 'error');
-      return;
-    }
-    const updated = [...characterClasses, trimmed];
-    setCharacterClasses(updated);
-    try {
-      await saveCharacterClassesDoc(updated, currentUser?.inGameName || 'Owner');
-      sounds.playSuccess();
-      showToast(lang === 'th' ? `เพิ่มอาชีพ "${trimmed}" เรียบร้อยแล้ว` : `Class "${trimmed}" added`, 'success');
-    } catch (err) {
-      console.error('Failed to save character classes:', err);
-      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการบันทึกอาชีพ' : 'Failed to save class', 'error');
-    }
-  };
-
-  const handleDeleteClass = async (targetClass: string) => {
-    if (characterClasses.length <= 1) {
-      showToast(lang === 'th' ? 'ต้องมีอาชีพในระบบอย่างน้อย 1 อาชีพ' : 'Must have at least 1 class', 'error');
-      return;
-    }
-    const updated = characterClasses.filter((c) => c !== targetClass);
-    setCharacterClasses(updated);
-    try {
-      await saveCharacterClassesDoc(updated, currentUser?.inGameName || 'Owner');
-      sounds.playClick();
-      showToast(lang === 'th' ? `ลบอาชีพ "${targetClass}" เรียบร้อยแล้ว` : `Class "${targetClass}" removed`, 'info');
-    } catch (err) {
-      console.error('Failed to delete character class:', err);
-      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการลบอาชีพ' : 'Failed to delete class', 'error');
-    }
-  };
-
-  const handleResetClasses = async () => {
-    setCharacterClasses(DEFAULT_CHARACTER_CLASSES as unknown as string[]);
-    try {
-      await saveCharacterClassesDoc(DEFAULT_CHARACTER_CLASSES as unknown as string[], currentUser?.inGameName || 'Owner');
-      sounds.playSuccess();
-      showToast(lang === 'th' ? 'คืนค่าอาชีพมาตรฐานเรียบร้อยแล้ว' : 'Reset default classes successfully', 'success');
-    } catch (err) {
-      console.error('Failed to reset character classes:', err);
-      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการรีเซ็ตอาชีพ' : 'Failed to reset classes', 'error');
     }
   };
 
@@ -467,7 +458,7 @@ export const App: React.FC = () => {
     const item = vaultItems.find((i) => i.id === itemId);
     if (!item) return;
 
-    // Check power requirement (owner and admin bypass minimum CP)
+    // Check power requirement (owner and admin bypass minimum PL)
     const isPrivileged = currentUser.role === 'owner' || currentUser.role === 'admin';
     const userCP = Number(currentUser.powerLevel || 0);
     const requiredCP = Number(item.minPowerLevel || 0);
@@ -476,8 +467,8 @@ export const App: React.FC = () => {
       sounds.playClick();
       showToast(
         lang === 'th'
-          ? `ค่าพลังของคุณ (${userCP.toLocaleString()} CP) ไม่ถึงเกณฑ์ขั้นต่ำ (${requiredCP.toLocaleString()} CP)`
-          : `Your Power Level (${userCP.toLocaleString()} CP) is below the required ${requiredCP.toLocaleString()} CP`,
+          ? `ค่าพลังของคุณ (⚡ ${userCP.toLocaleString()} PL) ไม่ถึงเกณฑ์ขั้นต่ำ (⚡ ${requiredCP.toLocaleString()} PL)`
+          : `Your Power Level (⚡ ${userCP.toLocaleString()} PL) is below the required ⚡ ${requiredCP.toLocaleString()} PL`,
         'error'
       );
       return;
@@ -737,19 +728,115 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleAddClan = async (clanName: string) => {
-    await addClanDoc({ name: clanName });
-    showToast(lang === 'th' ? 'เพิ่มแคลนใหม่สำเร็จ' : 'Clan added', 'success');
+  const handleAddClan = async (clanName: string, color?: string) => {
+    const cleanName = cleanClanName(clanName);
+    if (!cleanName) return;
+    const nextOrder = clans.length;
+    const newClan: ClanGroup = {
+      id: 'clan_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      name: cleanName,
+      color: color || '#d4af37',
+      order: nextOrder
+    };
+    setClans((prev) => [...prev, newClan]);
+    try {
+      await addClanDoc({ name: cleanName, color: color || '#d4af37', order: nextOrder });
+      showToast(lang === 'th' ? `เพิ่มแคลน ${cleanName} สำเร็จ` : `Clan ${cleanName} added`, 'success');
+    } catch (err) {
+      console.error('Failed to add clan:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการเพิ่มแคลน' : 'Failed to add clan', 'error');
+    }
+  };
+
+  const handleUpdateClan = async (clanId: string, newName: string, newColor?: string) => {
+    const cleanNew = cleanClanName(newName);
+    if (!cleanNew) return;
+    const targetClan = clans.find((c) => c.id === clanId);
+    const oldCleanName = targetClan ? cleanClanName(targetClan.name) : '';
+
+    // Optimistic update clans state
+    setClans((prev) =>
+      prev.map((c) =>
+        c.id === clanId
+          ? { ...c, name: cleanNew, ...(newColor ? { color: newColor } : {}) }
+          : c
+      )
+    );
+
+    // Cascade update users state if name changed
+    if (oldCleanName && oldCleanName !== cleanNew) {
+      setUsers((prev) =>
+        prev.map((u) => (cleanClanName(u.clan) === oldCleanName ? { ...u, clan: cleanNew } : u))
+      );
+    }
+
+    try {
+      await updateClanDoc(clanId, {
+        name: cleanNew,
+        ...(newColor ? { color: newColor } : {})
+      });
+
+      // Cascade update users in Firestore
+      if (oldCleanName && oldCleanName !== cleanNew) {
+        const affected = users.filter((u) => cleanClanName(u.clan) === oldCleanName);
+        for (const mem of affected) {
+          updateUserDoc(mem.id, { clan: cleanNew }).catch(console.error);
+        }
+      }
+      showToast(lang === 'th' ? 'แก้ไขแคลนสำเร็จ' : 'Clan updated', 'success');
+    } catch (err) {
+      console.error('Failed to update clan:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการแก้ไขแคลน' : 'Failed to update clan', 'error');
+    }
   };
 
   const handleDeleteClan = async (clanId: string) => {
     sounds.playClick();
+    const targetClan = clans.find((c) => c.id === clanId);
+    const oldCleanName = targetClan ? cleanClanName(targetClan.name) : '';
+
+    // Optimistic update clans state
     setClans((prev) => prev.filter((c) => c.id !== clanId));
+    if (oldCleanName) {
+      setUsers((prev) =>
+        prev.map((u) => (cleanClanName(u.clan) === oldCleanName ? { ...u, clan: 'no-clan' } : u))
+      );
+    }
+
     try {
       await deleteClanDoc(clanId);
-      showToast(lang === 'th' ? 'ลบแคลนสำเร็จ' : 'Clan deleted', 'info');
+      if (oldCleanName) {
+        const affected = users.filter((u) => cleanClanName(u.clan) === oldCleanName);
+        for (const mem of affected) {
+          updateUserDoc(mem.id, { clan: 'no-clan' }).catch(console.error);
+        }
+      }
+      showToast(
+        lang === 'th'
+          ? `ลบแคลน ${oldCleanName} สำเร็จ (สมาชิกถูกย้ายไปที่ no-clan)`
+          : `Clan ${oldCleanName} deleted (members moved to no-clan)`,
+        'info'
+      );
     } catch (err) {
       console.error('Failed to delete clan:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการลบแคลน' : 'Failed to delete clan', 'error');
+    }
+  };
+
+  const handleReorderClans = async (orderedClans: ClanGroup[]) => {
+    sounds.playClick();
+    const updatedClans = orderedClans.map((c, idx) => ({ ...c, order: idx }));
+    setClans(updatedClans);
+
+    try {
+      for (let i = 0; i < updatedClans.length; i++) {
+        const c = updatedClans[i];
+        await updateClanDoc(c.id, { order: i, name: c.name, color: c.color });
+      }
+      showToast(lang === 'th' ? 'จัดตำแหน่งแคลนสำเร็จ' : 'Clan order updated', 'success');
+    } catch (err) {
+      console.error('Failed to reorder clans in Firestore:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการจัดตำแหน่งแคลน' : 'Failed to save clan order', 'error');
     }
   };
 
@@ -807,7 +894,322 @@ export const App: React.FC = () => {
     }
   };
 
-  // CP Update Request Handlers
+  // PL & Stat Update Request Handlers (Kain7 Power Formula & Spirit Enhancements)
+  const handleRequestStatUpdate = async (
+    userId: string,
+    newStats: Record<string, number>,
+    newSpiritEnhancements: Record<string, number>,
+    newPowerLevel: number,
+    screenshotUrl?: string,
+    profileData?: {
+      classes?: string[];
+      level?: number;
+      legendClasses?: number;
+      legendAgathions?: number;
+    }
+  ) => {
+    const timestamp = Date.now();
+    const reqClasses = profileData?.classes;
+    const reqLevel = profileData?.level;
+    const reqLegendClasses = profileData?.legendClasses;
+    const reqLegendAgathions = profileData?.legendAgathions;
+
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === userId
+          ? {
+              ...u,
+              pendingPowerLevel: newPowerLevel,
+              pendingPowerLevelRequestedAt: timestamp,
+              pendingStats: newStats,
+              pendingSpiritEnhancements: newSpiritEnhancements,
+              pendingStatScreenshotUrl: screenshotUrl || null,
+              pendingClasses: reqClasses ?? u.classes,
+              pendingLevel: reqLevel ?? u.level,
+              pendingLegendClasses: reqLegendClasses ?? u.legendClasses,
+              pendingLegendAgathions: reqLegendAgathions ?? u.legendAgathions,
+              statRejectionReason: null
+            }
+          : u
+      )
+    );
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              pendingPowerLevel: newPowerLevel,
+              pendingPowerLevelRequestedAt: timestamp,
+              pendingStats: newStats,
+              pendingSpiritEnhancements: newSpiritEnhancements,
+              pendingStatScreenshotUrl: screenshotUrl || null,
+              pendingClasses: reqClasses ?? prev.classes,
+              pendingLevel: reqLevel ?? prev.level,
+              pendingLegendClasses: reqLegendClasses ?? prev.legendClasses,
+              pendingLegendAgathions: reqLegendAgathions ?? prev.legendAgathions,
+              statRejectionReason: null
+            }
+          : null
+      );
+    }
+    try {
+      await updateUserDoc(userId, {
+        pendingPowerLevel: newPowerLevel,
+        pendingPowerLevelRequestedAt: timestamp,
+        pendingStats: newStats,
+        pendingSpiritEnhancements: newSpiritEnhancements,
+        pendingStatScreenshotUrl: screenshotUrl || null,
+        pendingClasses: reqClasses ?? null,
+        pendingLevel: reqLevel ?? null,
+        pendingLegendClasses: reqLegendClasses ?? null,
+        pendingLegendAgathions: reqLegendAgathions ?? null,
+        statRejectionReason: null
+      });
+
+      // Discord webhook notification
+      if (discordSettings?.enabled) {
+        const targetUser = users.find((u) => u.id === userId) || currentUser;
+        if (targetUser) {
+          sendDiscordNotification(discordSettings, 'stat_request', {
+            memberName: targetUser.inGameName,
+            memberClan: targetUser.clan,
+            oldPowerLevel: targetUser.powerLevel,
+            newPowerLevel,
+            screenshotUrl
+          });
+        }
+      }
+
+      showToast(
+        lang === 'th'
+          ? 'ส่งคำขออัปเดตสเตตัสและค่าพลังเรียบร้อยแล้ว รอการอนุมัติ'
+          : 'Stat & PL update request submitted! Waiting for Admin approval',
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to submit stat update request:', err);
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการส่งคำขอ' : 'Failed to submit stat request',
+        'error'
+      );
+    }
+  };
+
+  const handleApproveStatUpdate = async (userId: string) => {
+    const target = users.find((u) => u.id === userId);
+    if (!target || !target.pendingPowerLevel) return;
+
+    const approvedPower = target.pendingPowerLevel;
+    const approvedStats = target.pendingStats || target.stats;
+    const approvedSpirits = target.pendingSpiritEnhancements || target.spiritEnhancements;
+
+    const approvedClasses = target.pendingClasses !== undefined && target.pendingClasses !== null
+      ? target.pendingClasses
+      : (target.classes || (target.characterClass ? [target.characterClass] : []));
+    const approvedLevel = target.pendingLevel !== undefined && target.pendingLevel !== null
+      ? target.pendingLevel
+      : (target.level || 0);
+    const approvedLegendClasses = target.pendingLegendClasses !== undefined && target.pendingLegendClasses !== null
+      ? target.pendingLegendClasses
+      : (target.legendClasses || 0);
+    const approvedLegendAgathions = target.pendingLegendAgathions !== undefined && target.pendingLegendAgathions !== null
+      ? target.pendingLegendAgathions
+      : (target.legendAgathions || 0);
+    const primaryClass = approvedClasses.length > 0 ? approvedClasses[0] : (target.characterClass || '');
+
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === userId
+          ? {
+              ...u,
+              powerLevel: approvedPower,
+              stats: approvedStats,
+              spiritEnhancements: approvedSpirits,
+              classes: approvedClasses,
+              characterClass: primaryClass,
+              level: approvedLevel,
+              legendClasses: approvedLegendClasses,
+              legendAgathions: approvedLegendAgathions,
+              pendingPowerLevel: null,
+              pendingPowerLevelRequestedAt: null,
+              pendingStats: null,
+              pendingSpiritEnhancements: null,
+              pendingStatScreenshotUrl: null,
+              pendingClasses: null,
+              pendingLevel: null,
+              pendingLegendClasses: null,
+              pendingLegendAgathions: null,
+              statRejectionReason: null
+            }
+          : u
+      )
+    );
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              powerLevel: approvedPower,
+              stats: approvedStats,
+              spiritEnhancements: approvedSpirits,
+              classes: approvedClasses,
+              characterClass: primaryClass,
+              level: approvedLevel,
+              legendClasses: approvedLegendClasses,
+              legendAgathions: approvedLegendAgathions,
+              pendingPowerLevel: null,
+              pendingPowerLevelRequestedAt: null,
+              pendingStats: null,
+              pendingSpiritEnhancements: null,
+              pendingStatScreenshotUrl: null,
+              pendingClasses: null,
+              pendingLevel: null,
+              pendingLegendClasses: null,
+              pendingLegendAgathions: null,
+              statRejectionReason: null
+            }
+          : null
+      );
+    }
+    try {
+      await updateUserDoc(userId, {
+        powerLevel: approvedPower,
+        stats: approvedStats,
+        spiritEnhancements: approvedSpirits,
+        classes: approvedClasses,
+        characterClass: primaryClass,
+        level: approvedLevel,
+        legendClasses: approvedLegendClasses,
+        legendAgathions: approvedLegendAgathions,
+        pendingPowerLevel: null,
+        pendingPowerLevelRequestedAt: null,
+        pendingStats: null,
+        pendingSpiritEnhancements: null,
+        pendingStatScreenshotUrl: null,
+        pendingClasses: null,
+        pendingLevel: null,
+        pendingLegendClasses: null,
+        pendingLegendAgathions: null,
+        statRejectionReason: null
+      });
+
+      // Discord webhook notification
+      if (discordSettings?.enabled) {
+        sendDiscordNotification(discordSettings, 'stat_approval', {
+          memberName: target.inGameName,
+          memberClan: target.clan,
+          oldPowerLevel: target.powerLevel,
+          newPowerLevel: approvedPower,
+          actorName: currentUser?.inGameName || 'Admin'
+        });
+      }
+
+      showToast(
+        lang === 'th'
+          ? `อนุมัติสเตตัสใหม่ของ ${target.inGameName} (⚡ ${approvedPower.toLocaleString()} PL) สำเร็จ!`
+          : `Approved new stats for ${target.inGameName} (⚡ ${approvedPower.toLocaleString()} PL)!`,
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to approve stat update:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการอนุมัติ' : 'Failed to approve request', 'error');
+    }
+  };
+
+  const handleRejectStatUpdate = async (userId: string, reason?: string) => {
+    const target = users.find((u) => u.id === userId);
+    const rejectionReason = reason || (lang === 'th' ? 'ข้อมูลไม่ตรงกับภาพสกรีนช็อต' : 'Stats do not match screenshot');
+
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === userId
+          ? {
+              ...u,
+              pendingPowerLevel: null,
+              pendingPowerLevelRequestedAt: null,
+              pendingStats: null,
+              pendingSpiritEnhancements: null,
+              pendingStatScreenshotUrl: null,
+              pendingClasses: null,
+              pendingLevel: null,
+              pendingLegendClasses: null,
+              pendingLegendAgathions: null,
+              statRejectionReason: rejectionReason
+            }
+          : u
+      )
+    );
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              pendingPowerLevel: null,
+              pendingPowerLevelRequestedAt: null,
+              pendingStats: null,
+              pendingSpiritEnhancements: null,
+              pendingStatScreenshotUrl: null,
+              pendingClasses: null,
+              pendingLevel: null,
+              pendingLegendClasses: null,
+              pendingLegendAgathions: null,
+              statRejectionReason: rejectionReason
+            }
+          : null
+      );
+    }
+    try {
+      await updateUserDoc(userId, {
+        pendingPowerLevel: null,
+        pendingPowerLevelRequestedAt: null,
+        pendingStats: null,
+        pendingSpiritEnhancements: null,
+        pendingStatScreenshotUrl: null,
+        pendingClasses: null,
+        pendingLevel: null,
+        pendingLegendClasses: null,
+        pendingLegendAgathions: null,
+        statRejectionReason: rejectionReason
+      });
+      showToast(
+        lang === 'th'
+          ? `ส่งผลการปฏิเสธคำขอของ ${target?.inGameName || 'สมาชิก'} เรียบร้อยแล้ว`
+          : `Rejected stat update request for ${target?.inGameName || 'member'}`,
+        'info'
+      );
+    } catch (err) {
+      console.error('Failed to reject stat update:', err);
+    }
+  };
+
+  // Bulk Swap Clan Organizer Batch Handler
+  const handleBulkUpdateClans = async (swaps: { memberId: string; toClan: string }[]) => {
+    const swapMap = new Map(swaps.map((s) => [s.memberId, s.toClan]));
+    setUsers((prev) =>
+      prev.map((u) => (swapMap.has(u.id) ? { ...u, clan: swapMap.get(u.id)! } : u))
+    );
+    if (currentUser && swapMap.has(currentUser.id)) {
+      setCurrentUser((prev) =>
+        prev ? { ...prev, clan: swapMap.get(prev.id)! } : null
+      );
+    }
+    try {
+      await Promise.all(
+        swaps.map((s) => updateUserDoc(s.memberId, { clan: s.toClan }))
+      );
+      showToast(
+        lang === 'th'
+          ? `ย้ายสังกัดสมาชิกสำเร็จ ${swaps.length} คน`
+          : `Transferred ${swaps.length} members successfully`,
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to apply bulk clan swaps:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการย้ายสังกัด' : 'Failed to apply clan swaps', 'error');
+    }
+  };
+
+  // Legacy manual power level update fallback
   const handleRequestPowerLevelUpdate = async (userId: string, newPowerLevel: number) => {
     const timestamp = Date.now();
     setUsers((prev) =>
@@ -830,7 +1232,7 @@ export const App: React.FC = () => {
       showToast(
         lang === 'th'
           ? 'ส่งคำขออัปเดตค่าพลังแล้ว รอ Admin/Owner อนุมัติ'
-          : 'CP update request submitted! Waiting for Admin/Owner approval',
+          : 'PL update request submitted! Waiting for Admin/Owner approval',
         'success'
       );
     } catch (err) {
@@ -843,42 +1245,17 @@ export const App: React.FC = () => {
     setUsers((prev) =>
       prev.map((u) =>
         u.id === userId
-          ? { ...u, pendingPowerLevel: null, pendingPowerLevelRequestedAt: null }
-          : u
-      )
-    );
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser((prev) =>
-        prev ? { ...prev, pendingPowerLevel: null, pendingPowerLevelRequestedAt: null } : null
-      );
-    }
-    try {
-      await updateUserDoc(userId, {
-        pendingPowerLevel: null,
-        pendingPowerLevelRequestedAt: null
-      });
-      showToast(
-        lang === 'th' ? 'ยกเลิกคำขออัปเดตค่าพลังแล้ว' : 'CP update request cancelled',
-        'info'
-      );
-    } catch (err) {
-      console.error('Failed to cancel power level request:', err);
-    }
-  };
-
-  const handleApprovePowerLevelUpdate = async (userId: string) => {
-    const target = users.find((u) => u.id === userId);
-    if (!target || !target.pendingPowerLevel) return;
-
-    const approvedPower = target.pendingPowerLevel;
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
           ? {
               ...u,
-              powerLevel: approvedPower,
               pendingPowerLevel: null,
-              pendingPowerLevelRequestedAt: null
+              pendingPowerLevelRequestedAt: null,
+              pendingStats: null,
+              pendingSpiritEnhancements: null,
+              pendingStatScreenshotUrl: null,
+              pendingClasses: null,
+              pendingLevel: null,
+              pendingLegendClasses: null,
+              pendingLegendAgathions: null
             }
           : u
       )
@@ -888,59 +1265,46 @@ export const App: React.FC = () => {
         prev
           ? {
               ...prev,
-              powerLevel: approvedPower,
               pendingPowerLevel: null,
-              pendingPowerLevelRequestedAt: null
+              pendingPowerLevelRequestedAt: null,
+              pendingStats: null,
+              pendingSpiritEnhancements: null,
+              pendingStatScreenshotUrl: null,
+              pendingClasses: null,
+              pendingLevel: null,
+              pendingLegendClasses: null,
+              pendingLegendAgathions: null
             }
           : null
       );
     }
     try {
       await updateUserDoc(userId, {
-        powerLevel: approvedPower,
         pendingPowerLevel: null,
-        pendingPowerLevelRequestedAt: null
+        pendingPowerLevelRequestedAt: null,
+        pendingStats: null,
+        pendingSpiritEnhancements: null,
+        pendingStatScreenshotUrl: null,
+        pendingClasses: null,
+        pendingLevel: null,
+        pendingLegendClasses: null,
+        pendingLegendAgathions: null
       });
       showToast(
-        lang === 'th'
-          ? `อนุมัติค่าพลังใหม่ของ ${target.inGameName} (${approvedPower.toLocaleString()} CP) สำเร็จ!`
-          : `Approved new CP for ${target.inGameName} (${approvedPower.toLocaleString()} CP)!`,
-        'success'
-      );
-    } catch (err) {
-      console.error('Failed to approve power level update:', err);
-      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการอนุมัติ' : 'Failed to approve request', 'error');
-    }
-  };
-
-  const handleRejectPowerLevelUpdate = async (userId: string) => {
-    const target = users.find((u) => u.id === userId);
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? { ...u, pendingPowerLevel: null, pendingPowerLevelRequestedAt: null }
-          : u
-      )
-    );
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser((prev) =>
-        prev ? { ...prev, pendingPowerLevel: null, pendingPowerLevelRequestedAt: null } : null
-      );
-    }
-    try {
-      await updateUserDoc(userId, {
-        pendingPowerLevel: null,
-        pendingPowerLevelRequestedAt: null
-      });
-      showToast(
-        lang === 'th'
-          ? `ปฏิเสธคำขออัปเดตค่าพลังของ ${target?.inGameName || 'สมาชิก'} เรียบร้อยแล้ว`
-          : `Rejected CP update request for ${target?.inGameName || 'member'}`,
+        lang === 'th' ? 'ยกเลิกคำขออัปเดตค่าพลังแล้ว' : 'PL update request cancelled',
         'info'
       );
     } catch (err) {
-      console.error('Failed to reject power level update:', err);
+      console.error('Failed to cancel power level request:', err);
     }
+  };
+
+  const handleApprovePowerLevelUpdate = async (userId: string) => {
+    await handleApproveStatUpdate(userId);
+  };
+
+  const handleRejectPowerLevelUpdate = async (userId: string) => {
+    await handleRejectStatUpdate(userId);
   };
 
   const handleBatchDeleteMembers = async (userIds: string[]) => {
@@ -992,7 +1356,6 @@ export const App: React.FC = () => {
             onRegister={handleRegister}
             users={users}
             clans={clans}
-            characterClasses={characterClasses}
             onOpenBgModal={() => setShowBgModal(true)}
           />
         </div>
@@ -1034,7 +1397,7 @@ export const App: React.FC = () => {
         activeTab={activeTab}
         onTabChange={(tab) => {
           sounds.playClick();
-          if (!canAccessAdminFeatures && (tab === 'vault' || tab === 'clan')) {
+          if (!canAccessAdminFeatures && tab === 'vault') {
             setActiveTab('dashboard');
             return;
           }
@@ -1056,11 +1419,19 @@ export const App: React.FC = () => {
         onToggleSound={handleToggleSound}
         onOpenBgModal={() => setShowBgModal(true)}
         onOpenDiscordModal={() => setShowDiscordModal(true)}
-        onOpenClassModal={() => setShowClassModal(true)}
         onOpenGeminiModal={() => setShowGeminiModal(true)}
-        onOpenRequestCp={() => setShowRequestCpModal(true)}
+        onOpenRequestCp={() => setActiveTab('my_stats')}
+        onOpenMyStats={() => setActiveTab('my_stats')}
+        onOpenPowerFormula={() => setIsPowerFormulaOpen(true)}
+        onOpenBulkSwap={() => setIsBulkSwapOpen(true)}
+        onOpenStatApproval={() => setActiveTab('stat_approvals')}
+        pendingStatApprovalCount={users.filter((u) => u.pendingPowerLevel && u.pendingPowerLevel > 0).length}
         discordEnabled={discordSettings?.enabled}
         pendingQueueCount={queueItems.filter((i) => i.status === 'queued').length}
+        selectedClanScope={selectedClanScope}
+        onSelectClanScope={setSelectedClanScope}
+        clans={clans}
+        allMembers={users}
         isMobileOpen={isMobileOpen}
         setIsMobileOpen={setIsMobileOpen}
       />
@@ -1075,7 +1446,7 @@ export const App: React.FC = () => {
           onSaveAnnouncement={handleSaveAnnouncement}
         />
 
-        <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <main className="flex-1 w-full max-w-[1720px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {activeTab === 'dashboard' && (
           <DashboardView
             lang={lang}
@@ -1140,29 +1511,58 @@ export const App: React.FC = () => {
             lang={lang}
             currentUser={currentUser}
             allMembers={users}
-            characterClasses={characterClasses}
-            onOpenClassModal={() => setShowClassModal(true)}
-            onOpenRequestCp={() => setShowRequestCpModal(true)}
+            clans={clans}
+            selectedClanScope={selectedClanScope}
+            onSelectClanScope={setSelectedClanScope}
+            onOpenRequestCp={() => setActiveTab('my_stats')}
+            onOpenBulkSwap={() => setIsBulkSwapOpen(true)}
             onApproveMember={handleApproveMember}
             onRejectMember={handleRejectMember}
             onApproveCpUpdate={handleApprovePowerLevelUpdate}
             onRejectCpUpdate={handleRejectPowerLevelUpdate}
             onUpdateMember={handleUpdateMember}
             onDeleteMember={handleDeleteMember}
+            onOpenStatApproval={() => setActiveTab('stat_approvals')}
           />
         )}
 
-        {activeTab === 'clan' && canAccessAdminFeatures && (
+        {activeTab === 'clans' && (
           <ClanView
             lang={lang}
             currentUser={currentUser}
             allMembers={users}
             clans={clans}
             onAddClan={handleAddClan}
+            onUpdateClan={handleUpdateClan}
             onDeleteClan={handleDeleteClan}
+            onReorderClans={handleReorderClans}
             onMoveMemberClan={handleMoveMemberClan}
             onDeleteMember={handleDeleteMember}
             onBatchDeleteMembers={handleBatchDeleteMembers}
+          />
+        )}
+
+        {activeTab === 'my_stats' && (
+          <MyStatsView
+            currentUser={currentUser}
+            lang={lang}
+            onRequestStatUpdate={handleRequestStatUpdate}
+            onCancelPendingRequest={handleCancelPowerLevelRequest}
+            onNavigateTab={(tab) => setActiveTab(tab)}
+            showToast={showToast}
+            onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
+          />
+        )}
+
+        {activeTab === 'stat_approvals' && canAccessAdminFeatures && (
+          <StatApprovalView
+            pendingUsers={users.filter((u) => u.pendingPowerLevel && u.pendingPowerLevel > 0)}
+            lang={lang}
+            onApproveStatUpdate={handleApproveStatUpdate}
+            onRejectStatUpdate={handleRejectStatUpdate}
+            onNavigateTab={(tab) => setActiveTab(tab)}
+            onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
+            showToast={showToast}
           />
         )}
       </main>
@@ -1187,7 +1587,6 @@ export const App: React.FC = () => {
         lang={lang}
         onLogin={handleLogin}
         onRegister={handleRegister}
-        characterClasses={characterClasses}
         users={users}
       />
 
@@ -1208,6 +1607,9 @@ export const App: React.FC = () => {
         vaultBalance={vaultBalance}
         transactions={diamondLogs}
         onPerformTransaction={handleVaultTransaction}
+        clans={clans}
+        allMembers={users}
+        onUpdateNote={handleUpdateVaultNote}
       />
 
       {distributeTargetItem && canAccessAdminFeatures && (
@@ -1233,6 +1635,7 @@ export const App: React.FC = () => {
           item={claimantsTargetItem}
           lang={lang}
           currentUser={currentUser}
+          allMembers={users}
           onUnclaim={handleUnclaimItem}
           onDistributeToClaimant={(item, claimant) => {
             setClaimantsTargetItem(null);
@@ -1294,17 +1697,7 @@ export const App: React.FC = () => {
         lang={lang}
       />
 
-      <ClassSettingsModal
-        isOpen={showClassModal && canAccessAdminFeatures}
-        onClose={() => setShowClassModal(false)}
-        classes={characterClasses}
-        members={users}
-        onAddClass={handleAddClass}
-        onDeleteClass={handleDeleteClass}
-        onResetClasses={handleResetClasses}
-        isOwner={currentUser?.role === 'owner'}
-        lang={lang}
-      />
+
 
       {/* Gemini AI OCR Settings Modal */}
       <GeminiKeyModal
@@ -1313,6 +1706,46 @@ export const App: React.FC = () => {
         lang={lang}
         isOwner={currentUser?.role === 'owner'}
       />
+
+      {/* 5. POWER FORMULA & CLAN MANAGEMENT MODALS */}
+      {isPowerFormulaOpen && canAccessAdminFeatures && (
+        <PowerFormulaSettingsModal
+          isOpen={isPowerFormulaOpen}
+          onClose={() => setIsPowerFormulaOpen(false)}
+          lang={lang}
+          showToast={showToast}
+        />
+      )}
+
+
+
+
+
+      {isBulkSwapOpen && canAccessAdminFeatures && (
+        <BulkSwapClanModal
+          isOpen={isBulkSwapOpen}
+          onClose={() => setIsBulkSwapOpen(false)}
+          allMembers={users}
+          clans={clans.map((c) => c.name)}
+          lang={lang}
+          onBulkUpdateClans={handleBulkUpdateClans}
+          onAddClan={handleAddClan}
+          showToast={showToast}
+        />
+      )}
+
+      {/* Global Fullscreen Image Viewer Modal */}
+      {imageViewerData && (
+        <ImageViewerModal
+          isOpen={!!imageViewerData}
+          onClose={() => setImageViewerData(null)}
+          imageUrl={imageViewerData.url}
+          title={imageViewerData.title}
+          images={imageViewerData.images}
+          initialIndex={imageViewerData.currentIndex}
+          lang={lang}
+        />
+      )}
 
       {/* In-App Toast Notification (Replaces native alert/blocking popups) */}
       {toast && (
@@ -1323,6 +1756,8 @@ export const App: React.FC = () => {
                 ? 'bg-red-950/95 border-red-500/80 text-red-100 shadow-red-950/60'
                 : toast.type === 'success'
                 ? 'bg-emerald-950/95 border-emerald-500/80 text-emerald-100 shadow-emerald-950/60'
+                : toast.type === 'warning'
+                ? 'bg-amber-950/95 border-amber-500/80 text-amber-100 shadow-amber-950/60'
                 : 'bg-[#0b121e]/95 border-[#d4af37]/80 text-[#f5d77f] shadow-black/90'
             }`}
           >

@@ -5,7 +5,7 @@ const { execSync } = require('child_process');
 console.log('Writing Manuals...');
 
 // 1. THAI MARKDOWN
-const thMarkdown = `# คู่มือการใช้งานระบบ Lineage2M Clan Hub (v1.4.0)
+const thMarkdown = `# คู่มือการใช้งานระบบ Lineage2M Clan Hub (v1.5.0)
 **ศูนย์กลางกิลด์ & คลังไอเทมบอส Lineage 2M**
 
 คู่มือนี้สรุปหน้าที่ของทุกหน้าและทุกปุ่มในระบบอย่างกระชับ เข้าใจง่าย เพื่อให้สมาชิกและผู้ดูแลระบบสามารถใช้งานได้อย่างถูกต้องและรวดเร็ว พร้อมระบบใหม่ **Copy-Paste (Ctrl + V)** สำหรับวางรูปภาพทันที และระบบ **กำหนดค่าพลังตอนสมัคร & ขออนุมัติอัปเดต CP**

@@ -726,7 +726,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                         <optgroup key={clanName} label={`🛡️ ${cleanClanName(clanName)} (${members.length} คน)`}>
                           {members.map((m) => (
                             <option key={m.id} value={m.id}>
-                              {m.inGameName} ({cleanClanName(m.clan)}) {m.powerLevel ? `• ${(m.powerLevel).toLocaleString()} CP` : ''}
+                              {m.inGameName} ({cleanClanName(m.clan)}) {m.powerLevel ? `• ⚡ ${(m.powerLevel).toLocaleString()} PL` : ''}
                             </option>
                           ))}
                         </optgroup>
@@ -820,10 +820,10 @@ export const QueueView: React.FC<QueueViewProps> = ({
                             </span>
                           </div>
 
-                          {/* Bottom Row: CP & Status & Controls */}
+                          {/* Bottom Row: PL & Status & Controls */}
                           <div className="flex items-center justify-between gap-1.5 pt-0.5 border-t border-slate-800/60">
                             <span className="font-mono text-[10.5px] text-amber-400 font-semibold truncate">
-                              {member.powerLevel ? `${member.powerLevel.toLocaleString()} CP` : '-'}
+                              {member.powerLevel ? `⚡ ${member.powerLevel.toLocaleString()} PL` : '-'}
                             </span>
 
                             <div className="flex items-center gap-1 shrink-0">
@@ -1037,7 +1037,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                           <optgroup key={clanName} label={`🛡️ ${cleanClanName(clanName)} (${members.length} คน)`}>
                             {members.map((m) => (
                               <option key={m.id} value={m.id}>
-                                {m.inGameName} | {cleanClanName(m.clan)} {m.powerLevel ? `(${(m.powerLevel).toLocaleString()} CP)` : ''} {m.characterClass ? `• ${m.characterClass}` : ''}
+                                {m.inGameName} | {cleanClanName(m.clan)} {m.powerLevel ? `(⚡ ${(m.powerLevel).toLocaleString()} PL)` : ''} {m.characterClass ? `• ${m.characterClass}` : ''}
                               </option>
                             ))}
                           </optgroup>
@@ -1154,7 +1154,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
 
                               {/* Power Level */}
                               <td className="py-2.5 px-4 font-mono text-amber-400 font-semibold">
-                                {member.powerLevel ? `${member.powerLevel.toLocaleString()} CP` : '-'}
+                                {member.powerLevel ? `⚡ ${member.powerLevel.toLocaleString()} PL` : '-'}
                               </td>
 
                               {/* Status: Received or Pending */}
