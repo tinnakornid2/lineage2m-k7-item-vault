@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Crown,
   Plus,
@@ -14,8 +14,10 @@ import {
   AlertCircle,
   UserCheck,
   ChevronDown,
-  RotateCcw
+  RotateCcw,
+  ClipboardCheck
 } from 'lucide-react';
+import { compressImageFile } from '../utils/imageCompressor';
 import {
   ItemRarity,
   Language,
@@ -109,17 +111,77 @@ export const QueueView: React.FC<QueueViewProps> = ({
     }
   };
 
+  const processQueueImageFile = async (file: File, isPaste = false) => {
+    try {
+      const compressed = await compressImageFile(file, { maxWidth: 600, maxHeight: 600, quality: 0.8 });
+      setImagePreview(compressed);
+      setImageUrl(compressed);
+      sounds.playClick();
+      if (isPaste && showToast) {
+        showToast(
+          lang === 'th' ? 'วางรูปภาพไอเทมสำเร็จ (Ctrl + V) 📋' : 'Queue item image pasted (Ctrl + V) 📋',
+          'success'
+        );
+      }
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const res = reader.result as string;
+        setImagePreview(res);
+        setImageUrl(res);
+        sounds.playClick();
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const res = reader.result as string;
-      setImagePreview(res);
-      setImageUrl(res);
-    };
-    reader.readAsDataURL(file);
+    processQueueImageFile(file, false);
+    e.target.value = '';
   };
+
+  const handlePasteQueueImageZone = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          e.stopPropagation();
+          processQueueImageFile(file, true);
+          break;
+        }
+      }
+    }
+  };
+
+  // Window paste listener when create queue form is visible
+  useEffect(() => {
+    if (!showAddForm) return;
+
+    const handleWindowPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          const file = items[i].getAsFile();
+          if (file) {
+            e.preventDefault();
+            processQueueImageFile(file, true);
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handleWindowPaste);
+    return () => {
+      window.removeEventListener('paste', handleWindowPaste);
+    };
+  }, [showAddForm, lang, showToast]);
 
   const handleApplyQuickItem = (item: QuickItem) => {
     sounds.playClick();
@@ -420,11 +482,17 @@ export const QueueView: React.FC<QueueViewProps> = ({
           {/* Optional image upload */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <label
+              tabIndex={0}
+              onPaste={handlePasteQueueImageZone}
               htmlFor="file-queue-image"
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#162032] hover:bg-[#202f48] border border-slate-700 text-xs text-slate-200 cursor-pointer transition-all"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#162032] hover:bg-[#202f48] border border-dashed border-[#d4af37]/50 hover:border-[#d4af37] text-xs text-slate-200 cursor-pointer transition-all outline-none"
+              title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูป' : 'Click to choose or Ctrl + V to paste'}
             >
               <Upload className="w-4 h-4 text-[#d4af37]" />
-              <span>{lang === 'th' ? 'เลือกรูปภาพ (ไม่บังคับ)' : 'Choose Image (Optional)'}</span>
+              <span>{lang === 'th' ? 'เลือกรูปภาพ หรือกด Ctrl + V วางรูป' : 'Choose Image or Ctrl + V to paste'}</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-amber-300 border border-slate-700">
+                Ctrl + V
+              </span>
               <input
                 id="file-queue-image"
                 type="file"

@@ -527,6 +527,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
+          {/* System Version & Status Indicator */}
+          <div className="pt-2 pb-0.5 text-center flex items-center justify-between px-1">
+            <span className="text-[9.5px] font-mono text-slate-500">Lineage2M Clan Hub</span>
+            <div className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>v1.2.0</span>
+            </div>
+          </div>
+
         </div>
 
       </aside>

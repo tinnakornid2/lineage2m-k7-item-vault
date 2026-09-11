@@ -5,10 +5,10 @@ const { execSync } = require('child_process');
 console.log('Writing Manuals...');
 
 // 1. THAI MARKDOWN
-const thMarkdown = `# คู่มือการใช้งานระบบ Lineage2M Clan Hub
+const thMarkdown = `# คู่มือการใช้งานระบบ Lineage2M Clan Hub (v1.2.0)
 **ศูนย์กลางกิลด์ & คลังไอเทมบอส Lineage 2M**
 
-คู่มือนี้สรุปหน้าที่ของทุกหน้าและทุกปุ่มในระบบอย่างกระชับ เข้าใจง่าย เพื่อให้สมาชิกและผู้ดูแลระบบสามารถใช้งานได้อย่างถูกต้องและรวดเร็ว
+คู่มือนี้สรุปหน้าที่ของทุกหน้าและทุกปุ่มในระบบอย่างกระชับ เข้าใจง่าย เพื่อให้สมาชิกและผู้ดูแลระบบสามารถใช้งานได้อย่างถูกต้องและรวดเร็ว พร้อมระบบใหม่ **Copy-Paste (Ctrl + V)** สำหรับวางรูปภาพทันที
 
 ---
 
@@ -38,7 +38,7 @@ const thMarkdown = `# คู่มือการใช้งานระบบ 
 
 | ปุ่ม / เมนู | ไอคอน | หน้าที่การทำงาน |
 | :--- | :---: | :--- |
-| **LINEAGE 2M CLAN HUB** | 👑 | โลโก้ประจำเว็บ คลิกเมื่อใดก็ได้เพื่อกลับสู่ **หน้าแดชบอร์ด** ทันที |
+| **LINEAGE 2M CLAN HUB (v1.2.0)** | 👑 | โลโก้ประจำเว็บ คลิกเมื่อใดก็ได้เพื่อกลับสู่ **หน้าแดชบอร์ด** ทันที |
 | **กล่องคลังเพชรกลาง** | 💎 | แสดงยอดเพชรคงเหลือในกองทุนกลาง คลิกเพื่อเปิดหน้าต่าง **ฝาก-ถอนเพชร** |
 | **ตั้งค่าภาพพื้นหลัง** | ✨ | เปิดหน้าต่างเปลี่ยนภาพพื้นหลังปราสาท ปรับความสว่าง และความเบลอ |
 | **เปิด/ปิดเสียง** | 🔊 / 🔇 | สลับเปิดหรือปิดเสียงเอฟเฟกต์คลิก/แจ้งเตือนของระบบ |
@@ -67,21 +67,21 @@ const thMarkdown = `# คู่มือการใช้งานระบบ 
 
 ## 4. หน้าคลังไอเทมบอส (Item Vault)
 *(เข้าถึงได้เฉพาะ Admin และ Owner)*
-**คลังสำหรับบันทึกไอเทมที่ได้จากการล่าบอส จัดการพรีเซ็ต และสแกนรายชื่อผู้ล่าด้วย AI**
+**คลังสำหรับบันทึกไอเทมที่ได้จากการล่าบอส จัดการพรีเซ็ต และสแกนรายชื่อผู้ล่าด้วย AI (รองรับ Copy & Paste)**
 
 ### แท็บย่อย
 1. **เพิ่มไอเทม (Add New Item):** แบบฟอร์มเพิ่มไอเทมใหม่เข้าสู่ระบบ
 2. **ไอเทมที่แจกแล้ว (Distributed Archive):** คลังจัดเก็บประวัติไอเทมที่มอบให้สมาชิกแล้ว
 
 ### ปุ่มและฟังก์ชันสำคัญ
-* **ปุ่ม "ควิกไอเทม" (Quick Items Menu):** เปิดหน้าต่างจัดการแม่แบบไอเทมด่วน บันทึกชื่อ รูป และระดับความหายากไว้ล่วงหน้าเพื่อกดเพิ่มได้ในคลิกเดียว
+* **ปุ่ม "ควิกไอเทม" (Quick Items Menu):** เปิดหน้าต่างจัดการแม่แบบไอเทมด่วน บันทึกชื่อ รูป และระดับความหายากไว้ล่วงหน้าเพื่อกดเพิ่มได้ในคลิกเดียว (รองรับ Ctrl+V)
 * **แถบเลือกไอเทมด่วน:** คลิกไอเทมที่เตรียมไว้ ข้อมูลจะถูกกรอกลงฟอร์มอัตโนมัติ
 * **ช่องกรอกข้อมูล:** ชื่อไอเทม, ราคาประเมิน (เพชร), CP ขั้นต่ำที่เคลมได้, และเลือกระดับความแรร์ (ฟ้า/แดง/ม่วง/ทอง)
-* **อัปโหลดรูปไอเทม:** เลือกรูปจากคอมพิวเตอร์หรือโทรศัพท์
-* **ระบบผู้ล่า & AI OCR สแกนภาพ:**
+* **อัปโหลดรูปไอเทม (รองรับ Ctrl + V):** สามารถคลิกเลือกไฟล์ หรือกด **Ctrl + V** เพื่อวางรูปภาพที่คัดลอกมาได้ทันที
+* **ระบบผู้ล่า & AI OCR สแกนภาพ (รองรับ Ctrl + V):**
   * **ดรอปดาวน์เลือกผู้ล่า:** เลือกรายชื่อสมาชิกจากสังกัดแคลนต่างๆ โดยไม่ต้องพิมพ์เอง
-  * **ปุ่ม "แนบสกรีนช็อต" (Upload Screenshots):** เลือกรูปถ่ายหน้าจอขณะล่าบอส/ตี้บอสได้หลายรูปพร้อมกัน
-  * **ปุ่ม "สแกนผู้ล่า (OCR)":** ระบบใช้ AI สแกนชื่อตัวละครจากรูปถ่ายหน้าจอ และจัดกลุ่มตามแคลนให้อัตโนมัติ
+  * **ปุ่ม "แนบสกรีนช็อต" (Upload Screenshots):** เลือกไฟล์ หรือกด **Ctrl + V** วางรูปภาพปาร์ตี้บอสได้หลายรูปพร้อมกัน
+  * **ปุ่ม "สแกนผู้ล่า (OCR)":** คลิกปุ่ม หรือกด **Ctrl + V** วางภาพหน้าจอ ระบบจะส่งให้ AI สแกนชื่อตัวละครและจับคู่แคลนให้อัตโนมัติทันที
   * **ปุ่ม "กรองรายชื่อซ้ำ" (Filter Duplicates):** ตัดชื่อผู้ล่าที่ซ้ำกันออกในคลิกเดียว
 * **ปุ่ม "บันทึก / เพิ่มไอเทม":** ตรวจสอบข้อมูลแล้วบันทึกเข้าสู่คลังกลาง
 * **ในแท็บไอเทมที่แจกแล้ว:**
@@ -96,7 +96,7 @@ const thMarkdown = `# คู่มือการใช้งานระบบ 
 > **หมายเหตุสำคัญ:** สมาชิกทั่วไปไม่สามารถกดเข้าคิวเองได้ เพื่อความเป็นระเบียบและโปร่งใสสูงสุด ระบบจึงกำหนดให้ **Admin และ Owner เป็นผู้จัดคิวเท่านั้น**
 
 ### ปุ่มและฟังก์ชันสำคัญ *(Admin/Owner)*
-* **ปุ่ม "+ เพิ่มคิวไอเทม" (Register Item into Queue):** สร้างหัวข้อไอเทมที่เปิดให้เข้าคิว (เลือกจากพรีเซ็ตหรือสร้างใหม่ได้)
+* **ปุ่ม "+ เพิ่มคิวไอเทม" (Register Item into Queue):** สร้างหัวข้อไอเทมที่เปิดให้เข้าคิว (รองรับกด **Ctrl + V** วางรูปไอเทมได้ทันที)
 * **ปุ่ม "+ เพิ่มสมาชิกลงคิว" (Add Member to Queue):** เลือกสมาชิกจากดรอปดาวน์เพื่อจัดเข้าคิวไอเทมนั้น
 * **ปุ่ม "ได้รับแล้ว" (Mark as Received):** กดเมื่อสมาชิกได้รับของแล้ว (จะเปลี่ยนเป็นสถานะสีเขียวพร้อมติ๊กถูก)
 * **ปุ่ม "รอคิว" (Mark as Waiting):** กดเพื่อปรับสถานะกลับมารอคิว
@@ -179,10 +179,10 @@ const thMarkdown = `# คู่มือการใช้งานระบบ 
 `;
 
 // 2. ENGLISH MARKDOWN
-const enMarkdown = `# Lineage2M Clan Hub - User Manual
+const enMarkdown = `# Lineage2M Clan Hub - User Manual (v1.2.0)
 **Comprehensive Guild Management, Boss Item Vault & Queue Distribution System**
 
-This user guide provides a clear, concise breakdown of every page, section, and button within the Lineage2M Clan Hub application.
+This user guide provides a clear, concise breakdown of every page, section, and button within the Lineage2M Clan Hub application, featuring **Direct Copy-Paste (Ctrl + V)** image upload capabilities.
 
 ---
 
@@ -212,7 +212,7 @@ This user guide provides a clear, concise breakdown of every page, section, and 
 
 | Button / Element | Icon | Function & Description |
 | :--- | :---: | :--- |
-| **LINEAGE 2M CLAN HUB** | 👑 | System logo. Click anywhere to return to the **Main Dashboard**. |
+| **LINEAGE 2M CLAN HUB (v1.2.0)** | 👑 | System logo. Click anywhere to return to the **Main Dashboard**. |
 | **Diamond Vault Widget** | 💎 | Displays current central guild diamond reserve. Click to open the **Deposit / Withdrawal** window. |
 | **Wallpaper Settings** | ✨ | Opens the background visual customization modal (upload image, adjust blur/brightness). |
 | **Sound Toggle** | 🔊 / 🔇 | Enables or mutes system UI sound effects (clicks, modal pops, distribution fanfares). |
@@ -241,21 +241,21 @@ This user guide provides a clear, concise breakdown of every page, section, and 
 
 ## 4. Boss Item Vault
 *(Restricted to Admin and Owner)*
-**Comprehensive repository for logging raid drops, managing preset templates, and scanning hunter rosters with AI OCR.**
+**Comprehensive repository for logging raid drops, managing preset templates, and scanning hunter rosters with AI OCR (Copy-Paste Supported).**
 
 ### Sub-tabs
 1. **Add New Item:** Input form to record a newly dropped boss item.
 2. **Distributed Items Archive:** Searchable archive of all historical distributed items with attached raid proof.
 
 ### Key Buttons & Actions
-* **"Quick Items Menu" Button:** Opens the quick item preset editor to save item icons, names, and rarities for rapid 1-click entry.
+* **"Quick Items Menu" Button:** Opens the quick item preset editor to save item icons, names, and rarities for rapid 1-click entry (Ctrl+V supported).
 * **Quick Presets Shortcut Strip:** Click any preset chip to auto-populate the creation form instantly.
 * **Form Inputs:** Item Name, Diamond Price, Minimum CP required to claim, and Rarity tier (Rare / Epic / Legend / Mythic).
-* **Item Image Upload:** Select an item graphic from your computer or mobile device.
-* **Hunter System & AI OCR Screenshot Scanner:**
+* **Item Image Upload (Ctrl + V Supported):** Click to select from device or press **Ctrl + V** to paste clipboard images directly.
+* **Hunter System & AI OCR Screenshot Scanner (Ctrl + V Supported):**
   * **Hunter Dropdown:** Select hunters from active guild rosters grouped by clan without typing.
-  * **"Upload Backup Screenshots" (Multiple):** Attach raid party screenshots proving boss participation.
-  * **"Scan Hunters via OCR" (Gemini AI):** Upload multiple party screenshots; the AI reads player names and matches them against guild databases automatically.
+  * **"Upload Backup Screenshots" (Multiple):** Select files or press **Ctrl + V** to attach raid party screenshots proving boss participation.
+  * **"Scan Hunters via OCR" (Gemini AI):** Click button or press **Ctrl + V** to paste screenshots directly; the AI reads player names and matches them against guild databases automatically.
   * **"Filter Duplicates" Button:** Cleans duplicate detected names across multiple screenshots in one click.
 * **"Create / Add Item" Button:** Validates and saves the item into the active vault.
 * **In Distributed Archive:**
@@ -270,7 +270,7 @@ This user guide provides a clear, concise breakdown of every page, section, and 
 > **Notice:** Self-service queue joining is disabled for standard members. Only **Admins and Owners** have privileges to add and rearrange queue members to ensure fair and dispute-free distribution.
 
 ### Key Buttons & Actions *(Admin/Owner)*
-* **"+ Register Item into Queue" Button:** Create an item queue category (e.g. Red Ring, Purple Weapon).
+* **"+ Register Item into Queue" Button:** Create an item queue category (supports **Ctrl + V** image paste).
 * **"+ Add Member to Queue" Button:** Select a clan player from the dropdown to place them on the waiting list.
 * **"Mark as Received" Button:** Toggles member status to a green checkmark once their item has been awarded in-game.
 * **"Mark as Waiting" Button:** Reverts a member's status back to pending queue.

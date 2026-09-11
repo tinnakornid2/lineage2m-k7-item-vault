@@ -150,18 +150,65 @@ export const QuickItemModal: React.FC<QuickItemModalProps> = ({
     resetForm();
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const processQuickImageFile = async (file: File) => {
     try {
       const compressed = await compressImage(file);
       setImagePreview(compressed);
       setImageUrl(compressed);
+      sounds.playClick();
     } catch (err) {
       console.error('File compression error:', err);
       setError(lang === 'th' ? 'ไม่สามารถประมวลผลไฟล์รูปภาพได้' : 'Failed to process image');
     }
   };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processQuickImageFile(file);
+    e.target.value = '';
+  };
+
+  const handlePasteQuickImageZone = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          e.stopPropagation();
+          processQuickImageFile(file);
+          break;
+        }
+      }
+    }
+  };
+
+  // Window paste listener when quick item modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleWindowPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          const file = items[i].getAsFile();
+          if (file) {
+            e.preventDefault();
+            processQuickImageFile(file);
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handleWindowPaste);
+    return () => {
+      window.removeEventListener('paste', handleWindowPaste);
+    };
+  }, [isOpen]);
 
   const handleSelectPreset = (url: string) => {
     sounds.playClick();
@@ -414,11 +461,17 @@ export const QuickItemModal: React.FC<QuickItemModalProps> = ({
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1">
                   <div className="flex items-center gap-3">
                     <label
+                      tabIndex={0}
+                      onPaste={handlePasteQuickImageZone}
                       htmlFor="file-quick-image"
-                      className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#111c30] hover:bg-[#182845] border border-[#2a3c5d] hover:border-[#38bdf8] text-xs font-medium text-slate-200 cursor-pointer transition-all shadow-sm"
+                      className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#111c30] hover:bg-[#182845] border border-dashed border-[#d4af37]/50 hover:border-[#d4af37] text-xs font-medium text-slate-200 cursor-pointer transition-all shadow-sm outline-none"
+                      title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูป' : 'Click to choose or Ctrl + V to paste'}
                     >
                       <Upload className="w-4 h-4 text-[#d4af37]" />
                       <span>{t.chooseImage}</span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-amber-300 border border-slate-700">
+                        Ctrl + V
+                      </span>
                       <input
                         id="file-quick-image"
                         type="file"

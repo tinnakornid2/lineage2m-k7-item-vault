@@ -239,8 +239,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <h1 className="text-2xl sm:text-3xl font-black font-cinzel tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#fff3be] via-[#e5be49] to-[#bf9121] drop-shadow-sm">
               LINEAGE 2M
             </h1>
-            <div className="inline-block mt-1 px-3 py-0.5 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/30 text-[11px] font-mono tracking-widest text-[#f0cf75] uppercase">
-              CLAN HUB SYSTEM
+            <div className="flex items-center justify-center gap-1.5 mt-1">
+              <span className="px-3 py-0.5 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/30 text-[11px] font-mono tracking-widest text-[#f0cf75] uppercase">
+                CLAN HUB SYSTEM
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/35 text-[10px] font-mono font-bold text-sky-300">
+                v1.2.0
+              </span>
             </div>
             <p className="text-xs text-slate-400 mt-2 font-prompt">
               {lang === 'th'

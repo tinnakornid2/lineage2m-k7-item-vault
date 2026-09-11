@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Plus,
   Sparkles,
@@ -25,7 +25,8 @@ import {
   Check,
   BarChart3,
   SlidersHorizontal,
-  ArrowUpDown
+  ArrowUpDown,
+  ClipboardCheck
 } from 'lucide-react';
 import {
   HunterRecord,
@@ -162,10 +163,23 @@ export const VaultView: React.FC<VaultViewProps> = ({
     }
   };
 
-  // Handle Item Image file upload with compression
-  const handleItemImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Helper to extract image files from a ClipboardEvent
+  const extractImageFilesFromClipboard = (e: React.ClipboardEvent | ClipboardEvent): File[] => {
+    const clipboardData = 'clipboardData' in e ? e.clipboardData : null;
+    if (!clipboardData || !clipboardData.items) return [];
+    const files: File[] = [];
+    for (let i = 0; i < clipboardData.items.length; i++) {
+      const item = clipboardData.items[i];
+      if (item.type && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    return files;
+  };
+
+  // Reusable processor for item image (file picker or Ctrl+V paste)
+  const processItemImageFile = async (file: File, isPaste = false) => {
     try {
       const compressedDataUrl = await compressImageFile(file, {
         maxWidth: 600,
@@ -174,32 +188,45 @@ export const VaultView: React.FC<VaultViewProps> = ({
       });
       setItemImagePreview(compressedDataUrl);
       setItemImageUrl(compressedDataUrl);
+      sounds.playClaim();
+      if (isPaste) {
+        setFormSuccess(
+          lang === 'th'
+            ? 'วางรูปภาพไอเทมสำเร็จ (Ctrl + V) 📋'
+            : 'Item image pasted successfully (Ctrl + V) 📋'
+        );
+      }
     } catch {
-      // Fallback to FileReader
       const reader = new FileReader();
       reader.onload = () => {
         const result = reader.result as string;
         setItemImagePreview(result);
         setItemImageUrl(result);
+        sounds.playClaim();
       };
       reader.readAsDataURL(file);
     }
   };
 
-  // Handle Backup Hunter Screenshots (multiple files) with compression
-  const handleBackupScreenshotsUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  // Reusable processor for backup hunter screenshots
+  const processBackupScreenshotsFiles = async (files: File[], isPaste = false) => {
     if (!files || files.length === 0) return;
-
-    const fileList = Array.from(files) as File[];
     try {
-      const compressedPromises = fileList.map((file) =>
+      const compressedPromises = files.map((file) =>
         compressImageFile(file, { maxWidth: 1280, maxHeight: 1280, quality: 0.75 })
       );
       const compressedResults = await Promise.all(compressedPromises);
       setHunterScreenshots((prev) => [...prev, ...compressedResults]);
+      sounds.playClick();
+      if (isPaste) {
+        setOcrStatusText(
+          lang === 'th'
+            ? `วางรูปภาพหลักฐาน ${files.length} รูปสำเร็จ (Ctrl + V) 📋`
+            : `Pasted ${files.length} screenshot(s) (Ctrl + V) 📋`
+        );
+      }
     } catch {
-      fileList.forEach((file) => {
+      files.forEach((file) => {
         const reader = new FileReader();
         reader.onload = () => {
           const result = reader.result as string;
@@ -210,24 +237,20 @@ export const VaultView: React.FC<VaultViewProps> = ({
     }
   };
 
-  // Handle OCR Hunter Image Scan (Multiple Images Supported + Auto-Deduplication)
-  const handleOcrScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  // Reusable processor for OCR hunter scan (from file picker or Ctrl+V paste)
+  const processOcrScreenshotFiles = async (files: File[], isPaste = false) => {
     if (!files || files.length === 0) return;
-
     setIsScanningOCR(true);
     const fileCount = files.length;
     setOcrStatusText(
       lang === 'th'
-        ? `กำลังบีบอัดและสแกน ${fileCount} รูปภาพ...`
-        : `Compressing & scanning ${fileCount} screenshot(s)...`
+        ? `กำลังบีบอัดและสแกน ${fileCount} รูปภาพ${isPaste ? ' (จาก Ctrl + V)' : ''}...`
+        : `Compressing & scanning ${fileCount} screenshot(s)${isPaste ? ' (from Ctrl + V)' : ''}...`
     );
 
     try {
-      const fileList = Array.from(files) as File[];
-      // Compress all screenshots first
       const compressedBase64List = await Promise.all(
-        fileList.map((file) =>
+        files.map((file) =>
           compressImageFile(file, { maxWidth: 1280, maxHeight: 1280, quality: 0.75 })
         )
       );
@@ -309,10 +332,96 @@ export const VaultView: React.FC<VaultViewProps> = ({
       );
     } finally {
       setIsScanningOCR(false);
-      // Reset input value so the same file can be selected again if needed
+    }
+  };
+
+  // Handle Item Image file upload with compression
+  const handleItemImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await processItemImageFile(file, false);
       e.target.value = '';
     }
   };
+
+  // Handle Backup Hunter Screenshots file upload
+  const handleBackupScreenshotsUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      await processBackupScreenshotsFiles(Array.from(files), false);
+      e.target.value = '';
+    }
+  };
+
+  // Handle OCR Hunter Image Scan file upload
+  const handleOcrScreenshotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      await processOcrScreenshotFiles(Array.from(files), false);
+      e.target.value = '';
+    }
+  };
+
+  // Direct paste handlers on specific dropzones
+  const handlePasteItemImageZone = (e: React.ClipboardEvent) => {
+    const images = extractImageFilesFromClipboard(e);
+    if (images.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      processItemImageFile(images[0], true);
+    }
+  };
+
+  const handlePasteBackupScreenshotsZone = (e: React.ClipboardEvent) => {
+    const images = extractImageFilesFromClipboard(e);
+    if (images.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      processBackupScreenshotsFiles(images, true);
+    }
+  };
+
+  const handlePasteOcrZone = (e: React.ClipboardEvent) => {
+    const images = extractImageFilesFromClipboard(e);
+    if (images.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      processOcrScreenshotFiles(images, true);
+    }
+  };
+
+  // Global window paste listener when viewing Create Item form
+  useEffect(() => {
+    if (vaultSubTab !== 'create') return;
+
+    const handleWindowPaste = (e: ClipboardEvent) => {
+      // Don't intercept if user is typing text in an input and clipboard only has text
+      const target = e.target as HTMLElement;
+      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA');
+
+      const images = extractImageFilesFromClipboard(e);
+      if (images.length === 0) return; // Allow normal text copy-paste
+
+      // If user pasted image files, prevent default browser action
+      e.preventDefault();
+
+      if (!itemImagePreview) {
+        // If item image isn't set, use first pasted image as item icon
+        processItemImageFile(images[0], true);
+        if (images.length > 1) {
+          processOcrScreenshotFiles(images.slice(1), true);
+        }
+      } else {
+        // If item image is already set, treat pasted images as hunter screenshots & trigger OCR
+        processOcrScreenshotFiles(images, true);
+      }
+    };
+
+    window.addEventListener('paste', handleWindowPaste);
+    return () => {
+      window.removeEventListener('paste', handleWindowPaste);
+    };
+  }, [vaultSubTab, itemImagePreview, hunters, allMembers, lang]);
 
   // Add Hunter via Dropdown or Selection (No typing needed)
   const handleAddManualHunter = (overrideName?: string, overrideClan?: string) => {
@@ -634,7 +743,12 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                   1. {t.itemImage} *
                 </label>
-                <div className="flex flex-col items-center justify-center p-3 rounded-xl bg-[#090d16] border border-dashed border-slate-700 hover:border-[#d4af37] transition-all relative group min-h-[140px]">
+                <div
+                  tabIndex={0}
+                  onPaste={handlePasteItemImageZone}
+                  className="flex flex-col items-center justify-center p-3 rounded-xl bg-[#090d16] border border-dashed border-slate-700 hover:border-[#d4af37] focus:border-[#d4af37] focus:ring-1 focus:ring-[#d4af37]/40 transition-all relative group min-h-[140px] outline-none"
+                  title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูป' : 'Click to choose or Ctrl + V to paste'}
+                >
                   {itemImagePreview ? (
                     <div className="relative w-full h-28 rounded-lg overflow-hidden border border-slate-700">
                       <img
@@ -644,9 +758,10 @@ export const VaultView: React.FC<VaultViewProps> = ({
                       />
                       <label
                         htmlFor="file-item-image-replace"
-                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs font-bold text-white transition-opacity cursor-pointer"
+                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1 text-xs font-bold text-white transition-opacity cursor-pointer"
                       >
-                        {t.chooseImage}
+                        <span>{t.chooseImage}</span>
+                        <span className="text-[10px] text-amber-300 font-mono">หรือกด Ctrl + V</span>
                       </label>
                     </div>
                   ) : (
@@ -654,12 +769,13 @@ export const VaultView: React.FC<VaultViewProps> = ({
                       htmlFor="file-item-image"
                       className="w-full h-full flex flex-col items-center justify-center cursor-pointer text-center p-2"
                     >
-                      <Upload className="w-6 h-6 text-[#d4af37] mb-1.5" />
-                      <span className="text-xs font-medium text-slate-300">
+                      <Upload className="w-6 h-6 text-[#d4af37] mb-1.5 group-hover:scale-110 transition-transform" />
+                      <span className="text-xs font-semibold text-slate-200">
                         {t.chooseImage}
                       </span>
-                      <span className="text-[10px] text-slate-500 mt-0.5">
-                        PNG, JPG, WEBP
+                      <span className="text-[10px] text-amber-300 font-mono mt-1 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 flex items-center gap-1">
+                        <ClipboardCheck className="w-3 h-3" />
+                        <span>Ctrl + V {lang === 'th' ? 'วางรูปได้' : 'Paste Ready'}</span>
                       </span>
                     </label>
                   )}
@@ -781,11 +897,17 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
                 <div className="flex items-center gap-2">
                   <label
+                    tabIndex={0}
+                    onPaste={handlePasteOcrZone}
                     htmlFor="file-ocr-upload"
-                    className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold cursor-pointer transition-all shrink-0 shadow-sm"
+                    className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold cursor-pointer transition-all shrink-0 shadow-sm border border-sky-400/50 hover:border-sky-300 outline-none"
+                    title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางภาพให้ AI สแกน' : 'Click to choose or Ctrl + V to paste & scan'}
                   >
                     <Camera className="w-3.5 h-3.5" />
-                    <span>{isScanningOCR ? t.uploadingAndScanning : lang === 'th' ? 'อัปโหลดสกรีนช็อต OCR (เลือกได้หลายรูป)' : 'Scan OCR (Multiple Images)'}</span>
+                    <span>{isScanningOCR ? t.uploadingAndScanning : lang === 'th' ? 'สแกน OCR (หรือ Ctrl+V วางภาพ)' : 'Scan OCR (or Ctrl+V)'}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-900 text-sky-200 border border-sky-600">
+                      Ctrl + V
+                    </span>
                     <input
                       id="file-ocr-upload"
                       type="file"
@@ -953,11 +1075,17 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 </div>
 
                 <label
+                  tabIndex={0}
+                  onPaste={handlePasteBackupScreenshotsZone}
                   htmlFor="file-multiple-screenshots"
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#1b263b] hover:bg-[#253552] border border-slate-700 text-xs font-medium text-slate-200 cursor-pointer transition-all shrink-0"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#1b263b] hover:bg-[#253552] border border-dashed border-[#d4af37]/50 hover:border-[#d4af37] text-xs font-medium text-slate-200 cursor-pointer transition-all shrink-0 outline-none"
+                  title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูปหลักฐาน' : 'Click to choose or Ctrl + V to paste proof'}
                 >
                   <Upload className="w-3.5 h-3.5 text-[#f5d77f]" />
-                  <span>{lang === 'th' ? 'เลือกรูปสกรีนช็อต (หลายรูป)' : 'Upload Screenshots'}</span>
+                  <span>{lang === 'th' ? 'แนบสกรีนช็อต (หรือ Ctrl+V)' : 'Upload Screenshots (or Ctrl+V)'}</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-amber-300 border border-slate-700">
+                    Ctrl + V
+                  </span>
                   <input
                     id="file-multiple-screenshots"
                     type="file"

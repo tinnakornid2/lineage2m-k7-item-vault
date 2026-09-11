@@ -1,7 +1,7 @@
-# Lineage2M Clan Hub - User Manual
+# Lineage2M Clan Hub - User Manual (v1.2.0)
 **Comprehensive Guild Management, Boss Item Vault & Queue Distribution System**
 
-This user guide provides a clear, concise breakdown of every page, section, and button within the Lineage2M Clan Hub application.
+This user guide provides a clear, concise breakdown of every page, section, and button within the Lineage2M Clan Hub application, featuring **Direct Copy-Paste (Ctrl + V)** image upload capabilities.
 
 ---
 
@@ -31,7 +31,7 @@ This user guide provides a clear, concise breakdown of every page, section, and 
 
 | Button / Element | Icon | Function & Description |
 | :--- | :---: | :--- |
-| **LINEAGE 2M CLAN HUB** | 👑 | System logo. Click anywhere to return to the **Main Dashboard**. |
+| **LINEAGE 2M CLAN HUB (v1.2.0)** | 👑 | System logo. Click anywhere to return to the **Main Dashboard**. |
 | **Diamond Vault Widget** | 💎 | Displays current central guild diamond reserve. Click to open the **Deposit / Withdrawal** window. |
 | **Wallpaper Settings** | ✨ | Opens the background visual customization modal (upload image, adjust blur/brightness). |
 | **Sound Toggle** | 🔊 / 🔇 | Enables or mutes system UI sound effects (clicks, modal pops, distribution fanfares). |
@@ -60,21 +60,21 @@ This user guide provides a clear, concise breakdown of every page, section, and 
 
 ## 4. Boss Item Vault
 *(Restricted to Admin and Owner)*
-**Comprehensive repository for logging raid drops, managing preset templates, and scanning hunter rosters with AI OCR.**
+**Comprehensive repository for logging raid drops, managing preset templates, and scanning hunter rosters with AI OCR (Copy-Paste Supported).**
 
 ### Sub-tabs
 1. **Add New Item:** Input form to record a newly dropped boss item.
 2. **Distributed Items Archive:** Searchable archive of all historical distributed items with attached raid proof.
 
 ### Key Buttons & Actions
-* **"Quick Items Menu" Button:** Opens the quick item preset editor to save item icons, names, and rarities for rapid 1-click entry.
+* **"Quick Items Menu" Button:** Opens the quick item preset editor to save item icons, names, and rarities for rapid 1-click entry (Ctrl+V supported).
 * **Quick Presets Shortcut Strip:** Click any preset chip to auto-populate the creation form instantly.
 * **Form Inputs:** Item Name, Diamond Price, Minimum CP required to claim, and Rarity tier (Rare / Epic / Legend / Mythic).
-* **Item Image Upload:** Select an item graphic from your computer or mobile device.
-* **Hunter System & AI OCR Screenshot Scanner:**
+* **Item Image Upload (Ctrl + V Supported):** Click to select from device or press **Ctrl + V** to paste clipboard images directly.
+* **Hunter System & AI OCR Screenshot Scanner (Ctrl + V Supported):**
   * **Hunter Dropdown:** Select hunters from active guild rosters grouped by clan without typing.
-  * **"Upload Backup Screenshots" (Multiple):** Attach raid party screenshots proving boss participation.
-  * **"Scan Hunters via OCR" (Gemini AI):** Upload multiple party screenshots; the AI reads player names and matches them against guild databases automatically.
+  * **"Upload Backup Screenshots" (Multiple):** Select files or press **Ctrl + V** to attach raid party screenshots proving boss participation.
+  * **"Scan Hunters via OCR" (Gemini AI):** Click button or press **Ctrl + V** to paste screenshots directly; the AI reads player names and matches them against guild databases automatically.
   * **"Filter Duplicates" Button:** Cleans duplicate detected names across multiple screenshots in one click.
 * **"Create / Add Item" Button:** Validates and saves the item into the active vault.
 * **In Distributed Archive:**
@@ -89,7 +89,7 @@ This user guide provides a clear, concise breakdown of every page, section, and 
 > **Notice:** Self-service queue joining is disabled for standard members. Only **Admins and Owners** have privileges to add and rearrange queue members to ensure fair and dispute-free distribution.
 
 ### Key Buttons & Actions *(Admin/Owner)*
-* **"+ Register Item into Queue" Button:** Create an item queue category (e.g. Red Ring, Purple Weapon).
+* **"+ Register Item into Queue" Button:** Create an item queue category (supports **Ctrl + V** image paste).
 * **"+ Add Member to Queue" Button:** Select a clan player from the dropdown to place them on the waiting list.
 * **"Mark as Received" Button:** Toggles member status to a green checkmark once their item has been awarded in-game.
 * **"Mark as Waiting" Button:** Reverts a member's status back to pending queue.
