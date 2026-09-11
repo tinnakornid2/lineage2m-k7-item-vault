@@ -218,6 +218,10 @@ export const translations = {
     statusPending: 'รอคิว',
     removeQueueItem: 'ลบคิวไอเทม',
     noQueueItems: 'ยังไม่มีคิวไอเทม',
+    viewModeGrid4: '4 ไอเทม / แถว (กะทัดรัด)',
+    viewModeTable: 'ตารางเต็มจอ',
+    queueReceivedCount: 'รับแล้ว',
+    queuePendingCount: 'รอรับ',
 
     // All Members
     allMembersTitle: 'ทำเนียบสมาชิก',
@@ -497,6 +501,10 @@ export const translations = {
     statusPending: 'Waiting',
     removeQueueItem: 'Delete Queue Item',
     noQueueItems: 'No queue items configured',
+    viewModeGrid4: '4 Items / Row (Compact)',
+    viewModeTable: 'Full Table',
+    queueReceivedCount: 'Received',
+    queuePendingCount: 'Pending',
 
     // All Members
     allMembersTitle: 'All Clan Members Directory',

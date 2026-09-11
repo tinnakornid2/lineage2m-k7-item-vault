@@ -639,7 +639,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {t.noQueueItems}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
             {queueItems.slice(0, 4).map((q) => (
               <div
                 key={q.id}

@@ -15,7 +15,10 @@ import {
   UserCheck,
   ChevronDown,
   RotateCcw,
-  ClipboardCheck
+  ClipboardCheck,
+  LayoutGrid,
+  List,
+  Users
 } from 'lucide-react';
 import { compressImageFile } from '../utils/imageCompressor';
 import {
@@ -42,6 +45,7 @@ interface QueueViewProps {
   onOpenOwnerResetModal?: () => void;
   onOpenAuth?: () => void;
   showToast?: (msg: string, type: 'info' | 'success' | 'warning' | 'error') => void;
+  onViewImageZoom?: (url: string, title?: string) => void;
 }
 
 export const QueueView: React.FC<QueueViewProps> = ({
@@ -56,13 +60,17 @@ export const QueueView: React.FC<QueueViewProps> = ({
   onUpdateQueueMembers,
   onOpenOwnerResetModal,
   onOpenAuth,
-  showToast
+  showToast,
+  onViewImageZoom
 }) => {
   const t = translations[lang];
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
     currentUser?.role === 'admin' ||
     currentUser?.role === 'manager';
+
+  // View Mode: 'grid' (4 items per row) vs 'table' (full width horizontal table)
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
   // Create queue modal form state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -339,6 +347,44 @@ export const QueueView: React.FC<QueueViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          {/* View Mode Switcher: 4 Items / Row vs Full Table */}
+          <div className="flex items-center p-1 rounded-xl bg-[#090d16] border border-slate-800 shadow-inner">
+            <button
+              type="button"
+              id="btn-queue-view-grid"
+              onClick={() => {
+                sounds.playClick();
+                setViewMode('grid');
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                viewMode === 'grid'
+                  ? 'bg-gradient-to-r from-[#d4af37] to-[#aa841c] text-slate-950 shadow'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+              title={t.viewModeGrid4}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>{t.viewModeGrid4}</span>
+            </button>
+            <button
+              type="button"
+              id="btn-queue-view-table"
+              onClick={() => {
+                sounds.playClick();
+                setViewMode('table');
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                viewMode === 'table'
+                  ? 'bg-gradient-to-r from-[#d4af37] to-[#aa841c] text-slate-950 shadow'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+              title={t.viewModeTable}
+            >
+              <List className="w-3.5 h-3.5" />
+              <span>{t.viewModeTable}</span>
+            </button>
+          </div>
+
           {currentUser?.role === 'owner' && onOpenOwnerResetModal && (
             <button
               id="btn-queue-owner-reset"
@@ -536,14 +582,329 @@ export const QueueView: React.FC<QueueViewProps> = ({
         </form>
       )}
 
-      {/* QUEUE ITEMS LIST (แสดงเป็นตารางแนวนอนพร้อมรูปภาพ หรือกล่องรอรูปภาพ) */}
-      <div className="space-y-6">
-        {queueItems.length === 0 ? (
-          <div className="p-12 rounded-xl bg-[#0c121e] border border-slate-800 text-center text-xs text-slate-500">
-            {t.noQueueItems}
-          </div>
-        ) : (
-          queueItems.map((queue) => {
+      {/* QUEUE ITEMS: 4 ITEMS PER ROW (GRID) OR FULL TABLE VIEW */}
+      {queueItems.length === 0 ? (
+        <div className="p-12 rounded-xl bg-[#0c121e] border border-slate-800 text-center text-xs text-slate-500">
+          {t.noQueueItems}
+        </div>
+      ) : viewMode === 'grid' ? (
+        /* 4 ITEMS PER ROW (COMPACT GRID) */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {queueItems.map((queue) => {
+            const userIndex = currentUser
+              ? queue.queueList.findIndex(
+                  (m) =>
+                    (m.userId && m.userId === currentUser.id) ||
+                    (m.name && currentUser.inGameName && m.name.trim().toLowerCase() === currentUser.inGameName.trim().toLowerCase())
+                )
+              : -1;
+            const isUserInQueue = userIndex !== -1;
+            const receivedCount = queue.queueList.filter((m) => m.status === 'received').length;
+            const totalCount = queue.queueList.length;
+            const percentReceived = totalCount > 0 ? (receivedCount / totalCount) * 100 : 0;
+
+            return (
+              <div
+                key={queue.id}
+                className="flex flex-col rounded-xl bg-gradient-to-b from-[#111726] to-[#090d16] border border-slate-800 hover:border-slate-700 shadow-xl overflow-hidden transition-all duration-200"
+              >
+                {/* Compact Card Header */}
+                <div className="p-3 bg-[#0d1320] border-b border-slate-800 flex items-start gap-2.5">
+                  {/* Image with zoom on click */}
+                  {queue.imageUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        if (onViewImageZoom) {
+                          onViewImageZoom(queue.imageUrl!, queue.name);
+                        }
+                      }}
+                      className="shrink-0 group relative overflow-hidden rounded-lg border border-slate-700 hover:border-[#d4af37] transition-colors cursor-pointer"
+                      title={lang === 'th' ? 'คลิกเพื่อดูรูปขยาย' : 'Click to zoom image'}
+                    >
+                      <img
+                        src={queue.imageUrl}
+                        alt={queue.name}
+                        className="w-11 h-11 object-cover group-hover:scale-105 transition-transform"
+                      />
+                    </button>
+                  ) : (
+                    <div className="w-11 h-11 rounded-lg bg-[#141b2b] border border-dashed border-slate-700 flex items-center justify-center text-[9px] text-slate-500 text-center p-1 shrink-0">
+                      {t.waitingForImage}
+                    </div>
+                  )}
+
+                  {/* Title & Metadata */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`text-[8.5px] font-bold px-1.5 py-0.2 rounded border uppercase ${getRarityBadge(queue.rarity)}`}>
+                        {queue.rarity}
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-sky-400">
+                        {totalCount} {lang === 'th' ? 'คน' : 'players'}
+                      </span>
+                      {receivedCount > 0 && (
+                        <span className="text-[9.5px] font-mono text-emerald-400 font-semibold">
+                          ({receivedCount} {t.statusReceived})
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-100 font-cinzel line-clamp-2 mt-0.5 leading-snug" title={queue.name}>
+                      {queue.name}
+                    </h3>
+                  </div>
+
+                  {/* Action buttons (Admin/Owner only) */}
+                  {isAdminOrOwner && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        id={`btn-grid-add-member-${queue.id}`}
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setActiveQueueIdForAdd(activeQueueIdForAdd === queue.id ? null : queue.id);
+                        }}
+                        className={`p-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                          activeQueueIdForAdd === queue.id
+                            ? 'bg-sky-500/20 border-sky-400/50 text-sky-300'
+                            : 'bg-[#162235] hover:bg-[#1f314c] border-slate-700 text-slate-200'
+                        }`}
+                        title={t.addMemberToQueue}
+                      >
+                        <UserPlus className="w-3.5 h-3.5 text-[#38bdf8]" />
+                      </button>
+
+                      <button
+                        id={`btn-grid-delete-queue-${queue.id}`}
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setQueueToDelete(queue);
+                        }}
+                        className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 hover:text-white transition-all cursor-pointer shadow-sm"
+                        title={t.removeQueueItem}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Inline Add Player Expander for Grid */}
+                {activeQueueIdForAdd === queue.id && isAdminOrOwner && (
+                  <div className="p-2.5 bg-[#0a0e18] border-b border-slate-800 space-y-2 animate-in fade-in duration-150">
+                    <div className="text-[11px] text-amber-300 font-bold flex items-center gap-1">
+                      <UserCheck className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{lang === 'th' ? 'เลือกสมาชิกลงคิว:' : 'Select Member:'}</span>
+                    </div>
+                    <select
+                      id={`select-grid-queue-member-${queue.id}`}
+                      value={selectedMemberIdForQueue}
+                      onChange={(e) => {
+                        const mId = e.target.value;
+                        setSelectedMemberIdForQueue(mId);
+                        const mem = allMembers.find((m) => m.id === mId);
+                        if (mem) {
+                          setNewPlayerName(mem.inGameName);
+                          setNewPlayerClan(mem.clan);
+                        } else {
+                          setNewPlayerName('');
+                          setNewPlayerClan('');
+                        }
+                      }}
+                      className="w-full px-2 py-1.5 rounded-lg bg-[#111726] border border-amber-500/50 hover:border-amber-400 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none cursor-pointer"
+                    >
+                      <option value="">
+                        {lang === 'th'
+                          ? '-- คลิกเลือกชื่อสมาชิก --'
+                          : '-- Select member --'}
+                      </option>
+                      {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, members]) => (
+                        <optgroup key={clanName} label={`🛡️ ${clanName} (${members.length} คน)`}>
+                          {members.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.inGameName} ({m.clan}) {m.powerLevel ? `• ${(m.powerLevel).toLocaleString()} CP` : ''}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+
+                    <div className="flex items-center justify-between gap-1.5 pt-0.5">
+                      <div className="text-[10px] text-slate-300 truncate">
+                        {newPlayerName ? `${newPlayerName} (${newPlayerClan})` : ''}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          disabled={!newPlayerName}
+                          onClick={() => handleAddMemberToQueue(queue.id)}
+                          className="px-2.5 py-1 rounded bg-[#0284c7] hover:bg-[#0369a1] disabled:opacity-40 text-white text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>{lang === 'th' ? 'เพิ่ม' : 'Add'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveQueueIdForAdd(null);
+                            setNewPlayerName('');
+                            setNewPlayerClan('');
+                            setSelectedMemberIdForQueue('');
+                          }}
+                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] cursor-pointer"
+                        >
+                          {t.cancel}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Queue Member Items List */}
+                <div className="flex-1 p-2.5 space-y-1.5 overflow-y-auto max-h-[320px] min-h-[130px] custom-scrollbar">
+                  {queue.queueList.length === 0 ? (
+                    <div className="h-28 flex flex-col items-center justify-center text-slate-500 text-xs gap-1.5">
+                      <Users className="w-5 h-5 opacity-30 text-slate-400" />
+                      <span>{lang === 'th' ? 'ยังไม่มีสมาชิกในคิว' : 'No players in queue'}</span>
+                    </div>
+                  ) : (
+                    queue.queueList.map((member, index) => {
+                      const isReceived = member.status === 'received';
+                      const isThisUser = Boolean(
+                        currentUser && (
+                          (member.userId && member.userId === currentUser.id) ||
+                          (member.name && currentUser.inGameName && member.name.trim().toLowerCase() === currentUser.inGameName.trim().toLowerCase())
+                        )
+                      );
+
+                      return (
+                        <div
+                          key={member.id}
+                          draggable={isAdminOrOwner}
+                          onDragStart={() => handleDragStart(queue.id, index)}
+                          onDragOver={handleDragOver}
+                          onDrop={() => handleDrop(queue.id, index)}
+                          className={`p-2 rounded-lg border text-xs transition-all space-y-1.5 ${
+                            isThisUser
+                              ? 'bg-[#211639]/70 border-purple-500/60 shadow-sm'
+                              : isReceived
+                              ? 'bg-[#080d15]/80 border-slate-800/80 opacity-60'
+                              : 'bg-[#0f172a]/70 border-slate-800/90 hover:border-slate-700'
+                          }`}
+                        >
+                          {/* Top Row: Priority & Player Info */}
+                          <div className="flex items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {isAdminOrOwner && (
+                                <GripVertical className="w-3 h-3 text-slate-600 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0" />
+                              )}
+                              <span className="font-mono font-bold text-sky-400 text-[11px] shrink-0">
+                                #{index + 1}
+                              </span>
+                              <span className="font-bold text-slate-200 truncate text-xs" title={member.name}>
+                                {member.name}
+                              </span>
+                              {isThisUser && (
+                                <span className="px-1 py-0.2 rounded text-[9px] font-bold bg-purple-500/20 border border-purple-500/50 text-purple-300 shrink-0">
+                                  {lang === 'th' ? 'คุณ' : 'You'}
+                                </span>
+                              )}
+                            </div>
+
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800/90 text-slate-300 shrink-0 font-medium">
+                              {member.clan}
+                            </span>
+                          </div>
+
+                          {/* Bottom Row: CP & Status & Controls */}
+                          <div className="flex items-center justify-between gap-1.5 pt-0.5 border-t border-slate-800/60">
+                            <span className="font-mono text-[10.5px] text-amber-400 font-semibold truncate">
+                              {member.powerLevel ? `${member.powerLevel.toLocaleString()} CP` : '-'}
+                            </span>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                disabled={!isAdminOrOwner}
+                                onClick={() => handleToggleStatus(queue.id, member.id)}
+                                className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all ${
+                                  isReceived
+                                    ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900/60'
+                                    : 'bg-amber-950/70 text-amber-300 border-amber-700/60 hover:bg-amber-900/60'
+                                } ${!isAdminOrOwner ? 'cursor-default' : 'cursor-pointer'}`}
+                                title={isAdminOrOwner ? 'Click to toggle status' : ''}
+                              >
+                                {isReceived ? (
+                                  <CheckCircle className="w-2.5 h-2.5 text-emerald-400" />
+                                ) : (
+                                  <Clock className="w-2.5 h-2.5 text-amber-400" />
+                                )}
+                                <span>{isReceived ? t.statusReceived : t.statusPending}</span>
+                              </button>
+
+                              {isAdminOrOwner && (
+                                <>
+                                  <button
+                                    onClick={() => handleMoveMember(queue.id, index, 'up')}
+                                    disabled={index === 0}
+                                    className="p-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+                                    title="Move Up"
+                                  >
+                                    <ArrowUp className="w-2.5 h-2.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleMoveMember(queue.id, index, 'down')}
+                                    disabled={index === queue.queueList.length - 1}
+                                    className="p-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer"
+                                    title="Move Down"
+                                  >
+                                    <ArrowDown className="w-2.5 h-2.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleRemoveMember(queue.id, member.id)}
+                                    className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-white cursor-pointer transition-colors"
+                                    title={t.delete}
+                                  >
+                                    <Trash2 className="w-2.5 h-2.5" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Card Footer: Progress & Reorder Hint */}
+                <div className="p-2.5 bg-[#080d16] border-t border-slate-800 flex flex-col gap-1 text-[10px]">
+                  <div className="flex items-center justify-between text-slate-400">
+                    <span>
+                      {t.queueReceivedCount}: <strong className="text-emerald-400">{receivedCount}</strong> / {totalCount} {lang === 'th' ? 'คน' : 'players'}
+                    </span>
+                    {isAdminOrOwner && totalCount > 1 && (
+                      <span className="text-slate-500">{t.dragToReorder}</span>
+                    )}
+                  </div>
+                  {totalCount > 0 && (
+                    <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300"
+                        style={{ width: `${percentReceived}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* FULL TABLE VIEW (เดิม) */
+        <div className="space-y-6">
+          {queueItems.map((queue) => {
             const userIndex = currentUser
               ? queue.queueList.findIndex(
                   (m) =>
@@ -558,302 +919,312 @@ export const QueueView: React.FC<QueueViewProps> = ({
                 key={queue.id}
                 className="rounded-xl bg-gradient-to-b from-[#111726] to-[#090d16] border border-slate-800 shadow-xl overflow-hidden"
               >
-              {/* Header row for this Queue Item */}
-              <div className="p-4 bg-[#0d1320] border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  
-                  {/* Image or Placeholder box waiting for image */}
-                  {queue.imageUrl ? (
-                    <img
-                      src={queue.imageUrl}
-                      alt={queue.name}
-                      className="w-14 h-14 rounded-lg object-cover border border-slate-700 shadow-sm shrink-0"
-                    />
-                  ) : (
-                    <div className="w-14 h-14 rounded-lg bg-[#141b2b] border border-dashed border-slate-700 flex items-center justify-center text-[10px] text-slate-400 text-center p-1.5 shrink-0">
-                      {t.waitingForImage}
-                    </div>
-                  )}
+                {/* Header row for this Queue Item */}
+                <div className="p-4 bg-[#0d1320] border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    {/* Image or Placeholder box waiting for image */}
+                    {queue.imageUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          if (onViewImageZoom) {
+                            onViewImageZoom(queue.imageUrl!, queue.name);
+                          }
+                        }}
+                        className="cursor-pointer group relative overflow-hidden rounded-lg"
+                        title={lang === 'th' ? 'คลิกเพื่อดูรูปขยาย' : 'Click to zoom'}
+                      >
+                        <img
+                          src={queue.imageUrl}
+                          alt={queue.name}
+                          className="w-14 h-14 object-cover border border-slate-700 group-hover:border-[#d4af37] transition-colors rounded-lg shadow-sm shrink-0"
+                        />
+                      </button>
+                    ) : (
+                      <div className="w-14 h-14 rounded-lg bg-[#141b2b] border border-dashed border-slate-700 flex items-center justify-center text-[10px] text-slate-400 text-center p-1.5 shrink-0">
+                        {t.waitingForImage}
+                      </div>
+                    )}
 
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-bold text-slate-100 font-cinzel">
-                        {queue.name}
-                      </h3>
-                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded border uppercase ${getRarityBadge(queue.rarity)}`}>
-                        {queue.rarity}
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-400 mt-0.5">
-                      {queue.queueList.length} {lang === 'th' ? 'คน' : 'players'}
-                      {queue.queueList.some((m) => m.status === 'received') && (
-                        <span className="ml-2 text-emerald-400">
-                          ({queue.queueList.filter((m) => m.status === 'received').length} {t.statusReceived})
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-bold text-slate-100 font-cinzel">
+                          {queue.name}
+                        </h3>
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded border uppercase ${getRarityBadge(queue.rarity)}`}>
+                          {queue.rarity}
                         </span>
-                      )}
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5">
+                        {queue.queueList.length} {lang === 'th' ? 'คน' : 'players'}
+                        {queue.queueList.some((m) => m.status === 'received') && (
+                          <span className="ml-2 text-emerald-400">
+                            ({queue.queueList.filter((m) => m.status === 'received').length} {t.statusReceived})
+                          </span>
+                        )}
+                      </div>
                     </div>
+                  </div>
+
+                  {/* Queue controls (Admin/Owner only) */}
+                  <div className="flex items-center gap-2">
+                    {isAdminOrOwner && (
+                      <>
+                        <button
+                          id={`btn-toggle-add-member-${queue.id}`}
+                          onClick={() => {
+                            sounds.playClick();
+                            setActiveQueueIdForAdd(
+                              activeQueueIdForAdd === queue.id ? null : queue.id
+                            );
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#162235] hover:bg-[#1f314c] border border-slate-700 text-xs font-semibold text-slate-200 transition-all cursor-pointer"
+                        >
+                          <UserPlus className="w-3.5 h-3.5 text-[#38bdf8]" />
+                          <span>{t.addMemberToQueue}</span>
+                        </button>
+
+                        <button
+                          id={`btn-delete-queue-${queue.id}`}
+                          onClick={() => {
+                            sounds.playClick();
+                            setQueueToDelete(queue);
+                          }}
+                          className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 hover:text-white transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                          title={t.removeQueueItem}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
-                {/* Queue controls (Admin/Owner only) */}
-                <div className="flex items-center gap-2">
-
-                  {isAdminOrOwner && (
-                    <>
-                      <button
-                        id={`btn-toggle-add-member-${queue.id}`}
-                        onClick={() => {
-                          sounds.playClick();
-                          setActiveQueueIdForAdd(
-                            activeQueueIdForAdd === queue.id ? null : queue.id
-                          );
+                {/* Inline Add Player form - Dropdown Selection */}
+                {activeQueueIdForAdd === queue.id && isAdminOrOwner && (
+                  <div className="p-3 bg-[#0a0e18] border-b border-slate-800 flex flex-wrap items-center gap-2.5 animate-in fade-in duration-150">
+                    <div className="flex items-center gap-2 flex-1 min-w-[280px]">
+                      <div className="flex items-center gap-1.5 text-xs text-amber-300 font-bold shrink-0">
+                        <UserCheck className="w-4 h-4 text-amber-400" />
+                        <span>{lang === 'th' ? 'เลือกสมาชิก:' : 'Select Member:'}</span>
+                      </div>
+                      <select
+                        id={`select-queue-member-${queue.id}`}
+                        value={selectedMemberIdForQueue}
+                        onChange={(e) => {
+                          const mId = e.target.value;
+                          setSelectedMemberIdForQueue(mId);
+                          const mem = allMembers.find((m) => m.id === mId);
+                          if (mem) {
+                            setNewPlayerName(mem.inGameName);
+                            setNewPlayerClan(mem.clan);
+                          } else {
+                            setNewPlayerName('');
+                            setNewPlayerClan('');
+                          }
                         }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#162235] hover:bg-[#1f314c] border border-slate-700 text-xs font-semibold text-slate-200 transition-all cursor-pointer"
+                        className="flex-1 px-3 py-2 rounded-lg bg-[#111726] border border-amber-500/50 hover:border-amber-400 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none cursor-pointer"
                       >
-                        <UserPlus className="w-3.5 h-3.5 text-[#38bdf8]" />
-                        <span>{t.addMemberToQueue}</span>
-                      </button>
-
-                      <button
-                        id={`btn-delete-queue-${queue.id}`}
-                        onClick={() => {
-                          sounds.playClick();
-                          setQueueToDelete(queue);
-                        }}
-                        className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 hover:text-white transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
-                        title={t.removeQueueItem}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Inline Add Player form - Dropdown Selection (No typing needed) */}
-              {activeQueueIdForAdd === queue.id && isAdminOrOwner && (
-                <div className="p-3 bg-[#0a0e18] border-b border-slate-800 flex flex-wrap items-center gap-2.5 animate-in fade-in duration-150">
-                  <div className="flex items-center gap-2 flex-1 min-w-[280px]">
-                    <div className="flex items-center gap-1.5 text-xs text-amber-300 font-bold shrink-0">
-                      <UserCheck className="w-4 h-4 text-amber-400" />
-                      <span>{lang === 'th' ? 'เลือกสมาชิก:' : 'Select Member:'}</span>
+                        <option value="">
+                          {lang === 'th'
+                            ? '-- คลิกเลือกชื่อสมาชิกจากดรอปดาวน์ (ไม่ต้องพิมพ์) --'
+                            : '-- Select member from dropdown (No typing) --'}
+                        </option>
+                        {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, members]) => (
+                          <optgroup key={clanName} label={`🛡️ ${clanName} (${members.length} คน)`}>
+                            {members.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.inGameName} | {m.clan} {m.powerLevel ? `(${(m.powerLevel).toLocaleString()} CP)` : ''} {m.characterClass ? `• ${m.characterClass}` : ''}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
                     </div>
-                    <select
-                      id={`select-queue-member-${queue.id}`}
-                      value={selectedMemberIdForQueue}
-                      onChange={(e) => {
-                        const mId = e.target.value;
-                        setSelectedMemberIdForQueue(mId);
-                        const mem = allMembers.find((m) => m.id === mId);
-                        if (mem) {
-                          setNewPlayerName(mem.inGameName);
-                          setNewPlayerClan(mem.clan);
-                        } else {
+
+                    {newPlayerName && (
+                      <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-xs font-semibold">
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{newPlayerName}</span>
+                        <span className="text-slate-400 text-[11px]">({newPlayerClan})</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={!newPlayerName}
+                        onClick={() => handleAddMemberToQueue(queue.id)}
+                        className="px-3.5 py-2 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] disabled:opacity-40 text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{lang === 'th' ? 'ยืนยันเพิ่มเข้าคิว' : 'Confirm Add'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveQueueIdForAdd(null);
                           setNewPlayerName('');
                           setNewPlayerClan('');
-                        }
-                      }}
-                      className="flex-1 px-3 py-2 rounded-lg bg-[#111726] border border-amber-500/50 hover:border-amber-400 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none cursor-pointer"
-                    >
-                      <option value="">
-                        {lang === 'th'
-                          ? '-- คลิกเลือกชื่อสมาชิกจากดรอปดาวน์ (ไม่ต้องพิมพ์) --'
-                          : '-- Select member from dropdown (No typing) --'}
-                      </option>
-                      {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, members]) => (
-                        <optgroup key={clanName} label={`🛡️ ${clanName} (${members.length} คน)`}>
-                          {members.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.inGameName} | {m.clan} {m.powerLevel ? `(${(m.powerLevel).toLocaleString()} CP)` : ''} {m.characterClass ? `• ${m.characterClass}` : ''}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                  </div>
-
-                  {newPlayerName && (
-                    <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-xs font-semibold">
-                      <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>{newPlayerName}</span>
-                      <span className="text-slate-400 text-[11px]">({newPlayerClan})</span>
+                          setSelectedMemberIdForQueue('');
+                        }}
+                        className="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-all cursor-pointer"
+                      >
+                        {t.cancel}
+                      </button>
                     </div>
-                  )}
-
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={!newPlayerName}
-                      onClick={() => handleAddMemberToQueue(queue.id)}
-                      className="px-3.5 py-2 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] disabled:opacity-40 text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>{lang === 'th' ? 'ยืนยันเพิ่มเข้าคิว' : 'Confirm Add'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveQueueIdForAdd(null);
-                        setNewPlayerName('');
-                        setNewPlayerClan('');
-                        setSelectedMemberIdForQueue('');
-                      }}
-                      className="px-2.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-all cursor-pointer"
-                    >
-                      {t.cancel}
-                    </button>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Horizontal table for Queue Members */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300 min-w-[650px]">
-                  <thead className="bg-[#080d16] text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-800">
-                    <tr>
-                      <th className="py-2.5 px-4 w-12 text-center">#</th>
-                      <th className="py-2.5 px-4">{t.inGameName}</th>
-                      <th className="py-2.5 px-4">{t.clanName}</th>
-                      <th className="py-2.5 px-4">{t.powerLevel}</th>
-                      <th className="py-2.5 px-4">Status</th>
-                      {isAdminOrOwner && (
-                        <th className="py-2.5 px-4 text-right">{t.actions}</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/40">
-                    {queue.queueList.length === 0 ? (
+                {/* Horizontal table for Queue Members */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300 min-w-[650px]">
+                    <thead className="bg-[#080d16] text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-800">
                       <tr>
-                        <td colSpan={isAdminOrOwner ? 6 : 5} className="py-6 text-center text-slate-500 text-xs">
-                          {lang === 'th' ? 'ยังไม่มีสมาชิกในคิว' : 'No players in queue'}
-                        </td>
+                        <th className="py-2.5 px-4 w-12 text-center">#</th>
+                        <th className="py-2.5 px-4">{t.inGameName}</th>
+                        <th className="py-2.5 px-4">{t.clanName}</th>
+                        <th className="py-2.5 px-4">{t.powerLevel}</th>
+                        <th className="py-2.5 px-4">Status</th>
+                        {isAdminOrOwner && (
+                          <th className="py-2.5 px-4 text-right">{t.actions}</th>
+                        )}
                       </tr>
-                    ) : (
-                      queue.queueList.map((member, index) => {
-                        const isReceived = member.status === 'received';
-                        const isThisUser = Boolean(
-                          currentUser && (
-                            (member.userId && member.userId === currentUser.id) ||
-                            (member.name && currentUser.inGameName && member.name.trim().toLowerCase() === currentUser.inGameName.trim().toLowerCase())
-                          )
-                        );
-                        return (
-                          <tr
-                            key={member.id}
-                            draggable={isAdminOrOwner}
-                            onDragStart={() => handleDragStart(queue.id, index)}
-                            onDragOver={handleDragOver}
-                            onDrop={() => handleDrop(queue.id, index)}
-                            className={`hover:bg-[#111a2d]/50 transition-colors ${
-                              isThisUser ? 'bg-[#211639]/50 border-l-2 border-[#a855f7]' : ''
-                            } ${
-                              isReceived ? 'opacity-60 bg-[#080d15]' : ''
-                            }`}
-                          >
-                            {/* Priority Position & Drag Handle */}
-                            <td className="py-2.5 px-4 text-center font-mono font-bold text-slate-400">
-                              <div className="flex items-center justify-center gap-1">
-                                {isAdminOrOwner && (
-                                  <GripVertical className="w-3.5 h-3.5 text-slate-600 hover:text-slate-300 cursor-grab active:cursor-grabbing" />
-                                )}
-                                <span>{index + 1}</span>
-                              </div>
-                            </td>
-
-                            {/* Player Name */}
-                            <td className="py-2.5 px-4 font-bold text-slate-100">
-                              <div className="flex items-center gap-2">
-                                <span>{member.name}</span>
-                                {isThisUser && (
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 border border-purple-500/50 text-purple-300">
-                                    {lang === 'th' ? 'คุณ' : 'You'}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-
-                            {/* Clan */}
-                            <td className="py-2.5 px-4 text-slate-300">
-                              <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[11px]">
-                                {member.clan}
-                              </span>
-                            </td>
-
-                            {/* Power Level */}
-                            <td className="py-2.5 px-4 font-mono text-amber-400 font-semibold">
-                              {member.powerLevel ? `${member.powerLevel.toLocaleString()} CP` : '-'}
-                            </td>
-
-                            {/* Status: Received or Pending */}
-                            <td className="py-2.5 px-4">
-                              <button
-                                disabled={!isAdminOrOwner}
-                                onClick={() => handleToggleStatus(queue.id, member.id)}
-                                className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold border transition-all ${
-                                  isReceived
-                                    ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900/60'
-                                    : 'bg-amber-950/60 text-amber-300 border-amber-700/60 hover:bg-amber-900/60'
-                                } ${!isAdminOrOwner ? 'cursor-default' : 'cursor-pointer'}`}
-                                title={isAdminOrOwner ? 'Click to toggle status' : ''}
-                              >
-                                {isReceived ? (
-                                  <CheckCircle className="w-3 h-3 text-emerald-400" />
-                                ) : (
-                                  <Clock className="w-3 h-3 text-amber-400" />
-                                )}
-                                <span>{isReceived ? t.statusReceived : t.statusPending}</span>
-                              </button>
-                            </td>
-
-                            {/* Action controls (Move up, down, remove) */}
-                            {isAdminOrOwner && (
-                              <td className="py-2.5 px-4 text-right">
-                                <div className="flex items-center justify-end gap-1">
-                                  <button
-                                    onClick={() => handleMoveMember(queue.id, index, 'up')}
-                                    disabled={index === 0}
-                                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                                    title="Move Up"
-                                  >
-                                    <ArrowUp className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleMoveMember(queue.id, index, 'down')}
-                                    disabled={index === queue.queueList.length - 1}
-                                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                                    title="Move Down"
-                                  >
-                                    <ArrowDown className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleRemoveMember(queue.id, member.id)}
-                                    className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-white cursor-pointer transition-colors"
-                                    title={t.delete}
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/40">
+                      {queue.queueList.length === 0 ? (
+                        <tr>
+                          <td colSpan={isAdminOrOwner ? 6 : 5} className="py-6 text-center text-slate-500 text-xs">
+                            {lang === 'th' ? 'ยังไม่มีสมาชิกในคิว' : 'No players in queue'}
+                          </td>
+                        </tr>
+                      ) : (
+                        queue.queueList.map((member, index) => {
+                          const isReceived = member.status === 'received';
+                          const isThisUser = Boolean(
+                            currentUser && (
+                              (member.userId && member.userId === currentUser.id) ||
+                              (member.name && currentUser.inGameName && member.name.trim().toLowerCase() === currentUser.inGameName.trim().toLowerCase())
+                            )
+                          );
+                          return (
+                            <tr
+                              key={member.id}
+                              draggable={isAdminOrOwner}
+                              onDragStart={() => handleDragStart(queue.id, index)}
+                              onDragOver={handleDragOver}
+                              onDrop={() => handleDrop(queue.id, index)}
+                              className={`hover:bg-[#111a2d]/50 transition-colors ${
+                                isThisUser ? 'bg-[#211639]/50 border-l-2 border-[#a855f7]' : ''
+                              } ${
+                                isReceived ? 'opacity-60 bg-[#080d15]' : ''
+                              }`}
+                            >
+                              {/* Priority Position & Drag Handle */}
+                              <td className="py-2.5 px-4 text-center font-mono font-bold text-slate-400">
+                                <div className="flex items-center justify-center gap-1">
+                                  {isAdminOrOwner && (
+                                    <GripVertical className="w-3.5 h-3.5 text-slate-600 hover:text-slate-300 cursor-grab active:cursor-grabbing" />
+                                  )}
+                                  <span>{index + 1}</span>
                                 </div>
                               </td>
-                            )}
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
 
-              {/* Footer drag tip */}
-              {isAdminOrOwner && queue.queueList.length > 1 && (
-                <div className="p-2 bg-[#080d16] text-[10px] text-slate-500 text-center border-t border-slate-800/80">
-                  {t.dragToReorder}
+                              {/* Player Name */}
+                              <td className="py-2.5 px-4 font-bold text-slate-100">
+                                <div className="flex items-center gap-2">
+                                  <span>{member.name}</span>
+                                  {isThisUser && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 border border-purple-500/50 text-purple-300">
+                                      {lang === 'th' ? 'คุณ' : 'You'}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Clan */}
+                              <td className="py-2.5 px-4 text-slate-300">
+                                <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[11px]">
+                                  {member.clan}
+                                </span>
+                              </td>
+
+                              {/* Power Level */}
+                              <td className="py-2.5 px-4 font-mono text-amber-400 font-semibold">
+                                {member.powerLevel ? `${member.powerLevel.toLocaleString()} CP` : '-'}
+                              </td>
+
+                              {/* Status: Received or Pending */}
+                              <td className="py-2.5 px-4">
+                                <button
+                                  disabled={!isAdminOrOwner}
+                                  onClick={() => handleToggleStatus(queue.id, member.id)}
+                                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold border transition-all ${
+                                    isReceived
+                                      ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900/60'
+                                      : 'bg-amber-950/60 text-amber-300 border-amber-700/60 hover:bg-amber-900/60'
+                                  } ${!isAdminOrOwner ? 'cursor-default' : 'cursor-pointer'}`}
+                                  title={isAdminOrOwner ? 'Click to toggle status' : ''}
+                                >
+                                  {isReceived ? (
+                                    <CheckCircle className="w-3 h-3 text-emerald-400" />
+                                  ) : (
+                                    <Clock className="w-3 h-3 text-amber-400" />
+                                  )}
+                                  <span>{isReceived ? t.statusReceived : t.statusPending}</span>
+                                </button>
+                              </td>
+
+                              {/* Action controls (Move up, down, remove) */}
+                              {isAdminOrOwner && (
+                                <td className="py-2.5 px-4 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <button
+                                      onClick={() => handleMoveMember(queue.id, index, 'up')}
+                                      disabled={index === 0}
+                                      className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                      title="Move Up"
+                                    >
+                                      <ArrowUp className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleMoveMember(queue.id, index, 'down')}
+                                      disabled={index === queue.queueList.length - 1}
+                                      className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                      title="Move Down"
+                                    >
+                                      <ArrowDown className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleRemoveMember(queue.id, member.id)}
+                                      className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-white cursor-pointer transition-colors"
+                                      title={t.delete}
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-              )}
-            </div>
-          );
-        })
+
+                {/* Footer drag tip */}
+                {isAdminOrOwner && queue.queueList.length > 1 && (
+                  <div className="p-2 bg-[#080d16] text-[10px] text-slate-500 text-center border-t border-slate-800/80">
+                    {t.dragToReorder}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
-      </div>
 
       {/* IN-APP CONFIRM DELETE QUEUE MODAL */}
       {queueToDelete && (

@@ -1131,6 +1131,7 @@ export const App: React.FC = () => {
             onOpenOwnerResetModal={() => setShowOwnerResetModal(true)}
             onOpenAuth={() => setShowAuthModal(true)}
             showToast={showToast}
+            onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
           />
         )}
 
