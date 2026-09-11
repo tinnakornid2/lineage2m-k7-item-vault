@@ -105,6 +105,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [showGeminiModal, setShowGeminiModal] = useState(false);
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
   const [geminiMaskedKey, setGeminiMaskedKey] = useState<string | null>(null);
+  const [activeGeminiKey, setActiveGeminiKey] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
@@ -114,18 +115,33 @@ export const VaultView: React.FC<VaultViewProps> = ({
     const checkGeminiStatus = async () => {
       try {
         const res = await fetch('/api/gemini-status');
-        const data = await res.json();
+        const text = await res.text();
+        let data: any = {};
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = {};
+        }
         const localKey = localStorage.getItem('k7_gemini_api_key');
-        const isOk = Boolean(data.configured || (localKey && localKey.length > 10));
+        const serverKey = data.clientKey || null;
+        const effectiveKey = serverKey || localKey || null;
+        if (serverKey && !localKey) {
+          localStorage.setItem('k7_gemini_api_key', serverKey);
+        }
+        if (effectiveKey) {
+          setActiveGeminiKey(effectiveKey);
+        }
+        const isOk = Boolean(data.configured || (effectiveKey && effectiveKey.length > 10));
         setGeminiConfigured(isOk);
         if (data.maskedKey) {
           setGeminiMaskedKey(data.maskedKey);
-        } else if (localKey) {
-          setGeminiMaskedKey(`${localKey.slice(0, 6)}...${localKey.slice(-4)}`);
+        } else if (effectiveKey) {
+          setGeminiMaskedKey(`${effectiveKey.slice(0, 6)}...${effectiveKey.slice(-4)}`);
         }
       } catch {
         const localKey = localStorage.getItem('k7_gemini_api_key');
         if (localKey && localKey.length > 10) {
+          setActiveGeminiKey(localKey);
           setGeminiConfigured(true);
           setGeminiMaskedKey(`${localKey.slice(0, 6)}...${localKey.slice(-4)}`);
         }
@@ -270,6 +286,115 @@ export const VaultView: React.FC<VaultViewProps> = ({
     }
   };
 
+  // Direct client-side Google Gemini REST API fallback
+  const runDirectGeminiClientOcr = async (
+    base64Images: string[],
+    knownList: any[],
+    apiKey: string
+  ): Promise<{ success: boolean; data?: any; error?: string }> => {
+    const candidateModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+
+    const imageParts = base64Images.slice(0, 8).map((img) => {
+      const cleanBase64 = img.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
+      const mimeType = img.match(/^data:(image\/[a-zA-Z]+);base64,/)?.[1] || 'image/jpeg';
+      return {
+        inlineData: {
+          mimeType,
+          data: cleanBase64
+        }
+      };
+    });
+
+    const promptText = `You are an expert OCR and game text analyzer for Lineage 2M (Lineage2M).
+Examine the attached screenshot(s) (${imageParts.length} screenshot(s) provided).
+These screenshots show boss raids, party member panels, combat damage meters, loot drops, member rosters, or chat logs.
+
+Task:
+1. Extract all unique player/character names and their Clan names visible across ALL provided screenshots.
+2. CRITICAL DEDUPLICATION RULE: Filter out duplicate player names! Each player must only appear ONCE in the final output, even if they appear in multiple screenshots or parties.
+3. Compare extracted names against the database list of known clan members below. If an OCR name closely matches a known member (accounting for minor OCR typos or font stylings), use their official inGameName and their registered clan.
+
+Database list of known guild/alliance members:
+${JSON.stringify(knownList || [], null, 2)}
+
+Output strictly a JSON object with this exact structure:
+{
+  "detectedClanGroups": [
+    {
+      "clanName": "Clan:VoltZ",
+      "members": ["Zenkaii", "Eloni"]
+    },
+    {
+      "clanName": "Clan:LevelS",
+      "members": ["DVD"]
+    }
+  ],
+  "rawNames": ["Zenkaii", "Eloni", "DVD"],
+  "duplicatesFilteredCount": 0,
+  "notes": "Recognized players across screenshots"
+}
+Do not include markdown or explanations. Return pure JSON only.`;
+
+    let lastErrorMsg = '';
+
+    for (const model of candidateModels) {
+      const maxAttempts = 2;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [
+                {
+                  role: 'user',
+                  parts: [
+                    ...imageParts,
+                    { text: promptText }
+                  ]
+                }
+              ]
+            })
+          });
+
+          const rawText = await res.text();
+          let jsonBody: any = null;
+          try {
+            jsonBody = JSON.parse(rawText);
+          } catch {
+            throw new Error(`Invalid response format from Gemini (${res.status})`);
+          }
+
+          if (!res.ok) {
+            const apiMsg = jsonBody?.error?.message || `HTTP ${res.status}`;
+            const isBusy = res.status === 503 || res.status === 429 || apiMsg.toLowerCase().includes('high demand') || apiMsg.toLowerCase().includes('unavailable');
+            if (isBusy && attempt < maxAttempts) {
+              await new Promise((r) => setTimeout(r, 1500));
+              continue;
+            }
+            if (res.status === 404) {
+              break; // Try next candidate model
+            }
+            throw new Error(apiMsg);
+          }
+
+          const generatedText = jsonBody?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const match = generatedText.match(/\{[\s\S]*\}/);
+          if (match) {
+            const parsed = JSON.parse(match[0]);
+            return { success: true, data: parsed };
+          }
+          return { success: true, data: { detectedClanGroups: [], rawNames: [] } };
+        } catch (err: any) {
+          lastErrorMsg = err.message || 'Error contacting Gemini API';
+        }
+      }
+    }
+
+    return { success: false, error: lastErrorMsg };
+  };
+
   // Core OCR Scanner Runner
   const executeHunterOcr = async (base64Images: string[], sourceCount: number, isPaste = false) => {
     if (!base64Images || base64Images.length === 0) return;
@@ -283,23 +408,80 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
     try {
       const localKey = localStorage.getItem('k7_gemini_api_key') || undefined;
+      const effectiveApiKey = localKey || activeGeminiKey || undefined;
 
-      const response = await fetch('/api/scan-hunters', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imagesBase64: base64Images,
-          imageBase64: base64Images[0],
-          customApiKey: localKey,
-          knownMembers: allMembers.map((m) => ({
-            inGameName: m.inGameName,
-            clan: m.clan,
-            powerLevel: m.powerLevel
-          }))
-        })
-      });
+      const knownMemberList = allMembers.map((m) => ({
+        inGameName: m.inGameName,
+        clan: m.clan,
+        powerLevel: m.powerLevel
+      }));
 
-      const data = await response.json();
+      let data: any = null;
+      let usedDirectFallback = false;
+
+      // 1. Try local backend server first
+      try {
+        const response = await fetch('/api/scan-hunters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imagesBase64: base64Images,
+            imageBase64: base64Images[0],
+            customApiKey: effectiveApiKey,
+            knownMembers: knownMemberList
+          })
+        });
+
+        const respText = await response.text();
+        if (respText && !respText.trim().startsWith('<')) {
+          try {
+            data = JSON.parse(respText);
+          } catch {
+            data = null;
+          }
+        }
+      } catch (fetchErr) {
+        console.warn('Backend /api/scan-hunters fetch failed, will try direct Gemini fallback:', fetchErr);
+        data = null;
+      }
+
+      // 2. If backend failed or returned HTML or 503 high demand, try Direct Client-Side Gemini Fallback!
+      const shouldFallbackDirect =
+        !data ||
+        (data.error === 'GEMINI_ERROR' &&
+          (data.message?.includes('หนาแน่น') ||
+            data.message?.includes('high demand') ||
+            data.message?.includes('503'))) ||
+        !data.success;
+
+      if (shouldFallbackDirect && effectiveApiKey) {
+        setOcrStatusText(
+          lang === 'th'
+            ? '🔄 กำลังประมวลผลผ่าน Google Gemini AI Direct...'
+            : '🔄 Processing via Direct Google Gemini AI...'
+        );
+        const directResult = await runDirectGeminiClientOcr(base64Images, knownMemberList, effectiveApiKey);
+        if (directResult.success && directResult.data) {
+          data = {
+            success: true,
+            detectedClanGroups: directResult.data.detectedClanGroups || [],
+            rawNames: directResult.data.rawNames || [],
+            duplicatesFilteredCount: directResult.data.duplicatesFilteredCount || 0
+          };
+          usedDirectFallback = true;
+        } else if (!data) {
+          data = {
+            success: false,
+            error: 'DIRECT_FAILED',
+            message: directResult.error || 'Direct OCR failed'
+          };
+        }
+      }
+
+      // 3. Process resulting data safely
+      if (!data) {
+        throw new Error('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ AI ได้ กรุณาลองใหม่อีกครั้ง');
+      }
 
       if (data.error === 'MISSING_API_KEY') {
         setOcrErrorType('MISSING_API_KEY');
@@ -313,14 +495,21 @@ export const VaultView: React.FC<VaultViewProps> = ({
         return;
       }
 
-      if (data.error === 'GEMINI_ERROR') {
+      if (!data.success) {
         setOcrErrorType('GEMINI_ERROR');
-        setOcrStatusText(`❌ ${data.message || (lang === 'th' ? 'เกิดข้อผิดพลาดจาก Gemini API' : 'Gemini API error')}`);
+        let errorMsg = data.message || 'เกิดข้อผิดพลาดในการสแกน';
+        if (errorMsg.includes('high demand') || errorMsg.includes('503') || errorMsg.includes('หนาแน่น')) {
+          errorMsg =
+            lang === 'th'
+              ? 'เซิร์ฟเวอร์ Google AI มีการใช้งานหนาแน่นชั่วคราว กรุณารอสักครู่ (ประมาณ 3-5 วินาที) แล้วกดปุ่มสแกนใหม่อีกครั้ง'
+              : 'Google AI is currently experiencing high demand. Please retry in 3-5 seconds.';
+        }
+        setOcrStatusText(`❌ ${errorMsg}`);
         sounds.playError();
         return;
       }
 
-      if (data.success && data.detectedClanGroups && data.detectedClanGroups.length > 0) {
+      if (data.detectedClanGroups && data.detectedClanGroups.length > 0) {
         setGeminiConfigured(true);
         const extractedHunters: HunterRecord[] = [];
         data.detectedClanGroups.forEach((group: { clanName: string; members: string[] }) => {
@@ -359,8 +548,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
         setOcrStatusText(
           lang === 'th'
-            ? `สแกนสำเร็จจาก ${sourceCount} รูปภาพ: พบผู้ล่าใหม่ ${incomingUnique.length} คน (กรองชื่อซ้ำออก ${totalDuplicatesFiltered} คน)`
-            : `Scan successful from ${sourceCount} image(s): ${incomingUnique.length} new hunters added (${totalDuplicatesFiltered} duplicates filtered)`
+            ? `สแกนสำเร็จจาก ${sourceCount} รูปภาพ: พบผู้ล่าใหม่ ${incomingUnique.length} คน (กรองชื่อซ้ำออก ${totalDuplicatesFiltered} คน)${usedDirectFallback ? ' ⚡[Direct]' : ''}`
+            : `Scan successful from ${sourceCount} image(s): ${incomingUnique.length} new hunters added (${totalDuplicatesFiltered} duplicates filtered)${usedDirectFallback ? ' ⚡[Direct]' : ''}`
         );
       } else {
         setOcrStatusText(
@@ -372,10 +561,23 @@ export const VaultView: React.FC<VaultViewProps> = ({
     } catch (err: any) {
       console.error('OCR scanning error:', err);
       setOcrErrorType('NETWORK_ERROR');
+      const rawMsg = err?.message || '';
+      let displayMsg = rawMsg;
+      if (rawMsg.includes('JSON') || rawMsg.includes('Unexpected token') || rawMsg.includes('The page c')) {
+        displayMsg =
+          lang === 'th'
+            ? 'การเชื่อมต่อขัดข้องชั่วคราวขณะประมวลผล กรุณากดปุ่มสแกนใหม่อีกครั้ง'
+            : 'Temporary connection glitch during processing. Please click scan again.';
+      } else if (rawMsg.includes('503') || rawMsg.includes('high demand')) {
+        displayMsg =
+          lang === 'th'
+            ? 'Google AI ใช้งานหนาแน่นชั่วคราว กรุณากดปุ่มสแกนใหม่อีกครั้งใน 3-5 วินาที'
+            : 'Google AI high demand spike. Please retry in 3-5 seconds.';
+      }
       setOcrStatusText(
         lang === 'th'
-          ? `เกิดข้อผิดพลาดในการเชื่อมต่อ: ${err.message || 'Network error'}`
-          : `Network error scanning screenshots: ${err.message || 'Network error'}`
+          ? `เกิดข้อผิดพลาดในการเชื่อมต่อ: ${displayMsg}`
+          : `Connection error: ${displayMsg}`
       );
       sounds.playError();
     } finally {
@@ -1590,6 +1792,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
         onClose={() => setShowGeminiModal(false)}
         lang={lang}
         onKeySaved={(newKey) => {
+          setActiveGeminiKey(newKey);
           setGeminiConfigured(true);
           setGeminiMaskedKey(`${newKey.slice(0, 6)}...${newKey.slice(-4)}`);
           setOcrErrorType(null);

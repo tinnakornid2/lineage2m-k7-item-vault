@@ -163,7 +163,13 @@ export async function sendDiscordNotification(
       })
     });
 
-    const result = await res.json();
+    const resText = await res.text();
+    let result: any = {};
+    try {
+      result = JSON.parse(resText);
+    } catch {
+      result = { success: false, error: 'Server returned non-JSON response' };
+    }
     if (result.success) {
       return { success: true };
     } else {

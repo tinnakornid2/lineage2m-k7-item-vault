@@ -56,7 +56,14 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
 
     // Check server status
     fetch('/api/gemini-status')
-      .then((res) => res.json())
+      .then((res) => res.text())
+      .then((text) => {
+        try {
+          return JSON.parse(text);
+        } catch {
+          return { configured: false };
+        }
+      })
       .then((data) => {
         setServerStatus({
           configured: Boolean(data.configured),
@@ -102,7 +109,13 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
         body: JSON.stringify({ apiKey: cleanKey })
       });
 
-      const data = await res.json();
+      const resText = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(resText);
+      } catch {
+        data = { success: false, error: 'ไม่สามารถแยกวิเคราะห์ข้อมูลจากเซิร์ฟเวอร์ได้' };
+      }
 
       if (data.success) {
         // Save to localStorage as backup

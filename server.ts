@@ -10,25 +10,46 @@ dotenv.config();
 const currentFilename = typeof import.meta !== "undefined" && import.meta.url ? fileURLToPath(import.meta.url) : (typeof __filename !== "undefined" ? __filename : "");
 const currentDirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(currentFilename);
 
-// Helper to generate content with modern Gemini model fallback (3.6 -> 2.5 -> 2.0 -> 1.5)
+// Helper to generate content with modern Gemini model fallback (3.6 -> 2.5 -> 2.0 -> 1.5) and auto-retry for 503 high demand
 async function generateWithModelFallback(ai: GoogleGenAI, request: { contents: any; systemInstruction?: any }) {
   const candidateModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
   let lastError: any = null;
   for (const model of candidateModels) {
-    try {
-      const resp = await ai.models.generateContent({
-        ...request,
-        model
-      });
-      return resp;
-    } catch (err: any) {
-      lastError = err;
-      const msg = (err?.message || "").toLowerCase();
-      if (msg.includes("not found") || msg.includes("no longer available") || msg.includes("not_found")) {
-        console.warn(`Model ${model} not available, trying next model fallback...`);
-        continue;
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const resp = await ai.models.generateContent({
+          ...request,
+          model
+        });
+        return resp;
+      } catch (err: any) {
+        lastError = err;
+        const msg = (err?.message || "").toLowerCase();
+        const status = err?.status || err?.code;
+        const isNotFound = status === 404 || msg.includes("not found") || msg.includes("no longer available") || msg.includes("not_found");
+        const isBusy = status === 503 || status === 429 || msg.includes("high demand") || msg.includes("spikes in demand") || msg.includes("unavailable") || msg.includes("resource_exhausted");
+
+        if (isNotFound) {
+          console.warn(`Model ${model} not available on this API key, checking next fallback model...`);
+          break; // Try next candidate model
+        }
+
+        if (isBusy && attempt < maxAttempts) {
+          const delayMs = attempt * 1200;
+          console.warn(`Gemini model ${model} temporarily busy (${status || 'high demand'}). Retrying ${attempt}/${maxAttempts} in ${delayMs}ms...`);
+          await new Promise((r) => setTimeout(r, delayMs));
+          continue; // Retry same model
+        }
+
+        if (isBusy) {
+          console.warn(`Gemini model ${model} still busy after ${maxAttempts} attempts. Trying next fallback model...`);
+          break; // Try next candidate model
+        }
+
+        // For auth or invalid request errors (400, 401, 403), throw immediately
+        throw err;
       }
-      throw err;
     }
   }
   throw lastError;
@@ -38,8 +59,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Middleware for JSON body parsing (allows larger payloads for screenshot images)
-  app.use(express.json({ limit: "25mb" }));
+  // Middleware for JSON body parsing (allows larger payloads for multi-screenshot OCR up to 50mb)
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   // Health check
   app.get("/api/health", (_req, res) => {
@@ -53,7 +75,8 @@ async function startServer() {
     const maskedKey = isConfigured ? `${key!.slice(0, 6)}...${key!.slice(-4)}` : null;
     res.json({
       configured: isConfigured,
-      maskedKey: maskedKey
+      maskedKey: maskedKey,
+      clientKey: isConfigured ? key : null
     });
   });
 
@@ -79,7 +102,7 @@ async function startServer() {
       // Update in-memory environment variable
       process.env.GEMINI_API_KEY = cleanKey;
 
-      // Persist to .env file
+      // Persist to .env file only if changed (prevents triggering Vite dev server reload)
       try {
         const fs = await import("fs/promises");
         const envPath = path.join(process.cwd(), ".env");
@@ -90,12 +113,16 @@ async function startServer() {
           envContent = "";
         }
 
-        if (envContent.includes("GEMINI_API_KEY=")) {
-          envContent = envContent.replace(/GEMINI_API_KEY=.*/g, `GEMINI_API_KEY=${cleanKey}`);
-        } else {
-          envContent += `\nGEMINI_API_KEY=${cleanKey}\n`;
+        const currentEnvMatch = envContent.match(/GEMINI_API_KEY=(.*)/);
+        const currentStoredKey = currentEnvMatch ? currentEnvMatch[1].trim().replace(/^["']|["']$/g, "") : "";
+        if (currentStoredKey !== cleanKey) {
+          if (envContent.includes("GEMINI_API_KEY=")) {
+            envContent = envContent.replace(/GEMINI_API_KEY=.*/g, `GEMINI_API_KEY="${cleanKey}"`);
+          } else {
+            envContent += `\nGEMINI_API_KEY="${cleanKey}"\n`;
+          }
+          await fs.writeFile(envPath, envContent, "utf-8");
         }
-        await fs.writeFile(envPath, envContent, "utf-8");
       } catch (fsErr) {
         console.warn("Could not persist GEMINI_API_KEY to .env file:", fsErr);
       }
@@ -288,6 +315,8 @@ Do not include markdown or explanations. Return pure JSON only.`;
         friendlyError = "API Key นี้ไม่ได้รับอนุญาตให้ใช้ Generative Language API กรุณาสร้าง Key ใหม่ที่ https://aistudio.google.com/";
       } else if (friendlyError.includes("RESOURCE_EXHAUSTED") || friendlyError.includes("quota")) {
         friendlyError = "โควตาการเรียกใช้งาน Gemini API เต็มชั่วคราว กรุณารอสักครู่แล้วลองใหม่";
+      } else if (friendlyError.includes("high demand") || friendlyError.includes("UNAVAILABLE") || friendlyError.includes("503")) {
+        friendlyError = "เซิร์ฟเวอร์ Google AI กำลังมีผู้ใช้งานหนาแน่นชั่วคราว กรุณารอ 3-5 วินาทีแล้วกดสแกนใหม่อีกครั้ง";
       }
       return res.json({
         success: false,
@@ -359,6 +388,26 @@ Do not include markdown or explanations. Return pure JSON only.`;
       console.error("Failed to forward Discord webhook:", err);
       return res.status(500).json({ error: err.message || "Internal server error forwarding webhook" });
     }
+  });
+
+  // Global error handler - ensures all Express errors return JSON instead of HTML pages
+  app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) {
+      return next(err);
+    }
+    console.error("Express Error Handler caught:", err);
+    if (err?.type === "entity.too.large" || err?.status === 413) {
+      return res.status(413).json({
+        success: false,
+        error: "PAYLOAD_TOO_LARGE",
+        message: "ขนาดไฟล์รูปภาพรวมใหญ่เกินไป กรุณาสแกนทีละน้อยลง หรือลดขนาดภาพ"
+      });
+    }
+    return res.status(err?.status || 500).json({
+      success: false,
+      error: err?.name || "INTERNAL_ERROR",
+      message: err?.message || "Internal Server Error"
+    });
   });
 
   // Vite middleware in dev, static files in production
