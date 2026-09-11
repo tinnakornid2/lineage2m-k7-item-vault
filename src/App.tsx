@@ -68,6 +68,7 @@ import { ClaimantsModal } from './components/ClaimantsModal';
 import { QuickItemModal } from './components/QuickItemModal';
 import { OwnerResetModal } from './components/OwnerResetModal';
 import { RequestPowerLevelModal } from './components/RequestPowerLevelModal';
+import { GeminiKeyModal } from './components/GeminiKeyModal';
 import {
   BackgroundSettingsModal,
   BackgroundConfig,
@@ -135,6 +136,7 @@ export const App: React.FC = () => {
   const [showDiscordModal, setShowDiscordModal] = useState(false);
   const [showClassModal, setShowClassModal] = useState(false);
   const [showRequestCpModal, setShowRequestCpModal] = useState(false);
+  const [showGeminiModal, setShowGeminiModal] = useState(false);
   const [characterClasses, setCharacterClasses] = useState<string[]>(DEFAULT_CHARACTER_CLASSES);
   const [announcementSettings, setAnnouncementSettings] = useState<AnnouncementSettings | null>(null);
   const [discordSettings, setDiscordSettings] = useState<DiscordSettings | null>(null);
@@ -1055,6 +1057,7 @@ export const App: React.FC = () => {
         onOpenBgModal={() => setShowBgModal(true)}
         onOpenDiscordModal={() => setShowDiscordModal(true)}
         onOpenClassModal={() => setShowClassModal(true)}
+        onOpenGeminiModal={() => setShowGeminiModal(true)}
         onOpenRequestCp={() => setShowRequestCpModal(true)}
         discordEnabled={discordSettings?.enabled}
         pendingQueueCount={queueItems.filter((i) => i.status === 'queued').length}
@@ -1299,6 +1302,13 @@ export const App: React.FC = () => {
         onDeleteClass={handleDeleteClass}
         onResetClasses={handleResetClasses}
         isOwner={currentUser?.role === 'owner'}
+        lang={lang}
+      />
+
+      {/* Gemini AI OCR Settings Modal */}
+      <GeminiKeyModal
+        isOpen={showGeminiModal}
+        onClose={() => setShowGeminiModal(false)}
         lang={lang}
       />
 

@@ -139,6 +139,29 @@ class SoundEffects {
       // ignore
     }
   }
+
+  playError() {
+    if (!this.enabled) return;
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      [220, 180].forEach((freq, i) => {
+        const osc = this.ctx!.createOscillator();
+        const gain = this.ctx!.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, now + i * 0.1);
+        gain.gain.setValueAtTime(0.12, now + i * 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.1 + 0.18);
+        osc.connect(gain);
+        gain.connect(this.ctx!.destination);
+        osc.start(now + i * 0.1);
+        osc.stop(now + i * 0.1 + 0.18);
+      });
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export const sounds = new SoundEffects();

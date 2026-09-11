@@ -17,7 +17,8 @@ import {
   Castle,
   Clock,
   Bell,
-  Zap
+  Zap,
+  Cpu
 } from 'lucide-react';
 import { ActiveTab, Language, User } from '../types';
 import { translations } from '../translations';
@@ -42,6 +43,7 @@ export interface SidebarProps {
   onOpenBgModal: () => void;
   onOpenDiscordModal?: () => void;
   onOpenClassModal?: () => void;
+  onOpenGeminiModal?: () => void;
   onOpenRequestCp?: () => void;
   discordEnabled?: boolean;
   pendingQueueCount?: number;
@@ -68,6 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenBgModal,
   onOpenDiscordModal,
   onOpenClassModal,
+  onOpenGeminiModal,
   onOpenRequestCp,
   discordEnabled = false,
   pendingQueueCount = 0,
@@ -223,6 +226,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {discordEnabled && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-400 rounded-full shadow-[0_0_6px_#34d399]" />
               )}
+            </button>
+          )}
+
+          {canAccessVault && onOpenGeminiModal && (
+            <button
+              onClick={() => {
+                sounds.playClick();
+                onOpenGeminiModal();
+              }}
+              className="relative p-1.5 rounded-lg bg-[#0c1424]/80 border border-[#38bdf8]/50 text-[#7dd3fc] hover:text-white cursor-pointer"
+              title={lang === 'th' ? 'ตั้งค่า Gemini AI OCR Key' : 'Gemini AI OCR Key'}
+              aria-label="Gemini AI OCR"
+            >
+              <Cpu className="w-4 h-4" />
             </button>
           )}
 
@@ -517,6 +534,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 aria-label="Manage Classes"
               >
                 <Sword className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Gemini AI OCR Settings (For Admin / Owner) */}
+            {canAccessVault && onOpenGeminiModal && (
+              <button
+                id="btn-gemini-settings"
+                onClick={() => {
+                  sounds.playClick();
+                  onOpenGeminiModal();
+                }}
+                className="relative p-1.5 rounded-lg border border-[#38bdf8]/40 bg-[#38bdf8]/15 hover:bg-[#38bdf8]/30 text-[#7dd3fc] hover:text-white transition-all cursor-pointer"
+                title={lang === 'th' ? 'ตั้งค่า Gemini AI OCR Key' : 'Gemini AI OCR Key'}
+                aria-label="Gemini AI OCR"
+              >
+                <Cpu className="w-4 h-4" />
               </button>
             )}
 

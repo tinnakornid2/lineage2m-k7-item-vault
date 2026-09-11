@@ -22,11 +22,90 @@ async function startServer() {
     res.json({ status: "ok", timestamp: Date.now() });
   });
 
+  // Check Gemini API Key status
+  app.get("/api/gemini-status", (_req, res) => {
+    const key = process.env.GEMINI_API_KEY?.trim();
+    const isConfigured = Boolean(key && key.length > 10);
+    const maskedKey = isConfigured ? `${key!.slice(0, 6)}...${key!.slice(-4)}` : null;
+    res.json({
+      configured: isConfigured,
+      maskedKey: maskedKey
+    });
+  });
+
+  // Save and Validate Gemini API Key
+  app.post("/api/save-gemini-key", async (req, res) => {
+    try {
+      const { apiKey } = req.body;
+      if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 10) {
+        return res.status(400).json({
+          success: false,
+          error: "กรุณาระบุ Gemini API Key ให้ถูกต้อง (ต้องมีความยาวอย่างน้อย 10 ตัวอักษร)"
+        });
+      }
+
+      const cleanKey = apiKey.trim();
+
+      // Test key with a fast verification call to GoogleGenAI
+      const ai = new GoogleGenAI({ apiKey: cleanKey });
+      await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: "ping"
+      });
+
+      // Update in-memory environment variable
+      process.env.GEMINI_API_KEY = cleanKey;
+
+      // Persist to .env file
+      try {
+        const fs = await import("fs/promises");
+        const envPath = path.join(process.cwd(), ".env");
+        let envContent = "";
+        try {
+          envContent = await fs.readFile(envPath, "utf-8");
+        } catch {
+          envContent = "";
+        }
+
+        if (envContent.includes("GEMINI_API_KEY=")) {
+          envContent = envContent.replace(/GEMINI_API_KEY=.*/g, `GEMINI_API_KEY=${cleanKey}`);
+        } else {
+          envContent += `\nGEMINI_API_KEY=${cleanKey}\n`;
+        }
+        await fs.writeFile(envPath, envContent, "utf-8");
+      } catch (fsErr) {
+        console.warn("Could not persist GEMINI_API_KEY to .env file:", fsErr);
+      }
+
+      return res.json({
+        success: true,
+        message: "Gemini API Key ผ่านการตรวจสอบและบันทึกเรียบร้อยแล้ว!",
+        maskedKey: `${cleanKey.slice(0, 6)}...${cleanKey.slice(-4)}`
+      });
+    } catch (err: any) {
+      console.error("Gemini API Key verification failed:", err);
+      let friendlyError = err.message || "การตรวจสอบ API Key ล้มเหลว";
+      if (friendlyError.includes("API_KEY_INVALID") || friendlyError.includes("API key not valid")) {
+        friendlyError = "API Key ไม่ถูกต้อง กรุณาตรวจสอบคีย์ที่คัดลอกจาก Google AI Studio อีกครั้ง";
+      } else if (friendlyError.includes("API_KEY_SERVICE_BLOCKED")) {
+        friendlyError = "API Key นี้ไม่ได้รับอนุญาตให้ใช้ Generative Language API กรุณาสร้าง Key ใหม่ที่ https://aistudio.google.com/";
+      } else if (friendlyError.includes("RESOURCE_EXHAUSTED")) {
+        friendlyError = "โควตา API เต็มชั่วคราว กรุณารอสักครู่";
+      }
+      return res.status(400).json({
+        success: false,
+        error: friendlyError
+      });
+    }
+  });
+
   // OCR Hunter scanner endpoint using Gemini 2.5 Flash with Multi-Image & Deduplication support
   app.post("/api/scan-hunters", async (req, res) => {
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      const { imageBase64, imagesBase64, knownMembers } = req.body;
+      const { imageBase64, imagesBase64, knownMembers, customApiKey } = req.body;
+      const apiKey = (customApiKey && typeof customApiKey === "string" && customApiKey.trim().length > 10)
+        ? customApiKey.trim()
+        : process.env.GEMINI_API_KEY?.trim();
 
       // Collect images (support single image or multiple images array)
       const rawImages: string[] = [];
@@ -37,14 +116,18 @@ async function startServer() {
       }
 
       if (rawImages.length === 0) {
-        return res.status(400).json({ error: "Missing imageBase64 or imagesBase64 data" });
+        return res.status(400).json({
+          success: false,
+          error: "Missing imageBase64 or imagesBase64 data",
+          message: "ไม่พบข้อมูลรูปภาพสำหรับสแกน"
+        });
       }
 
       if (!apiKey) {
         return res.json({
           success: false,
-          fallback: true,
-          message: "GEMINI_API_KEY not configured. Falling back to local OCR / member matcher.",
+          error: "MISSING_API_KEY",
+          message: "ระบบยังไม่ได้ตั้งค่า Gemini API Key กรุณาตั้งค่า Key ในระบบเพื่อเปิดใช้งาน AI OCR สแกนชื่อผู้ล่า",
           detectedClanGroups: [],
           rawNames: [],
           duplicatesFilteredCount: 0
@@ -176,10 +259,21 @@ Do not include markdown or explanations. Return pure JSON only.`;
       });
     } catch (err: any) {
       console.error("Error in /api/scan-hunters:", err);
-      return res.status(500).json({
+      let friendlyError = err.message || "Failed to scan hunters screenshot";
+      if (friendlyError.includes("API_KEY_INVALID") || friendlyError.includes("API key not valid")) {
+        friendlyError = "Gemini API Key ไม่ถูกต้อง กรุณาตรวจสอบหรือเปลี่ยน Key ในระบบ";
+      } else if (friendlyError.includes("API_KEY_SERVICE_BLOCKED")) {
+        friendlyError = "API Key นี้ไม่ได้รับอนุญาตให้ใช้ Generative Language API กรุณาสร้าง Key ใหม่ที่ https://aistudio.google.com/";
+      } else if (friendlyError.includes("RESOURCE_EXHAUSTED") || friendlyError.includes("quota")) {
+        friendlyError = "โควตาการเรียกใช้งาน Gemini API เต็มชั่วคราว กรุณารอสักครู่แล้วลองใหม่";
+      }
+      return res.json({
         success: false,
-        error: err.message || "Failed to scan hunters screenshot",
-        fallback: true
+        error: "GEMINI_ERROR",
+        message: friendlyError,
+        detectedClanGroups: [],
+        rawNames: [],
+        duplicatesFilteredCount: 0
       });
     }
   });

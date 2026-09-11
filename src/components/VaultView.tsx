@@ -26,7 +26,10 @@ import {
   BarChart3,
   SlidersHorizontal,
   ArrowUpDown,
-  ClipboardCheck
+  ClipboardCheck,
+  Key,
+  Cpu,
+  ExternalLink
 } from 'lucide-react';
 import {
   HunterRecord,
@@ -40,6 +43,7 @@ import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { compressImageFile } from '../utils/imageCompressor';
 import { DistributionStatsModal } from './DistributionStatsModal';
+import { GeminiKeyModal } from './GeminiKeyModal';
 
 interface VaultViewProps {
   lang: Language;
@@ -97,9 +101,38 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [hunterScreenshots, setHunterScreenshots] = useState<string[]>([]);
   const [isScanningOCR, setIsScanningOCR] = useState(false);
   const [ocrStatusText, setOcrStatusText] = useState('');
+  const [ocrErrorType, setOcrErrorType] = useState<string | null>(null);
+  const [showGeminiModal, setShowGeminiModal] = useState(false);
+  const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
+  const [geminiMaskedKey, setGeminiMaskedKey] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+
+  // Check Gemini API status on mount
+  useEffect(() => {
+    const checkGeminiStatus = async () => {
+      try {
+        const res = await fetch('/api/gemini-status');
+        const data = await res.json();
+        const localKey = localStorage.getItem('k7_gemini_api_key');
+        const isOk = Boolean(data.configured || (localKey && localKey.length > 10));
+        setGeminiConfigured(isOk);
+        if (data.maskedKey) {
+          setGeminiMaskedKey(data.maskedKey);
+        } else if (localKey) {
+          setGeminiMaskedKey(`${localKey.slice(0, 6)}...${localKey.slice(-4)}`);
+        }
+      } catch {
+        const localKey = localStorage.getItem('k7_gemini_api_key');
+        if (localKey && localKey.length > 10) {
+          setGeminiConfigured(true);
+          setGeminiMaskedKey(`${localKey.slice(0, 6)}...${localKey.slice(-4)}`);
+        }
+      }
+    };
+    checkGeminiStatus();
+  }, []);
 
   // Group active members by Clan for hunter dropdown selection
   const membersByClan = useMemo(() => {
@@ -237,34 +270,27 @@ export const VaultView: React.FC<VaultViewProps> = ({
     }
   };
 
-  // Reusable processor for OCR hunter scan (from file picker or Ctrl+V paste)
-  const processOcrScreenshotFiles = async (files: File[], isPaste = false) => {
-    if (!files || files.length === 0) return;
+  // Core OCR Scanner Runner
+  const executeHunterOcr = async (base64Images: string[], sourceCount: number, isPaste = false) => {
+    if (!base64Images || base64Images.length === 0) return;
     setIsScanningOCR(true);
-    const fileCount = files.length;
+    setOcrErrorType(null);
     setOcrStatusText(
       lang === 'th'
-        ? `กำลังบีบอัดและสแกน ${fileCount} รูปภาพ${isPaste ? ' (จาก Ctrl + V)' : ''}...`
-        : `Compressing & scanning ${fileCount} screenshot(s)${isPaste ? ' (from Ctrl + V)' : ''}...`
+        ? `กำลังสแกนรายชื่อผู้ล่าจาก ${sourceCount} รูปภาพ${isPaste ? ' (จาก Ctrl + V)' : ''}...`
+        : `Analyzing & scanning ${sourceCount} screenshot(s)${isPaste ? ' (from Ctrl + V)' : ''}...`
     );
 
     try {
-      const compressedBase64List = await Promise.all(
-        files.map((file) =>
-          compressImageFile(file, { maxWidth: 1280, maxHeight: 1280, quality: 0.75 })
-        )
-      );
+      const localKey = localStorage.getItem('k7_gemini_api_key') || undefined;
 
-      // Add all screenshots to backup list automatically
-      setHunterScreenshots((prev) => [...prev, ...compressedBase64List]);
-
-      // Call OCR endpoint with all screenshots
       const response = await fetch('/api/scan-hunters', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          imagesBase64: compressedBase64List,
-          imageBase64: compressedBase64List[0],
+          imagesBase64: base64Images,
+          imageBase64: base64Images[0],
+          customApiKey: localKey,
           knownMembers: allMembers.map((m) => ({
             inGameName: m.inGameName,
             clan: m.clan,
@@ -275,7 +301,27 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
       const data = await response.json();
 
+      if (data.error === 'MISSING_API_KEY') {
+        setOcrErrorType('MISSING_API_KEY');
+        setGeminiConfigured(false);
+        setOcrStatusText(
+          lang === 'th'
+            ? '⚠️ ยังไม่ได้ตั้งค่า Gemini API Key ทำให้ระบบ AI ไม่สามารถอ่านตัวหนังสือจากรูปได้'
+            : '⚠️ Gemini API Key is not configured. AI cannot read text from screenshots.'
+        );
+        sounds.playError();
+        return;
+      }
+
+      if (data.error === 'GEMINI_ERROR') {
+        setOcrErrorType('GEMINI_ERROR');
+        setOcrStatusText(`❌ ${data.message || (lang === 'th' ? 'เกิดข้อผิดพลาดจาก Gemini API' : 'Gemini API error')}`);
+        sounds.playError();
+        return;
+      }
+
       if (data.success && data.detectedClanGroups && data.detectedClanGroups.length > 0) {
+        setGeminiConfigured(true);
         const extractedHunters: HunterRecord[] = [];
         data.detectedClanGroups.forEach((group: { clanName: string; members: string[] }) => {
           group.members.forEach((memName: string) => {
@@ -313,26 +359,54 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
         setOcrStatusText(
           lang === 'th'
-            ? `สแกนสำเร็จจาก ${fileCount} รูปภาพ: พบผู้ล่าใหม่ ${incomingUnique.length} คน (กรองชื่อซ้ำออก ${totalDuplicatesFiltered} คน)`
-            : `Scan successful from ${fileCount} image(s): ${incomingUnique.length} new hunters added (${totalDuplicatesFiltered} duplicates filtered)`
+            ? `สแกนสำเร็จจาก ${sourceCount} รูปภาพ: พบผู้ล่าใหม่ ${incomingUnique.length} คน (กรองชื่อซ้ำออก ${totalDuplicatesFiltered} คน)`
+            : `Scan successful from ${sourceCount} image(s): ${incomingUnique.length} new hunters added (${totalDuplicatesFiltered} duplicates filtered)`
         );
       } else {
         setOcrStatusText(
           lang === 'th'
-            ? `แนบ ${fileCount} รูปสกรีนช็อตแล้ว ไม่พบรายชื่อใหม่ หรือสามารถเลือกจากดรอปดาวน์ด้านล่าง`
-            : `Attached ${fileCount} screenshot(s). Select hunter names from the dropdown below.`
+            ? `สแกน ${sourceCount} รูปภาพแล้ว แต่ไม่พบรายชื่อผู้ล่าที่ตรงกับกิลด์ในระบบ สามารถเลือกจากดรอปดาวน์ด้านล่างได้`
+            : `Scanned ${sourceCount} screenshot(s), but no matching clan members found. You can pick hunters from the dropdown below.`
         );
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('OCR scanning error:', err);
+      setOcrErrorType('NETWORK_ERROR');
       setOcrStatusText(
         lang === 'th'
-          ? 'แนบสกรีนช็อตแล้ว สามารถเลือกชื่อผู้ล่าจากดรอปดาวน์ได้ทันที'
-          : 'Screenshots attached. You can pick hunters from the dropdown below.'
+          ? `เกิดข้อผิดพลาดในการเชื่อมต่อ: ${err.message || 'Network error'}`
+          : `Network error scanning screenshots: ${err.message || 'Network error'}`
       );
+      sounds.playError();
     } finally {
       setIsScanningOCR(false);
     }
+  };
+
+  // Reusable processor for OCR hunter scan (from file picker or Ctrl+V paste)
+  const processOcrScreenshotFiles = async (files: File[], isPaste = false) => {
+    if (!files || files.length === 0) return;
+    try {
+      const compressedBase64List = await Promise.all(
+        files.map((file) =>
+          compressImageFile(file, { maxWidth: 1280, maxHeight: 1280, quality: 0.75 })
+        )
+      );
+
+      // Add all screenshots to backup list automatically
+      setHunterScreenshots((prev) => [...prev, ...compressedBase64List]);
+
+      // Trigger OCR
+      await executeHunterOcr(compressedBase64List, files.length, isPaste);
+    } catch (err) {
+      console.error('File compression error in processOcrScreenshotFiles:', err);
+    }
+  };
+
+  // Scan from existing attached hunter screenshots
+  const scanExistingScreenshots = async () => {
+    if (hunterScreenshots.length === 0) return;
+    await executeHunterOcr(hunterScreenshots, hunterScreenshots.length, false);
   };
 
   // Handle Item Image file upload with compression
@@ -896,6 +970,27 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setShowGeminiModal(true);
+                    }}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
+                      geminiConfigured
+                        ? 'bg-emerald-950/40 border-emerald-500/40 hover:border-emerald-400 text-emerald-300'
+                        : 'bg-amber-950/40 border-amber-500/50 hover:border-amber-400 text-amber-300 animate-pulse'
+                    }`}
+                    title={lang === 'th' ? 'ตั้งค่า Google Gemini API Key สำหรับ AI OCR' : 'Configure Google Gemini API Key for AI OCR'}
+                  >
+                    <Cpu className="w-3.5 h-3.5 text-[#38bdf8]" />
+                    <span>
+                      {geminiConfigured
+                        ? lang === 'th' ? 'Gemini AI: เชื่อมต่อแล้ว' : 'Gemini AI: Connected'
+                        : lang === 'th' ? '⚠️ ตั้งค่า Gemini Key' : '⚠️ Set Gemini Key'}
+                    </span>
+                  </button>
+
                   <label
                     tabIndex={0}
                     onPaste={handlePasteOcrZone}
@@ -921,10 +1016,47 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 </div>
               </div>
 
+              {/* Gemini Key Missing Warning Banner */}
+              {(!geminiConfigured || ocrErrorType === 'MISSING_API_KEY') && (
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 text-amber-200 text-xs shadow-md">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>{t.ocrMissingKeyWarning}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setShowGeminiModal(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all shadow cursor-pointer shrink-0"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>{t.configureKeyBtn}</span>
+                  </button>
+                </div>
+              )}
+
+              {/* OCR Status Banner */}
               {ocrStatusText && (
-                <div className="text-xs text-[#38bdf8] flex items-center gap-1.5 p-2 rounded bg-sky-950/40 border border-sky-800/40">
+                <div
+                  className={`text-xs flex items-center gap-2 p-2.5 rounded-lg border ${
+                    ocrErrorType === 'MISSING_API_KEY' || ocrErrorType === 'GEMINI_ERROR' || ocrErrorType === 'NETWORK_ERROR'
+                      ? 'bg-red-950/40 border-red-800/40 text-red-300'
+                      : 'bg-sky-950/40 border-sky-800/40 text-[#38bdf8]'
+                  }`}
+                >
                   <Sparkles className="w-3.5 h-3.5 shrink-0 text-sky-400" />
                   <span className="flex-1">{ocrStatusText}</span>
+                  {ocrErrorType && (
+                    <button
+                      type="button"
+                      onClick={() => setShowGeminiModal(true)}
+                      className="px-2.5 py-1 rounded bg-sky-900/80 hover:bg-sky-800 text-sky-200 text-[11px] font-semibold border border-sky-600/50 shrink-0 cursor-pointer"
+                    >
+                      {lang === 'th' ? 'ตั้งค่า Key' : 'Configure Key'}
+                    </button>
+                  )}
                   {duplicatesRemovedCount !== null && duplicatesRemovedCount > 0 && (
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-medium shrink-0">
                       {lang === 'th' ? `ตัดชื่อซ้ำ ${duplicatesRemovedCount} คน` : `${duplicatesRemovedCount} dupes filtered`}
@@ -1099,34 +1231,64 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
               {/* Thumbnails of attached screenshots */}
               {hunterScreenshots.length > 0 && (
-                <div className="flex items-center gap-3 overflow-x-auto p-2 rounded-lg bg-[#0a0f19] border border-slate-800">
-                  {hunterScreenshots.map((shot, idx) => (
-                    <div key={idx} className="relative group shrink-0 w-24 h-24 rounded-lg overflow-hidden border border-slate-700">
-                      <img
-                        src={shot}
-                        alt={`Screenshot ${idx + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition-opacity">
-                        <button
-                          type="button"
-                          onClick={() => onViewImageZoom(shot, `Proof #${idx + 1}`, hunterScreenshots, idx)}
-                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-white"
-                          title="Zoom"
-                        >
-                          <ZoomIn className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveScreenshot(idx)}
-                          className="p-1 rounded bg-red-900 hover:bg-red-800 text-white"
-                          title="Remove"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                <div className="space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-[#0e1626] border border-sky-500/30">
+                    <div className="flex items-center gap-2 text-xs text-sky-200">
+                      <ImageIcon className="w-4 h-4 text-sky-400 shrink-0" />
+                      <span>
+                        {lang === 'th'
+                          ? `แนบรูปภาพหลักฐานแล้ว ${hunterScreenshots.length} รูป`
+                          : `${hunterScreenshots.length} screenshot(s) attached`}
+                      </span>
                     </div>
-                  ))}
+                    <button
+                      type="button"
+                      id="btn-scan-attached-screenshots"
+                      disabled={isScanningOCR}
+                      onClick={scanExistingScreenshots}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-sky-600 to-cyan-600 hover:from-sky-500 hover:to-cyan-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
+                      title={lang === 'th' ? 'สั่งให้ AI OCR สแกนชื่อคนล่าจากภาพที่แนบไว้เหล่านี้ทันที' : 'Scan hunters from these attached images'}
+                    >
+                      <Scan className="w-3.5 h-3.5" />
+                      <span>
+                        {isScanningOCR
+                          ? t.uploadingAndScanning
+                          : lang === 'th'
+                          ? `🔍 สแกนผู้ล่าจากรูปที่แนบอยู่นี้ (${hunterScreenshots.length} รูป)`
+                          : `🔍 Scan Hunters from attached images (${hunterScreenshots.length})`}
+                      </span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-3 overflow-x-auto p-2 rounded-lg bg-[#0a0f19] border border-slate-800">
+                    {hunterScreenshots.map((shot, idx) => (
+                      <div key={idx} className="relative group shrink-0 w-24 h-24 rounded-lg overflow-hidden border border-slate-700">
+                        <img
+                          src={shot}
+                          alt={`Screenshot ${idx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition-opacity">
+                          <button
+                            type="button"
+                            onClick={() => onViewImageZoom(shot, `Proof #${idx + 1}`, hunterScreenshots, idx)}
+                            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-white"
+                            title="Zoom"
+                          >
+                            <ZoomIn className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveScreenshot(idx)}
+                            className="p-1 rounded bg-red-900 hover:bg-red-800 text-white"
+                            title="Remove"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -1421,6 +1583,18 @@ export const VaultView: React.FC<VaultViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* GEMINI AI KEY MODAL */}
+      <GeminiKeyModal
+        isOpen={showGeminiModal}
+        onClose={() => setShowGeminiModal(false)}
+        lang={lang}
+        onKeySaved={(newKey) => {
+          setGeminiConfigured(true);
+          setGeminiMaskedKey(`${newKey.slice(0, 6)}...${newKey.slice(-4)}`);
+          setOcrErrorType(null);
+        }}
+      />
 
     </div>
   );
