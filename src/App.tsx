@@ -1310,6 +1310,7 @@ export const App: React.FC = () => {
         isOpen={showGeminiModal}
         onClose={() => setShowGeminiModal(false)}
         lang={lang}
+        isOwner={currentUser?.role === 'owner'}
       />
 
       {/* In-App Toast Notification (Replaces native alert/blocking popups) */}

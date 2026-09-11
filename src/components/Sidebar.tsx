@@ -107,8 +107,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  const isOwner = currentUser?.role === 'owner';
   const canAccessVault =
-    currentUser?.role === 'owner' ||
+    isOwner ||
     currentUser?.role === 'admin' ||
     currentUser?.role === 'manager';
 
@@ -229,14 +230,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
 
-          {canAccessVault && onOpenGeminiModal && (
+          {isOwner && onOpenGeminiModal && (
             <button
               onClick={() => {
                 sounds.playClick();
                 onOpenGeminiModal();
               }}
               className="relative p-1.5 rounded-lg bg-[#0c1424]/80 border border-[#38bdf8]/50 text-[#7dd3fc] hover:text-white cursor-pointer"
-              title={lang === 'th' ? 'ตั้งค่า Gemini AI OCR Key' : 'Gemini AI OCR Key'}
+              title={lang === 'th' ? 'ตั้งค่า Gemini AI OCR Key (เฉพาะ Owner)' : 'Gemini AI OCR Key (Owner Only)'}
               aria-label="Gemini AI OCR"
             >
               <Cpu className="w-4 h-4" />
@@ -537,8 +538,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             )}
 
-            {/* Gemini AI OCR Settings (For Admin / Owner) */}
-            {canAccessVault && onOpenGeminiModal && (
+            {/* Gemini AI OCR Settings (For Owner Only) */}
+            {isOwner && onOpenGeminiModal && (
               <button
                 id="btn-gemini-settings"
                 onClick={() => {
@@ -546,7 +547,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onOpenGeminiModal();
                 }}
                 className="relative p-1.5 rounded-lg border border-[#38bdf8]/40 bg-[#38bdf8]/15 hover:bg-[#38bdf8]/30 text-[#7dd3fc] hover:text-white transition-all cursor-pointer"
-                title={lang === 'th' ? 'ตั้งค่า Gemini AI OCR Key' : 'Gemini AI OCR Key'}
+                title={lang === 'th' ? 'ตั้งค่า Gemini AI OCR Key (เฉพาะ Owner)' : 'Gemini AI OCR Key (Owner Only)'}
                 aria-label="Gemini AI OCR"
               >
                 <Cpu className="w-4 h-4" />

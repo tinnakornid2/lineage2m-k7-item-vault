@@ -104,9 +104,24 @@ d:/K7 item webapp/lineage2m-k7-item-vault (1)/
   3. รูปคิวไอเทม (`QueueView.tsx`)
   4. รูปควิกไอเทมแม่แบบด่วน (`QuickItemModal.tsx`)
 
-### 4.4 การซิงค์ข้อมูล Real-time (Firebase Firestore)
-- ทุกตารางใช้ `onSnapshot` ใน `App.tsx` เพื่อรับการเปลี่ยนแปลงแบบเรียลไทม์ข้ามเครื่อง
-- ฟังก์ชัน `sanitizeForFirestore` ใน `src/services/firebase.ts` จะตัดค่า `undefined` ออกก่อนบันทึกลง Firestore เสมอ เพื่อป้องกันข้อผิดพลาดของ Firebase SDK
+### 4.5 กฎเหล็กเรื่องภาษา (Mandatory Bilingual Rule: TH & EN)
+- **ทุกหน้าจอ ทุกปุ่ม และทุกข้อความแจ้งเตือน (100%) ต้องรองรับ 2 ภาษาเสมอ (ไทย 'th' และ อังกฤษ 'en'):**
+  - ห้ามเขียน Hardcode ภาษาไทยหรืออังกฤษโดดๆ โดยเด็ดขาด
+  - ต้องผูกผ่าน `t.keyName` จาก `src/translations.ts` หรือเงื่อนไข `lang === 'th' ? '...' : '...'`
+  - เมื่อเพิ่มฟีเจอร์หรือข้อความใหม่ ต้องเพิ่มคู่คำแปลลงใน `src/translations.ts` ทั้งฝั่ง `th` และ `en` พร้อมกันเสมอ
+  - ดูรายละเอียดเพิ่มเติมในกฎ `.agents/rules/i18n-bilingual.md`
+
+### 4.6 กฎระบบ AI OCR และสิทธิ์ Owner (Gemini AI Key & Owner-Only Rules)
+- **ปุ่ม Gemini AI จำกัดเฉพาะ Owner:**
+  - ปุ่มตั้งค่า Gemini AI OCR ใน `VaultView.tsx`, `Sidebar.tsx` และ `GeminiKeyModal.tsx` **จำกัดให้มองเห็นและใช้งานได้เฉพาะผู้ใช้ที่มีสถานะ Owner เท่านั้น** (`currentUser?.role === 'owner'` หรือ `isOwner === true`)
+  - สมาชิกทั่วไปและแอดมินจะไม่เห็นปุ่มหรือสิทธิ์ในการเข้าถึงการจัดการ API Key
+- **ระบบสแกนผู้ล่าและการคัดลอก (Scan Results & Copyable Text):**
+  - ส่วนแสดงผลการสแกน (หัวข้อ 7 ใน `VaultView.tsx`) รองรับทั้งมุมมองแบบ **การ์ดตามแคลน (Cards View)** และแบบ **ข้อความสำหรับคัดลอก (Text View)**
+  - มีปุ่ม **[📋 คัดลอกรายชื่อทั้งหมด]** ทั้งแบบชื่อล้วน, แบบพร้อมชื่อแคลน, และแบบคั่นด้วยจุลภาค (Comma-separated)
+- **ระบบเลือกคนล่าแบบ Checklist (Interactive Member Checklist):**
+  - แสดงรายชื่อสมาชิกทั้งหมดพร้อมช่องติ๊กถูก (`[x]`)
+  - มีช่องค้นหาชื่อสมาชิกและแท็บกรองตามแคลน
+  - มีปุ่ม **[เลือกทั้งหมด (Select All)]** และ **[ล้างที่เลือก (Deselect All)]** ให้ติ๊กหลายคนพร้อมกันได้อย่างรวดเร็ว
 
 ---
 

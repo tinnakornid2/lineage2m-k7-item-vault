@@ -29,7 +29,11 @@ import {
   ClipboardCheck,
   Key,
   Cpu,
-  ExternalLink
+  ExternalLink,
+  FileText,
+  LayoutGrid,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import {
   HunterRecord,
@@ -77,8 +81,9 @@ export const VaultView: React.FC<VaultViewProps> = ({
   onOpenOwnerResetModal
 }) => {
   const t = translations[lang];
+  const isOwner = currentUser?.role === 'owner';
   const isAdminOrOwner =
-    currentUser?.role === 'owner' ||
+    isOwner ||
     currentUser?.role === 'admin' ||
     currentUser?.role === 'manager';
 
@@ -109,6 +114,15 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [isCreating, setIsCreating] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+
+  // Section 7 Scan Results Copy & View Mode State
+  const [hunterResultViewMode, setHunterResultViewMode] = useState<'cards' | 'text'>('cards');
+  const [copyFormatWithClan, setCopyFormatWithClan] = useState<boolean>(false);
+  const [copiedHunters, setCopiedHunters] = useState<boolean>(false);
+
+  // Section Hunter Checklist Picker State
+  const [hunterSearchQuery, setHunterSearchQuery] = useState('');
+  const [hunterClanFilter, setHunterClanFilter] = useState<string>('all');
 
   // Check Gemini API status on mount
   useEffect(() => {
@@ -162,6 +176,106 @@ export const VaultView: React.FC<VaultViewProps> = ({
       });
     return groups;
   }, [allMembers]);
+
+  // Active members who have an inGameName
+  const activeMembersList = useMemo(() => {
+    return allMembers.filter((m) => m.status === 'active' && m.inGameName);
+  }, [allMembers]);
+
+  // Set of selected hunter names (case-insensitive for fast lookup)
+  const selectedHunterNameSet = useMemo(() => {
+    return new Set(hunters.map((h) => h.name.trim().toLowerCase()));
+  }, [hunters]);
+
+  // Filtered members for the checklist based on search and clan
+  const filteredChecklistMembers = useMemo(() => {
+    return activeMembersList.filter((m) => {
+      const matchesClan = hunterClanFilter === 'all' || m.clan === hunterClanFilter;
+      const q = hunterSearchQuery.trim().toLowerCase();
+      const matchesSearch =
+        !q ||
+        m.inGameName.toLowerCase().includes(q) ||
+        (m.clan && m.clan.toLowerCase().includes(q)) ||
+        (m.gameClass && m.gameClass.toLowerCase().includes(q));
+      return matchesClan && matchesSearch;
+    });
+  }, [activeMembersList, hunterClanFilter, hunterSearchQuery]);
+
+  // Toggle individual member in checklist
+  const handleToggleHunterMember = (member: User) => {
+    sounds.playClick();
+    const nameKey = member.inGameName.trim().toLowerCase();
+    const existingIdx = hunters.findIndex((h) => h.name.trim().toLowerCase() === nameKey);
+
+    if (existingIdx >= 0) {
+      // Remove from list
+      setHunters((prev) => prev.filter((_, idx) => idx !== existingIdx));
+    } else {
+      // Add to list
+      setHunters((prev) => [
+        ...prev,
+        {
+          name: member.inGameName.trim(),
+          clan: member.clan || 'Clan:VoltZ'
+        }
+      ]);
+    }
+  };
+
+  // Select all currently filtered members
+  const handleSelectAllFiltered = () => {
+    sounds.playClaim();
+    const newHunters = [...hunters];
+    const existingNames = new Set(newHunters.map((h) => h.name.trim().toLowerCase()));
+
+    filteredChecklistMembers.forEach((m) => {
+      const nameKey = m.inGameName.trim().toLowerCase();
+      if (!existingNames.has(nameKey)) {
+        existingNames.add(nameKey);
+        newHunters.push({
+          name: m.inGameName.trim(),
+          clan: m.clan || 'Clan:VoltZ'
+        });
+      }
+    });
+
+    setHunters(newHunters);
+  };
+
+  // Deselect all currently filtered members
+  const handleDeselectAllFiltered = () => {
+    sounds.playClick();
+    const filteredKeys = new Set(filteredChecklistMembers.map((m) => m.inGameName.trim().toLowerCase()));
+    setHunters((prev) => prev.filter((h) => !filteredKeys.has(h.name.trim().toLowerCase())));
+  };
+
+  // Copy all hunters to clipboard (newline or comma separated, with or without clan)
+  const handleCopyAllHunters = (format: 'plain' | 'clan' | 'comma' = 'plain') => {
+    if (hunters.length === 0) return;
+    let textToCopy = '';
+    if (format === 'comma') {
+      textToCopy = hunters.map((h) => h.name).join(', ');
+    } else if (format === 'clan') {
+      textToCopy = hunters.map((h) => `${h.name} (${h.clan})`).join('\n');
+    } else {
+      textToCopy = hunters.map((h) => h.name).join('\n');
+    }
+
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedHunters(true);
+    sounds.playClaim();
+    setTimeout(() => setCopiedHunters(false), 2500);
+  };
+
+  // Clear all hunters with confirmation
+  const handleClearAllHunters = () => {
+    if (hunters.length === 0) return;
+    if (window.confirm(t.clearAllHuntersConfirm)) {
+      sounds.playClick();
+      setHunters([]);
+      setDuplicatesRemovedCount(null);
+    }
+  };
 
   // Active view inside Vault: 'active' or 'distributed'
   const [vaultSubTab, setVaultSubTab] = useState<'create' | 'distributed'>('create');
@@ -1172,26 +1286,28 @@ Do not include markdown or explanations. Return pure JSON only.`;
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      setShowGeminiModal(true);
-                    }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
-                      geminiConfigured
-                        ? 'bg-emerald-950/40 border-emerald-500/40 hover:border-emerald-400 text-emerald-300'
-                        : 'bg-amber-950/40 border-amber-500/50 hover:border-amber-400 text-amber-300 animate-pulse'
-                    }`}
-                    title={lang === 'th' ? 'ตั้งค่า Google Gemini API Key สำหรับ AI OCR' : 'Configure Google Gemini API Key for AI OCR'}
-                  >
-                    <Cpu className="w-3.5 h-3.5 text-[#38bdf8]" />
-                    <span>
-                      {geminiConfigured
-                        ? lang === 'th' ? 'Gemini AI: เชื่อมต่อแล้ว' : 'Gemini AI: Connected'
-                        : lang === 'th' ? '⚠️ ตั้งค่า Gemini Key' : '⚠️ Set Gemini Key'}
-                    </span>
-                  </button>
+                  {isOwner && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        setShowGeminiModal(true);
+                      }}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
+                        geminiConfigured
+                          ? 'bg-emerald-950/40 border-emerald-500/40 hover:border-emerald-400 text-emerald-300'
+                          : 'bg-amber-950/40 border-amber-500/50 hover:border-amber-400 text-amber-300 animate-pulse'
+                      }`}
+                      title={lang === 'th' ? 'ตั้งค่า Google Gemini API Key สำหรับ AI OCR (เฉพาะ Owner)' : 'Configure Google Gemini API Key for AI OCR (Owner Only)'}
+                    >
+                      <Cpu className="w-3.5 h-3.5 text-[#38bdf8]" />
+                      <span>
+                        {geminiConfigured
+                          ? lang === 'th' ? 'Gemini AI: เชื่อมต่อแล้ว' : 'Gemini AI: Connected'
+                          : lang === 'th' ? '⚠️ ตั้งค่า Gemini Key' : '⚠️ Set Gemini Key'}
+                      </span>
+                    </button>
+                  )}
 
                   <label
                     tabIndex={0}
@@ -1225,17 +1341,23 @@ Do not include markdown or explanations. Return pure JSON only.`;
                     <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
                     <span>{t.ocrMissingKeyWarning}</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      setShowGeminiModal(true);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all shadow cursor-pointer shrink-0"
-                  >
-                    <Key className="w-3.5 h-3.5" />
-                    <span>{t.configureKeyBtn}</span>
-                  </button>
+                  {isOwner ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        setShowGeminiModal(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all shadow cursor-pointer shrink-0"
+                    >
+                      <Key className="w-3.5 h-3.5" />
+                      <span>{t.configureKeyBtn}</span>
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-amber-300/80 font-medium shrink-0">
+                      {t.geminiOwnerOnlyHint}
+                    </span>
+                  )}
                 </div>
               )}
 
@@ -1250,7 +1372,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                 >
                   <Sparkles className="w-3.5 h-3.5 shrink-0 text-sky-400" />
                   <span className="flex-1">{ocrStatusText}</span>
-                  {ocrErrorType && (
+                  {isOwner && ocrErrorType && (
                     <button
                       type="button"
                       onClick={() => setShowGeminiModal(true)}
@@ -1267,32 +1389,173 @@ Do not include markdown or explanations. Return pure JSON only.`;
                 </div>
               )}
 
-              {/* Matched hunters grouped by Clan */}
+              {/* 7. Matched hunters grouped by Clan / Text View */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-semibold text-slate-300">
-                    7. {t.scanResults} ({hunters.length} {lang === 'th' ? 'คน' : 'hunters'})
-                  </label>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
+                  <div className="flex items-center gap-2">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      7. {t.scanResults} ({hunters.length} {lang === 'th' ? 'คน' : 'hunters'})
+                    </label>
 
-                  {hunters.length > 0 && (
-                    <button
-                      type="button"
-                      id="btn-filter-duplicates"
-                      onClick={handleFilterDuplicates}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 hover:border-amber-500 text-amber-300 hover:text-amber-200 text-[11px] font-semibold transition-all cursor-pointer shadow-sm"
-                      title={lang === 'th' ? 'ตรวจหาและลบรายชื่อผู้ล่าที่ซ้ำกันออก' : 'Check and filter out duplicate hunter names'}
-                    >
-                      <RotateCcw className="w-3 h-3 text-amber-400" />
-                      <span>{t.filterDuplicatesBtn}</span>
-                    </button>
-                  )}
+                    {/* View Mode Toggle (Cards vs Text) */}
+                    <div className="flex items-center gap-1 p-0.5 rounded-lg bg-[#0e1422] border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setHunterResultViewMode('cards');
+                        }}
+                        className={`px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                          hunterResultViewMode === 'cards'
+                            ? 'bg-sky-950/90 text-sky-300 border border-sky-600/60 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                        title={t.viewAsCards}
+                      >
+                        <LayoutGrid className="w-3 h-3" />
+                        <span>{t.viewAsCards}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setHunterResultViewMode('text');
+                        }}
+                        className={`px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                          hunterResultViewMode === 'text'
+                            ? 'bg-amber-950/90 text-amber-300 border border-amber-600/60 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                        title={t.viewAsText}
+                      >
+                        <FileText className="w-3 h-3" />
+                        <span>{t.viewAsText}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {/* Copy All Button */}
+                    {hunters.length > 0 && (
+                      <button
+                        type="button"
+                        id="btn-copy-all-hunters"
+                        onClick={() => handleCopyAllHunters(copyFormatWithClan ? 'clan' : 'plain')}
+                        className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-600/70 hover:border-emerald-500 text-emerald-300 hover:text-emerald-200 text-[11px] font-bold transition-all cursor-pointer shadow-sm"
+                        title={lang === 'th' ? 'คัดลอกรายชื่อทั้งหมดลงคลิปบอร์ด' : 'Copy all hunter names to clipboard'}
+                      >
+                        {copiedHunters ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>{lang === 'th' ? '✓ คัดลอกแล้ว!' : '✓ Copied!'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>{t.copyAllHunters}</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+
+                    {hunters.length > 0 && (
+                      <button
+                        type="button"
+                        id="btn-filter-duplicates"
+                        onClick={handleFilterDuplicates}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 hover:border-amber-500 text-amber-300 hover:text-amber-200 text-[11px] font-semibold transition-all cursor-pointer shadow-sm"
+                        title={lang === 'th' ? 'ตรวจหาและลบรายชื่อผู้ล่าที่ซ้ำกันออก' : 'Check and filter out duplicate hunter names'}
+                      >
+                        <RotateCcw className="w-3 h-3 text-amber-400" />
+                        <span>{t.filterDuplicatesBtn}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-                
-                {Object.keys(groupedHunters).length === 0 ? (
-                  <div className="p-3 rounded-lg bg-[#0e1422] border border-slate-800 text-center text-xs text-slate-500">
+
+                {/* NO HUNTERS FOUND EMPTY STATE */}
+                {hunters.length === 0 ? (
+                  <div className="p-4 rounded-lg bg-[#0e1422] border border-slate-800 text-center text-xs text-slate-500">
                     {t.noHuntersFound}
                   </div>
+                ) : hunterResultViewMode === 'text' ? (
+                  /* TEXT VIEW (Copyable format) */
+                  <div className="p-3.5 rounded-xl bg-[#0b101c] border border-amber-500/30 space-y-2.5 shadow-inner">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{t.viewAsText}</span>
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
+                          {hunters.length} {lang === 'th' ? 'คน' : 'names'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Format selector: Plain names vs Names with Clan */}
+                        <div className="flex items-center gap-1 bg-[#111726] p-0.5 rounded-lg border border-slate-700 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() => setCopyFormatWithClan(false)}
+                            className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+                              !copyFormatWithClan ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {t.plainNamesOnly}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCopyFormatWithClan(true)}
+                            className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+                              copyFormatWithClan ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {t.namesWithClan}
+                          </button>
+                        </div>
+
+                        {/* Comma-separated copy button */}
+                        <button
+                          type="button"
+                          onClick={() => handleCopyAllHunters('comma')}
+                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-medium transition-all cursor-pointer flex items-center gap-1"
+                          title={lang === 'th' ? 'คัดลอกแบบคั่นด้วยลูกน้ำ เช่น Name1, Name2' : 'Copy as comma-separated: Name1, Name2'}
+                        >
+                          <Copy className="w-3 h-3 text-amber-400" />
+                          <span>{t.copyCommaSeparated}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Copyable Text Area */}
+                    <div className="relative">
+                      <textarea
+                        readOnly
+                        rows={Math.min(12, Math.max(5, hunters.length))}
+                        value={
+                          copyFormatWithClan
+                            ? hunters.map((h, i) => `${i + 1}. ${h.name} (${h.clan})`).join('\n')
+                            : hunters.map((h) => h.name).join('\n')
+                        }
+                        onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                        className="w-full px-3 py-2 rounded-lg bg-[#070b13] border border-slate-800 hover:border-amber-500/50 text-xs font-mono text-slate-200 leading-relaxed focus:outline-none focus:border-amber-400 cursor-text resize-y shadow-inner select-all"
+                        placeholder={lang === 'th' ? 'รายชื่อผู้ล่าจะแสดงที่นี่...' : 'Hunter names will appear here...'}
+                      />
+                      <div className="absolute top-2 right-2 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyAllHunters(copyFormatWithClan ? 'clan' : 'plain')}
+                          className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1"
+                        >
+                          <Copy className="w-3 h-3 text-amber-300" />
+                          <span>{copiedHunters ? (lang === 'th' ? 'คัดลอกแล้ว' : 'Copied') : t.copyAllHunters}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
+                  /* CARDS VIEW */
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {Object.entries(groupedHunters).map(([clanName, memberNames]: [string, string[]]) => (
                       <div
@@ -1301,9 +1564,25 @@ Do not include markdown or explanations. Return pure JSON only.`;
                       >
                         <div className="text-xs font-bold text-amber-300 font-mono border-b border-slate-700/80 pb-1.5 mb-2 flex items-center justify-between">
                           <span>{clanName}</span>
-                          <span className="text-[10px] text-slate-400 font-normal">
-                            ({memberNames.length} {lang === 'th' ? 'คน' : 'hunters'})
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              ({memberNames.length} {lang === 'th' ? 'คน' : 'hunters'})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const text = memberNames.join('\n');
+                                navigator.clipboard.writeText(text);
+                                sounds.playClaim();
+                                setCopiedHunters(true);
+                                setTimeout(() => setCopiedHunters(false), 2000);
+                              }}
+                              className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                              title={lang === 'th' ? `คัดลอกเฉพาะ ${clanName}` : `Copy ${clanName} only`}
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
                         <div className="space-y-1">
                           {memberNames.map((mName, idx) => (
@@ -1320,7 +1599,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                                   );
                                   if (targetIndex >= 0) handleRemoveHunter(targetIndex);
                                 }}
-                                className="text-slate-500 hover:text-red-400 text-xs px-1"
+                                className="text-slate-500 hover:text-red-400 text-xs px-1 cursor-pointer"
                               >
                                 ×
                               </button>
@@ -1332,14 +1611,179 @@ Do not include markdown or explanations. Return pure JSON only.`;
                   </div>
                 )}
 
-                {/* Dropdown Selector for Hunters (No typing needed) */}
-                <div className="mt-3 pt-3 border-t border-slate-800 space-y-2">
-                  <div className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
-                    <UserCheck className="w-3.5 h-3.5 text-amber-400" />
-                    <span>{t.selectHunterDropdown}</span>
+                {/* INTERACTIVE MEMBER CHECKLIST & SELECTOR (No typing needed) */}
+                <div className="mt-4 pt-4 border-t border-slate-800 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <UserCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                      <div>
+                        <h4 className="text-xs sm:text-sm font-bold text-amber-300">
+                          {t.hunterChecklistTitle}
+                        </h4>
+                        <p className="text-[11px] text-slate-400">
+                          {t.hunterChecklistDesc}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-amber-950/60 border border-amber-600/50 text-amber-300 font-semibold">
+                        {hunters.length} / {activeMembersList.length} {t.selectedHuntersCount}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  {/* Search, Clan Filter Tabs & Batch Select/Deselect */}
+                  <div className="p-3 rounded-xl bg-[#0e1422] border border-slate-800/80 space-y-2.5">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                      {/* Search input */}
+                      <div className="relative flex-1">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <input
+                          type="text"
+                          value={hunterSearchQuery}
+                          onChange={(e) => setHunterSearchQuery(e.target.value)}
+                          placeholder={t.searchMembersList}
+                          className="w-full pl-8 pr-8 py-1.5 rounded-lg bg-[#141b2d] border border-slate-700/80 hover:border-slate-600 focus:border-[#d4af37] text-xs text-slate-100 placeholder-slate-500 focus:outline-none"
+                        />
+                        {hunterSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setHunterSearchQuery('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-white"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Batch Action Buttons */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          id="btn-checklist-select-all"
+                          onClick={handleSelectAllFiltered}
+                          className="px-2.5 py-1.5 rounded-lg bg-sky-950/70 hover:bg-sky-900 border border-sky-600/50 hover:border-sky-500 text-sky-300 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                          title={lang === 'th' ? 'เลือกสมาชิกที่แสดงอยู่ทั้งหมด' : 'Select all currently filtered members'}
+                        >
+                          <CheckSquare className="w-3.5 h-3.5" />
+                          <span>{t.selectAllMembers}</span>
+                        </button>
+                        <button
+                          type="button"
+                          id="btn-checklist-deselect-all"
+                          onClick={handleDeselectAllFiltered}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-slate-300 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                          title={lang === 'th' ? 'ยกเลิกการเลือกสมาชิกที่แสดงอยู่' : 'Deselect currently filtered members'}
+                        >
+                          <Square className="w-3.5 h-3.5" />
+                          <span>{t.deselectAllMembers}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Clan Filter Tabs */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setHunterClanFilter('all')}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer shrink-0 ${
+                          hunterClanFilter === 'all'
+                            ? 'bg-amber-500 text-slate-950 shadow-sm'
+                            : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {t.allClansFilter} ({activeMembersList.length})
+                      </button>
+                      {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, cMembers]) => {
+                        const clanSelectedCount = cMembers.filter((m) =>
+                          selectedHunterNameSet.has(m.inGameName.trim().toLowerCase())
+                        ).length;
+                        return (
+                          <button
+                            key={clanName}
+                            type="button"
+                            onClick={() => setHunterClanFilter(clanName)}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer shrink-0 flex items-center gap-1.5 ${
+                              hunterClanFilter === clanName
+                                ? 'bg-sky-600 text-white shadow-sm'
+                                : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <span>{clanName}</span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/30 font-mono">
+                              {clanSelectedCount}/{cMembers.length}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Checklist Grid with Checkboxes */}
+                  <div className="max-h-[380px] overflow-y-auto pr-1 space-y-3 custom-scrollbar">
+                    {filteredChecklistMembers.length === 0 ? (
+                      <div className="p-4 rounded-lg bg-[#0e1422] border border-slate-800 text-center text-xs text-slate-500">
+                        {lang === 'th' ? 'ไม่พบรายชื่อสมาชิกที่ค้นหา' : 'No members found matching filter'}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                        {filteredChecklistMembers.map((member) => {
+                          const isSelected = selectedHunterNameSet.has(
+                            member.inGameName.trim().toLowerCase()
+                          );
+                          return (
+                            <div
+                              key={member.id}
+                              onClick={() => handleToggleHunterMember(member)}
+                              className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center gap-2.5 select-none ${
+                                isSelected
+                                  ? 'bg-[#d4af37]/15 border-[#d4af37] shadow-[0_0_12px_rgba(212,175,55,0.15)] ring-1 ring-[#d4af37]/40'
+                                  : 'bg-[#0e1422] border-slate-800/80 hover:border-slate-700 hover:bg-[#121a2d] text-slate-300'
+                              }`}
+                            >
+                              {/* Checkbox Icon */}
+                              <div
+                                className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border transition-all ${
+                                  isSelected
+                                    ? 'bg-[#d4af37] border-[#d4af37] text-slate-950 font-bold'
+                                    : 'border-slate-600 bg-[#151c2c]'
+                                }`}
+                              >
+                                {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                              </div>
+
+                              {/* Member Details */}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className={`text-xs font-bold truncate ${isSelected ? 'text-amber-200' : 'text-slate-200'}`}>
+                                    {member.inGameName}
+                                  </span>
+                                  {member.powerLevel ? (
+                                    <span className="text-[10px] text-amber-400/90 font-mono shrink-0">
+                                      ⚡{(member.powerLevel / 1000).toFixed(0)}k
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                                  <span className="truncate">{member.clan}</span>
+                                  {member.gameClass && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="truncate text-slate-500">{member.gameClass}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Fallback Single Dropdown (for quick pick or custom clan) */}
+                  <div className="pt-2 border-t border-slate-800/60 flex flex-wrap items-center gap-2">
                     <select
                       id="select-vault-hunter-dropdown"
                       value={selectedHunterMemberId}
@@ -1355,12 +1799,12 @@ Do not include markdown or explanations. Return pure JSON only.`;
                           setCustomHunterClan('');
                         }
                       }}
-                      className="flex-1 min-w-[240px] px-3 py-2 rounded-lg bg-[#111726] border border-amber-500/50 hover:border-amber-400 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none cursor-pointer"
+                      className="flex-1 min-w-[240px] px-3 py-1.5 rounded-lg bg-[#111726] border border-amber-500/40 hover:border-amber-400 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none cursor-pointer"
                     >
                       <option value="">
                         {lang === 'th'
-                          ? '-- คลิกเลือกชื่อคนล่าจากดรอปดาวน์ (ไม่ต้องพิมพ์) --'
-                          : '-- Select hunter from dropdown (No typing) --'}
+                          ? '-- หรือเลือกทีละคนจากดรอปดาวน์ --'
+                          : '-- Or pick individually from dropdown --'}
                       </option>
                       {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, members]) => (
                         <optgroup key={clanName} label={`🛡️ ${clanName} (${members.length} คน)`}>
@@ -1378,19 +1822,12 @@ Do not include markdown or explanations. Return pure JSON only.`;
                       id="btn-add-hunter-from-dropdown"
                       disabled={!customHunterName}
                       onClick={() => handleAddManualHunter()}
-                      className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 text-xs font-bold text-slate-950 transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                      className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 text-xs font-bold text-slate-950 transition-all cursor-pointer flex items-center gap-1 shadow-sm"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>{lang === 'th' ? 'เพิ่มคนล่า' : 'Add Hunter'}</span>
+                      <span>{lang === 'th' ? 'เพิ่ม' : 'Add'}</span>
                     </button>
                   </div>
-
-                  {customHunterName && (
-                    <div className="flex items-center gap-2 text-[11px] text-emerald-400">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>{lang === 'th' ? 'เลือกแล้ว:' : 'Selected:'} <strong>{customHunterName}</strong> ({customHunterClan})</span>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -1791,6 +2228,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
         isOpen={showGeminiModal}
         onClose={() => setShowGeminiModal(false)}
         lang={lang}
+        isOwner={isOwner}
         onKeySaved={(newKey) => {
           setActiveGeminiKey(newKey);
           setGeminiConfigured(true);

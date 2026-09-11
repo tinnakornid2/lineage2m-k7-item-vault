@@ -21,13 +21,15 @@ interface GeminiKeyModalProps {
   onClose: () => void;
   lang: Language;
   onKeySaved?: (key: string) => void;
+  isOwner?: boolean;
 }
 
 export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
   isOpen,
   onClose,
   lang,
-  onKeySaved
+  onKeySaved,
+  isOwner = true
 }) => {
   const t = translations[lang];
 
@@ -269,7 +271,7 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
               <Key className="w-3.5 h-3.5 text-[#38bdf8]" />
               <span>Google Gemini API Key</span>
             </span>
-            {serverStatus.configured && (
+            {serverStatus.configured && isOwner && (
               <button
                 type="button"
                 onClick={handleClearKey}
@@ -283,10 +285,13 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
           <div className="relative">
             <input
               type={showKey ? 'text' : 'password'}
-              placeholder={t.geminiKeyInputPlaceholder}
+              placeholder={isOwner ? t.geminiKeyInputPlaceholder : t.geminiOwnerOnlyHint}
+              disabled={!isOwner}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              className="w-full pl-3 pr-10 py-2.5 rounded-xl bg-[#090d16] border border-slate-700 focus:border-[#38bdf8] text-slate-100 text-xs font-mono focus:outline-none transition-colors"
+              className={`w-full pl-3 pr-10 py-2.5 rounded-xl bg-[#090d16] border text-xs font-mono focus:outline-none transition-colors ${
+                !isOwner ? 'border-slate-800 text-slate-500 cursor-not-allowed' : 'border-slate-700 focus:border-[#38bdf8] text-slate-100'
+              }`}
             />
             <button
               type="button"
@@ -328,24 +333,30 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
           >
             {lang === 'th' ? 'ปิด' : 'Close'}
           </button>
-          <button
-            type="button"
-            disabled={isTesting || !apiKey.trim()}
-            onClick={handleTestAndSave}
-            className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-sky-950 cursor-pointer transition-all"
-          >
-            {isTesting ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>{t.geminiKeyTesting}</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{t.geminiKeyTestAndSave}</span>
-              </>
-            )}
-          </button>
+          {isOwner ? (
+            <button
+              type="button"
+              disabled={isTesting || !apiKey.trim()}
+              onClick={handleTestAndSave}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-sky-950 cursor-pointer transition-all"
+            >
+              {isTesting ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>{t.geminiKeyTesting}</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{t.geminiKeyTestAndSave}</span>
+                </>
+              )}
+            </button>
+          ) : (
+            <span className="text-[11px] text-amber-400 font-medium">
+              {t.geminiOwnerOnlyHint}
+            </span>
+          )}
         </div>
       </div>
     </div>
