@@ -582,11 +582,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* System Version & Status Indicator */}
-          <div className="pt-2 pb-0.5 text-center flex items-center justify-between px-1">
-            <span className="text-[9.5px] font-mono text-slate-500">Lineage2M Clan Hub</span>
-            <div className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold">
+          <div className="pt-2 pb-0.5 flex items-center justify-between gap-1.5 px-1">
+            <span
+              className="text-[9px] font-mono font-medium text-emerald-400 animate-pulse tracking-tight truncate drop-shadow-[0_0_8px_rgba(52,211,153,0.35)]"
+              title="Lineage2M Clan Hub Made By Elon"
+            >
+              Lineage2M Clan Hub Made By Elon
+            </span>
+            <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>v1.3.0</span>
+              <span>v1.4.0</span>
             </div>
           </div>
 
