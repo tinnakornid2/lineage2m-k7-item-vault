@@ -82,8 +82,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
   // Form State
   const [name, setName] = useState('');
-  const [price, setPrice] = useState<number>(5000);
-  const [minPowerLevel, setMinPowerLevel] = useState<number>(500000);
+  const [price, setPrice] = useState<number | ''>('');
+  const [minPowerLevel, setMinPowerLevel] = useState<number | ''>('');
   const [rarity, setRarity] = useState<ItemRarity>('LAGEND');
   const [itemImageUrl, setItemImageUrl] = useState('');
   const [itemImagePreview, setItemImagePreview] = useState('');
@@ -386,8 +386,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
       // Reset form
       setName('');
-      setPrice(5000);
-      setMinPowerLevel(500000);
+      setPrice('');
+      setMinPowerLevel('');
       setItemImageUrl('');
       setItemImagePreview('');
       setHunters([]);
@@ -710,8 +710,12 @@ export const VaultView: React.FC<VaultViewProps> = ({
                         type="number"
                         min="0"
                         required
-                        value={price || ''}
-                        onChange={(e) => setPrice(Number(e.target.value))}
+                        placeholder={lang === 'th' ? 'ระบุราคา (เพชร)' : 'Price (Diamonds)'}
+                        value={price}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setPrice(val === '' ? '' : Math.max(0, Number(val)));
+                        }}
                         className="w-full pl-9 pr-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm font-mono focus:outline-none"
                       />
                     </div>
@@ -729,8 +733,12 @@ export const VaultView: React.FC<VaultViewProps> = ({
                         type="number"
                         min="0"
                         required
-                        value={minPowerLevel || ''}
-                        onChange={(e) => setMinPowerLevel(Number(e.target.value))}
+                        placeholder={lang === 'th' ? 'ระบุพลังขั้นต่ำ (CP)' : 'Min CP required'}
+                        value={minPowerLevel}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setMinPowerLevel(val === '' ? '' : Math.max(0, Number(val)));
+                        }}
                         className="w-full pl-9 pr-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm font-mono focus:outline-none"
                       />
                     </div>
