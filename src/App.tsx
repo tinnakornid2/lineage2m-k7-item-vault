@@ -67,6 +67,7 @@ import { DistributeItemModal } from './components/DistributeItemModal';
 import { ClaimantsModal } from './components/ClaimantsModal';
 import { QuickItemModal } from './components/QuickItemModal';
 import { OwnerResetModal } from './components/OwnerResetModal';
+import { RequestPowerLevelModal } from './components/RequestPowerLevelModal';
 import {
   BackgroundSettingsModal,
   BackgroundConfig,
@@ -133,6 +134,7 @@ export const App: React.FC = () => {
   const [showOwnerResetModal, setShowOwnerResetModal] = useState(false);
   const [showDiscordModal, setShowDiscordModal] = useState(false);
   const [showClassModal, setShowClassModal] = useState(false);
+  const [showRequestCpModal, setShowRequestCpModal] = useState(false);
   const [characterClasses, setCharacterClasses] = useState<string[]>(DEFAULT_CHARACTER_CLASSES);
   const [announcementSettings, setAnnouncementSettings] = useState<AnnouncementSettings | null>(null);
   const [discordSettings, setDiscordSettings] = useState<DiscordSettings | null>(null);
@@ -292,6 +294,7 @@ export const App: React.FC = () => {
     inGameName: string;
     clan: string;
     characterClass: any;
+    powerLevel?: number;
   }): Promise<{ success: boolean; message?: string }> => {
     try {
       // Check if username already exists
@@ -802,6 +805,142 @@ export const App: React.FC = () => {
     }
   };
 
+  // CP Update Request Handlers
+  const handleRequestPowerLevelUpdate = async (userId: string, newPowerLevel: number) => {
+    const timestamp = Date.now();
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === userId
+          ? { ...u, pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp }
+          : u
+      )
+    );
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) =>
+        prev ? { ...prev, pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp } : null
+      );
+    }
+    try {
+      await updateUserDoc(userId, {
+        pendingPowerLevel: newPowerLevel,
+        pendingPowerLevelRequestedAt: timestamp
+      });
+      showToast(
+        lang === 'th'
+          ? 'ส่งคำขออัปเดตค่าพลังแล้ว รอ Admin/Owner อนุมัติ'
+          : 'CP update request submitted! Waiting for Admin/Owner approval',
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to request power level update:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการส่งคำขอ' : 'Failed to submit request', 'error');
+    }
+  };
+
+  const handleCancelPowerLevelRequest = async (userId: string) => {
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === userId
+          ? { ...u, pendingPowerLevel: null, pendingPowerLevelRequestedAt: null }
+          : u
+      )
+    );
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) =>
+        prev ? { ...prev, pendingPowerLevel: null, pendingPowerLevelRequestedAt: null } : null
+      );
+    }
+    try {
+      await updateUserDoc(userId, {
+        pendingPowerLevel: null,
+        pendingPowerLevelRequestedAt: null
+      });
+      showToast(
+        lang === 'th' ? 'ยกเลิกคำขออัปเดตค่าพลังแล้ว' : 'CP update request cancelled',
+        'info'
+      );
+    } catch (err) {
+      console.error('Failed to cancel power level request:', err);
+    }
+  };
+
+  const handleApprovePowerLevelUpdate = async (userId: string) => {
+    const target = users.find((u) => u.id === userId);
+    if (!target || !target.pendingPowerLevel) return;
+
+    const approvedPower = target.pendingPowerLevel;
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === userId
+          ? {
+              ...u,
+              powerLevel: approvedPower,
+              pendingPowerLevel: null,
+              pendingPowerLevelRequestedAt: null
+            }
+          : u
+      )
+    );
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              powerLevel: approvedPower,
+              pendingPowerLevel: null,
+              pendingPowerLevelRequestedAt: null
+            }
+          : null
+      );
+    }
+    try {
+      await updateUserDoc(userId, {
+        powerLevel: approvedPower,
+        pendingPowerLevel: null,
+        pendingPowerLevelRequestedAt: null
+      });
+      showToast(
+        lang === 'th'
+          ? `อนุมัติค่าพลังใหม่ของ ${target.inGameName} (${approvedPower.toLocaleString()} CP) สำเร็จ!`
+          : `Approved new CP for ${target.inGameName} (${approvedPower.toLocaleString()} CP)!`,
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to approve power level update:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการอนุมัติ' : 'Failed to approve request', 'error');
+    }
+  };
+
+  const handleRejectPowerLevelUpdate = async (userId: string) => {
+    const target = users.find((u) => u.id === userId);
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === userId
+          ? { ...u, pendingPowerLevel: null, pendingPowerLevelRequestedAt: null }
+          : u
+      )
+    );
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) =>
+        prev ? { ...prev, pendingPowerLevel: null, pendingPowerLevelRequestedAt: null } : null
+      );
+    }
+    try {
+      await updateUserDoc(userId, {
+        pendingPowerLevel: null,
+        pendingPowerLevelRequestedAt: null
+      });
+      showToast(
+        lang === 'th'
+          ? `ปฏิเสธคำขออัปเดตค่าพลังของ ${target?.inGameName || 'สมาชิก'} เรียบร้อยแล้ว`
+          : `Rejected CP update request for ${target?.inGameName || 'member'}`,
+        'info'
+      );
+    } catch (err) {
+      console.error('Failed to reject power level update:', err);
+    }
+  };
+
   const handleBatchDeleteMembers = async (userIds: string[]) => {
     const idSet = new Set(userIds);
     setUsers((prev) => prev.filter((u) => !idSet.has(u.id)));
@@ -916,6 +1055,7 @@ export const App: React.FC = () => {
         onOpenBgModal={() => setShowBgModal(true)}
         onOpenDiscordModal={() => setShowDiscordModal(true)}
         onOpenClassModal={() => setShowClassModal(true)}
+        onOpenRequestCp={() => setShowRequestCpModal(true)}
         discordEnabled={discordSettings?.enabled}
         pendingQueueCount={queueItems.filter((i) => i.status === 'queued').length}
         isMobileOpen={isMobileOpen}
@@ -998,8 +1138,11 @@ export const App: React.FC = () => {
             allMembers={users}
             characterClasses={characterClasses}
             onOpenClassModal={() => setShowClassModal(true)}
+            onOpenRequestCp={() => setShowRequestCpModal(true)}
             onApproveMember={handleApproveMember}
             onRejectMember={handleRejectMember}
+            onApproveCpUpdate={handleApprovePowerLevelUpdate}
+            onRejectCpUpdate={handleRejectPowerLevelUpdate}
             onUpdateMember={handleUpdateMember}
             onDeleteMember={handleDeleteMember}
           />
@@ -1041,6 +1184,16 @@ export const App: React.FC = () => {
         onLogin={handleLogin}
         onRegister={handleRegister}
         characterClasses={characterClasses}
+        users={users}
+      />
+
+      <RequestPowerLevelModal
+        isOpen={showRequestCpModal}
+        onClose={() => setShowRequestCpModal(false)}
+        currentUser={currentUser}
+        lang={lang}
+        onRequestUpdate={handleRequestPowerLevelUpdate}
+        onCancelRequest={handleCancelPowerLevelRequest}
       />
 
       <DiamondVaultModal

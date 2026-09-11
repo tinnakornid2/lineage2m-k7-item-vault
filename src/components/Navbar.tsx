@@ -9,7 +9,8 @@ import {
   UserCheck,
   Crown,
   Sword,
-  Sparkles
+  Sparkles,
+  Zap
 } from 'lucide-react';
 import { ActiveTab, Language, User } from '../types';
 import { translations } from '../translations';
@@ -32,6 +33,7 @@ interface NavbarProps {
   setSoundEnabled?: (enabled: boolean) => void;
   onToggleSound?: () => void;
   onOpenBgModal: () => void;
+  onOpenRequestCp?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -50,7 +52,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   soundEnabled,
   setSoundEnabled,
   onToggleSound,
-  onOpenBgModal
+  onOpenBgModal,
+  onOpenRequestCp
 }) => {
   const t = translations[lang];
   const effectiveCurrentTab = currentTab || activeTab || 'dashboard';
@@ -125,7 +128,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   CLAN HUB
                 </span>
                 <span className="text-[9px] sm:text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300">
-                  v1.2.0
+                  v1.3.0
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 truncate max-w-[190px] sm:max-w-none">
@@ -225,11 +228,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </span>
                     )}
                   </div>
-                  <div className="text-[11px] text-slate-400">
-                    <span className="text-amber-400 font-mono font-medium">
-                      {(currentUser.powerLevel || 0).toLocaleString()} CP
-                    </span>{' '}
-                    • {currentUser.clan || 'No Clan'}
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <button
+                      id="btn-navbar-request-cp"
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        onOpenRequestCp?.();
+                      }}
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 font-mono text-[10px] font-medium transition-all cursor-pointer group shadow-sm"
+                      title={lang === 'th' ? 'คลิกเพื่อขออัปเดตค่าพลัง' : 'Click to request CP update'}
+                    >
+                      <Zap className="w-3 h-3 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
+                      <span>{(currentUser.powerLevel || 0).toLocaleString()} CP</span>
+                      {currentUser.pendingPowerLevel && currentUser.pendingPowerLevel > 0 && (
+                        <span className="ml-1 px-1 py-0.2 rounded bg-amber-400/25 text-[#f5d77f] text-[9px] font-sans font-bold animate-pulse">
+                          ⏳ {t.pendingBadge}
+                        </span>
+                      )}
+                    </button>
+                    <span className="text-[11px] text-slate-400">
+                      • {currentUser.clan || 'No Clan'}
+                    </span>
                   </div>
                 </div>
 

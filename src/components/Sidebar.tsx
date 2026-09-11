@@ -16,7 +16,8 @@ import {
   Users,
   Castle,
   Clock,
-  Bell
+  Bell,
+  Zap
 } from 'lucide-react';
 import { ActiveTab, Language, User } from '../types';
 import { translations } from '../translations';
@@ -41,6 +42,7 @@ export interface SidebarProps {
   onOpenBgModal: () => void;
   onOpenDiscordModal?: () => void;
   onOpenClassModal?: () => void;
+  onOpenRequestCp?: () => void;
   discordEnabled?: boolean;
   pendingQueueCount?: number;
   isMobileOpen: boolean;
@@ -66,6 +68,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenBgModal,
   onOpenDiscordModal,
   onOpenClassModal,
+  onOpenRequestCp,
   discordEnabled = false,
   pendingQueueCount = 0,
   isMobileOpen,
@@ -415,11 +418,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                   )}
                 </div>
-                <div className="text-[10px] text-slate-400 truncate mt-0.5">
-                  <span className="text-amber-400 font-mono font-medium">
-                    {(currentUser.powerLevel || 0).toLocaleString()} CP
-                  </span>{' '}
-                  • {currentUser.clan || 'No Clan'}
+                <div className="flex items-center gap-1.5 mt-1">
+                  <button
+                    id="btn-sidebar-request-cp"
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      onOpenRequestCp?.();
+                    }}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 font-mono text-[10px] font-medium transition-all cursor-pointer group shadow-sm"
+                    title={lang === 'th' ? 'คลิกเพื่อขออัปเดตค่าพลัง' : 'Click to request CP update'}
+                  >
+                    <Zap className="w-2.5 h-2.5 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
+                    <span>{(currentUser.powerLevel || 0).toLocaleString()} CP</span>
+                    {currentUser.pendingPowerLevel && currentUser.pendingPowerLevel > 0 && (
+                      <span className="ml-0.5 px-1 py-0.2 rounded bg-amber-400/25 text-[#f5d77f] text-[8px] font-sans font-bold animate-pulse">
+                        ⏳
+                      </span>
+                    )}
+                  </button>
+                  <span className="text-[10px] text-slate-400 truncate">
+                    • {currentUser.clan || 'No Clan'}
+                  </span>
                 </div>
               </div>
 
@@ -532,7 +552,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="text-[9.5px] font-mono text-slate-500">Lineage2M Clan Hub</span>
             <div className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>v1.2.0</span>
+              <span>v1.3.0</span>
             </div>
           </div>
 

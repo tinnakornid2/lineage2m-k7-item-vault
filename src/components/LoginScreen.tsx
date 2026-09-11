@@ -12,7 +12,8 @@ import {
   Volume2,
   VolumeX,
   Sparkles,
-  Users
+  Users,
+  Zap
 } from 'lucide-react';
 import { CharacterClass, ClanGroup, Language, User as UserType, CHARACTER_CLASSES } from '../types';
 import { translations } from '../translations';
@@ -30,6 +31,7 @@ interface LoginScreenProps {
     inGameName: string;
     clan: string;
     characterClass: any;
+    powerLevel?: number;
   }) => Promise<{ success: boolean; message?: string }>;
   users: UserType[];
   clans: ClanGroup[];
@@ -63,6 +65,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [regPassword, setRegPassword] = useState('');
   const [showRegPass, setShowRegPass] = useState(false);
   const [regInGameName, setRegInGameName] = useState('');
+  const [regPowerLevel, setRegPowerLevel] = useState('');
   const [regClan, setRegClan] = useState('Clan:VoltZ');
   const [customClan, setCustomClan] = useState('');
   const [isCustomClan, setIsCustomClan] = useState(false);
@@ -120,6 +123,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     const finalPassword = regPassword.trim();
     const finalInGameName = regInGameName.trim();
     const finalClan = (isCustomClan ? customClan.trim() : regClan.trim()) || 'No Clan';
+    const parsedPowerLevel = regPowerLevel ? parseInt(regPowerLevel.replace(/,/g, ''), 10) : 0;
 
     if (!finalUsername || !finalPassword || !finalInGameName) {
       setRegError(lang === 'th' ? 'กรุณากรอกข้อมูลให้ครบทุกช่องที่จำเป็น' : 'Please fill all required fields');
@@ -133,14 +137,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         password: finalPassword,
         inGameName: finalInGameName,
         clan: finalClan,
-        characterClass: regClass
+        characterClass: regClass,
+        powerLevel: isNaN(parsedPowerLevel) ? 0 : parsedPowerLevel
       });
 
       if (result.success) {
         sounds.playClaim();
         setRegSuccessMessage(
           lang === 'th'
-            ? 'ลงทะเบียนสำเร็จ! คำขอของคุณถูกส่งแล้ว รอผู้ดูแล (Admin/Owner) อนุมัติสิทธิ์และกำหนดค่าพลัง'
+            ? 'ลงทะเบียนสำเร็จ! บัญชีของคุณถูกส่งแล้ว รอผู้ดูแล (Admin/Owner) อนุมัติสิทธิ์เข้าใช้งาน'
             : 'Registration submitted successfully! Please wait for an Admin to approve your account.'
         );
         // Pre-fill username into login form
@@ -150,6 +155,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         setRegUsername('');
         setRegPassword('');
         setRegInGameName('');
+        setRegPowerLevel('');
       } else {
         setRegError(result.message || t.error);
       }
@@ -244,7 +250,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 CLAN HUB SYSTEM
               </span>
               <span className="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/35 text-[10px] font-mono font-bold text-sky-300">
-                v1.2.0
+                v1.3.0
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-2 font-prompt">
@@ -458,8 +464,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 <Shield className="w-4 h-4 shrink-0 text-[#38bdf8] mt-0.5" />
                 <div className="leading-relaxed text-[11px]">
                   {lang === 'th'
-                    ? 'เมื่อสมัครสมาชิกแล้ว บัญชีจะอยู่ในสถานะ "รออนุมัติ" โดยแอดมินหรือโอเนอร์จะเป็นผู้เปิดสิทธิ์และกำหนดค่าพลัง (Power Level) ให้'
-                    : 'After registration, your account is pending approval. An Admin or Owner will verify and assign your Power Level.'}
+                    ? 'สามารถระบุค่าพลังตัวละครของคุณได้ทันที เมื่อลงทะเบียนแล้ว บัญชีจะรอให้ Admin หรือ Owner ตรวจสอบและอนุมัติเข้าสู่ระบบ'
+                    : 'Enter your character details and Power Level. An Admin or Owner will verify and approve your account.'}
                 </div>
               </div>
 
@@ -518,6 +524,36 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   placeholder={lang === 'th' ? 'เช่น Zenkaii หรือ DVD' : 'e.g. Zenkaii or DVD'}
                   className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700/80 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none transition-all shadow-inner"
                 />
+              </div>
+
+              {/* 4. Initial Power Level (CP) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{t.initialPowerLevel}</span>
+                  </label>
+                  {regPowerLevel && !isNaN(parseInt(regPowerLevel.replace(/,/g, ''), 10)) && (
+                    <span className="text-[11px] font-mono font-bold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 shadow-sm animate-in fade-in">
+                      ⚡ {parseInt(regPowerLevel.replace(/,/g, ''), 10).toLocaleString()} CP
+                    </span>
+                  )}
+                </div>
+                <input
+                  id="input-reg-powerlevel"
+                  type="number"
+                  min="0"
+                  step="1000"
+                  value={regPowerLevel}
+                  onChange={(e) => setRegPowerLevel(e.target.value)}
+                  placeholder={lang === 'th' ? 'เช่น 500000' : 'e.g. 500000'}
+                  className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700/80 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none transition-all shadow-inner placeholder:text-slate-600"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  {lang === 'th'
+                    ? 'ใส่ค่าพลังปัจจุบันของคุณ (หากมีการอัปเดตภายหลังต้องรอ Admin หรือ Owner อนุมัติ)'
+                    : 'Enter your character CP (future updates will require Admin or Owner approval)'}
+                </p>
               </div>
 
               {/* 4. Clan Selection */}

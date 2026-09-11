@@ -388,6 +388,7 @@ export async function registerUserDoc(data: {
   inGameName: string;
   clan: string;
   characterClass: any;
+  powerLevel?: number;
 }) {
   const newId = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
   const newUser: User = {
@@ -397,7 +398,7 @@ export async function registerUserDoc(data: {
     inGameName: data.inGameName,
     clan: data.clan || 'Clan:VoltZ',
     characterClass: data.characterClass || 'Orb',
-    powerLevel: 0,
+    powerLevel: Number(data.powerLevel) || 0,
     role: 'member',
     status: 'pending_approval',
     createdAt: Date.now()

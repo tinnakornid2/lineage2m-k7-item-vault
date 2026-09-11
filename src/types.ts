@@ -36,6 +36,8 @@ export interface User {
   status: UserStatus;
   createdAt: number;
   lastLoginAt?: number;
+  pendingPowerLevel?: number | null;
+  pendingPowerLevelRequestedAt?: number | null;
 }
 
 export interface QuickItem {

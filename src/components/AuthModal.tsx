@@ -44,6 +44,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [regUsername, setRegUsername] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regInGameName, setRegInGameName] = useState('');
+  const [regPowerLevel, setRegPowerLevel] = useState('');
   const [regClan, setRegClan] = useState('Clan:VoltZ');
   const [regClass, setRegClass] = useState<CharacterClass>('Orb');
   const [regSuccessMessage, setRegSuccessMessage] = useState('');
@@ -100,11 +101,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     setIsSubmitting(true);
     try {
+      const parsedPowerLevel = regPowerLevel ? parseInt(regPowerLevel.replace(/,/g, ''), 10) : 0;
       const result = await onRegister({
         username: regUsername.trim(),
         password: regPassword,
         inGameName: regInGameName.trim(),
-        powerLevel: 0,
+        powerLevel: isNaN(parsedPowerLevel) ? 0 : parsedPowerLevel,
         clan: regClan.trim() || 'No Clan',
         characterClass: regClass,
         role: 'member',
@@ -118,6 +120,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setRegUsername('');
         setRegPassword('');
         setRegInGameName('');
+        setRegPowerLevel('');
       } else {
         setRegError(result.message || t.error);
       }
@@ -335,10 +338,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               />
             </div>
 
-            {/* 4. Clan */}
+            {/* 4. Initial Power Level (CP) */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  <span>4. {t.initialPowerLevel}</span>
+                </label>
+                {regPowerLevel && !isNaN(parseInt(regPowerLevel.replace(/,/g, ''), 10)) && (
+                  <span className="text-[11px] font-mono font-bold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30">
+                    ⚡ {parseInt(regPowerLevel.replace(/,/g, ''), 10).toLocaleString()} CP
+                  </span>
+                )}
+              </div>
+              <input
+                id="input-reg-powerlevel"
+                type="number"
+                min="0"
+                step="1000"
+                value={regPowerLevel}
+                onChange={(e) => setRegPowerLevel(e.target.value)}
+                placeholder="เช่น 500000"
+                className="w-full px-3 py-2 rounded-lg bg-[#0a0e17] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none"
+              />
+            </div>
+
+            {/* 5. Clan */}
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                4. {t.clanName}
+                5. {t.clanName}
               </label>
               <input
                 id="input-reg-clan"
@@ -349,10 +377,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               />
             </div>
 
-            {/* 5. Character Class */}
+            {/* 6. Character Class */}
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                5. {t.characterClass}
+                6. {t.characterClass}
               </label>
               <select
                 id="select-reg-class"

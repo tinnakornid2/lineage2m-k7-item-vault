@@ -25,8 +25,11 @@ interface MembersViewProps {
   allMembers: User[];
   characterClasses?: string[];
   onOpenClassModal?: () => void;
+  onOpenRequestCp?: () => void;
   onApproveMember: (userId: string) => Promise<void>;
   onRejectMember: (userId: string) => Promise<void>;
+  onApproveCpUpdate?: (userId: string) => Promise<void>;
+  onRejectCpUpdate?: (userId: string) => Promise<void>;
   onUpdateMember: (userId: string, updates: Partial<User>) => Promise<void>;
   onDeleteMember: (userId: string) => Promise<void>;
 }
@@ -37,8 +40,11 @@ export const MembersView: React.FC<MembersViewProps> = ({
   allMembers,
   characterClasses,
   onOpenClassModal,
+  onOpenRequestCp,
   onApproveMember,
   onRejectMember,
+  onApproveCpUpdate,
+  onRejectCpUpdate,
   onUpdateMember,
   onDeleteMember
 }) => {
@@ -81,6 +87,9 @@ export const MembersView: React.FC<MembersViewProps> = ({
 
   // Filter members by pending vs active
   const pendingMembers = allMembers.filter((m) => m.status === 'pending_approval');
+  const pendingCpMembers = allMembers.filter(
+    (m) => m.status === 'active' && Boolean(m.pendingPowerLevel && m.pendingPowerLevel > 0)
+  );
   const activeMembers = allMembers.filter(
     (m) =>
       m.status === 'active' &&
@@ -123,6 +132,8 @@ export const MembersView: React.FC<MembersViewProps> = ({
       await onUpdateMember(editingUser.id, {
         inGameName: editInGameName.trim(),
         powerLevel: Number(editPowerLevel) || 0,
+        pendingPowerLevel: null,
+        pendingPowerLevelRequestedAt: null,
         clan: editClan.trim(),
         characterClass: editClass,
         role: editRole,
@@ -262,7 +273,103 @@ export const MembersView: React.FC<MembersViewProps> = ({
         </div>
       )}
 
-      {/* 2. ALL ACTIVE MEMBERS GROUPED BY CLAN & SORTED BY POWER LEVEL */}
+      {/* 2. PENDING CP UPDATE REQUESTS (คำขออัปเดตค่าพลังรออนุมัติ) */}
+      {isAdminOrOwner && (
+        <div className="p-5 rounded-2xl bg-gradient-to-b from-[#191526] to-[#100d1a] border border-amber-500/40 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold font-cinzel text-amber-300 flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <span>{t.pendingCpRequests} ({pendingCpMembers.length})</span>
+            </h2>
+            <span className="text-[11px] text-slate-400">
+              {lang === 'th' ? 'ตรวจสอบและกดยืนยันเพื่ออัปเดตค่าพลังใหม่ของสมาชิก' : 'Review & confirm to apply member CP updates'}
+            </span>
+          </div>
+
+          {pendingCpMembers.length === 0 ? (
+            <div className="p-3 text-center text-xs text-slate-500 bg-[#0c0915] rounded-lg border border-slate-800">
+              {t.noPendingCpRequests}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {pendingCpMembers.map((member) => {
+                const cur = member.powerLevel || 0;
+                const req = member.pendingPowerLevel || 0;
+                const diff = req - cur;
+                return (
+                  <div
+                    key={member.id}
+                    className="p-3.5 rounded-xl bg-[#090710] border border-amber-500/30 flex flex-col justify-between gap-3 shadow-md"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-100">
+                          {member.inGameName}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
+                          {member.clan}
+                        </span>
+                      </div>
+
+                      <div className="text-[11px] text-slate-400 mt-2 space-y-1">
+                        <div>
+                          {t.characterClass}: <span className="text-slate-200">{member.characterClass}</span>
+                        </div>
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
+                          <div>
+                            <span className="text-slate-400">{t.currentCp}:</span>{' '}
+                            <span className="text-slate-300 font-mono">{cur.toLocaleString()} CP</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-slate-400">{t.newRequestedCp}:</span>{' '}
+                            <span className="text-[#f5d77f] font-mono font-bold">{req.toLocaleString()} CP</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-[10px] text-slate-500">
+                            {member.pendingPowerLevelRequestedAt ? new Date(member.pendingPowerLevelRequestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                          </span>
+                          <span className={`text-[11px] font-mono font-bold px-1.5 py-0.2 rounded border ${
+                            diff >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                          }`}>
+                            {diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString()} CP
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-800/80">
+                      <button
+                        onClick={() => {
+                          sounds.playClaim();
+                          onApproveCpUpdate?.(member.id);
+                        }}
+                        className="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-1 shadow cursor-pointer"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{t.approveCp}</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          sounds.playClick();
+                          onRejectCpUpdate?.(member.id);
+                        }}
+                        className="p-1.5 rounded-lg bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 transition-all cursor-pointer"
+                        title={t.rejectCp}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 3. ALL ACTIVE MEMBERS GROUPED BY CLAN & SORTED BY POWER LEVEL */}
       <div className="space-y-6">
         {Object.keys(clansMap).length === 0 ? (
           <div className="p-10 text-center rounded-xl bg-[#0c121e] border border-slate-800 text-xs text-slate-500">
@@ -328,8 +435,29 @@ export const MembersView: React.FC<MembersViewProps> = ({
                           <td className="py-2.5 px-4 text-slate-300">
                             {mem.characterClass}
                           </td>
-                          <td className="py-2.5 px-4 font-mono font-bold text-amber-300">
-                            {(mem.powerLevel || 0).toLocaleString()} CP
+                          <td className="py-2.5 px-4 font-mono">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-amber-300">{(mem.powerLevel || 0).toLocaleString()} CP</span>
+                              {mem.id === currentUser?.id && onOpenRequestCp && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    sounds.playClick();
+                                    onOpenRequestCp();
+                                  }}
+                                  className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 hover:text-white text-[10px] font-sans font-medium transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                                  title={t.requestCpUpdate}
+                                >
+                                  <Zap className="w-2.5 h-2.5 text-amber-400" />
+                                  <span>{t.requestCpUpdate}</span>
+                                </button>
+                              )}
+                            </div>
+                            {mem.pendingPowerLevel && mem.pendingPowerLevel > 0 && (
+                              <div className="text-[10px] text-[#f5d77f] font-sans font-medium flex items-center gap-1 mt-0.5 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.2 rounded w-fit">
+                                <span className="animate-pulse">⏳</span> {t.cpPendingBadge}: {mem.pendingPowerLevel.toLocaleString()} CP
+                              </div>
+                            )}
                           </td>
                           <td className="py-2.5 px-4">
                             <span
