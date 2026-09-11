@@ -107,6 +107,14 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [isScanningOCR, setIsScanningOCR] = useState(false);
   const [ocrStatusText, setOcrStatusText] = useState('');
   const [ocrErrorType, setOcrErrorType] = useState<string | null>(null);
+  const [ocrScanSummary, setOcrScanSummary] = useState<{
+    type: 'scanning' | 'direct_fallback' | 'success' | 'empty' | 'duplicates_filtered' | 'no_duplicates' | 'pasted_ready' | 'missing_key' | 'error';
+    sourceCount?: number;
+    newCount?: number;
+    duplicates?: number;
+    usedDirectFallback?: boolean;
+    errorMsg?: string;
+  } | null>(null);
   const [showGeminiModal, setShowGeminiModal] = useState(false);
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
   const [geminiMaskedKey, setGeminiMaskedKey] = useState<string | null>(null);
@@ -124,6 +132,13 @@ export const VaultView: React.FC<VaultViewProps> = ({
   // Section Hunter Checklist Picker State
   const [hunterSearchQuery, setHunterSearchQuery] = useState('');
   const [hunterClanFilter, setHunterClanFilter] = useState<string>('all');
+
+  // Distributed Items Hunters Viewer Modal State
+  const [viewingDistributedHuntersItem, setViewingDistributedHuntersItem] = useState<VaultItem | null>(null);
+  const [distHuntersViewMode, setDistHuntersViewMode] = useState<'cards' | 'text'>('cards');
+  const [distHuntersTextFormat, setDistHuntersTextFormat] = useState<'by-clan' | 'plain' | 'inline' | 'comma'>('by-clan');
+  const [distHuntersClanFilter, setDistHuntersClanFilter] = useState<string>('all');
+  const [copiedDistHunters, setCopiedDistHunters] = useState<boolean>(false);
 
   // Check Gemini API status on mount
   useEffect(() => {
@@ -313,6 +328,99 @@ export const VaultView: React.FC<VaultViewProps> = ({
     setTimeout(() => setCopiedHunters(false), 2500);
   };
 
+  // Dynamic bilingual OCR status text that reacts instantly when user switches language
+  const dynamicOcrStatusMessage = useMemo(() => {
+    if (!ocrScanSummary) return ocrStatusText;
+    switch (ocrScanSummary.type) {
+      case 'scanning':
+        return lang === 'th'
+          ? `กำลังส่งรูปภาพ ${ocrScanSummary.sourceCount || 1} รูป ให้ Google Gemini AI OCR สแกนชื่อผู้ล่า...`
+          : `Sending ${ocrScanSummary.sourceCount || 1} image(s) to Google Gemini AI OCR for hunter extraction...`;
+      case 'direct_fallback':
+        return lang === 'th'
+          ? 'กำลังเชื่อมต่อไปยัง Google Gemini REST API โดยตรง...'
+          : 'Connecting directly to Google Gemini REST API...';
+      case 'success':
+        return lang === 'th'
+          ? `สแกนสำเร็จจาก ${ocrScanSummary.sourceCount || 1} รูปภาพ: พบผู้ล่าใหม่ ${ocrScanSummary.newCount || 0} คน (กรองชื่อซ้ำออก ${ocrScanSummary.duplicates || 0} คน)${ocrScanSummary.usedDirectFallback ? ' ⚡[Direct]' : ''}`
+          : `Scan successful from ${ocrScanSummary.sourceCount || 1} image(s): ${ocrScanSummary.newCount || 0} new hunters added (${ocrScanSummary.duplicates || 0} duplicates filtered)${ocrScanSummary.usedDirectFallback ? ' ⚡[Direct]' : ''}`;
+      case 'empty':
+        return lang === 'th'
+          ? `สแกน ${ocrScanSummary.sourceCount || 1} รูปภาพแล้ว แต่ไม่พบรายชื่อผู้ล่าที่ตรงกับกิลด์ในระบบ สามารถเลือกจากรายการเช็คลิสต์ด้านล่างได้`
+          : `Scanned ${ocrScanSummary.sourceCount || 1} screenshot(s), but no matching clan members found. You can pick hunters from the checklist below.`;
+      case 'duplicates_filtered':
+        return lang === 'th'
+          ? `ตรวจพบและลบรายชื่อซ้ำออกแล้ว ${ocrScanSummary.duplicates || 0} คน`
+          : `Detected and removed ${ocrScanSummary.duplicates || 0} duplicate names`;
+      case 'no_duplicates':
+        return lang === 'th'
+          ? 'ไม่พบรายชื่อผู้ล่าที่ซ้ำกัน รายชื่อทั้งหมดไม่ซ้ำกันแล้ว'
+          : 'No duplicate hunter names found. All names are unique.';
+      case 'pasted_ready':
+        return lang === 'th'
+          ? `วางรูปภาพ ${ocrScanSummary.sourceCount || 1} รูปลงในระบบแล้ว พร้อมสำหรับการสแกน`
+          : `Pasted ${ocrScanSummary.sourceCount || 1} image(s) successfully, ready to scan.`;
+      case 'missing_key':
+        return lang === 'th'
+          ? 'ยังไม่ได้ตั้งค่า Gemini API Key กรุณาตั้งค่าเพื่อเปิดใช้งาน OCR'
+          : 'Gemini API Key is not configured. Please configure it to enable OCR.';
+      case 'error':
+        return ocrScanSummary.errorMsg || (lang === 'th' ? 'เกิดข้อผิดพลาดในการสแกน' : 'Error occurred during scan');
+      default:
+        return ocrStatusText;
+    }
+  }, [ocrScanSummary, lang, ocrStatusText]);
+
+  // Formatter for hunters of a distributed item
+  const getFormattedDistributedHuntersText = (item: VaultItem): string => {
+    const list = item.hunters || [];
+    if (list.length === 0) return '';
+
+    const sourceHunters =
+      distHuntersClanFilter === 'all'
+        ? list
+        : list.filter((h) => (h.clan || 'Clan:VoltZ').toLowerCase() === distHuntersClanFilter.toLowerCase());
+
+    if (sourceHunters.length === 0) return '';
+
+    if (distHuntersTextFormat === 'comma') {
+      return sourceHunters.map((h) => h.name).join(', ');
+    }
+    if (distHuntersTextFormat === 'plain') {
+      return sourceHunters.map((h) => h.name).join('\n');
+    }
+    if (distHuntersTextFormat === 'inline') {
+      return sourceHunters
+        .map((h, i) => `${i + 1}. ${h.name} (${h.clan || 'Clan:VoltZ'})`)
+        .join('\n');
+    }
+
+    // Default: 'by-clan'
+    const grouped = sourceHunters.reduce((acc, h) => {
+      const clanKey = h.clan || 'Clan:VoltZ';
+      if (!acc[clanKey]) acc[clanKey] = [];
+      acc[clanKey].push(h.name);
+      return acc;
+    }, {} as Record<string, string[]>);
+
+    return (Object.entries(grouped) as [string, string[]][])
+      .map(([clan, names]) => {
+        const clanHeader = `[${clan}] (${names.length} ${lang === 'th' ? 'คน' : 'members'})`;
+        const memberList = names.map((name, idx) => `${idx + 1}. ${name}`).join('\n');
+        return `${clanHeader}\n${memberList}`;
+      })
+      .join('\n\n');
+  };
+
+  const handleCopyDistributedHunters = (item: VaultItem) => {
+    const text = getFormattedDistributedHuntersText(item);
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    sounds.playClaim();
+    setCopiedDistHunters(true);
+    setTimeout(() => setCopiedDistHunters(false), 2500);
+  };
+
   // Clear all hunters with confirmation
   const handleClearAllHunters = () => {
     if (hunters.length === 0) return;
@@ -358,12 +466,19 @@ export const VaultView: React.FC<VaultViewProps> = ({
     setHunters(unique);
     setDuplicatesRemovedCount(removedCount);
     if (removedCount > 0) {
+      setOcrScanSummary({
+        type: 'duplicates_filtered',
+        duplicates: removedCount
+      });
       setOcrStatusText(
         lang === 'th'
           ? `ตัดรายชื่อซ้ำออก ${removedCount} รายการ สำเร็จ`
           : `Filtered ${removedCount} duplicate hunter(s)`
       );
     } else {
+      setOcrScanSummary({
+        type: 'no_duplicates'
+      });
       setOcrStatusText(
         lang === 'th'
           ? 'ไม่พบรายชื่อซ้ำ รายชื่อทั้งหมดมีเอกลักษณ์แล้ว'
@@ -706,16 +821,28 @@ Do not include markdown or explanations. Return pure JSON only.`;
         setHunters((prev) => [...prev, ...incomingUnique]);
         sounds.playClaim();
 
+        setOcrScanSummary({
+          type: 'success',
+          sourceCount,
+          newCount: incomingUnique.length,
+          duplicates: totalDuplicatesFiltered,
+          usedDirectFallback
+        });
+
         setOcrStatusText(
           lang === 'th'
             ? `สแกนสำเร็จจาก ${sourceCount} รูปภาพ: พบผู้ล่าใหม่ ${incomingUnique.length} คน (กรองชื่อซ้ำออก ${totalDuplicatesFiltered} คน)${usedDirectFallback ? ' ⚡[Direct]' : ''}`
             : `Scan successful from ${sourceCount} image(s): ${incomingUnique.length} new hunters added (${totalDuplicatesFiltered} duplicates filtered)${usedDirectFallback ? ' ⚡[Direct]' : ''}`
         );
       } else {
+        setOcrScanSummary({
+          type: 'empty',
+          sourceCount
+        });
         setOcrStatusText(
           lang === 'th'
-            ? `สแกน ${sourceCount} รูปภาพแล้ว แต่ไม่พบรายชื่อผู้ล่าที่ตรงกับกิลด์ในระบบ สามารถเลือกจากดรอปดาวน์ด้านล่างได้`
-            : `Scanned ${sourceCount} screenshot(s), but no matching clan members found. You can pick hunters from the dropdown below.`
+            ? `สแกน ${sourceCount} รูปภาพแล้ว แต่ไม่พบรายชื่อผู้ล่าที่ตรงกับกิลด์ในระบบ สามารถเลือกจากรายการเช็คลิสต์ด้านล่างได้`
+            : `Scanned ${sourceCount} screenshot(s), but no matching clan members found. You can pick hunters from the checklist below.`
         );
       }
     } catch (err: any) {
@@ -734,6 +861,10 @@ Do not include markdown or explanations. Return pure JSON only.`;
             ? 'Google AI ใช้งานหนาแน่นชั่วคราว กรุณากดปุ่มสแกนใหม่อีกครั้งใน 3-5 วินาที'
             : 'Google AI high demand spike. Please retry in 3-5 seconds.';
       }
+      setOcrScanSummary({
+        type: 'error',
+        errorMsg: lang === 'th' ? `เกิดข้อผิดพลาดในการเชื่อมต่อ: ${displayMsg}` : `Connection error: ${displayMsg}`
+      });
       setOcrStatusText(
         lang === 'th'
           ? `เกิดข้อผิดพลาดในการเชื่อมต่อ: ${displayMsg}`
@@ -1417,7 +1548,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
               )}
 
               {/* OCR Status Banner */}
-              {ocrStatusText && (
+              {dynamicOcrStatusMessage && (
                 <div
                   className={`text-xs flex items-center gap-2 p-2.5 rounded-lg border ${
                     ocrErrorType === 'MISSING_API_KEY' || ocrErrorType === 'GEMINI_ERROR' || ocrErrorType === 'NETWORK_ERROR'
@@ -1426,7 +1557,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                   }`}
                 >
                   <Sparkles className="w-3.5 h-3.5 shrink-0 text-sky-400" />
-                  <span className="flex-1">{ocrStatusText}</span>
+                  <span className="flex-1">{dynamicOcrStatusMessage}</span>
                   {isOwner && ocrErrorType && (
                     <button
                       type="button"
@@ -1884,113 +2015,139 @@ Do not include markdown or explanations. Return pure JSON only.`;
                     </div>
                   </div>
 
-                  {/* Checklist Grid with Checkboxes */}
-                  <div className="max-h-[380px] overflow-y-auto pr-1 space-y-3 custom-scrollbar">
-                    {filteredChecklistMembers.length === 0 ? (
-                      <div className="p-4 rounded-lg bg-[#0e1422] border border-slate-800 text-center text-xs text-slate-500">
-                        {lang === 'th' ? 'ไม่พบรายชื่อสมาชิกที่ค้นหา' : 'No members found matching filter'}
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                        {filteredChecklistMembers.map((member) => {
-                          const isSelected = selectedHunterNameSet.has(
-                            member.inGameName.trim().toLowerCase()
-                          );
+                  {/* 2-Channel Clan Layout (แสดงพร้อมกัน 2 ช่อง แยกแคลน) */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+                    {(Object.entries(membersByClan) as [string, User[]][])
+                      .filter(([cName]) => hunterClanFilter === 'all' || hunterClanFilter.toLowerCase() === cName.toLowerCase())
+                      .map(([clanName, cMembers]) => {
+                        const visibleMembers = cMembers.filter((m) => {
+                          if (!hunterSearchQuery.trim()) return true;
+                          const q = hunterSearchQuery.trim().toLowerCase();
                           return (
-                            <div
-                              key={member.id}
-                              onClick={() => handleToggleHunterMember(member)}
-                              className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center gap-2.5 select-none ${
-                                isSelected
-                                  ? 'bg-[#d4af37]/15 border-[#d4af37] shadow-[0_0_12px_rgba(212,175,55,0.15)] ring-1 ring-[#d4af37]/40'
-                                  : 'bg-[#0e1422] border-slate-800/80 hover:border-slate-700 hover:bg-[#121a2d] text-slate-300'
-                              }`}
-                            >
-                              {/* Checkbox Icon */}
-                              <div
-                                className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border transition-all ${
-                                  isSelected
-                                    ? 'bg-[#d4af37] border-[#d4af37] text-slate-950 font-bold'
-                                    : 'border-slate-600 bg-[#151c2c]'
-                                }`}
-                              >
-                                {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                            m.inGameName.toLowerCase().includes(q) ||
+                            m.clan.toLowerCase().includes(q) ||
+                            (m.characterClass && m.characterClass.toLowerCase().includes(q))
+                          );
+                        });
+
+                        const selectedInThisClan = cMembers.filter((m) =>
+                          selectedHunterNameSet.has(m.inGameName.trim().toLowerCase())
+                        ).length;
+
+                        return (
+                          <div
+                            key={clanName}
+                            className="rounded-xl border border-slate-800 bg-[#090e1a] p-3 flex flex-col shadow-md hover:border-slate-700/80 transition-colors"
+                          >
+                            {/* Clan Column Header */}
+                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800/80">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <Shield className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span className="text-xs font-bold text-amber-300 truncate">{clanName}</span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono shrink-0">
+                                  {selectedInThisClan} / {cMembers.length}
+                                </span>
                               </div>
 
-                              {/* Member Details */}
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className={`text-xs font-bold truncate ${isSelected ? 'text-amber-200' : 'text-slate-200'}`}>
-                                    {member.inGameName}
-                                  </span>
-                                  {member.powerLevel ? (
-                                    <span className="text-[10px] text-amber-400/90 font-mono shrink-0">
-                                      ⚡{(member.powerLevel / 1000).toFixed(0)}k
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
-                                  <span className="truncate">{member.clan}</span>
-                                  {member.gameClass && (
-                                    <>
-                                      <span>•</span>
-                                      <span className="truncate text-slate-500">{member.gameClass}</span>
-                                    </>
-                                  )}
-                                </div>
+                              {/* Quick Clan Action Buttons */}
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    sounds.playClick();
+                                    const targetMembers = visibleMembers.length > 0 ? visibleMembers : cMembers;
+                                    const currentNames = new Set(hunters.map((h) => h.name.trim().toLowerCase()));
+                                    const toAdd: HunterRecord[] = [];
+                                    targetMembers.forEach((m) => {
+                                      const key = m.inGameName.trim().toLowerCase();
+                                      if (!currentNames.has(key)) {
+                                        toAdd.push({ name: m.inGameName.trim(), clan: m.clan || clanName });
+                                        currentNames.add(key);
+                                      }
+                                    });
+                                    if (toAdd.length > 0) setHunters((prev) => [...prev, ...toAdd]);
+                                  }}
+                                  className="px-2 py-0.5 rounded bg-sky-950/80 hover:bg-sky-900 border border-sky-600/50 text-sky-300 text-[10px] font-semibold transition-all cursor-pointer shadow-sm"
+                                  title={lang === 'th' ? `เลือกสมาชิก ${clanName} ทั้งหมด` : `Select all ${clanName}`}
+                                >
+                                  {t.selectEntireClan}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    sounds.playClick();
+                                    const targetKeys = new Set(
+                                      (visibleMembers.length > 0 ? visibleMembers : cMembers).map((m) =>
+                                        m.inGameName.trim().toLowerCase()
+                                      )
+                                    );
+                                    setHunters((prev) => prev.filter((h) => !targetKeys.has(h.name.trim().toLowerCase())));
+                                  }}
+                                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[10px] font-semibold transition-all cursor-pointer shadow-sm"
+                                  title={lang === 'th' ? `ล้างที่เลือกใน ${clanName}` : `Clear ${clanName}`}
+                                >
+                                  {t.clearEntireClan}
+                                </button>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Fallback Single Dropdown (for quick pick or custom clan) */}
-                  <div className="pt-2 border-t border-slate-800/60 flex flex-wrap items-center gap-2">
-                    <select
-                      id="select-vault-hunter-dropdown"
-                      value={selectedHunterMemberId}
-                      onChange={(e) => {
-                        const mId = e.target.value;
-                        setSelectedHunterMemberId(mId);
-                        const mem = allMembers.find((m) => m.id === mId);
-                        if (mem) {
-                          setCustomHunterName(mem.inGameName);
-                          setCustomHunterClan(mem.clan);
-                        } else {
-                          setCustomHunterName('');
-                          setCustomHunterClan('');
-                        }
-                      }}
-                      className="flex-1 min-w-[240px] px-3 py-1.5 rounded-lg bg-[#111726] border border-amber-500/40 hover:border-amber-400 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none cursor-pointer"
-                    >
-                      <option value="">
-                        {lang === 'th'
-                          ? '-- หรือเลือกทีละคนจากดรอปดาวน์ --'
-                          : '-- Or pick individually from dropdown --'}
-                      </option>
-                      {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, members]) => (
-                        <optgroup key={clanName} label={`🛡️ ${clanName} (${members.length} คน)`}>
-                          {members.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.inGameName} | {m.clan} {m.powerLevel ? `(${(m.powerLevel).toLocaleString()} CP)` : ''}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
+                            {/* Compact Member Cards Grid inside this Clan Box */}
+                            <div className="max-h-[360px] overflow-y-auto pr-1 space-y-1.5 custom-scrollbar flex-1">
+                              {visibleMembers.length === 0 ? (
+                                <div className="p-4 rounded-lg bg-[#060a12] border border-slate-800/80 text-center text-[11px] text-slate-500">
+                                  {lang === 'th' ? 'ไม่พบสมาชิกที่ค้นหา' : 'No matching members'}
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                  {visibleMembers.map((member) => {
+                                    const isSelected = selectedHunterNameSet.has(
+                                      member.inGameName.trim().toLowerCase()
+                                    );
+                                    return (
+                                      <div
+                                        key={member.id}
+                                        onClick={() => handleToggleHunterMember(member)}
+                                        className={`px-2 py-1.5 rounded-lg border transition-all cursor-pointer flex items-center gap-1.5 select-none hover:scale-[1.01] active:scale-[0.99] ${
+                                          isSelected
+                                            ? 'bg-[#d4af37]/20 border-[#d4af37] text-amber-200 shadow-[0_0_8px_rgba(212,175,55,0.2)]'
+                                            : 'bg-[#060a12] border-slate-800/80 hover:border-slate-700 text-slate-300 hover:bg-[#0c1220]'
+                                        }`}
+                                      >
+                                        {/* Compact Checkbox */}
+                                        <div
+                                          className={`w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 border transition-all ${
+                                            isSelected
+                                              ? 'bg-[#d4af37] border-[#d4af37] text-slate-950 font-bold'
+                                              : 'border-slate-600 bg-[#141b2b]'
+                                          }`}
+                                        >
+                                          {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                                        </div>
 
-                    <button
-                      type="button"
-                      id="btn-add-hunter-from-dropdown"
-                      disabled={!customHunterName}
-                      onClick={() => handleAddManualHunter()}
-                      className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 text-xs font-bold text-slate-950 transition-all cursor-pointer flex items-center gap-1 shadow-sm"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>{lang === 'th' ? 'เพิ่ม' : 'Add'}</span>
-                    </button>
+                                        {/* Name and Power in 1 line */}
+                                        <div className="min-w-0 flex-1 flex items-center justify-between gap-1">
+                                          <span className={`text-[11px] font-bold truncate ${isSelected ? 'text-amber-200' : 'text-slate-200'}`}>
+                                            {member.inGameName}
+                                          </span>
+                                          {member.powerLevel ? (
+                                            <span className="text-[9.5px] text-amber-400/90 font-mono shrink-0">
+                                              ⚡{(member.powerLevel / 1000).toFixed(0)}k
+                                            </span>
+                                          ) : member.characterClass ? (
+                                            <span className="text-[9px] text-slate-500 truncate shrink-0">
+                                              {member.characterClass}
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               </div>
@@ -2259,18 +2416,48 @@ Do not include markdown or explanations. Return pure JSON only.`;
                                 </button>
                               ))}
                             </div>
-                            <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
                               <span className="text-sky-400 font-mono font-semibold">
                                 {item.hunterScreenshots.length} {lang === 'th' ? 'รูป' : 'imgs'}
                               </span>
                               {item.hunters && item.hunters.length > 0 && (
                                 <>
                                   <span>•</span>
-                                  <span>{item.hunters.length} {lang === 'th' ? 'ผู้ล่า' : 'hunters'}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      sounds.playClick();
+                                      setViewingDistributedHuntersItem(item);
+                                      setDistHuntersViewMode('cards');
+                                      setDistHuntersTextFormat('by-clan');
+                                      setDistHuntersClanFilter('all');
+                                    }}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold hover:text-amber-200 cursor-pointer transition-all shadow-sm"
+                                    title={lang === 'th' ? 'คลิกเพื่อดูรายชื่อผู้ล่า (เลือกดูแบบ Card หรือ Text ได้)' : 'View hunter names (Card or Text)'}
+                                  >
+                                    <Users className="w-2.5 h-2.5 text-amber-400" />
+                                    <span>{item.hunters.length} {lang === 'th' ? 'ผู้ล่า (ดูชื่อ)' : 'Hunters (View)'}</span>
+                                  </button>
                                 </>
                               )}
                             </div>
                           </div>
+                        ) : item.hunters && item.hunters.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              sounds.playClick();
+                              setViewingDistributedHuntersItem(item);
+                              setDistHuntersViewMode('cards');
+                              setDistHuntersTextFormat('by-clan');
+                              setDistHuntersClanFilter('all');
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 text-amber-300 text-xs font-bold transition-all cursor-pointer shadow-sm"
+                            title={lang === 'th' ? 'คลิกเพื่อดูรายชื่อผู้ล่า (เลือกดูแบบ Card หรือ Text ได้)' : 'View hunter names (Card or Text)'}
+                          >
+                            <Users className="w-3.5 h-3.5 text-amber-400" />
+                            <span>{item.hunters.length} {lang === 'th' ? 'ผู้ล่า (ดูรายชื่อ)' : 'Hunters (View)'}</span>
+                          </button>
                         ) : (
                           <span className="text-slate-600 text-[11px] italic">
                             {lang === 'th' ? 'ไม่มีรูปผู้ล่า' : 'No proof attached'}
@@ -2282,6 +2469,27 @@ Do not include markdown or explanations. Return pure JSON only.`;
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           
+                          {/* Quick view hunters as text or card */}
+                          {item.hunters && item.hunters.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sounds.playClick();
+                                setViewingDistributedHuntersItem(item);
+                                setDistHuntersViewMode('cards');
+                                setDistHuntersTextFormat('by-clan');
+                                setDistHuntersClanFilter('all');
+                              }}
+                              className="px-2 py-1.5 rounded-lg bg-amber-950/50 hover:bg-amber-900/70 text-amber-300 hover:text-amber-200 border border-amber-600/50 transition-all flex items-center gap-1 text-xs cursor-pointer shadow-sm"
+                              title={lang === 'th' ? 'ดูรายชื่อผู้ล่าแบบ Text หรือ Card' : 'View hunter names as Text or Cards'}
+                            >
+                              <FileText className="w-3.5 h-3.5 text-amber-400" />
+                              <span className="text-[10px] font-bold hidden sm:inline">
+                                {t.viewDistributedHunters}
+                              </span>
+                            </button>
+                          )}
+
                           {/* Quick view all proof screenshots */}
                           {item.hunterScreenshots && item.hunterScreenshots.length > 0 && (
                             <button
@@ -2383,6 +2591,268 @@ Do not include markdown or explanations. Return pure JSON only.`;
                 <span>{lang === 'th' ? 'ยืนยันลบ' : 'Delete'}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* DISTRIBUTED ITEM HUNTERS VIEWER MODAL (CARD & TEXT VIEW) */}
+      {viewingDistributedHuntersItem && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0b111e] border border-slate-700/80 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200">
+            
+            {/* Modal Header */}
+            <div className="p-4 border-b border-slate-800 bg-[#070b14] flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-12 h-12 rounded-lg overflow-hidden border border-slate-700 bg-slate-900 shrink-0">
+                  <img
+                    src={viewingDistributedHuntersItem.imageUrl}
+                    alt={viewingDistributedHuntersItem.name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm sm:text-base font-bold text-slate-100 truncate">
+                      {viewingDistributedHuntersItem.name}
+                    </h3>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border uppercase ${getRarityBadge(viewingDistributedHuntersItem.rarity)}`}>
+                      {viewingDistributedHuntersItem.rarity}
+                    </span>
+                    <span className="text-xs font-mono text-[#38bdf8] font-bold">
+                      {viewingDistributedHuntersItem.price.toLocaleString()} {t.diamonds}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {t.distributedHuntersModalDesc}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setViewingDistributedHuntersItem(null)}
+                className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Controls Bar (View Mode: Cards vs Text + Copy buttons) */}
+            <div className="p-3 bg-[#0d1424] border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2">
+                {/* Cards vs Text view toggle */}
+                <div className="flex items-center gap-1 p-0.5 rounded-lg bg-[#070b13] border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setDistHuntersViewMode('cards');
+                    }}
+                    className={`px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      distHuntersViewMode === 'cards'
+                        ? 'bg-sky-950 text-sky-300 border border-sky-600/60 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>{t.viewAsCards}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setDistHuntersViewMode('text');
+                    }}
+                    className={`px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      distHuntersViewMode === 'text'
+                        ? 'bg-amber-950 text-amber-300 border border-amber-600/60 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>{t.viewAsText}</span>
+                  </button>
+                </div>
+
+                <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
+                  {viewingDistributedHuntersItem.hunters?.length || 0} {lang === 'th' ? 'คน' : 'names'}
+                </span>
+              </div>
+
+              {/* Copy All Button */}
+              {(viewingDistributedHuntersItem.hunters?.length || 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleCopyDistributedHunters(viewingDistributedHuntersItem)}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-600/70 hover:border-emerald-500 text-emerald-300 text-[11px] font-bold transition-all cursor-pointer shadow-sm"
+                >
+                  {copiedDistHunters ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{lang === 'th' ? '✓ คัดลอกแล้ว!' : '✓ Copied!'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{t.copyAllHunters}</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* Modal Content Body */}
+            <div className="p-4 overflow-y-auto flex-1 custom-scrollbar space-y-3 bg-[#080d17]">
+              {(!viewingDistributedHuntersItem.hunters || viewingDistributedHuntersItem.hunters.length === 0) ? (
+                <div className="p-8 text-center text-xs text-slate-500 bg-[#0b101c] rounded-xl border border-slate-800">
+                  {t.noHuntersRecorded}
+                </div>
+              ) : distHuntersViewMode === 'cards' ? (
+                /* Cards View */
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {(() => {
+                    const grouped = (viewingDistributedHuntersItem.hunters || []).reduce((acc, h) => {
+                      const cKey = h.clan || 'Clan:VoltZ';
+                      if (!acc[cKey]) acc[cKey] = [];
+                      acc[cKey].push(h.name);
+                      return acc;
+                    }, {} as Record<string, string[]>);
+
+                    return (Object.entries(grouped) as [string, string[]][]).map(([clanName, memberNames]) => (
+                      <div key={clanName} className="p-3 rounded-lg bg-[#0e1524] border border-sky-500/40 shadow-sm flex flex-col">
+                        <div className="text-xs font-bold text-amber-300 font-mono border-b border-slate-700/80 pb-1.5 mb-2 flex items-center justify-between">
+                          <span>{clanName}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              ({memberNames.length} {lang === 'th' ? 'คน' : 'hunters'})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(memberNames.join('\n'));
+                                sounds.playClaim();
+                                setCopiedDistHunters(true);
+                                setTimeout(() => setCopiedDistHunters(false), 2000);
+                              }}
+                              className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                              title={lang === 'th' ? `คัดลอกเฉพาะ ${clanName}` : `Copy ${clanName}`}
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="space-y-1 overflow-y-auto max-h-[220px] custom-scrollbar pr-1">
+                          {memberNames.map((mName, idx) => (
+                            <div
+                              key={idx}
+                              className="text-xs text-slate-200 font-medium py-1 px-2 rounded bg-[#090d16] border border-slate-800/60"
+                            >
+                              {mName}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              ) : (
+                /* Text View with Clan Separation */
+                <div className="space-y-3">
+                  {/* Format selector: By Clan vs Plain vs Inline vs Comma */}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 bg-[#111726] p-0.5 rounded-lg border border-slate-700 text-[11px] flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setDistHuntersTextFormat('by-clan');
+                        }}
+                        className={`px-2.5 py-1 rounded transition-all cursor-pointer flex items-center gap-1 ${
+                          distHuntersTextFormat === 'by-clan'
+                            ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Layers className="w-3 h-3" />
+                        <span>{t.formatByClan}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setDistHuntersTextFormat('plain');
+                        }}
+                        className={`px-2.5 py-1 rounded transition-all cursor-pointer ${
+                          distHuntersTextFormat === 'plain'
+                            ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <span>{t.formatPlain}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setDistHuntersTextFormat('inline');
+                        }}
+                        className={`px-2.5 py-1 rounded transition-all cursor-pointer ${
+                          distHuntersTextFormat === 'inline'
+                            ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <span>{t.formatInline}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setDistHuntersTextFormat('comma');
+                        }}
+                        className={`px-2.5 py-1 rounded transition-all cursor-pointer ${
+                          distHuntersTextFormat === 'comma'
+                            ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <span>{t.formatComma}</span>
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopyDistributedHunters(viewingDistributedHuntersItem)}
+                      className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>{copiedDistHunters ? (lang === 'th' ? '✓ คัดลอกแล้ว' : '✓ Copied') : t.copyAllHunters}</span>
+                    </button>
+                  </div>
+
+                  {/* Readonly Textarea */}
+                  <textarea
+                    readOnly
+                    rows={Math.min(16, Math.max(6, (getFormattedDistributedHuntersText(viewingDistributedHuntersItem).split('\n').length || 6) + 1))}
+                    value={getFormattedDistributedHuntersText(viewingDistributedHuntersItem)}
+                    onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                    className="w-full px-3.5 py-2.5 rounded-lg bg-[#04070d] border border-slate-800 hover:border-amber-500/50 text-xs font-mono text-slate-200 leading-relaxed focus:outline-none focus:border-amber-400 cursor-text resize-y shadow-inner select-all"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 border-t border-slate-800 bg-[#070b14] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setViewingDistributedHuntersItem(null)}
+                className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
+              >
+                {t.closeZoom}
+              </button>
+            </div>
+
           </div>
         </div>
       )}
