@@ -41,7 +41,9 @@ import {
   Language,
   QuickItem,
   User,
-  VaultItem
+  VaultItem,
+  cleanClanName,
+  DEFAULT_CLAN
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
@@ -107,7 +109,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [hunters, setHunters] = useState<HunterRecord[]>([]);
   const [selectedHunterMemberId, setSelectedHunterMemberId] = useState('');
   const [customHunterName, setCustomHunterName] = useState('');
-  const [customHunterClan, setCustomHunterClan] = useState('Clan:VoltZ');
+  const [customHunterClan, setCustomHunterClan] = useState('VoltZ');
   const [hunterScreenshots, setHunterScreenshots] = useState<string[]>([]);
   const [isScanningOCR, setIsScanningOCR] = useState(false);
   const [ocrStatusText, setOcrStatusText] = useState('');
@@ -204,7 +206,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
     allMembers
       .filter((m) => m.status === 'active' && m.inGameName)
       .forEach((m) => {
-        const clan = m.clan || 'No Clan';
+        const clan = cleanClanName(m.clan) || 'No Clan';
         if (!groups[clan]) groups[clan] = [];
         groups[clan].push(m);
       });
@@ -224,13 +226,15 @@ export const VaultView: React.FC<VaultViewProps> = ({
   // Filtered members for the checklist based on search and clan
   const filteredChecklistMembers = useMemo(() => {
     return activeMembersList.filter((m) => {
-      const matchesClan = hunterClanFilter === 'all' || m.clan === hunterClanFilter;
+      const matchesClan =
+        hunterClanFilter === 'all' ||
+        cleanClanName(m.clan).toLowerCase() === cleanClanName(hunterClanFilter).toLowerCase();
       const q = hunterSearchQuery.trim().toLowerCase();
       const matchesSearch =
         !q ||
         m.inGameName.toLowerCase().includes(q) ||
-        (m.clan && m.clan.toLowerCase().includes(q)) ||
-        (m.gameClass && m.gameClass.toLowerCase().includes(q));
+        (m.clan && cleanClanName(m.clan).toLowerCase().includes(q)) ||
+        (m.characterClass && m.characterClass.toLowerCase().includes(q));
       return matchesClan && matchesSearch;
     });
   }, [activeMembersList, hunterClanFilter, hunterSearchQuery]);
@@ -250,7 +254,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
         ...prev,
         {
           name: member.inGameName.trim(),
-          clan: member.clan || 'Clan:VoltZ'
+          clan: cleanClanName(member.clan) || 'VoltZ'
         }
       ]);
     }
@@ -268,7 +272,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
         existingNames.add(nameKey);
         newHunters.push({
           name: m.inGameName.trim(),
-          clan: m.clan || 'Clan:VoltZ'
+          clan: cleanClanName(m.clan) || 'VoltZ'
         });
       }
     });
@@ -293,7 +297,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
     const sourceHunters =
       targetClan === 'all'
         ? hunters
-        : hunters.filter((h) => (h.clan || 'Clan:VoltZ').toLowerCase() === targetClan.toLowerCase());
+        : hunters.filter((h) => (cleanClanName(h.clan) || 'VoltZ').toLowerCase() === cleanClanName(targetClan).toLowerCase());
 
     if (sourceHunters.length === 0) return '';
 
@@ -307,13 +311,13 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
     if (format === 'inline') {
       return sourceHunters
-        .map((h, i) => `${i + 1}. ${h.name} (${h.clan || 'Clan:VoltZ'})`)
+        .map((h, i) => `${i + 1}. ${h.name} (${cleanClanName(h.clan) || 'VoltZ'})`)
         .join('\n');
     }
 
     // Default: 'by-clan' (Grouped cleanly by Clan with headers and member counts)
     const grouped = sourceHunters.reduce((acc, h) => {
-      const clanKey = h.clan || 'Clan:VoltZ';
+      const clanKey = cleanClanName(h.clan) || 'VoltZ';
       if (!acc[clanKey]) acc[clanKey] = [];
       acc[clanKey].push(h.name);
       return acc;
@@ -411,7 +415,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
     const sourceHunters =
       distHuntersClanFilter === 'all'
         ? list
-        : list.filter((h) => (h.clan || 'Clan:VoltZ').toLowerCase() === distHuntersClanFilter.toLowerCase());
+        : list.filter((h) => (cleanClanName(h.clan) || 'VoltZ').toLowerCase() === cleanClanName(distHuntersClanFilter).toLowerCase());
 
     if (sourceHunters.length === 0) return '';
 
@@ -423,13 +427,13 @@ export const VaultView: React.FC<VaultViewProps> = ({
     }
     if (distHuntersTextFormat === 'inline') {
       return sourceHunters
-        .map((h, i) => `${i + 1}. ${h.name} (${h.clan || 'Clan:VoltZ'})`)
+        .map((h, i) => `${i + 1}. ${h.name} (${cleanClanName(h.clan) || 'VoltZ'})`)
         .join('\n');
     }
 
     // Default: 'by-clan'
     const grouped = sourceHunters.reduce((acc, h) => {
-      const clanKey = h.clan || 'Clan:VoltZ';
+      const clanKey = cleanClanName(h.clan) || 'VoltZ';
       if (!acc[clanKey]) acc[clanKey] = [];
       acc[clanKey].push(h.name);
       return acc;
@@ -484,7 +488,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
         seen.add(nameKey);
         unique.push({
           name: h.name.trim(),
-          clan: (h.clan || 'Clan:VoltZ').trim()
+          clan: cleanClanName(h.clan) || 'VoltZ'
         });
       }
     }
@@ -617,7 +621,7 @@ Examine the attached screenshot(s) (${imageParts.length} screenshot(s) provided)
 These screenshots show boss raids, party member panels, combat damage meters, loot drops, member rosters, or chat logs.
 
 Task:
-1. Extract all unique player/character names and their Clan names visible across ALL provided screenshots.
+1. Extract all unique player/character names and their Clan names visible across ALL provided screenshots. IMPORTANT: Clan names must NOT include the prefix 'Clan:', use only the pure clan name (e.g. 'VoltZ', 'LevelS').
 2. CRITICAL DEDUPLICATION RULE: Filter out duplicate player names! Each player must only appear ONCE in the final output, even if they appear in multiple screenshots or parties.
 3. Compare extracted names against the database list of known clan members below. If an OCR name closely matches a known member (accounting for minor OCR typos or font stylings), use their official inGameName and their registered clan.
 
@@ -628,11 +632,11 @@ Output strictly a JSON object with this exact structure:
 {
   "detectedClanGroups": [
     {
-      "clanName": "Clan:VoltZ",
+      "clanName": "VoltZ",
       "members": ["Zenkaii", "Eloni"]
     },
     {
-      "clanName": "Clan:LevelS",
+      "clanName": "LevelS",
       "members": ["DVD"]
     }
   ],
@@ -719,7 +723,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
 
       const knownMemberList = allMembers.map((m) => ({
         inGameName: m.inGameName,
-        clan: m.clan,
+        clan: cleanClanName(m.clan) || 'VoltZ',
         powerLevel: m.powerLevel
       }));
 
@@ -838,10 +842,11 @@ Do not include markdown or explanations. Return pure JSON only.`;
         setGeminiConfigured(true);
         const extractedHunters: HunterRecord[] = [];
         data.detectedClanGroups.forEach((group: { clanName: string; members: string[] }) => {
+          const cleanGroupClan = cleanClanName(group.clanName) || 'VoltZ';
           group.members.forEach((memName: string) => {
             extractedHunters.push({
               name: memName,
-              clan: group.clanName || 'Clan:VoltZ'
+              clan: cleanGroupClan
             });
           });
         });
@@ -860,7 +865,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
             existingNames.add(nameKey);
             incomingUnique.push({
               name: h.name.trim(),
-              clan: h.clan.trim() || 'Clan:VoltZ'
+              clan: cleanClanName(h.clan) || 'VoltZ'
             });
           }
         }
@@ -1053,7 +1058,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
   // Add Hunter via Dropdown or Selection (No typing needed)
   const handleAddManualHunter = (overrideName?: string, overrideClan?: string) => {
     const finalName = (overrideName || customHunterName).trim();
-    const finalClan = (overrideClan || customHunterClan).trim() || 'Clan:VoltZ';
+    const finalClan = cleanClanName(overrideClan || customHunterClan) || 'VoltZ';
     if (!finalName) return;
     sounds.playClick();
     if (!hunters.some((h) => h.name.toLowerCase() === finalName.toLowerCase())) {
@@ -1151,9 +1156,9 @@ Do not include markdown or explanations. Return pure JSON only.`;
     }
   };
 
-  // Group hunters by Clan (for matching display: Clan:VoltZ / Zenkaii, Clan:LevelS / DVD)
+  // Group hunters by Clan (for matching display: VoltZ / Zenkaii, LevelS / DVD)
   const groupedHunters = hunters.reduce((acc, h) => {
-    const clanKey = h.clan || 'Clan:VoltZ';
+    const clanKey = cleanClanName(h.clan) || 'VoltZ';
     if (!acc[clanKey]) acc[clanKey] = [];
     acc[clanKey].push(h.name);
     return acc;
@@ -1163,7 +1168,8 @@ Do not include markdown or explanations. Return pure JSON only.`;
   const uniqueClansInHunters = useMemo(() => {
     const clanSet = new Set<string>();
     hunters.forEach((h) => {
-      if (h.clan) clanSet.add(h.clan.trim());
+      const c = cleanClanName(h.clan);
+      if (c) clanSet.add(c);
     });
     return Array.from(clanSet);
   }, [hunters]);
@@ -1832,7 +1838,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                         </button>
                         {uniqueClansInHunters.map((clanName) => {
                           const count = hunters.filter(
-                            (h) => (h.clan || 'Clan:VoltZ').toLowerCase() === clanName.toLowerCase()
+                            (h) => (cleanClanName(h.clan) || 'VoltZ').toLowerCase() === cleanClanName(clanName).toLowerCase()
                           ).length;
                           return (
                             <button
@@ -1950,7 +1956,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                                 type="button"
                                 onClick={() => {
                                   const targetIndex = hunters.findIndex(
-                                    (h) => h.clan === clanName && h.name === mName
+                                    (h) => (cleanClanName(h.clan) || 'VoltZ') === (cleanClanName(clanName) || 'VoltZ') && h.name === mName
                                   );
                                   if (targetIndex >= 0) handleRemoveHunter(targetIndex);
                                 }}
@@ -2121,7 +2127,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                                     targetMembers.forEach((m) => {
                                       const key = m.inGameName.trim().toLowerCase();
                                       if (!currentNames.has(key)) {
-                                        toAdd.push({ name: m.inGameName.trim(), clan: m.clan || clanName });
+                                        toAdd.push({ name: m.inGameName.trim(), clan: cleanClanName(m.clan) || cleanClanName(clanName) || 'VoltZ' });
                                         currentNames.add(key);
                                       }
                                     });
@@ -2426,7 +2432,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                           {item.distributedTo?.name || 'Unknown'}
                         </div>
                         <div className="text-[10px] text-slate-400">
-                          {item.distributedTo?.clan || 'No Clan'}
+                          {cleanClanName(item.distributedTo?.clan) || 'No Clan'}
                         </div>
                       </td>
 
@@ -2772,7 +2778,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {(() => {
                     const grouped = (viewingDistributedHuntersItem.hunters || []).reduce((acc, h) => {
-                      const cKey = h.clan || 'Clan:VoltZ';
+                      const cKey = cleanClanName(h.clan) || 'VoltZ';
                       if (!acc[cKey]) acc[cKey] = [];
                       acc[cKey].push(h.name);
                       return acc;
@@ -2781,7 +2787,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                     return (Object.entries(grouped) as [string, string[]][]).map(([clanName, memberNames]) => (
                       <div key={clanName} className="p-3 rounded-lg bg-[#0e1524] border border-sky-500/40 shadow-sm flex flex-col">
                         <div className="text-xs font-bold text-amber-300 font-mono border-b border-slate-700/80 pb-1.5 mb-2 flex items-center justify-between">
-                          <span>{clanName}</span>
+                          <span>{cleanClanName(clanName)}</span>
                           <div className="flex items-center gap-1.5">
                             <span className="text-[10px] text-slate-400 font-normal">
                               ({memberNames.length} {lang === 'th' ? 'คน' : 'hunters'})

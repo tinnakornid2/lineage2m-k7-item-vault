@@ -1,4 +1,4 @@
-import { DiscordSettings, ItemRarity, VaultItem, DistributedInfo } from '../types';
+import { DiscordSettings, ItemRarity, VaultItem, DistributedInfo, cleanClanName } from '../types';
 
 function getRarityColor(rarity: ItemRarity): number {
   switch (rarity) {
@@ -69,7 +69,7 @@ export async function sendDiscordNotification(
     const color = getRarityColor(item.rarity);
     const hunterCount = item.hunters?.length || 0;
     const hunterSample = item.hunters && item.hunters.length > 0
-      ? item.hunters.slice(0, 10).map((h) => `${h.name} (${h.clan || 'Clan'})`).join(', ') + (item.hunters.length > 10 ? ` และอีก ${item.hunters.length - 10} คน` : '')
+      ? item.hunters.slice(0, 10).map((h) => `${h.name} (${cleanClanName(h.clan) || 'VoltZ'})`).join(', ') + (item.hunters.length > 10 ? ` และอีก ${item.hunters.length - 10} คน` : '')
       : 'ไม่มีรายชื่อ';
 
     payload = {
@@ -120,13 +120,13 @@ export async function sendDiscordNotification(
       embeds: [
         {
           title: `🏆 ประกาศผลการแจกไอเทม! [${item.rarity}] ${item.name}`,
-          description: `ขอแสดงความยินดีกับ **${dist.name}** แห่ง **${dist.clan || 'Alliance'}** ที่ได้รับไอเทมชิ้นนี้ไปครอบครอง!`,
+          description: `ขอแสดงความยินดีกับ **${dist.name}** แห่ง **${cleanClanName(dist.clan) || 'Alliance'}** ที่ได้รับไอเทมชิ้นนี้ไปครอบครอง!`,
           color: color,
           thumbnail: item.imageUrl ? { url: item.imageUrl } : undefined,
           fields: [
             {
               name: '👤 ผู้ได้รับไอเทม',
-              value: `**${dist.name}**\n(${dist.clan || 'No Clan'})`,
+              value: `**${dist.name}**\n(${cleanClanName(dist.clan) || 'No Clan'})`,
               inline: true
             },
             {

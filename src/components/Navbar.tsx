@@ -12,7 +12,7 @@ import {
   Sparkles,
   Zap
 } from 'lucide-react';
-import { ActiveTab, Language, User } from '../types';
+import { ActiveTab, Language, User, cleanClanName } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -248,7 +248,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       )}
                     </button>
                     <span className="text-[11px] text-slate-400">
-                      • {currentUser.clan || 'No Clan'}
+                      • {cleanClanName(currentUser.clan) || 'No Clan'}
                     </span>
                   </div>
                 </div>

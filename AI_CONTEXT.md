@@ -160,6 +160,11 @@ d:/K7 item webapp/lineage2m-k7-item-vault (1)/
   - แปลงเป็นข้อความแสดงผลผ่าน `translations[lang]` เสมอ (`t.ocrServerConnectError`, `t.ocrConnectionErrorPrefix`, `t.ocrHighDemandGlitch`, `t.ocrConnectionGlitch`, `t.ocrGeneralError`)
   - หากผู้ใช้เลือกภาษาอังกฤษ (EN) จะไม่ปรากฏข้อความภาษาไทยปะปนเด็ดขาด (เช่น `Connection error: Unable to connect to AI server. Please try again.`)
 
+### 4.12 การตัดคำนำหน้า 'Clan:' ออกทั้งหมด (Strip 'Clan:' Prefix Globally)
+- เพื่อประหยัดพื้นที่ UI และทำให้ชื่อแคลนกระชับ สวยงาม ทั่วทั้งระบบจะตัดคำว่า `Clan:` หรือ `clan:` ออกทั้งหมด เหลือเพียงชื่อแคลนเพียวๆ (เช่น `VoltZ`, `LevelS`, `DVD`)
+- มีฟังก์ชันสากล `cleanClanName(clan?: string | null): string` ใน `src/types.ts`
+- ทำการล้างข้อมูลทั้งระดับ Database Reader/Writer ใน `firebase.ts`, Form Inputs, Dropdown Filters, การ์ดผู้ล่า, ตารางรายชื่อ, หน้าคิว, หน้าทำเนียบสมาชิก, หน้าสถิติ, OCR Prompts ทั้งบน Server และ Client, และ Discord Webhook notifications
+
 ---
 
 ## 5. คำสั่งการทำงานและทดสอบ (Commands)

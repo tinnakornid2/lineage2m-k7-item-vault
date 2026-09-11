@@ -128,6 +128,16 @@ export interface ClanGroup {
   color?: string;
 }
 
+/**
+ * Strips the 'Clan:' or 'clan:' prefix to save space across the UI (e.g. 'Clan:VoltZ' -> 'VoltZ')
+ */
+export function cleanClanName(clan?: string | null): string {
+  if (!clan || typeof clan !== 'string') return '';
+  return clan.replace(/^clan:\s*/i, '').trim();
+}
+
+export const DEFAULT_CLAN = 'VoltZ';
+
 export type ActiveTab = 'dashboard' | 'vault' | 'queue' | 'all_members' | 'clan';
 
 export type Language = 'th' | 'en';

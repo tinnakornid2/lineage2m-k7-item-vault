@@ -207,6 +207,7 @@ Task:
 1. Extract all unique player/character names and their Clan names visible across ALL provided screenshots.
 2. CRITICAL DEDUPLICATION RULE: Filter out duplicate player names! Each player must only appear ONCE in the final output, even if they appear in multiple screenshots or parties.
 3. Compare extracted names against the database list of known clan members below. If an OCR name closely matches a known member (accounting for minor OCR typos or font stylings), use their official inGameName and their registered clan.
+4. IMPORTANT: Clan names must NOT include the prefix "Clan:" or "แคลน:". Output only the pure clan name (e.g. "VoltZ", "LevelS").
 
 Database list of known guild/alliance members:
 ${JSON.stringify(knownMembers || [], null, 2)}
@@ -215,11 +216,11 @@ Output strictly a JSON object with this exact structure:
 {
   "detectedClanGroups": [
     {
-      "clanName": "Clan:VoltZ",
+      "clanName": "VoltZ",
       "members": ["Zenkaii", "Eloni"]
     },
     {
-      "clanName": "Clan:LevelS",
+      "clanName": "LevelS",
       "members": ["DVD"]
     }
   ],
@@ -267,7 +268,8 @@ Do not include markdown or explanations. Return pure JSON only.`;
       if (Array.isArray(parsedResult.detectedClanGroups)) {
         for (const group of parsedResult.detectedClanGroups) {
           const cleanMembers: string[] = [];
-          const clanName = (group.clanName || "Clan:VoltZ").trim();
+          const rawClan = typeof group.clanName === "string" ? group.clanName.replace(/^clan:\s*/i, "").trim() : "";
+          const clanName = rawClan || "VoltZ";
           if (Array.isArray(group.members)) {
             for (const member of group.members) {
               const trimmed = typeof member === "string" ? member.trim() : "";

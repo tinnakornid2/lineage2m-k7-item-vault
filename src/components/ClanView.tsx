@@ -11,7 +11,7 @@ import {
   AlertCircle,
   MoveRight
 } from 'lucide-react';
-import { ClanGroup, Language, User } from '../types';
+import { ClanGroup, Language, User, cleanClanName } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -71,14 +71,15 @@ export const ClanView: React.FC<ClanViewProps> = ({
 
   const handleDropOnClan = async (targetClanName: string) => {
     if (!draggedUserId) return;
+    const cleanTarget = cleanClanName(targetClanName);
     const member = activeMembers.find((m) => m.id === draggedUserId);
-    if (!member || member.clan === targetClanName) {
+    if (!member || cleanClanName(member.clan) === cleanTarget) {
       setDraggedUserId(null);
       return;
     }
 
     sounds.playClaim();
-    await onMoveMemberClan(draggedUserId, targetClanName);
+    await onMoveMemberClan(draggedUserId, cleanTarget);
     setDraggedUserId(null);
   };
 
@@ -115,18 +116,23 @@ export const ClanView: React.FC<ClanViewProps> = ({
 
   const handleAddClanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClanName.trim()) return;
+    const cleanNew = cleanClanName(newClanName.trim());
+    if (!cleanNew) return;
     sounds.playClaim();
-    await onAddClan(newClanName.trim());
+    await onAddClan(cleanNew);
     setNewClanName('');
     setShowAddClan(false);
   };
 
   // Compile list of clans to display: union of registered clans + existing clans from members
   const allClanNamesSet = new Set<string>();
-  clans.forEach((c) => allClanNamesSet.add(c.name));
+  clans.forEach((c) => {
+    const cleaned = cleanClanName(c.name);
+    if (cleaned) allClanNamesSet.add(cleaned);
+  });
   activeMembers.forEach((m) => {
-    if (m.clan) allClanNamesSet.add(m.clan);
+    const cleaned = cleanClanName(m.clan);
+    if (cleaned) allClanNamesSet.add(cleaned);
   });
   const displayClanNames = Array.from(allClanNamesSet);
 
@@ -216,9 +222,10 @@ export const ClanView: React.FC<ClanViewProps> = ({
       {/* CLANS COLUMNS / GRIDS (แยกแคลนออกให้ชัดเจน ลากชื่อย้ายแคลนได้) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {displayClanNames.map((clanName) => {
-          const registeredClan = clans.find((c) => c.name === clanName);
+          const cleanName = cleanClanName(clanName);
+          const registeredClan = clans.find((c) => cleanClanName(c.name) === cleanName);
           const clanMembers = activeMembers
-            .filter((m) => m.clan === clanName)
+            .filter((m) => (cleanClanName(m.clan) || 'No Clan') === cleanName)
             .sort((a, b) => (b.powerLevel || 0) - (a.powerLevel || 0));
 
           const totalClanPower = clanMembers.reduce(
@@ -233,9 +240,9 @@ export const ClanView: React.FC<ClanViewProps> = ({
 
           return (
             <div
-              key={clanName}
+              key={cleanName}
               onDragOver={handleDragOver}
-              onDrop={() => handleDropOnClan(clanName)}
+              onDrop={() => handleDropOnClan(cleanName)}
               className={`rounded-2xl bg-gradient-to-b from-[#111726] to-[#0a0f19] border transition-all duration-200 shadow-xl flex flex-col justify-between overflow-hidden ${
                 isTargetDrag
                   ? 'border-[#38bdf8]/80 hover:bg-[#142036]'
@@ -250,7 +257,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                   </div>
                   <div>
                     <h3 className="text-base font-bold font-cinzel text-slate-100">
-                      {clanName}
+                      {cleanName}
                     </h3>
                     <div className="text-[11px] text-slate-400 flex items-center gap-2">
                       <span>{clanMembers.length} {lang === 'th' ? 'คน' : 'members'}</span>
@@ -409,7 +416,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
 
             <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-xs text-slate-300 mb-5">
               <span className="text-slate-400">{t.clanName}: </span>
-              <span className="font-bold text-amber-300">{clanToDelete.name}</span>
+              <span className="font-bold text-amber-300">{cleanClanName(clanToDelete.name)}</span>
             </div>
 
             <div className="flex items-center justify-end gap-2.5">
@@ -463,7 +470,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">{t.clanName}:</span>
-                <span className="text-amber-300">{memberToDelete.clan}</span>
+                <span className="text-amber-300">{cleanClanName(memberToDelete.clan)}</span>
               </div>
             </div>
 

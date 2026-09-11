@@ -9,7 +9,7 @@ import {
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
-import { CharacterClass, Language, User as UserType, CHARACTER_CLASSES } from '../types';
+import { CharacterClass, Language, User as UserType, CHARACTER_CLASSES, cleanClanName, DEFAULT_CLAN } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -30,7 +30,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onLogin,
   onRegister,
   users,
-  characterClasses
+  characterClasses,
 }) => {
   const t = translations[lang];
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -45,7 +45,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [regPassword, setRegPassword] = useState('');
   const [regInGameName, setRegInGameName] = useState('');
   const [regPowerLevel, setRegPowerLevel] = useState('');
-  const [regClan, setRegClan] = useState('Clan:VoltZ');
+  const [regClan, setRegClan] = useState('VoltZ');
   const [regClass, setRegClass] = useState<CharacterClass>('Orb');
   const [regSuccessMessage, setRegSuccessMessage] = useState('');
   const [regError, setRegError] = useState('');
@@ -107,7 +107,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         password: regPassword,
         inGameName: regInGameName.trim(),
         powerLevel: isNaN(parsedPowerLevel) ? 0 : parsedPowerLevel,
-        clan: regClan.trim() || 'No Clan',
+        clan: cleanClanName(regClan.trim()) || DEFAULT_CLAN,
         characterClass: regClass,
         role: 'member',
         status: 'pending_approval',

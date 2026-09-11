@@ -15,7 +15,7 @@ import {
   AlertCircle,
   Sword
 } from 'lucide-react';
-import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES } from '../types';
+import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, cleanClanName } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -100,7 +100,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
 
   // Group active members by clan, sorted by powerLevel descending
   const clansMap = activeMembers.reduce((acc, mem) => {
-    const cName = mem.clan || 'Unassigned';
+    const cName = cleanClanName(mem.clan) || 'Unassigned';
     if (!acc[cName]) acc[cName] = [];
     acc[cName].push(mem);
     return acc;
@@ -116,7 +116,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
     setEditingUser(user);
     setEditInGameName(user.inGameName);
     setEditPowerLevel(user.powerLevel || 0);
-    setEditClan(user.clan);
+    setEditClan(cleanClanName(user.clan));
     setEditClass(user.characterClass);
     setEditRole(user.role);
     setEditPassword(user.password || '');
@@ -134,7 +134,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
         powerLevel: Number(editPowerLevel) || 0,
         pendingPowerLevel: null,
         pendingPowerLevelRequestedAt: null,
-        clan: editClan.trim(),
+        clan: cleanClanName(editClan.trim()) || 'VoltZ',
         characterClass: editClass,
         role: editRole,
         password: editPassword.trim() || editingUser.password
@@ -230,7 +230,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                         {t.username}: <span className="text-slate-200">{member.username}</span>
                       </div>
                       <div>
-                        {t.clanName}: <span className="text-slate-200">{member.clan}</span>
+                        {t.clanName}: <span className="text-slate-200">{cleanClanName(member.clan)}</span>
                       </div>
                       <div>
                         {t.characterClass}: <span className="text-slate-200">{member.characterClass}</span>
@@ -307,7 +307,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                           {member.inGameName}
                         </span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
-                          {member.clan}
+                          {cleanClanName(member.clan)}
                         </span>
                       </div>
 
@@ -391,7 +391,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                     </div>
                     <div>
                       <h3 className="text-base font-bold text-slate-100 font-cinzel">
-                        {clanName}
+                        {cleanClanName(clanName)}
                       </h3>
                       <p className="text-xs text-slate-400">
                         {members.length} {lang === 'th' ? 'คน' : 'members'} •{' '}
@@ -679,7 +679,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">{t.clanName}:</span>
-                <span className="text-amber-300 font-semibold">{memberToDelete.clan}</span>
+                <span className="text-amber-300 font-semibold">{cleanClanName(memberToDelete.clan)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">{t.role}:</span>

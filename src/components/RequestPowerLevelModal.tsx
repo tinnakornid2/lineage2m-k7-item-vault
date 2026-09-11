@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Zap, ArrowRight, TrendingUp, TrendingDown, Clock, ShieldAlert, Check } from 'lucide-react';
-import { User, Language } from '../types';
+import { User, Language, cleanClanName } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -182,7 +182,7 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
             <div>
               <span className="text-slate-400">{lang === 'th' ? 'ตัวละคร:' : 'Character:'}</span>{' '}
               <span className="text-slate-100 font-bold">{currentUser.inGameName}</span>{' '}
-              <span className="text-slate-500">({currentUser.clan || 'No Clan'} • {currentUser.characterClass})</span>
+              <span className="text-slate-500">({cleanClanName(currentUser.clan) || 'No Clan'} • {currentUser.characterClass})</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-slate-400">{t.currentCp}:</span>

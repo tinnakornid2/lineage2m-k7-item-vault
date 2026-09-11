@@ -15,7 +15,7 @@ import {
   Users,
   Zap
 } from 'lucide-react';
-import { CharacterClass, ClanGroup, Language, User as UserType, CHARACTER_CLASSES } from '../types';
+import { CharacterClass, ClanGroup, Language, User as UserType, CHARACTER_CLASSES, cleanClanName, DEFAULT_CLAN } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -30,7 +30,7 @@ interface LoginScreenProps {
     password: string;
     inGameName: string;
     clan: string;
-    characterClass: any;
+    characterClass: CharacterClass;
     powerLevel?: number;
   }) => Promise<{ success: boolean; message?: string }>;
   users: UserType[];
@@ -66,7 +66,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [showRegPass, setShowRegPass] = useState(false);
   const [regInGameName, setRegInGameName] = useState('');
   const [regPowerLevel, setRegPowerLevel] = useState('');
-  const [regClan, setRegClan] = useState('Clan:VoltZ');
+  const [regClan, setRegClan] = useState('VoltZ');
   const [customClan, setCustomClan] = useState('');
   const [isCustomClan, setIsCustomClan] = useState(false);
   const [regClass, setRegClass] = useState<CharacterClass>('Orb');
@@ -77,10 +77,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   // Available clans for dropdown
   const clanNames = Array.from(
     new Set([
-      'Clan:VoltZ',
-      'Clan:LevelS',
-      'Clan:DVD',
-      ...clans.map((c) => c.name).filter(Boolean)
+      'VoltZ',
+      'LevelS',
+      'DVD',
+      ...clans.map((c) => cleanClanName(c.name)).filter(Boolean)
     ])
   );
 
@@ -122,7 +122,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     const finalUsername = regUsername.trim();
     const finalPassword = regPassword.trim();
     const finalInGameName = regInGameName.trim();
-    const finalClan = (isCustomClan ? customClan.trim() : regClan.trim()) || 'No Clan';
+    const finalClan = cleanClanName(isCustomClan ? customClan.trim() : regClan.trim()) || 'VoltZ';
     const parsedPowerLevel = regPowerLevel ? parseInt(regPowerLevel.replace(/,/g, ''), 10) : 0;
 
     if (!finalUsername || !finalPassword || !finalInGameName) {
@@ -579,7 +579,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     type="text"
                     value={customClan}
                     onChange={(e) => setCustomClan(e.target.value)}
-                    placeholder={lang === 'th' ? 'เช่น Clan:VoltZ' : 'e.g. Clan:VoltZ'}
+                    placeholder={lang === 'th' ? 'เช่น VoltZ' : 'e.g. VoltZ'}
                     className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700/80 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none transition-all shadow-inner"
                   />
                 ) : (

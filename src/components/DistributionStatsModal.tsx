@@ -14,7 +14,7 @@ import {
   Crosshair,
   Crown
 } from 'lucide-react';
-import { VaultItem, User, Language } from '../types';
+import { VaultItem, User, Language, cleanClanName } from '../types';
 import { sounds } from '../utils/sound';
 
 interface DistributionStatsModalProps {
@@ -62,7 +62,7 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
 
     distributedItems.forEach((item) => {
       const recName = item.distributedTo?.name || 'Unknown';
-      const clan = item.distributedTo?.clan || 'No Clan';
+      const clan = cleanClanName(item.distributedTo?.clan) || 'No Clan';
       const existing = map.get(recName.toLowerCase()) || {
         name: recName,
         clan,
@@ -109,7 +109,7 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
           const key = hName.toLowerCase();
           const existing = map.get(key) || {
             name: hName,
-            clan: h.clan || 'Unknown Clan',
+            clan: cleanClanName(h.clan) || 'Unknown Clan',
             huntCount: 0
           };
           existing.huntCount += 1;
@@ -126,7 +126,7 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
     const map = new Map<string, { clan: string; itemCount: number; totalDiamonds: number }>();
 
     distributedItems.forEach((item) => {
-      const clanName = item.distributedTo?.clan || 'Alliance';
+      const clanName = cleanClanName(item.distributedTo?.clan) || 'Alliance';
       const existing = map.get(clanName) || { clan: clanName, itemCount: 0, totalDiamonds: 0 };
       existing.itemCount += 1;
       existing.totalDiamonds += item.price || 0;
@@ -148,10 +148,10 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
       `⏳ สมาชิกที่ยังไม่เคยได้รับ: ${zeroItemMembers.length} คน`,
       ``,
       `🏆 **Top 5 สมาชิกที่ได้รับไอเทมมูลค่าสูงสุด:**`,
-      ...recipientStats.slice(0, 5).map((r, i) => `${i + 1}. **${r.name}** (${r.clan}): ${r.itemCount} ชิ้น | ${r.totalDiamonds.toLocaleString()} 💎`),
+      ...recipientStats.slice(0, 5).map((r, i) => `${i + 1}. **${r.name}** (${cleanClanName(r.clan)}): ${r.itemCount} ชิ้น | ${r.totalDiamonds.toLocaleString()} 💎`),
       ``,
       `🎯 **Top 5 นักล่าบอสที่ร่วมกิจกรรมมากที่สุด:**`,
-      ...hunterStats.slice(0, 5).map((h, i) => `${i + 1}. **${h.name}** (${h.clan}): ${h.huntCount} รอบ`),
+      ...hunterStats.slice(0, 5).map((h, i) => `${i + 1}. **${h.name}** (${cleanClanName(h.clan)}): ${h.huntCount} รอบ`),
       `━━━━━━━━━━━━━━━━━━━━`,
       `🔗 อัปเดตล่าสุด: ${new Date().toLocaleDateString('th-TH')}`
     ].join('\n');
@@ -362,7 +362,7 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
                         <div className="font-bold text-slate-100 text-sm flex items-center gap-2">
                           <span>{rec.name}</span>
                           <span className="text-[10px] font-normal px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                            {rec.clan}
+                            {cleanClanName(rec.clan)}
                           </span>
                         </div>
                         <div className="text-[11px] text-slate-400 mt-0.5">
@@ -419,7 +419,7 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
                         <span className="text-xs font-mono text-slate-500 w-5 text-right">{idx + 1}.</span>
                         <div>
                           <div className="font-bold text-slate-200 text-xs">{m.inGameName}</div>
-                          <div className="text-[10px] text-slate-400">{m.clan || 'No Clan'} • {m.characterClass || 'Adventurer'}</div>
+                          <div className="text-[10px] text-slate-400">{cleanClanName(m.clan) || 'No Clan'} • {m.characterClass || 'Adventurer'}</div>
                         </div>
                       </div>
 
@@ -471,7 +471,7 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
                         </div>
                         <div>
                           <div className="font-bold text-slate-200 text-xs">{h.name}</div>
-                          <div className="text-[10px] text-slate-400">{h.clan}</div>
+                          <div className="text-[10px] text-slate-400">{cleanClanName(h.clan)}</div>
                         </div>
                       </div>
 
@@ -505,7 +505,7 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
                         <div className="flex items-center justify-between text-xs">
                           <div className="font-bold text-slate-200 flex items-center gap-2">
                             <Shield className="w-3.5 h-3.5 text-amber-400" />
-                            <span>{c.clan}</span>
+                            <span>{cleanClanName(c.clan)}</span>
                           </div>
                           <div className="font-mono text-slate-300 font-bold">
                             {c.itemCount} {lang === 'th' ? 'ชิ้น' : 'items'} • {c.totalDiamonds.toLocaleString()} 💎 ({percent}%)

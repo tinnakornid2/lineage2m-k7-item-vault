@@ -20,7 +20,7 @@ import {
   Zap,
   Cpu
 } from 'lucide-react';
-import { ActiveTab, Language, User } from '../types';
+import { ActiveTab, Language, User, cleanClanName } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -456,7 +456,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </button>
                   <span className="text-[10px] text-slate-400 truncate">
-                    • {currentUser.clan || 'No Clan'}
+                    • {cleanClanName(currentUser.clan) || 'No Clan'}
                   </span>
                 </div>
               </div>

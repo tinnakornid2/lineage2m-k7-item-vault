@@ -23,7 +23,9 @@ import {
   DiamondVaultRecord,
   ClanGroup,
   AnnouncementSettings,
-  DiscordSettings
+  DiscordSettings,
+  cleanClanName,
+  DEFAULT_CLAN
 } from '../types';
 
 const firebaseConfig = {
@@ -72,7 +74,7 @@ export const DEFAULT_OWNER: User = {
   password: '0386231334',
   inGameName: 'Eloni',
   powerLevel: 650000,
-  clan: 'Clan:VoltZ',
+  clan: 'VoltZ',
   characterClass: 'Orb',
   role: 'owner',
   status: 'active',
@@ -87,7 +89,7 @@ export const INITIAL_MEMBERS: User[] = [
     password: '123456',
     inGameName: 'Zenkaii',
     powerLevel: 580000,
-    clan: 'Clan:VoltZ',
+    clan: 'VoltZ',
     characterClass: 'Dual Blade',
     role: 'admin',
     status: 'active',
@@ -99,7 +101,7 @@ export const INITIAL_MEMBERS: User[] = [
     password: '123456',
     inGameName: 'DVD',
     powerLevel: 540000,
-    clan: 'Clan:LevelS',
+    clan: 'LevelS',
     characterClass: 'Spear',
     role: 'member',
     status: 'active',
@@ -111,7 +113,7 @@ export const INITIAL_MEMBERS: User[] = [
     password: '123456',
     inGameName: 'KingArthur',
     powerLevel: 490000,
-    clan: 'Clan:VoltZ',
+    clan: 'VoltZ',
     characterClass: 'Greatsword',
     role: 'member',
     status: 'active',
@@ -123,7 +125,7 @@ export const INITIAL_MEMBERS: User[] = [
     password: '123456',
     inGameName: 'ValkyrieX',
     powerLevel: 510000,
-    clan: 'Clan:LevelS',
+    clan: 'LevelS',
     characterClass: 'Staff',
     role: 'member',
     status: 'active',
@@ -135,7 +137,7 @@ export const INITIAL_MEMBERS: User[] = [
     password: '123456',
     inGameName: 'NightHawk',
     powerLevel: 380000,
-    clan: 'Clan:VoltZ',
+    clan: 'VoltZ',
     characterClass: 'Dagger',
     role: 'member',
     status: 'pending_approval',
@@ -144,8 +146,8 @@ export const INITIAL_MEMBERS: User[] = [
 ];
 
 export const INITIAL_CLANS: ClanGroup[] = [
-  { id: 'clan_voltz', name: 'Clan:VoltZ', color: '#3b82f6' },
-  { id: 'clan_levels', name: 'Clan:LevelS', color: '#10b981' }
+  { id: 'clan_voltz', name: 'VoltZ', color: '#3b82f6' },
+  { id: 'clan_levels', name: 'LevelS', color: '#10b981' }
 ];
 
 export const INITIAL_QUICK_ITEMS: QuickItem[] = [
@@ -188,8 +190,8 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [
     minPowerLevel: 500000,
     rarity: 'LAGEND',
     hunters: [
-      { name: 'Zenkaii', clan: 'Clan:VoltZ' },
-      { name: 'DVD', clan: 'Clan:LevelS' }
+      { name: 'Zenkaii', clan: 'VoltZ' },
+      { name: 'DVD', clan: 'LevelS' }
     ],
     hunterScreenshots: [
       'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800&auto=format&fit=crop&q=80'
@@ -199,7 +201,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [
       {
         userId: 'user_dvd',
         inGameName: 'DVD',
-        clan: 'Clan:LevelS',
+        clan: 'LevelS',
         powerLevel: 540000,
         claimedAt: Date.now() - 3600000 * 4
       }
@@ -214,9 +216,9 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [
     minPowerLevel: 550000,
     rarity: 'MYTHIC',
     hunters: [
-      { name: 'Eloni', clan: 'Clan:VoltZ' },
-      { name: 'Zenkaii', clan: 'Clan:VoltZ' },
-      { name: 'DVD', clan: 'Clan:LevelS' }
+      { name: 'Eloni', clan: 'VoltZ' },
+      { name: 'Zenkaii', clan: 'VoltZ' },
+      { name: 'DVD', clan: 'LevelS' }
     ],
     hunterScreenshots: [
       'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?w=800&auto=format&fit=crop&q=80'
@@ -237,7 +239,7 @@ export const INITIAL_QUEUES: QueueItem[] = [
       {
         id: 'qm_1',
         name: 'Eloni',
-        clan: 'Clan:VoltZ',
+        clan: 'VoltZ',
         powerLevel: 650000,
         status: 'received',
         receivedAt: Date.now() - 86400000 * 5
@@ -245,14 +247,14 @@ export const INITIAL_QUEUES: QueueItem[] = [
       {
         id: 'qm_2',
         name: 'Zenkaii',
-        clan: 'Clan:VoltZ',
+        clan: 'VoltZ',
         powerLevel: 580000,
         status: 'pending'
       },
       {
         id: 'qm_3',
         name: 'KingArthur',
-        clan: 'Clan:VoltZ',
+        clan: 'VoltZ',
         powerLevel: 490000,
         status: 'pending'
       }
@@ -268,14 +270,14 @@ export const INITIAL_QUEUES: QueueItem[] = [
       {
         id: 'qm_4',
         name: 'DVD',
-        clan: 'Clan:LevelS',
+        clan: 'LevelS',
         powerLevel: 540000,
         status: 'pending'
       },
       {
         id: 'qm_5',
         name: 'ValkyrieX',
-        clan: 'Clan:LevelS',
+        clan: 'LevelS',
         powerLevel: 510000,
         status: 'pending'
       }
@@ -350,7 +352,9 @@ export function listenToUsers(callback: (users: User[]) => void) {
       }
       const users: User[] = [];
       snapshot.forEach((docSnap) => {
-        users.push({ ...docSnap.data(), id: docSnap.id } as User);
+        const u = { ...docSnap.data(), id: docSnap.id } as User;
+        if (u.clan) u.clan = cleanClanName(u.clan);
+        users.push(u);
       });
       callback(users);
     },
@@ -364,7 +368,11 @@ export function listenToUsers(callback: (users: User[]) => void) {
 export async function updateUserDoc(userId: string, updates: Partial<User>) {
   try {
     const ref = doc(db, USERS_COLLECTION, userId);
-    const cleanUpdates = sanitizeForFirestore(updates);
+    const sanitizedUpdates = { ...updates };
+    if (sanitizedUpdates.clan) {
+      sanitizedUpdates.clan = cleanClanName(sanitizedUpdates.clan);
+    }
+    const cleanUpdates = sanitizeForFirestore(sanitizedUpdates);
     await updateDoc(ref, cleanUpdates);
   } catch (err) {
     console.error('Failed to update user:', err);
@@ -396,7 +404,7 @@ export async function registerUserDoc(data: {
     username: data.username,
     password: data.password,
     inGameName: data.inGameName,
-    clan: data.clan || 'Clan:VoltZ',
+    clan: cleanClanName(data.clan) || DEFAULT_CLAN,
     characterClass: data.characterClass || 'Orb',
     powerLevel: Number(data.powerLevel) || 0,
     role: 'member',
@@ -454,7 +462,17 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
     (snapshot) => {
       const items: VaultItem[] = [];
       snapshot.forEach((docSnap) => {
-        items.push({ ...docSnap.data(), id: docSnap.id } as VaultItem);
+        const item = { ...docSnap.data(), id: docSnap.id } as VaultItem;
+        if (item.hunters) {
+          item.hunters = item.hunters.map((h) => ({ ...h, clan: cleanClanName(h.clan) }));
+        }
+        if (item.claimants) {
+          item.claimants = item.claimants.map((c) => ({ ...c, clan: cleanClanName(c.clan) }));
+        }
+        if (item.distributedTo?.clan) {
+          item.distributedTo.clan = cleanClanName(item.distributedTo.clan);
+        }
+        items.push(item);
       });
       callback(items);
     },
@@ -474,10 +492,15 @@ export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>)
   }
   const fullItem: VaultItem = {
     ...item,
+    hunters: (item.hunters || []).map((h) => ({ ...h, clan: cleanClanName(h.clan) })),
+    claimants: (item.claimants || []).map((c) => ({ ...c, clan: cleanClanName(c.clan) })),
     hunterScreenshots: safeScreenshots,
     id: newId,
     createdAt: Date.now()
   };
+  if (fullItem.distributedTo?.clan) {
+    fullItem.distributedTo.clan = cleanClanName(fullItem.distributedTo.clan);
+  }
   const cleanItem = sanitizeForFirestore(fullItem);
   try {
     await setDoc(doc(db, ITEMS_COLLECTION, newId), cleanItem);
@@ -549,7 +572,14 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
     (snapshot) => {
       const queues: QueueItem[] = [];
       snapshot.forEach((docSnap) => {
-        queues.push({ ...docSnap.data(), id: docSnap.id } as QueueItem);
+        const qItem = { ...docSnap.data(), id: docSnap.id } as QueueItem;
+        if (qItem.queueList) {
+          qItem.queueList = qItem.queueList.map((qm) => ({
+            ...qm,
+            clan: cleanClanName(qm.clan)
+          }));
+        }
+        queues.push(qItem);
       });
       callback(queues);
     },
@@ -564,6 +594,10 @@ export async function addQueueItemDoc(item: Omit<QueueItem, 'id' | 'createdAt'>)
   const newId = 'queue_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
   const fullQueue: QueueItem = {
     ...item,
+    queueList: (item.queueList || []).map((qm) => ({
+      ...qm,
+      clan: cleanClanName(qm.clan)
+    })),
     id: newId,
     createdAt: Date.now()
   };
@@ -734,7 +768,9 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
       }
       const clans: ClanGroup[] = [];
       snapshot.forEach((docSnap) => {
-        clans.push({ ...docSnap.data(), id: docSnap.id } as ClanGroup);
+        const c = { ...docSnap.data(), id: docSnap.id } as ClanGroup;
+        if (c.name) c.name = cleanClanName(c.name);
+        clans.push(c);
       });
       callback(clans);
     },
@@ -749,7 +785,7 @@ export async function addClanDoc(clan: { name: string; color?: string }) {
   const newId = 'clan_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
   const fullClan: ClanGroup = {
     id: newId,
-    name: clan.name,
+    name: cleanClanName(clan.name),
     color: clan.color || '#d4af37'
   };
   const cleanClan = sanitizeForFirestore(fullClan);

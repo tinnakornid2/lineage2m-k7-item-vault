@@ -27,7 +27,9 @@ import {
   QueueItem,
   QueueMember,
   QuickItem,
-  User
+  User,
+  cleanClanName,
+  DEFAULT_CLAN
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
@@ -86,7 +88,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
   const [activeQueueIdForAdd, setActiveQueueIdForAdd] = useState<string | null>(null);
   const [selectedMemberIdForQueue, setSelectedMemberIdForQueue] = useState<string>('');
   const [newPlayerName, setNewPlayerName] = useState('');
-  const [newPlayerClan, setNewPlayerClan] = useState('Clan:VoltZ');
+  const [newPlayerClan, setNewPlayerClan] = useState('VoltZ');
 
   // Group active members by Clan for dropdown selection
   const membersByClan = useMemo(() => {
@@ -94,7 +96,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
     allMembers
       .filter((m) => m.status === 'active' && m.inGameName)
       .forEach((m) => {
-        const clan = m.clan || 'No Clan';
+        const clan = cleanClanName(m.clan) || 'No Clan';
         if (!groups[clan]) groups[clan] = [];
         groups[clan].push(m);
       });
@@ -245,7 +247,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
       id: 'qm_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       userId: matched?.id,
       name: newPlayerName.trim() || matched?.inGameName || '',
-      clan: newPlayerClan.trim() || matched?.clan || 'Clan:VoltZ',
+      clan: cleanClanName(newPlayerClan.trim() || matched?.clan) || 'VoltZ',
       powerLevel: matched?.powerLevel,
       status: 'pending'
     };
@@ -707,7 +709,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                         const mem = allMembers.find((m) => m.id === mId);
                         if (mem) {
                           setNewPlayerName(mem.inGameName);
-                          setNewPlayerClan(mem.clan);
+                          setNewPlayerClan(cleanClanName(mem.clan));
                         } else {
                           setNewPlayerName('');
                           setNewPlayerClan('');
@@ -721,10 +723,10 @@ export const QueueView: React.FC<QueueViewProps> = ({
                           : '-- Select member --'}
                       </option>
                       {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, members]) => (
-                        <optgroup key={clanName} label={`🛡️ ${clanName} (${members.length} คน)`}>
+                        <optgroup key={clanName} label={`🛡️ ${cleanClanName(clanName)} (${members.length} คน)`}>
                           {members.map((m) => (
                             <option key={m.id} value={m.id}>
-                              {m.inGameName} ({m.clan}) {m.powerLevel ? `• ${(m.powerLevel).toLocaleString()} CP` : ''}
+                              {m.inGameName} ({cleanClanName(m.clan)}) {m.powerLevel ? `• ${(m.powerLevel).toLocaleString()} CP` : ''}
                             </option>
                           ))}
                         </optgroup>
@@ -814,7 +816,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                             </div>
 
                             <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800/90 text-slate-300 shrink-0 font-medium">
-                              {member.clan}
+                              {cleanClanName(member.clan)}
                             </span>
                           </div>
 
@@ -1018,7 +1020,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                           const mem = allMembers.find((m) => m.id === mId);
                           if (mem) {
                             setNewPlayerName(mem.inGameName);
-                            setNewPlayerClan(mem.clan);
+                            setNewPlayerClan(cleanClanName(mem.clan));
                           } else {
                             setNewPlayerName('');
                             setNewPlayerClan('');
@@ -1032,10 +1034,10 @@ export const QueueView: React.FC<QueueViewProps> = ({
                             : '-- Select member from dropdown (No typing) --'}
                         </option>
                         {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, members]) => (
-                          <optgroup key={clanName} label={`🛡️ ${clanName} (${members.length} คน)`}>
+                          <optgroup key={clanName} label={`🛡️ ${cleanClanName(clanName)} (${members.length} คน)`}>
                             {members.map((m) => (
                               <option key={m.id} value={m.id}>
-                                {m.inGameName} | {m.clan} {m.powerLevel ? `(${(m.powerLevel).toLocaleString()} CP)` : ''} {m.characterClass ? `• ${m.characterClass}` : ''}
+                                {m.inGameName} | {cleanClanName(m.clan)} {m.powerLevel ? `(${(m.powerLevel).toLocaleString()} CP)` : ''} {m.characterClass ? `• ${m.characterClass}` : ''}
                               </option>
                             ))}
                           </optgroup>
@@ -1047,7 +1049,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                       <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-xs font-semibold">
                         <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                         <span>{newPlayerName}</span>
-                        <span className="text-slate-400 text-[11px]">({newPlayerClan})</span>
+                        <span className="text-slate-400 text-[11px]">({cleanClanName(newPlayerClan)})</span>
                       </div>
                     )}
 
@@ -1146,7 +1148,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                               {/* Clan */}
                               <td className="py-2.5 px-4 text-slate-300">
                                 <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[11px]">
-                                  {member.clan}
+                                  {cleanClanName(member.clan)}
                                 </span>
                               </td>
 
