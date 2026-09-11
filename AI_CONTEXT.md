@@ -149,6 +149,17 @@ d:/K7 item webapp/lineage2m-k7-item-vault (1)/
 - **หน้าแดชบอร์ด (`DashboardView.tsx`):**
   - ส่วน Item Queue Preview ปรับเป็น 4 ช่องต่อแถวบนจอใหญ่ (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5`) สอดคล้องกันทั้งหมด
 
+### 4.11 ระบบแชร์ Gemini API Key ข้ามแอดมินและการแจ้งเตือนข้อผิดพลาด 2 ภาษา 100% (Shared OCR Key & 100% Bilingual Error Handling)
+- **การแชร์ Key ระหว่างแอดมิน (Shared Key across Admins):**
+  - แม้จะมีเฉพาะ Owner ที่สามารถกดเปิดดูหรือแก้ไข Gemini API Key ได้ แต่**แอดมินคนอื่นๆ ทุกคนสามารถใช้งานสแกน OCR ได้ 100%**
+  - ตัวระบบทำการซิงค์ค่า Key ผ่าน Firestore ในคอลเลกชัน `app_settings/gemini_ai` แบบ Real-time (`listenToGeminiAiSettings`)
+  - มี Key สำรองอัตโนมัติ (`DEFAULT_GEMINI_API_KEY`) เตรียมไว้ให้ในโค้ด ทำให้ไม่ว่าแอดมินคนใดเปิดเว็บจากเครื่องไหน ระบบจะมี API Key ใช้งานเสมอโดยไม่ต้องตั้งค่าซ้ำ
+  - รองรับการเรียกตรงไปยัง Google Gemini REST API (`gemini-3.6-flash`, `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`) จากเบราว์เซอร์ของแอดมินทันทีหาก Backend Express ไม่ได้รัน (เช่น บน Static Hosting)
+- **ข้อความแจ้งเตือนข้อผิดพลาด OCR 2 ภาษา 100% (Pure Bilingual OCR Error Messaging):**
+  - ข้อความ error ทุกชนิดจะถูกจำแนกเป็น structured code เช่น `'ai_server_connect'`, `'high_demand'`, `'glitch'`, `'missing_key'`
+  - แปลงเป็นข้อความแสดงผลผ่าน `translations[lang]` เสมอ (`t.ocrServerConnectError`, `t.ocrConnectionErrorPrefix`, `t.ocrHighDemandGlitch`, `t.ocrConnectionGlitch`, `t.ocrGeneralError`)
+  - หากผู้ใช้เลือกภาษาอังกฤษ (EN) จะไม่ปรากฏข้อความภาษาไทยปะปนเด็ดขาด (เช่น `Connection error: Unable to connect to AI server. Please try again.`)
+
 ---
 
 ## 5. คำสั่งการทำงานและทดสอบ (Commands)

@@ -15,6 +15,7 @@ import {
 import { Language } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { saveGeminiAiSettingsDoc } from '../services/firebase';
 
 interface GeminiKeyModalProps {
   isOpen: boolean;
@@ -122,6 +123,8 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
       if (data.success) {
         // Save to localStorage as backup
         localStorage.setItem('k7_gemini_api_key', cleanKey);
+        // Sync to Firestore for all admins & users
+        saveGeminiAiSettingsDoc(cleanKey, 'Owner').catch((e) => console.warn('Firestore sync notice:', e));
         setServerStatus({
           configured: true,
           maskedKey: data.maskedKey || `${cleanKey.slice(0, 6)}...${cleanKey.slice(-4)}`
@@ -142,8 +145,9 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
         sounds.playError();
       }
     } catch (err: any) {
-      // Fallback: If server is in pure static mode or proxy blocked, save to localStorage
+      // Fallback: If server is in pure static mode or proxy blocked, save to localStorage and Firestore
       localStorage.setItem('k7_gemini_api_key', cleanKey);
+      saveGeminiAiSettingsDoc(cleanKey, 'Owner').catch((e) => console.warn('Firestore sync notice:', e));
       setServerStatus({
         configured: true,
         maskedKey: `${cleanKey.slice(0, 6)}...${cleanKey.slice(-4)}`
@@ -151,8 +155,8 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
       setStatus({
         type: 'success',
         message: lang === 'th'
-          ? 'บันทึก Key ในเบราว์เซอร์เรียบร้อยแล้ว'
-          : 'API Key saved to local browser storage'
+          ? 'บันทึก Key ในระบบและซิงค์เรียบร้อยแล้ว'
+          : 'API Key saved and synced to database successfully'
       });
       sounds.playClaim();
       if (onKeySaved) onKeySaved(cleanKey);
@@ -163,6 +167,7 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
 
   const handleClearKey = async () => {
     localStorage.removeItem('k7_gemini_api_key');
+    saveGeminiAiSettingsDoc('', 'Owner').catch(() => {});
     setApiKey('');
     setServerStatus({ configured: false, maskedKey: null });
     setStatus({

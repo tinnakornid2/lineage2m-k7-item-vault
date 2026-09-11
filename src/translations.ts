@@ -105,6 +105,11 @@ export const translations = {
     geminiKeyNoticeMissing: 'ระบบยังไม่พบ Gemini API Key กรุณาตั้งค่า Key เพื่อเปิดใช้งานระบบสแกน OCR อัตโนมัติ',
     scanAttachedScreenshotsBtn: 'สแกนผู้ล่าจากรูปที่แนบอยู่แล้ว',
     scanAttachedScreenshotsDesc: 'สแกนหารายชื่อผู้ล่าจากรูปภาพที่แนบไว้ในระบบโดยตรง',
+    ocrServerConnectError: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ AI ได้ กรุณาลองใหม่อีกครั้ง',
+    ocrConnectionErrorPrefix: 'เกิดข้อผิดพลาดในการเชื่อมต่อ: ',
+    ocrHighDemandGlitch: 'Google AI ใช้งานหนาแน่นชั่วคราว กรุณากดปุ่มสแกนใหม่อีกครั้งใน 3-5 วินาที',
+    ocrConnectionGlitch: 'การเชื่อมต่อขัดข้องชั่วคราวขณะประมวลผล กรุณากดปุ่มสแกนใหม่อีกครั้ง',
+    ocrGeneralError: 'เกิดข้อผิดพลาดในการสแกน',
     // Hunter Results & Copy Text
     viewAsCards: 'ดูแบบการ์ดแคลน',
     viewAsText: 'ดูแบบข้อความ (Text)',
@@ -388,6 +393,11 @@ export const translations = {
     geminiKeyNoticeMissing: 'Gemini API Key is not configured. Please set up a free key to enable AI OCR scanning.',
     scanAttachedScreenshotsBtn: 'Scan Hunters from Attached Images',
     scanAttachedScreenshotsDesc: 'Scan player names directly from the attached screenshot proofs.',
+    ocrServerConnectError: 'Unable to connect to AI server. Please try again.',
+    ocrConnectionErrorPrefix: 'Connection error: ',
+    ocrHighDemandGlitch: 'Google AI temporary high demand. Please retry scanning in 3-5 seconds.',
+    ocrConnectionGlitch: 'Temporary connection glitch during processing. Please click scan again.',
+    ocrGeneralError: 'Error occurred during scan',
     // Hunter Results & Copy Text
     viewAsCards: 'Clan Cards View',
     viewAsText: 'Text View (Copyable)',

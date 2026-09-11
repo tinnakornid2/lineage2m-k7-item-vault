@@ -48,6 +48,11 @@ import { sounds } from '../utils/sound';
 import { compressImageFile } from '../utils/imageCompressor';
 import { DistributionStatsModal } from './DistributionStatsModal';
 import { GeminiKeyModal } from './GeminiKeyModal';
+import {
+  listenToGeminiAiSettings,
+  saveGeminiAiSettingsDoc,
+  DEFAULT_GEMINI_API_KEY
+} from '../services/firebase';
 
 interface VaultViewProps {
   lang: Language;
@@ -113,6 +118,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
     newCount?: number;
     duplicates?: number;
     usedDirectFallback?: boolean;
+    errorReason?: 'ai_server_connect' | 'high_demand' | 'glitch' | 'missing_key' | 'custom';
+    rawMsg?: string;
     errorMsg?: string;
   } | null>(null);
   const [showGeminiModal, setShowGeminiModal] = useState(false);
@@ -140,36 +147,43 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [distHuntersClanFilter, setDistHuntersClanFilter] = useState<string>('all');
   const [copiedDistHunters, setCopiedDistHunters] = useState<boolean>(false);
 
-  // Check Gemini API status on mount
+  // Check Gemini API status and sync from Firestore in real-time
   useEffect(() => {
-    const checkGeminiStatus = async () => {
+    // 1. Real-time Firestore sync for shared Gemini API Key across all admins
+    const unsubscribe = listenToGeminiAiSettings((settings) => {
+      const key = settings?.apiKey || DEFAULT_GEMINI_API_KEY;
+      if (key && key.trim().length > 10) {
+        const clean = key.trim();
+        setActiveGeminiKey(clean);
+        setGeminiConfigured(true);
+        setGeminiMaskedKey(`${clean.slice(0, 6)}...${clean.slice(-4)}`);
+        localStorage.setItem('k7_gemini_api_key', clean);
+
+        // Auto-seed to Firestore if owner and document was empty
+        if (isOwner && !settings?.apiKey) {
+          saveGeminiAiSettingsDoc(clean, currentUser?.username || 'Owner').catch(() => {});
+        }
+      }
+    });
+
+    // 2. Also check local backend /api/gemini-status if available
+    const checkServerStatus = async () => {
       try {
         const res = await fetch('/api/gemini-status');
         const text = await res.text();
-        let data: any = {};
-        try {
-          data = JSON.parse(text);
-        } catch {
-          data = {};
-        }
-        const localKey = localStorage.getItem('k7_gemini_api_key');
-        const serverKey = data.clientKey || null;
-        const effectiveKey = serverKey || localKey || null;
-        if (serverKey && !localKey) {
-          localStorage.setItem('k7_gemini_api_key', serverKey);
-        }
-        if (effectiveKey) {
-          setActiveGeminiKey(effectiveKey);
-        }
-        const isOk = Boolean(data.configured || (effectiveKey && effectiveKey.length > 10));
-        setGeminiConfigured(isOk);
-        if (data.maskedKey) {
-          setGeminiMaskedKey(data.maskedKey);
-        } else if (effectiveKey) {
-          setGeminiMaskedKey(`${effectiveKey.slice(0, 6)}...${effectiveKey.slice(-4)}`);
+        if (text && !text.trim().startsWith('<')) {
+          const data = JSON.parse(text);
+          if (data?.clientKey && data.clientKey.trim().length > 10) {
+            const clean = data.clientKey.trim();
+            setActiveGeminiKey(clean);
+            setGeminiConfigured(true);
+            setGeminiMaskedKey(data.maskedKey || `${clean.slice(0, 6)}...${clean.slice(-4)}`);
+            localStorage.setItem('k7_gemini_api_key', clean);
+          }
         }
       } catch {
-        const localKey = localStorage.getItem('k7_gemini_api_key');
+        // Fallback to localStorage or DEFAULT_GEMINI_API_KEY
+        const localKey = localStorage.getItem('k7_gemini_api_key') || DEFAULT_GEMINI_API_KEY;
         if (localKey && localKey.length > 10) {
           setActiveGeminiKey(localKey);
           setGeminiConfigured(true);
@@ -177,8 +191,12 @@ export const VaultView: React.FC<VaultViewProps> = ({
         }
       }
     };
-    checkGeminiStatus();
-  }, []);
+    checkServerStatus();
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isOwner, currentUser]);
 
   // Group active members by Clan for hunter dropdown selection
   const membersByClan = useMemo(() => {
@@ -364,12 +382,26 @@ export const VaultView: React.FC<VaultViewProps> = ({
         return lang === 'th'
           ? 'ยังไม่ได้ตั้งค่า Gemini API Key กรุณาตั้งค่าเพื่อเปิดใช้งาน OCR'
           : 'Gemini API Key is not configured. Please configure it to enable OCR.';
-      case 'error':
-        return ocrScanSummary.errorMsg || (lang === 'th' ? 'เกิดข้อผิดพลาดในการสแกน' : 'Error occurred during scan');
+      case 'error': {
+        const prefix = t.ocrConnectionErrorPrefix;
+        if (ocrScanSummary.errorReason === 'ai_server_connect') {
+          return `${prefix}${t.ocrServerConnectError}`;
+        }
+        if (ocrScanSummary.errorReason === 'high_demand') {
+          return `${prefix}${t.ocrHighDemandGlitch}`;
+        }
+        if (ocrScanSummary.errorReason === 'glitch') {
+          return `${prefix}${t.ocrConnectionGlitch}`;
+        }
+        if (ocrScanSummary.errorReason === 'missing_key') {
+          return `${prefix}${t.geminiKeyNoticeMissing}`;
+        }
+        return `${prefix}${ocrScanSummary.rawMsg || t.ocrGeneralError}`;
+      }
       default:
         return ocrStatusText;
     }
-  }, [ocrScanSummary, lang, ocrStatusText]);
+  }, [ocrScanSummary, lang, ocrStatusText, t]);
 
   // Formatter for hunters of a distributed item
   const getFormattedDistributedHuntersText = (item: VaultItem): string => {
@@ -567,7 +599,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
     knownList: any[],
     apiKey: string
   ): Promise<{ success: boolean; data?: any; error?: string }> => {
-    const candidateModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+    const candidateModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
 
     const imageParts = base64Images.slice(0, 8).map((img) => {
       const cleanBase64 = img.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
@@ -683,7 +715,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
 
     try {
       const localKey = localStorage.getItem('k7_gemini_api_key') || undefined;
-      const effectiveApiKey = localKey || activeGeminiKey || undefined;
+      const effectiveApiKey = localKey || activeGeminiKey || DEFAULT_GEMINI_API_KEY;
 
       const knownMemberList = allMembers.map((m) => ({
         inGameName: m.inGameName,
@@ -755,12 +787,16 @@ Do not include markdown or explanations. Return pure JSON only.`;
 
       // 3. Process resulting data safely
       if (!data) {
-        throw new Error('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ AI ได้ กรุณาลองใหม่อีกครั้ง');
+        throw new Error('AI_SERVER_CONNECT_ERROR');
       }
 
       if (data.error === 'MISSING_API_KEY') {
         setOcrErrorType('MISSING_API_KEY');
         setGeminiConfigured(false);
+        setOcrScanSummary({
+          type: 'error',
+          errorReason: 'missing_key'
+        });
         setOcrStatusText(
           lang === 'th'
             ? '⚠️ ยังไม่ได้ตั้งค่า Gemini API Key ทำให้ระบบ AI ไม่สามารถอ่านตัวหนังสือจากรูปได้'
@@ -772,14 +808,28 @@ Do not include markdown or explanations. Return pure JSON only.`;
 
       if (!data.success) {
         setOcrErrorType('GEMINI_ERROR');
-        let errorMsg = data.message || 'เกิดข้อผิดพลาดในการสแกน';
-        if (errorMsg.includes('high demand') || errorMsg.includes('503') || errorMsg.includes('หนาแน่น')) {
-          errorMsg =
-            lang === 'th'
-              ? 'เซิร์ฟเวอร์ Google AI มีการใช้งานหนาแน่นชั่วคราว กรุณารอสักครู่ (ประมาณ 3-5 วินาที) แล้วกดปุ่มสแกนใหม่อีกครั้ง'
-              : 'Google AI is currently experiencing high demand. Please retry in 3-5 seconds.';
+        const rawMsg = data.message || '';
+        let errorReason: 'high_demand' | 'glitch' | 'custom' = 'custom';
+        if (rawMsg.includes('high demand') || rawMsg.includes('503') || rawMsg.includes('หนาแน่น')) {
+          errorReason = 'high_demand';
+        } else if (rawMsg.includes('JSON') || rawMsg.includes('Unexpected token') || rawMsg.includes('The page c')) {
+          errorReason = 'glitch';
         }
-        setOcrStatusText(`❌ ${errorMsg}`);
+
+        setOcrScanSummary({
+          type: 'error',
+          errorReason,
+          rawMsg: errorReason === 'custom' ? rawMsg : undefined
+        });
+
+        const localizedMsg =
+          errorReason === 'high_demand'
+            ? t.ocrHighDemandGlitch
+            : errorReason === 'glitch'
+            ? t.ocrConnectionGlitch
+            : rawMsg || t.ocrGeneralError;
+
+        setOcrStatusText(`❌ ${localizedMsg}`);
         sounds.playError();
         return;
       }
@@ -849,27 +899,37 @@ Do not include markdown or explanations. Return pure JSON only.`;
       console.error('OCR scanning error:', err);
       setOcrErrorType('NETWORK_ERROR');
       const rawMsg = err?.message || '';
-      let displayMsg = rawMsg;
-      if (rawMsg.includes('JSON') || rawMsg.includes('Unexpected token') || rawMsg.includes('The page c')) {
-        displayMsg =
-          lang === 'th'
-            ? 'การเชื่อมต่อขัดข้องชั่วคราวขณะประมวลผล กรุณากดปุ่มสแกนใหม่อีกครั้ง'
-            : 'Temporary connection glitch during processing. Please click scan again.';
-      } else if (rawMsg.includes('503') || rawMsg.includes('high demand')) {
-        displayMsg =
-          lang === 'th'
-            ? 'Google AI ใช้งานหนาแน่นชั่วคราว กรุณากดปุ่มสแกนใหม่อีกครั้งใน 3-5 วินาที'
-            : 'Google AI high demand spike. Please retry in 3-5 seconds.';
+      let errorReason: 'ai_server_connect' | 'high_demand' | 'glitch' | 'custom' = 'custom';
+
+      if (
+        rawMsg === 'AI_SERVER_CONNECT_ERROR' ||
+        rawMsg.includes('เซิร์ฟเวอร์') ||
+        rawMsg.toLowerCase().includes('connect') ||
+        rawMsg.toLowerCase().includes('failed to fetch')
+      ) {
+        errorReason = 'ai_server_connect';
+      } else if (rawMsg.includes('503') || rawMsg.toLowerCase().includes('high demand') || rawMsg.includes('หนาแน่น')) {
+        errorReason = 'high_demand';
+      } else if (rawMsg.includes('JSON') || rawMsg.includes('Unexpected token') || rawMsg.includes('The page c')) {
+        errorReason = 'glitch';
       }
+
       setOcrScanSummary({
         type: 'error',
-        errorMsg: lang === 'th' ? `เกิดข้อผิดพลาดในการเชื่อมต่อ: ${displayMsg}` : `Connection error: ${displayMsg}`
+        errorReason,
+        rawMsg: errorReason === 'custom' ? rawMsg : undefined
       });
-      setOcrStatusText(
-        lang === 'th'
-          ? `เกิดข้อผิดพลาดในการเชื่อมต่อ: ${displayMsg}`
-          : `Connection error: ${displayMsg}`
-      );
+
+      const localizedMsg =
+        errorReason === 'ai_server_connect'
+          ? t.ocrServerConnectError
+          : errorReason === 'high_demand'
+          ? t.ocrHighDemandGlitch
+          : errorReason === 'glitch'
+          ? t.ocrConnectionGlitch
+          : rawMsg || t.ocrGeneralError;
+
+      setOcrStatusText(`${t.ocrConnectionErrorPrefix}${localizedMsg}`);
       sounds.playError();
     } finally {
       setIsScanningOCR(false);
