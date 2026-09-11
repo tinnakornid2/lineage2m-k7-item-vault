@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>User Manual - Lineage2M Clan Hub</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Prompt:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  @page {
+    size: A4 portrait;
+    margin: 14mm 14mm 16mm 14mm;
+    @bottom-right {
+      content: counter(page);
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background-color: #ffffff;
+    color: #1e293b;
+    line-height: 1.5;
+    font-size: 10.5pt;
+  }
+
+  .header-banner {
+    background: linear-gradient(135deg, #090f1d 0%, #152037 100%);
+    color: #ffffff;
+    padding: 20px 24px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    border: 2px solid #d4af37;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  }
+
+  .header-banner h1 {
+    font-family: 'Cinzel', serif;
+    font-size: 20pt;
+    color: #f5d77f;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+
+  .header-banner p {
+    font-size: 10.5pt;
+    color: #94a3b8;
+  }
+
+  h2 {
+    font-family: 'Cinzel', serif;
+    font-size: 13.5pt;
+    font-weight: 700;
+    color: #0f172a;
+    border-left: 5px solid #d4af37;
+    padding-left: 10px;
+    margin-top: 22px;
+    margin-bottom: 10px;
+    page-break-after: avoid;
+  }
+
+  h3 {
+    font-size: 11pt;
+    font-weight: 600;
+    color: #1e293b;
+    margin-top: 14px;
+    margin-bottom: 6px;
+    page-break-after: avoid;
+  }
+
+  p {
+    margin-bottom: 8px;
+    text-align: justify;
+  }
+
+  ul, ol {
+    margin-left: 20px;
+    margin-bottom: 10px;
+  }
+
+  li {
+    margin-bottom: 4px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 16px 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 7px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    background: #0f172a;
+    color: #f8fafc;
+    font-weight: 600;
+  }
+
+  tr:nth-child(even) {
+    background-color: #f8fafc;
+  }
+
+  .badge-owner {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #fef3c7;
+    color: #92400e;
+    font-weight: 600;
+    font-size: 8pt;
+    border: 1px solid #fcd34d;
+  }
+
+  .badge-admin {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #e0f2fe;
+    color: #0369a1;
+    font-weight: 600;
+    font-size: 8pt;
+    border: 1px solid #7dd3fc;
+  }
+
+  .badge-member {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #f1f5f9;
+    color: #334155;
+    font-weight: 600;
+    font-size: 8pt;
+    border: 1px solid #cbd5e1;
+  }
+
+  blockquote {
+    background: #fffbeb;
+    border-left: 4px solid #f59e0b;
+    padding: 8px 12px;
+    margin: 10px 0;
+    font-size: 9.5pt;
+    color: #92400e;
+    border-radius: 0 6px 6px 0;
+  }
+
+  .page-break {
+    page-break-before: always;
+  }
+
+  .footer {
+    margin-top: 24px;
+    padding-top: 10px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 8.5pt;
+    color: #64748b;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="header-banner"><h1>Lineage2M Clan Hub - User Manual</h1><p>Comprehensive Guild Management, Boss Item Vault & Queue Distribution System</p></div>
+<p>This user guide provides a clear, concise breakdown of every page, section, and button within the Lineage2M Clan Hub application.</p>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>Table of Contents</h2>
+<ol>
+<li><a href="#1-user-roles--permissions" style="color:#0284c7; text-decoration:none;">User Roles & Permissions</a></li>
+<li><a href="#2-top-navigation-bar--header-controls" style="color:#0284c7; text-decoration:none;">Top Navigation Bar & Header Controls</a></li>
+<li><a href="#3-dashboard-view" style="color:#0284c7; text-decoration:none;">Dashboard View</a></li>
+<li><a href="#4-boss-item-vault" style="color:#0284c7; text-decoration:none;">Boss Item Vault</a></li>
+<li><a href="#5-item-queue-management" style="color:#0284c7; text-decoration:none;">Item Queue Management</a></li>
+<li><a href="#6-all-clan-members-directory" style="color:#0284c7; text-decoration:none;">All Clan Members Directory</a></li>
+<li><a href="#7-clan--alliance-management" style="color:#0284c7; text-decoration:none;">Clan & Alliance Management</a></li>
+<li><a href="#8-special-modals--configuration-tools" style="color:#0284c7; text-decoration:none;">Special Modals & Configuration Tools</a></li>
+</ol>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>1. User Roles & Permissions</h2>
+<table><thead><tr><th>Role</th><th>Badge</th><th>Permissions & Responsibilities</th></tr></thead><tbody>
+<tr><td><strong>Owner</strong></td><td>👑</td><td>Full superadmin access. Controls all game data, promotes/demotes admins, configures classes, and exclusively accesses the <strong>Owner Reset Center</strong>.</td></tr>
+<tr><td><strong>Admin</strong></td><td>🛡️</td><td>Can add boss drops, manage queues, distribute items to members, approve new member registrations, and manage the Diamond Vault.</td></tr>
+<tr><td><strong>Member</strong></td><td>⚔️</td><td>Clan player. Can view items, register claims for eligible items (matching CP requirement), inspect item queues, and view guild roster.</td></tr>
+</tbody></table>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>2. Top Navigation Bar & Header Controls</h2>
+<table><thead><tr><th>Button / Element</th><th>Icon</th><th>Function & Description</th></tr></thead><tbody>
+<tr><td><strong>LINEAGE 2M CLAN HUB</strong></td><td>👑</td><td>System logo. Click anywhere to return to the <strong>Main Dashboard</strong>.</td></tr>
+<tr><td><strong>Diamond Vault Widget</strong></td><td>💎</td><td>Displays current central guild diamond reserve. Click to open the <strong>Deposit / Withdrawal</strong> window.</td></tr>
+<tr><td><strong>Wallpaper Settings</strong></td><td>✨</td><td>Opens the background visual customization modal (upload image, adjust blur/brightness).</td></tr>
+<tr><td><strong>Sound Toggle</strong></td><td>🔊 / 🔇</td><td>Enables or mutes system UI sound effects (clicks, modal pops, distribution fanfares).</td></tr>
+<tr><td><strong>Language Switcher (TH / EN)</strong></td><td>🌐</td><td>Instantly switches the interface language between <strong>English</strong> and <strong>Thai</strong>.</td></tr>
+<tr><td><strong>Login / Logout</strong></td><td>👤 / 🚪</td><td>Authenticate into your user account or sign out securely.</td></tr>
+<tr><td><strong>Navigation Tabs</strong></td><td>📑</td><td>Switch across: Dashboard, Item Vault, Item Queue, Members, and Clan Management.</td></tr>
+</tbody></table>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>3. Dashboard View</h2>
+<p><strong>The central command screen showing real-time vault balance, transaction timelines, and items currently open for claim.</strong></p>
+<h3>Elements and Buttons</h3>
+<ul>
+<li><strong>Diamond Vault Card:</strong></li>
+<li><strong>"Deposit / Withdraw" Button</strong> <em>(Admin/Owner)</em>: Deposit loot sale proceeds or withdraw diamonds for guild upkeep with mandatory notes.</li>
+<li><strong>Transaction Timeline Box:</strong> Shows the 10 most recent deposit and withdrawal activities with timestamp and performer name. Click <strong>"View all"</strong> for the complete audit log.</li>
+<li><strong>Active Claimable Items Table:</strong></li>
+<li><strong>Item Thumbnail:</strong> Click to <strong>Zoom full size</strong>.</li>
+<li><strong>"Register Claim" Button:</strong> Members with power level meeting or exceeding the minimum CP click to register their intent to claim.</li>
+<li><strong>"Cancel Claim" Button:</strong> Allows a member to retract their claim registration.</li>
+<li><strong>"View Claimants" Button:</strong> Displays all registered applicants, sorted by CP and application timestamp.</li>
+<li><strong>"Distribute Item" Button</strong> <em>(Admin/Owner)</em>: Opens the recipient distribution modal. Selecting a member awards the item, records distribution history, and triggers an automated Discord announcement.</li>
+<li><strong>"Clear & Reset" Button</strong> <em>(Owner Only)</em>: Opens the system reset modal to wipe or archive items for a fresh boss cycle.</li>
+</ul>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>4. Boss Item Vault</h2>
+<p><em>(Restricted to Admin and Owner)</em></p>
+<p><strong>Comprehensive repository for logging raid drops, managing preset templates, and scanning hunter rosters with AI OCR.</strong></p>
+<h3>Sub-tabs</h3>
+<ol>
+<li><strong>Add New Item:</strong> Input form to record a newly dropped boss item.</li>
+<li><strong>Distributed Items Archive:</strong> Searchable archive of all historical distributed items with attached raid proof.</li>
+</ol>
+<h3>Key Buttons & Actions</h3>
+<ul>
+<li><strong>"Quick Items Menu" Button:</strong> Opens the quick item preset editor to save item icons, names, and rarities for rapid 1-click entry.</li>
+<li><strong>Quick Presets Shortcut Strip:</strong> Click any preset chip to auto-populate the creation form instantly.</li>
+<li><strong>Form Inputs:</strong> Item Name, Diamond Price, Minimum CP required to claim, and Rarity tier (Rare / Epic / Legend / Mythic).</li>
+<li><strong>Item Image Upload:</strong> Select an item graphic from your computer or mobile device.</li>
+<li><strong>Hunter System & AI OCR Screenshot Scanner:</strong></li>
+<li><strong>Hunter Dropdown:</strong> Select hunters from active guild rosters grouped by clan without typing.</li>
+<li><strong>"Upload Backup Screenshots" (Multiple):</strong> Attach raid party screenshots proving boss participation.</li>
+<li><strong>"Scan Hunters via OCR" (Gemini AI):</strong> Upload multiple party screenshots; the AI reads player names and matches them against guild databases automatically.</li>
+<li><strong>"Filter Duplicates" Button:</strong> Cleans duplicate detected names across multiple screenshots in one click.</li>
+<li><strong>"Create / Add Item" Button:</strong> Validates and saves the item into the active vault.</li>
+<li><strong>In Distributed Archive:</strong></li>
+<li><strong>"View Hunter Proof" Button:</strong> Launches the proof viewer with mouse scroll zoom.</li>
+<li><strong>"Delete Record" Button:</strong> Permanently deletes the distribution log entry.</li>
+</ul>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>5. Item Queue Management</h2>
+<p><strong>Transparent, chronological priority waiting list for high-tier guild drops.</strong></p>
+<blockquote><p><strong>Notice:</strong> Self-service queue joining is disabled for standard members. Only <strong>Admins and Owners</strong> have privileges to add and rearrange queue members to ensure fair and dispute-free distribution.</p>
+</blockquote>
+<h3>Key Buttons & Actions <em>(Admin/Owner)</em></h3>
+<ul>
+<li><strong>"+ Register Item into Queue" Button:</strong> Create an item queue category (e.g. Red Ring, Purple Weapon).</li>
+<li><strong>"+ Add Member to Queue" Button:</strong> Select a clan player from the dropdown to place them on the waiting list.</li>
+<li><strong>"Mark as Received" Button:</strong> Toggles member status to a green checkmark once their item has been awarded in-game.</li>
+<li><strong>"Mark as Waiting" Button:</strong> Reverts a member's status back to pending queue.</li>
+<li><strong>Queue Reordering:</strong></li>
+<li>Use the <strong>Up / Down Arrow buttons</strong></li>
+<li>Or <strong>Drag & Drop</strong> member cards using the grab handle to change priority rank.</li>
+<li><strong>"Remove Member" Button:</strong> Removes a specific player from the item queue.</li>
+<li><strong>"Delete Queue Item" Button:</strong> Deletes the entire item queue category.</li>
+</ul>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>6. All Clan Members Directory</h2>
+<p><strong>Directory of all clan players grouped by guild and sorted by Power Level (CP).</strong></p>
+<h3>Section 1: Pending Approvals</h3>
+<p><em>(Awaiting Admin action after user registration)</em></p>
+<ul>
+<li><strong>"Approve Member" Button:</strong> Validates account and grants access to the portal.</li>
+<li><strong>"Reject Request" Button:</strong> Rejects and clears the registration request.</li>
+</ul>
+<h3>Section 2: Active Members Roster</h3>
+<ul>
+<li><strong>Search Input:</strong> Filter members in real-time by character name, clan, or class.</li>
+<li><strong>"Edit Profile" Button</strong> <em>(Admin/Owner)</em>: Modify character name, CP, clan affiliation, class, and password.</li>
+<li><strong>"Assign Role" Button</strong> <em>(Owner Only)</em>: Promote or demote between Member, Admin, and Owner.</li>
+<li><strong>"Delete Member" Button:</strong> Removes member record from the database.</li>
+</ul>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>7. Clan & Alliance Management</h2>
+<p><em>(Restricted to Admin and Owner)</em></p>
+<p><strong>Organize main clans, sub-guilds, and alliance rosters.</strong></p>
+<h3>Key Buttons & Actions</h3>
+<ul>
+<li><strong>"+ Add New Clan" Button:</strong> Register a new clan tag into the guild network.</li>
+<li><strong>Drag-and-Drop Member Transfers:</strong> Click and drag any player card into a target clan container to instantly update their affiliation.</li>
+<li><strong>Batch Member Deletion:</strong></li>
+<li>Check individual boxes or click <strong>"Select All in Clan"</strong>.</li>
+<li>Click <strong>"Batch Delete Selected"</strong> to prune multiple inactive accounts at once.</li>
+<li><strong>"Delete Clan" Button:</strong> Removes an empty clan container.</li>
+</ul>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>8. Special Modals & Configuration Tools</h2>
+<h3>1. Diamond Vault Modal</h3>
+<ul>
+<li><strong>"Deposit" Tab:</strong> Specify amount and reason (e.g. boss loot market sale).</li>
+<li><strong>"Withdraw" Tab:</strong> Specify amount and reason (e.g. consumables, clan payout).</li>
+<li><strong>"Log" Tab:</strong> Review the complete historical audit log of all financial movements.</li>
+</ul>
+<h3>2. Discord Webhook Settings Modal</h3>
+<ul>
+<li>Click the <strong>Bell icon</strong> on the sidebar.</li>
+<li>Enter your guild's Discord Webhook URL.</li>
+<li><strong>"Test Ping" Button:</strong> Sends a formatted verification card to your Discord channel.</li>
+<li>When enabled, automatic rich embeds are dispatched for: Item additions, loot distributions, and diamond transactions.</li>
+</ul>
+<h3>3. Class Settings Modal</h3>
+<ul>
+<li>Click the <strong>Sword icon</strong> on the sidebar.</li>
+<li>Add or delete character classes to reflect the active game patch (e.g. Orb, Bow, Greatsword, Dual Blades, Rapier).</li>
+</ul>
+<h3>4. Wallpaper & Theme Settings Modal</h3>
+<ul>
+<li>Click the <strong>Sparkles icon</strong> on the top bar or sidebar.</li>
+<li>Upload a custom castle background or choose presets.</li>
+<li>Sliders for: <strong>Brightness</strong>, <strong>Blur radius</strong>, and <strong>Overlay Darkness</strong>.</li>
+</ul>
+<h3>5. Live Announcement Ticker Bar</h3>
+<ul>
+<li>Located at the top of the interface for urgent clan broadcast messages.</li>
+<li>Click the <strong>Pencil icon</strong> to edit message content and toggle visibility.</li>
+</ul>
+<h3>6. Owner Reset Center</h3>
+<p><em>(Owner Privilege Only)</em></p>
+<ul>
+<li>Safeguarded by mandatory confirmation (must <strong>type "RESET"</strong> to execute).</li>
+<li>Granular reset choices:</li>
+<ol>
+<li>Clear all distributed items (preserve active claimable items).</li>
+<li>Wipe all vault items for a brand new hunting cycle.</li>
+<li>Wipe all item queues.</li>
+<li>Clear diamond vault transaction logs.</li>
+<li>Restore default sample data for testing.</li>
+</ul>
+</ol>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<p><em>Document produced for Lineage2M Clan Hub players and administrators.</em></p>
+
+</body>
+</html>

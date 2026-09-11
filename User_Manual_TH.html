@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>คู่มือการใช้งาน - Lineage2M Clan Hub</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Prompt:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  @page {
+    size: A4 portrait;
+    margin: 14mm 14mm 16mm 14mm;
+    @bottom-right {
+      content: counter(page);
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Prompt', sans-serif;
+    background-color: #ffffff;
+    color: #1e293b;
+    line-height: 1.5;
+    font-size: 10.5pt;
+  }
+
+  .header-banner {
+    background: linear-gradient(135deg, #090f1d 0%, #152037 100%);
+    color: #ffffff;
+    padding: 20px 24px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    border: 2px solid #d4af37;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  }
+
+  .header-banner h1 {
+    font-family: 'Cinzel', serif;
+    font-size: 20pt;
+    color: #f5d77f;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+
+  .header-banner p {
+    font-size: 10.5pt;
+    color: #94a3b8;
+  }
+
+  h2 {
+    font-family: 'Prompt', sans-serif;
+    font-size: 13.5pt;
+    font-weight: 700;
+    color: #0f172a;
+    border-left: 5px solid #d4af37;
+    padding-left: 10px;
+    margin-top: 22px;
+    margin-bottom: 10px;
+    page-break-after: avoid;
+  }
+
+  h3 {
+    font-size: 11pt;
+    font-weight: 600;
+    color: #1e293b;
+    margin-top: 14px;
+    margin-bottom: 6px;
+    page-break-after: avoid;
+  }
+
+  p {
+    margin-bottom: 8px;
+    text-align: justify;
+  }
+
+  ul, ol {
+    margin-left: 20px;
+    margin-bottom: 10px;
+  }
+
+  li {
+    margin-bottom: 4px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 16px 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 7px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    background: #0f172a;
+    color: #f8fafc;
+    font-weight: 600;
+  }
+
+  tr:nth-child(even) {
+    background-color: #f8fafc;
+  }
+
+  .badge-owner {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #fef3c7;
+    color: #92400e;
+    font-weight: 600;
+    font-size: 8pt;
+    border: 1px solid #fcd34d;
+  }
+
+  .badge-admin {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #e0f2fe;
+    color: #0369a1;
+    font-weight: 600;
+    font-size: 8pt;
+    border: 1px solid #7dd3fc;
+  }
+
+  .badge-member {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #f1f5f9;
+    color: #334155;
+    font-weight: 600;
+    font-size: 8pt;
+    border: 1px solid #cbd5e1;
+  }
+
+  blockquote {
+    background: #fffbeb;
+    border-left: 4px solid #f59e0b;
+    padding: 8px 12px;
+    margin: 10px 0;
+    font-size: 9.5pt;
+    color: #92400e;
+    border-radius: 0 6px 6px 0;
+  }
+
+  .page-break {
+    page-break-before: always;
+  }
+
+  .footer {
+    margin-top: 24px;
+    padding-top: 10px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 8.5pt;
+    color: #64748b;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="header-banner"><h1>คู่มือการใช้งานระบบ Lineage2M Clan Hub</h1><p>ศูนย์กลางกิลด์ & คลังไอเทมบอส Lineage 2M</p></div>
+<p>คู่มือนี้สรุปหน้าที่ของทุกหน้าและทุกปุ่มในระบบอย่างกระชับ เข้าใจง่าย เพื่อให้สมาชิกและผู้ดูแลระบบสามารถใช้งานได้อย่างถูกต้องและรวดเร็ว</p>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>สารบัญ</h2>
+<ol>
+<li><a href="#1-สิทธิ์ผู้ใช้งาน-user-roles" style="color:#0284c7; text-decoration:none;">สิทธิ์ผู้ใช้งาน (User Roles)</a></li>
+<li><a href="#2-แถบเมนูด้านบนและเครื่องมือหลัก-top-bar--utilities" style="color:#0284c7; text-decoration:none;">แถบเมนูด้านบนและเครื่องมือหลัก (Top Bar & Utilities)</a></li>
+<li><a href="#3-หน้าแดชบอร์ด-dashboard" style="color:#0284c7; text-decoration:none;">หน้าแดชบอร์ด (Dashboard)</a></li>
+<li><a href="#4-หน้าคลังไอเทมบอส-item-vault" style="color:#0284c7; text-decoration:none;">หน้าคลังไอเทมบอส (Item Vault)</a></li>
+<li><a href="#5-หน้าคิวรับไอเทม-item-queue" style="color:#0284c7; text-decoration:none;">หน้าคิวรับไอเทม (Item Queue)</a></li>
+<li><a href="#6-หน้าทำเนียบสมาชิก-all-members" style="color:#0284c7; text-decoration:none;">หน้าทำเนียบสมาชิก (All Members)</a></li>
+<li><a href="#7-หน้าจัดการแคลน-clan-management" style="color:#0284c7; text-decoration:none;">หน้าจัดการแคลน (Clan Management)</a></li>
+<li><a href="#8-หน้าต่างเครื่องมือพิเศษ-special-modals" style="color:#0284c7; text-decoration:none;">หน้าต่างเครื่องมือพิเศษ (Special Modals)</a></li>
+</ol>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>1. สิทธิ์ผู้ใช้งาน (User Roles)</h2>
+<table><thead><tr><th>ระดับสิทธิ์</th><th>สัญลักษณ์</th><th>หน้าที่และความสามารถ</th></tr></thead><tbody>
+<tr><td><strong>Owner (เจ้าของ)</strong></td><td>👑</td><td>มีสิทธิ์สูงสุด ควบคุมระบบทั้งหมด ปรับเปลี่ยนตำแหน่งผู้เล่น อนุมัติสมาชิก และใช้งาน <strong>ศูนย์รีเซ็ตระบบ (Reset Center)</strong> ได้ผู้เดียว</td></tr>
+<tr><td><strong>Admin (ผู้ดูแล)</strong></td><td>🛡️</td><td>เพิ่มไอเทมในคลัง, จัดการคิวไอเทม, แจกจ่ายไอเทม, อนุมัติสมาชิกใหม่, และฝาก-ถอนเพชรในคลังกลางได้</td></tr>
+<tr><td><strong>Member (สมาชิก)</strong></td><td>⚔️</td><td>ดูรายการไอเทมในคลัง, ลงชื่อขอรับไอเทม (Claim) ที่พลัง CP ผ่านเกณฑ์, ดูคิวไอเทม, และดูรายชื่อสมาชิกในกิลด์</td></tr>
+</tbody></table>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>2. แถบเมนูด้านบนและเครื่องมือหลัก (Top Bar & Utilities)</h2>
+<table><thead><tr><th>ปุ่ม / เมนู</th><th>ไอคอน</th><th>หน้าที่การทำงาน</th></tr></thead><tbody>
+<tr><td><strong>LINEAGE 2M CLAN HUB</strong></td><td>👑</td><td>โลโก้ประจำเว็บ คลิกเมื่อใดก็ได้เพื่อกลับสู่ <strong>หน้าแดชบอร์ด</strong> ทันที</td></tr>
+<tr><td><strong>กล่องคลังเพชรกลาง</strong></td><td>💎</td><td>แสดงยอดเพชรคงเหลือในกองทุนกลาง คลิกเพื่อเปิดหน้าต่าง <strong>ฝาก-ถอนเพชร</strong></td></tr>
+<tr><td><strong>ตั้งค่าภาพพื้นหลัง</strong></td><td>✨</td><td>เปิดหน้าต่างเปลี่ยนภาพพื้นหลังปราสาท ปรับความสว่าง และความเบลอ</td></tr>
+<tr><td><strong>เปิด/ปิดเสียง</strong></td><td>🔊 / 🔇</td><td>สลับเปิดหรือปิดเสียงเอฟเฟกต์คลิก/แจ้งเตือนของระบบ</td></tr>
+<tr><td><strong>สลับภาษา (TH / EN)</strong></td><td>🌐</td><td>สลับภาษาของระบบระหว่าง <strong>ภาษาไทย</strong> และ <strong>English</strong> ทันที</td></tr>
+<tr><td><strong>เข้าสู่ระบบ / ออกจากระบบ</strong></td><td>👤 / 🚪</td><td>เข้าใช้งานบัญชีสมาชิก หรือออกจากระบบ</td></tr>
+<tr><td><strong>เมนูนำทาง (Nav Tabs)</strong></td><td>📑</td><td>สลับไปยังหน้า: แดชบอร์ด, คลังไอเทม, คิวไอเทม, สมาชิก, และจัดการแคลน</td></tr>
+</tbody></table>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>3. หน้าแดชบอร์ด (Dashboard)</h2>
+<p><strong>ศูนย์รวมภาพรวมกิลด์ ไอเทมที่กำลังเปิดให้ขอรับ และประวัติธุรกรรมเพชร</strong></p>
+<h3>องค์ประกอบและปุ่มในหน้านี้</h3>
+<ul>
+<li><strong>กล่องคลังเพชร (Diamond Vault Card):</strong></li>
+<li>ปุ่ม <strong>"ฝากเพชร / ถอนเพชร"</strong> <em>(Admin/Owner)</em>: ฝากหรือเบิกถอนเพชรพร้อมบันทึกเหตุผล</li>
+<li><strong>ไทม์ไลน์ธุรกรรม (Transaction Timeline):</strong> แสดง 10 รายการฝาก-ถอนเพชรล่าสุด คลิก <strong>"ดูทั้งหมด"</strong> เพื่อเปิดดูประวัติเต็ม</li>
+<li><strong>ตารางไอเทมเปิดรับเครม (Active Claimable Items):</strong></li>
+<li><strong>รูปไอเทม:</strong> คลิกเพื่อ <strong>ซูมดูรูปขนาดเต็ม</strong></li>
+<li><strong>ปุ่ม "ลงชื่อเครม" (Claim Item):</strong> สมาชิกที่ค่าพลัง CP ผ่านเกณฑ์กดเพื่อแสดงความประสงค์ขอรับของ</li>
+<li><strong>ปุ่ม "ยกเลิกเครม" (Cancel Claim):</strong> กดยกเลิกการลงชื่อหากไม่ต้องการรับไอเทมแล้ว</li>
+<li><strong>ปุ่ม "ดูรายชื่อ" (View Claimants):</strong> ดูรายชื่อสมาชิกทั้งหมดที่กดขอรับ พร้อมแสดงพลัง CP และเวลาที่กด</li>
+<li><strong>ปุ่ม "แจกไอเทม" (Distribute):</strong> <em>(Admin/Owner)</em> เปิดหน้าต่างเลือกมอบไอเทมให้ผู้เล่นที่เหมาะสม เมื่อกดยืนยัน ระบบจะส่งแจ้งเตือนเข้า Discord อัตโนมัติ และย้ายไอเทมไปเก็บในประวัติแจกแล้ว</li>
+<li><strong>ปุ่ม "ล้างรายการ / รีเซ็ต" (Reset):</strong> <em>(เฉพาะ Owner)</em> ล้างข้อมูลหรือรีเซ็ตระบบเมื่อเริ่มรอบใหม่</li>
+</ul>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>4. หน้าคลังไอเทมบอส (Item Vault)</h2>
+<p><em>(เข้าถึงได้เฉพาะ Admin และ Owner)</em></p>
+<p><strong>คลังสำหรับบันทึกไอเทมที่ได้จากการล่าบอส จัดการพรีเซ็ต และสแกนรายชื่อผู้ล่าด้วย AI</strong></p>
+<h3>แท็บย่อย</h3>
+<ol>
+<li><strong>เพิ่มไอเทม (Add New Item):</strong> แบบฟอร์มเพิ่มไอเทมใหม่เข้าสู่ระบบ</li>
+<li><strong>ไอเทมที่แจกแล้ว (Distributed Archive):</strong> คลังจัดเก็บประวัติไอเทมที่มอบให้สมาชิกแล้ว</li>
+</ol>
+<h3>ปุ่มและฟังก์ชันสำคัญ</h3>
+<ul>
+<li><strong>ปุ่ม "ควิกไอเทม" (Quick Items Menu):</strong> เปิดหน้าต่างจัดการแม่แบบไอเทมด่วน บันทึกชื่อ รูป และระดับความหายากไว้ล่วงหน้าเพื่อกดเพิ่มได้ในคลิกเดียว</li>
+<li><strong>แถบเลือกไอเทมด่วน:</strong> คลิกไอเทมที่เตรียมไว้ ข้อมูลจะถูกกรอกลงฟอร์มอัตโนมัติ</li>
+<li><strong>ช่องกรอกข้อมูล:</strong> ชื่อไอเทม, ราคาประเมิน (เพชร), CP ขั้นต่ำที่เคลมได้, และเลือกระดับความแรร์ (ฟ้า/แดง/ม่วง/ทอง)</li>
+<li><strong>อัปโหลดรูปไอเทม:</strong> เลือกรูปจากคอมพิวเตอร์หรือโทรศัพท์</li>
+<li><strong>ระบบผู้ล่า & AI OCR สแกนภาพ:</strong></li>
+<li><strong>ดรอปดาวน์เลือกผู้ล่า:</strong> เลือกรายชื่อสมาชิกจากสังกัดแคลนต่างๆ โดยไม่ต้องพิมพ์เอง</li>
+<li><strong>ปุ่ม "แนบสกรีนช็อต" (Upload Screenshots):</strong> เลือกรูปถ่ายหน้าจอขณะล่าบอส/ตี้บอสได้หลายรูปพร้อมกัน</li>
+<li><strong>ปุ่ม "สแกนผู้ล่า (OCR)":</strong> ระบบใช้ AI สแกนชื่อตัวละครจากรูปถ่ายหน้าจอ และจัดกลุ่มตามแคลนให้อัตโนมัติ</li>
+<li><strong>ปุ่ม "กรองรายชื่อซ้ำ" (Filter Duplicates):</strong> ตัดชื่อผู้ล่าที่ซ้ำกันออกในคลิกเดียว</li>
+<li><strong>ปุ่ม "บันทึก / เพิ่มไอเทม":</strong> ตรวจสอบข้อมูลแล้วบันทึกเข้าสู่คลังกลาง</li>
+<li><strong>ในแท็บไอเทมที่แจกแล้ว:</strong></li>
+<li><strong>ปุ่ม "ดูรูปหลักฐานผู้ล่า" (View Proof):</strong> เปิดดูรูปสกรีนช็อตตอนล่าบอส สามารถใช้สกอลล์เม้าส์ซูมเข้า-ออกได้</li>
+<li><strong>ปุ่ม "ลบประวัติ" (Delete Record):</strong> ลบรายการแจกนั้นออกจากประวัติ</li>
+</ul>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>5. หน้าคิวรับไอเทม (Item Queue)</h2>
+<p><strong>ระบบจัดอันดับคิวรับของรางวัลและไอเทมสำคัญของกิลด์อย่างโปร่งใส</strong></p>
+<blockquote><p><strong>หมายเหตุสำคัญ:</strong> สมาชิกทั่วไปไม่สามารถกดเข้าคิวเองได้ เพื่อความเป็นระเบียบและโปร่งใสสูงสุด ระบบจึงกำหนดให้ <strong>Admin และ Owner เป็นผู้จัดคิวเท่านั้น</strong></p>
+</blockquote>
+<h3>ปุ่มและฟังก์ชันสำคัญ <em>(Admin/Owner)</em></h3>
+<ul>
+<li><strong>ปุ่ม "+ เพิ่มคิวไอเทม" (Register Item into Queue):</strong> สร้างหัวข้อไอเทมที่เปิดให้เข้าคิว (เลือกจากพรีเซ็ตหรือสร้างใหม่ได้)</li>
+<li><strong>ปุ่ม "+ เพิ่มสมาชิกลงคิว" (Add Member to Queue):</strong> เลือกสมาชิกจากดรอปดาวน์เพื่อจัดเข้าคิวไอเทมนั้น</li>
+<li><strong>ปุ่ม "ได้รับแล้ว" (Mark as Received):</strong> กดเมื่อสมาชิกได้รับของแล้ว (จะเปลี่ยนเป็นสถานะสีเขียวพร้อมติ๊กถูก)</li>
+<li><strong>ปุ่ม "รอคิว" (Mark as Waiting):</strong> กดเพื่อปรับสถานะกลับมารอคิว</li>
+<li><strong>การจัดลำดับคิว (Reorder):</strong></li>
+<li>กดปุ่ม <strong>ลูกศรขึ้น / ลูกศรลง (Move Up/Down)</strong></li>
+<li>หรือ <strong>คลิกลากแถบจุด (Drag & Drop)</strong> สลับตำแหน่งคิวได้ทันที</li>
+<li><strong>ปุ่ม "ลบสมาชิกออกจากคิว" (Remove Member):</strong> นำสมาชิกออกจากคิวนั้น</li>
+<li><strong>ปุ่ม "ลบคิวไอเทม" (Delete Queue):</strong> ลบรายการคิวนั้นเมื่อเสร็จสิ้นการแจกจ่าย</li>
+</ul>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>6. หน้าทำเนียบสมาชิก (All Members)</h2>
+<p><strong>ศูนย์รวมรายชื่อผู้เล่นในสังกัดทั้งหมด จัดกลุ่มตามแคลนและเรียงตามพลังรบ (CP)</strong></p>
+<h3>ส่วนที่ 1: คำขอรออนุมัติ (Pending Approvals)</h3>
+<p><em>(สำหรับผู้เล่นที่เพิ่งลงทะเบียน)</em></p>
+<ul>
+<li><strong>ปุ่ม "อนุมัติ" (Approve):</strong> ยืนยันให้ผู้เล่นเข้าสู่ระบบและเริ่มใช้งานได้</li>
+<li><strong>ปุ่ม "ปฏิเสธ" (Reject):</strong> ปฏิเสธคำขอลงทะเบียน</li>
+</ul>
+<h3>ส่วนที่ 2: รายชื่อสมาชิกทั้งหมด (Active Members)</h3>
+<ul>
+<li><strong>ช่องค้นหา (Search):</strong> พิมพ์ค้นหาด้วย ชื่อตัวละคร, แคลน, หรือคลาสอาชีพ</li>
+<li><strong>ปุ่ม "แก้ไขโปรไฟล์" (Edit Profile):</strong> <em>(Admin/Owner)</em> แก้ไขชื่อในเกม, พลัง CP, แคลน, สายอาชีพ และรีเซ็ตรหัสผ่าน</li>
+<li><strong>ปุ่ม "กำหนดบทบาท" (Change Role):</strong> <em>(เฉพาะ Owner)</em> ปรับระดับสิทธิ์ระหว่าง Member, Admin หรือ Owner</li>
+<li><strong>ปุ่ม "ลบสมาชิก" (Delete Member):</strong> ลบบัญชีผู้เล่นออกจากระบบ</li>
+</ul>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>7. หน้าจัดการแคลน (Clan Management)</h2>
+<p><em>(เข้าถึงได้เฉพาะ Admin และ Owner)</em></p>
+<p><strong>บริหารจัดการกิลด์หลัก กิลด์ย่อย และพันธมิตร</strong></p>
+<h3>ปุ่มและฟังก์ชันสำคัญ</h3>
+<ul>
+<li><strong>ปุ่ม "+ เพิ่มแคลน" (Add New Clan):</strong> เพิ่มสังกัดแคลนใหม่เข้าระบบ</li>
+<li><strong>การย้ายสมาชิกข้ามแคลน (Drag & Drop):</strong> คลิกที่การ์ดสมาชิกแล้ว <strong>ลากไปวางในกล่องแคลนเป้าหมาย</strong> สังกัดของสมาชิกจะเปลี่ยนทันที</li>
+<li><strong>การลบสมาชิกแบบกลุ่ม (Batch Delete):</strong></li>
+<li>ติ๊กเลือกช่องสี่เหลี่ยมหน้าชื่อสมาชิก หรือกด <strong>"เลือกทั้งหมดในแคลน"</strong></li>
+<li>กดปุ่มสีแดง <strong>"ลบสมาชิกที่เลือก" (Batch Delete Selected)</strong></li>
+<li><strong>ปุ่ม "ลบแคลน" (Delete Clan):</strong> ลบกล่องแคลนที่ไม่ได้ใช้งานแล้ว</li>
+</ul>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<h2>8. หน้าต่างเครื่องมือพิเศษ (Special Modals)</h2>
+<h3>1. คลังเพชรกลาง (Diamond Vault Modal)</h3>
+<ul>
+<li><strong>แท็บ "ฝากเพชร" (Deposit):</strong> ระบุจำนวนเพชรและเหตุผล (เช่น ขายของบอสได้)</li>
+<li><strong>แท็บ "ถอนเพชร" (Withdraw):</strong> ระบุจำนวนและเหตุผล (เช่น จ่ายค่าน้ำยา/แจกสมาชิก)</li>
+<li><strong>แท็บ "ประวัติฝากถอน" (History Log):</strong> ดูประวัติย้อนหลังทั้งหมดว่าใครเป็นผู้ทำรายการ</li>
+</ul>
+<h3>2. แจ้งเตือน Discord (Discord Webhook Settings)</h3>
+<ul>
+<li>คลิกที่ <strong>ไอคอนกระดิ่ง</strong> บนแถบด้านซ้าย</li>
+<li>ใส่ URL Webhook ของห้อง Discord ที่ต้องการ</li>
+<li>ปุ่ม <strong>"ทดสอบส่งแจ้งเตือน" (Test Ping):</strong> ยิงข้อความทดสอบเข้า Discord</li>
+<li>เมื่อเปิดใช้งาน ระบบจะส่งการ์ดแจ้งเตือนอัตโนมัติเมื่อ: มีการเพิ่มไอเทมบอส, แจกของ, หรือมีธุรกรรมเพชร</li>
+</ul>
+<h3>3. จัดการสายอาชีพ (Class Settings Modal)</h3>
+<ul>
+<li>คลิกที่ <strong>ไอคอนดาบ</strong> บนแถบด้านซ้าย</li>
+<li>เพิ่มหรือลบรายชื่อคลาสอาชีพในเกมตามแพตช์ปัจจุบัน (เช่น Orb, Bow, Greatsword, Dual Blades, Rapier)</li>
+</ul>
+<h3>4. ปรับแต่งพื้นหลัง (Wallpaper Settings Modal)</h3>
+<ul>
+<li>คลิกที่ <strong>ไอคอนประกายดาว</strong></li>
+<li>อัปโหลดภาพพื้นหลัง หรือเลือกภาพธีมปราสาท</li>
+<li>ปรับแถบเลื่อน: <strong>ความสว่าง (Brightness)</strong>, <strong>ความเบลอ (Blur)</strong> และ <strong>ความมืดของหน้ากาก (Overlay Darkness)</strong></li>
+</ul>
+<h3>5. แถบประกาศกิลด์วิ่ง (Live Announcement Bar)</h3>
+<ul>
+<li>แสดงข้อความประกาศสำคัญด้านบนสุดของเว็บ</li>
+<li>กดปุ่ม <strong>ดินสอ (Edit)</strong> เพื่อแก้ไขข้อความประกาศ และเปิด/ปิดการแสดงผล</li>
+</ul>
+<h3>6. ศูนย์รีเซ็ตระบบ (Owner Reset Center)</h3>
+<p><em>(เข้าถึงได้เฉพาะ Owner)</em></p>
+<ul>
+<li>ป้องกันข้อผิดพลาดด้วยระบบยืนยันโดยต้อง <strong>พิมพ์คำว่า RESET</strong> ก่อนดำเนินการ</li>
+<li>ตัวเลือกการรีเซ็ต:</li>
+<ol>
+<li>ล้างเฉพาะไอเทมที่แจกแล้ว (คงไอเทมเปิดรับไว้)</li>
+<li>ล้างไอเทมในคลังทั้งหมดเพื่อเริ่มรอบใหม่</li>
+<li>ล้างคิวไอเทมทั้งหมด</li>
+<li>ล้างประวัติธุรกรรมเพชร</li>
+<li>คืนค่าข้อมูลตัวอย่างทดสอบ</li>
+</ul>
+</ol>
+<hr style="border:0; border-top:1px solid #e2e8f0; margin:16px 0;" />
+<p><em>เอกสารนี้จัดทำขึ้นสำหรับผู้ใช้งานและผู้ดูแลระบบ Lineage2M Clan Hub</em></p>
+
+</body>
+</html>
