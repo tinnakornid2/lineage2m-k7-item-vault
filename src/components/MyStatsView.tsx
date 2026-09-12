@@ -13,9 +13,9 @@ import {
   Star,
   Image as ImageIcon,
   RotateCcw,
-  ArrowRight,
   ArrowLeft,
-  Info
+  X,
+  UserCheck
 } from 'lucide-react';
 import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint } from '../types';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
@@ -69,6 +69,9 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  
+  // Right Column Stat Tab Switcher: 'combat' | 'defense' | 'special'
+  const [activeStatCategory, setActiveStatCategory] = useState<'combat' | 'defense' | 'special'>('combat');
 
   // Synchronize stats and profile from currentUser
   useEffect(() => {
@@ -236,8 +239,8 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     if (!screenshotUrl) {
       setErrorMessage(
         lang === 'th'
-          ? 'กรุณาแนบภาพสกรีนช็อตสเตตัสในเกม (วางรูปด้วย Ctrl+V หรืออัปโหลดไฟล์) เพื่อให้แอดมินตรวจสอบ'
-          : 'Please attach a screenshot of your stats in game for admin verification'
+          ? 'กรุณาแนบภาพสกรีนช็อตสเตตัสในเกม (วางรูปด้วย Ctrl+V หรืออัปโหลด) เพื่อยืนยัน'
+          : 'Please attach a screenshot of your stats in game for verification'
       );
       return;
     }
@@ -300,676 +303,561 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const renderIcon = (iconName?: string) => {
     switch (iconName) {
       case 'Sparkles':
-        return <Sparkles className="size-4" />;
+        return <Sparkles className="size-3.5" />;
       case 'Swords':
-        return <Swords className="size-4" />;
+        return <Swords className="size-3.5" />;
       case 'Shield':
-        return <Shield className="size-4" />;
+        return <Shield className="size-3.5" />;
       case 'Crown':
-        return <Crown className="size-4" />;
+        return <Crown className="size-3.5" />;
       case 'Zap':
       default:
-        return <Zap className="size-4" />;
+        return <Zap className="size-3.5" />;
     }
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300 pb-24">
-      {/* Top Header & Navigation Breadcrumb */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
-        <div>
-          <div className="flex items-center gap-2 mb-1.5">
-            {onNavigateTab && (
-              <button
-                type="button"
-                onClick={() => {
-                  sounds.playClick();
-                  onNavigateTab('dashboard');
-                }}
-                className="flex items-center gap-1 text-xs text-slate-400 hover:text-amber-300 transition mr-2"
-              >
-                <ArrowLeft className="size-3.5" />
-                <span>{lang === 'th' ? 'กลับแดชบอร์ด' : 'Dashboard'}</span>
-              </button>
-            )}
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {formulaSettings.name || 'Kain7 Power Formula'}
-            </span>
-          </div>
+    <div className="space-y-4 animate-in fade-in duration-200 pb-16">
+      {/* 1. COMPACT TOP HEADER BAR */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+        <div className="flex items-center gap-3">
+          {onNavigateTab && (
+            <button
+              type="button"
+              onClick={() => {
+                sounds.playClick();
+                onNavigateTab('dashboard');
+              }}
+              className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+              title={lang === 'th' ? 'กลับแดชบอร์ด' : 'Dashboard'}
+            >
+              <ArrowLeft className="size-4" />
+            </button>
+          )}
 
-          <h1 className="text-2xl sm:text-3xl font-bold font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#c99a22] flex items-center gap-3">
-            <span>{lang === 'th' ? 'สเตตัสและความก้าวหน้าของฉัน' : 'My Stats & Progression'}</span>
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            {lang === 'th'
-              ? 'กรอกข้อมูลตัวละคร (Multi-class), เลเวล, ผลึกวิญญาณ และสเตตัสเพื่อคำนวณค่าพลังที่แท้จริงของคุณ'
-              : 'Configure your multi-classes, character level, spirit progression, and stats to calculate verified Power Level.'}
-          </p>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg sm:text-xl font-black font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#c99a22]">
+                {lang === 'th' ? 'สเตตัสและความก้าวหน้าของฉัน' : 'My Stats & Progression'}
+              </h1>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono">
+                {formulaSettings.name || 'Kain7 Formula'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              {currentUser.inGameName} • {currentUser.clan} • {currentUser.characterClass || 'No Class'}
+            </p>
+          </div>
         </div>
 
-        {/* Current Verified Power Badge */}
-        <div className="flex items-center gap-3 self-start sm:self-auto">
-          <div className="px-4 py-2.5 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 border border-amber-500/40 shadow-xl flex items-center gap-3">
-            <div className="size-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-inner">
-              <Zap className="size-5" />
+        {/* Current Verified Power Badge (Compact) */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-amber-500/40 shadow-md">
+          <div className="size-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+            <Zap className="size-4" />
+          </div>
+          <div className="text-right">
+            <div className="text-[9px] uppercase font-bold text-slate-400">
+              {lang === 'th' ? 'ค่าพลังยืนยันแล้ว' : 'Verified PL'}
             </div>
-            <div>
-              <div className="text-[10px] uppercase font-bold text-slate-400">
-                {lang === 'th' ? 'ค่าพลังปัจจุบัน (Verified)' : 'Current Verified PL'}
-              </div>
-              <div className="text-lg sm:text-xl font-black text-amber-400 font-mono">
-                ⚡ {currentVerifiedPL.toLocaleString()} PL
-              </div>
+            <div className="text-sm sm:text-base font-black text-amber-400 font-mono leading-none">
+              ⚡ {currentVerifiedPL.toLocaleString()} PL
             </div>
           </div>
         </div>
       </div>
 
-      {/* Admin Rejection Alert Banner */}
+      {/* Admin Rejection Alert Banner (Compact) */}
       {isRejected && (
-        <div className="p-4 rounded-2xl bg-rose-950/70 border border-rose-500/60 text-xs flex items-start gap-3.5 shadow-xl animate-fade-in">
-          <AlertCircle className="size-5 text-rose-400 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <div className="font-bold text-sm text-rose-300">
-              {lang === 'th' ? '❌ คำขอสเตตัสล่าสุดไม่ผ่านการอนุมัติ' : '❌ Stat request was rejected'}
-            </div>
-            <p className="text-slate-300">
-              {lang === 'th' ? 'เหตุผลจากแอดมิน: ' : 'Admin Feedback: '}
-              <span className="font-semibold text-rose-300 underline underline-offset-2">
-                "{currentUser.statRejectionReason}"
-              </span>
-            </p>
-            <div className="text-[11px] text-slate-400">
-              {lang === 'th'
-                ? 'ระบบได้คงค่าเดิมที่คุณเคยกรอกไว้ให้แล้ว กรุณาแก้ไขเฉพาะจุดที่แอดมินแจ้ง แนบภาพใหม่ และกดส่งคำขออีกครั้ง'
-                : 'Your previous inputs are pre-filled. Please fix the requested fields and resubmit.'}
-            </div>
+        <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/60 text-xs flex items-center justify-between gap-3 text-rose-200">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="size-4 text-rose-400 shrink-0" />
+            <span>
+              <strong className="text-rose-300">{lang === 'th' ? 'คำขอไม่ผ่าน: ' : 'Rejected: '}</strong>
+              "{currentUser.statRejectionReason}"
+            </span>
           </div>
+          <span className="text-[10px] text-rose-400 shrink-0">
+            {lang === 'th' ? 'กรุณาแก้ไขและส่งคำขอใหม่' : 'Please adjust & resubmit'}
+          </span>
         </div>
       )}
 
-      {/* Pending Request Banner */}
+      {/* Pending Request Banner (Compact) */}
       {hasPending && (
-        <div className="p-4 rounded-2xl bg-amber-950/60 border border-amber-500/60 text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xl">
-          <div className="flex items-center gap-3">
-            <Clock className="size-5 text-amber-400 animate-spin shrink-0" />
-            <div>
-              <div className="font-bold text-amber-300">
-                {lang === 'th'
-                  ? `⏳ มีคำขออัปเดตสเตตัสใหม่ (${currentUser.pendingPowerLevel?.toLocaleString()} PL) รอแอดมินตรวจสอบ`
-                  : `⏳ Stat update request (${currentUser.pendingPowerLevel?.toLocaleString()} PL) pending admin approval`}
-              </div>
-              <div className="text-[11px] text-amber-300/80">
-                {lang === 'th'
-                  ? 'ส่งเมื่อ ' + (currentUser.pendingPowerLevelRequestedAt ? new Date(currentUser.pendingPowerLevelRequestedAt).toLocaleString('th-TH') : 'ไม่นานมานี้')
-                  : 'Submitted ' + (currentUser.pendingPowerLevelRequestedAt ? new Date(currentUser.pendingPowerLevelRequestedAt).toLocaleString() : 'recently')}
-              </div>
-            </div>
+        <div className="p-3 rounded-xl bg-amber-950/50 border border-amber-500/50 text-xs flex items-center justify-between gap-3 text-amber-200">
+          <div className="flex items-center gap-2.5">
+            <Clock className="size-4 text-amber-400 animate-spin shrink-0" />
+            <span>
+              {lang === 'th'
+                ? `มีคำขออัปเดต (${currentUser.pendingPowerLevel?.toLocaleString()} PL) รอแอดมินตรวจ`
+                : `Update request (${currentUser.pendingPowerLevel?.toLocaleString()} PL) pending`}
+            </span>
           </div>
           {onCancelPendingRequest && (
             <button
               type="button"
               onClick={handleCancelPending}
               disabled={isSubmitting}
-              className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition border border-slate-700 self-start sm:self-auto"
+              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700 shrink-0"
             >
-              {lang === 'th' ? 'ยกเลิกคำขอนี้' : 'Cancel Request'}
+              {lang === 'th' ? 'ยกเลิกคำขอ' : 'Cancel'}
             </button>
           )}
         </div>
       )}
 
-      {/* GROWTH & PROGRESSION TIMELINE CHART */}
-      <GrowthTimelineChart
-        user={currentUser}
-        lang={lang}
-        onSaveHistory={onSaveHistory}
-        showToast={showToast}
-      />
+      {/* 2. MAIN BALANCED 2-COLUMN DASHBOARD (Single-Screen Friendly Layout) */}
+      <form onSubmit={handleSubmit}>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+          
+          {/* ══════════════════════════════════════════════════════════
+              LEFT COLUMN (7 COLS): TIMELINE GRAPH + PROFILE & SPIRITS
+             ══════════════════════════════════════════════════════════ */}
+          <div className="lg:col-span-7 space-y-4">
+            {/* A. GROWTH TIMELINE CHART (Compact Vector Edition) */}
+            <GrowthTimelineChart
+              user={currentUser}
+              lang={lang}
+              onSaveHistory={onSaveHistory}
+              showToast={showToast}
+            />
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* SECTION 1: CHARACTER STATS PROFILE CARD (Exact 1:1 match with Kain7) */}
-        <div className="rounded-2xl bg-slate-900/90 border border-slate-750 p-5 sm:p-6 space-y-5 shadow-2xl backdrop-blur-sm">
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3.5">
-            <div className="flex items-center gap-3">
-              <div className="size-10 rounded-xl bg-slate-800/90 border border-slate-700/80 flex items-center justify-center text-slate-300 shadow-inner shrink-0">
-                <svg className="size-5 text-slate-300" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
-                  <path fillRule="evenodd" d="M3 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H3Zm2.5 5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM10 5.75a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5h-1.5a.75.75 0 0 1-.75-.75Zm.75 3.75a.75.75 0 0 0 0 1.5h1.5a.75.75 0 0 0 0-1.5h-1.5ZM10 8a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5h-1.5A.75.75 0 0 1 10 8Zm-2.378 3c.346 0 .583-.343.395-.633A2.998 2.998 0 0 0 5.5 9a2.998 2.998 0 0 0-2.517 1.367c-.188.29.05.633.395.633h4.244Z" clipRule="evenodd" />
-                </svg>
+            {/* B. CHARACTER PROFILE & MULTI-CLASS (Compact Bar) */}
+            <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-4 space-y-3 shadow-lg">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                <div className="flex items-center gap-2">
+                  <UserCheck className="size-4 text-purple-400" />
+                  <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide">
+                    {lang === 'th' ? 'โปรไฟล์ตัวละคร & อาชีพ (Multi-Class)' : 'Character Profile & Multi-Class'}
+                  </h3>
+                </div>
+                <span className="text-[10px] text-slate-400">
+                  {selectedClasses.length} {lang === 'th' ? 'อาชีพที่เลือก' : 'classes'}
+                </span>
               </div>
-              <div>
-                <h3 className="text-base sm:text-lg font-bold text-white tracking-wide">
-                  Character Stats
-                </h3>
-                <p className="text-xs text-slate-400">
-                  {lang === 'th'
-                    ? 'ข้อมูลโปรไฟล์หลักสำหรับระบุตัวตนและใช้เป็นฐานคำนวณความก้าวหน้าของตัวละคร'
-                    : 'Core profile inputs used to identify the character and calculate the main progression baseline.'}
-                </p>
-              </div>
-            </div>
-            <span className="text-[10px] font-bold px-3 py-1 rounded-full border border-slate-700/80 bg-slate-800/80 text-slate-300 tracking-wider shrink-0">
-              PROFILE
-            </span>
-          </div>
 
-          {/* Body: Multi-Class List + 3 Stat Cards */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            {/* Class (multi) Scrollable Box */}
-            <div className="lg:col-span-5 space-y-2">
-              <label className="block text-xs font-semibold text-white">
-                Class <span className="font-normal text-slate-400">(multi)</span>
-              </label>
-              <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-750 max-h-56 overflow-y-auto space-y-2 custom-scrollbar">
+              {/* Multi-Class Chips Picker */}
+              <div className="flex flex-wrap gap-1.5">
                 {OFFICIAL_CLASSES.map((cls) => {
                   const isChecked = selectedClasses.includes(cls.nameEn);
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={cls.id}
                       onClick={() => handleToggleClass(cls.nameEn)}
-                      className={`cursor-pointer flex items-center gap-3 px-3 py-2 rounded-xl border transition-all select-none ${
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border select-none ${
                         isChecked
-                          ? 'border-purple-500 bg-purple-950/40 text-white shadow-[0_0_15px_rgba(168,85,247,0.3)] scale-[1.01]'
-                          : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                          ? 'border-purple-500 bg-purple-950/50 text-white shadow-sm shadow-purple-500/30'
+                          : 'border-slate-800 bg-slate-950/50 text-slate-400 hover:border-slate-700 hover:text-slate-300'
                       }`}
                     >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {}}
-                        className="size-4 rounded accent-purple-500 cursor-pointer shrink-0"
-                      />
                       <img
                         src={cls.icon}
                         alt={cls.nameEn}
-                        className="size-5 shrink-0 object-contain"
+                        className="size-3.5 object-contain"
                         onError={(e) => {
                           (e.target as HTMLElement).style.display = 'none';
                         }}
                       />
-                      <span className="text-xs font-semibold truncate">
-                        {cls.nameEn}
-                      </span>
-                    </div>
+                      <span>{cls.nameEn}</span>
+                    </button>
                   );
                 })}
               </div>
-            </div>
 
-            {/* Level, Legend Classes, Legend Agathions */}
-            <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-              {/* Level */}
-              <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-750 flex flex-col justify-between space-y-3">
-                <label className="text-xs font-semibold text-white">
-                  Level
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="99"
-                  value={charLevel === 0 ? '' : charLevel}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10);
-                    setCharLevel(isNaN(v) ? 0 : Math.max(0, Math.min(99, v)));
-                  }}
-                  placeholder="0"
-                  className="w-full px-3 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white font-bold text-xl text-center focus:border-purple-500 focus:outline-none transition shadow-inner"
-                />
-                <span className="text-[10px] text-slate-500 text-center">Lv. 1 - 99</span>
-              </div>
-
-              {/* Legend Classes */}
-              <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-750 flex flex-col justify-between space-y-3">
-                <label className="text-xs font-semibold text-white">
-                  Legend Classes
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={charLegendClasses === 0 ? '' : charLegendClasses}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10);
-                    setCharLegendClasses(isNaN(v) ? 0 : Math.max(0, v));
-                  }}
-                  placeholder="0"
-                  className="w-full px-3 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white font-bold text-xl text-center focus:border-purple-500 focus:outline-none transition shadow-inner"
-                />
-                <span className="text-[10px] text-slate-500 text-center">Class ตำนาน</span>
-              </div>
-
-              {/* Legend Agathions */}
-              <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-750 flex flex-col justify-between space-y-3">
-                <label className="text-xs font-semibold text-white">
-                  Legend Agathions
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={charLegendAgathions === 0 ? '' : charLegendAgathions}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10);
-                    setCharLegendAgathions(isNaN(v) ? 0 : Math.max(0, v));
-                  }}
-                  placeholder="0"
-                  className="w-full px-3 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white font-bold text-xl text-center focus:border-purple-500 focus:outline-none transition shadow-inner"
-                />
-                <span className="text-[10px] text-slate-500 text-center">อากาธีออนตำนาน</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* SECTION 2: COMBAT STATS */}
-        {combatStats.length > 0 && (
-          <div className="rounded-2xl bg-slate-900/90 border border-slate-750 p-5 space-y-4 shadow-xl">
-            <div className="flex items-center gap-2.5 border-b border-slate-800 pb-3">
-              <div className="size-8 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center">
-                <Swords className="size-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                  {lang === 'th' ? 'สเตตัสการโจมตี (Combat Stats)' : 'Combat Stats'}
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  {lang === 'th' ? 'ค่าพลังโจมตีและความแม่นยำพื้นฐาน' : 'Core damage and accuracy attributes'}
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-              {combatStats.map((stat) => (
-                <div key={stat.id} className="p-3.5 rounded-xl bg-slate-850/80 border border-slate-750 space-y-1.5 hover:border-slate-650 transition">
-                  <label className="block text-xs font-semibold text-slate-300 truncate" title={stat.labelTh}>
-                    {lang === 'th' ? stat.labelTh : stat.labelEn}
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min="0"
-                      value={stats[stat.id] === 0 ? '' : stats[stat.id]}
-                      onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
-                      placeholder="0"
-                      className="w-full px-3 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-amber-300 font-bold text-base focus:border-amber-400 focus:outline-none"
-                    />
-                    {stat.inputType === 'percentage' && (
-                      <span className="absolute right-3 top-3 text-xs text-slate-500 font-bold pointer-events-none">
-                        %
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-slate-500 font-mono">
-                    × {stat.multiplier} PL
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* SECTION 3: DEFENSE & RESISTANCE STATS */}
-        {defenseStats.length > 0 && (
-          <div className="rounded-2xl bg-slate-900/90 border border-slate-750 p-5 space-y-4 shadow-xl">
-            <div className="flex items-center gap-2.5 border-b border-slate-800 pb-3">
-              <div className="size-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center">
-                <Shield className="size-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                  {lang === 'th' ? 'สเตตัสการป้องกันและลดทอน (Defense & Resistance)' : 'Defense & Resistance'}
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  {lang === 'th' ? 'พลังป้องกัน ลดทอนดาเมจ ต้านทานสกิล และเปอร์เซ็นต์ลดความเสียหาย' : 'Defenses, reductions, and resistances'}
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-              {defenseStats.map((stat) => (
-                <div key={stat.id} className="p-3.5 rounded-xl bg-slate-850/80 border border-slate-750 space-y-1.5 hover:border-slate-650 transition">
-                  <label className="block text-xs font-semibold text-slate-300 truncate" title={stat.labelTh}>
-                    {lang === 'th' ? stat.labelTh : stat.labelEn}
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min="0"
-                      value={stats[stat.id] === 0 ? '' : stats[stat.id]}
-                      onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
-                      placeholder="0"
-                      className="w-full px-3 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-amber-300 font-bold text-base focus:border-amber-400 focus:outline-none"
-                    />
-                    {stat.inputType === 'percentage' && (
-                      <span className="absolute right-3 top-3 text-xs text-slate-500 font-bold pointer-events-none">
-                        %
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-slate-500 font-mono">
-                    × {stat.multiplier} PL
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* SECTION 4: INTERACTIVE SPIRITS PROGRESSION CARDS */}
-        {spiritStats.length > 0 && (
-          <div className="rounded-2xl bg-slate-900/90 border border-slate-750 p-5 space-y-4 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="size-8 rounded-lg bg-purple-500/20 text-purple-300 flex items-center justify-center">
-                  <Flame className="size-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    {lang === 'th' ? 'ผลึกวิญญาณ (Spirits Progression)' : 'Spirits Progression'}
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                      5 SPIRITS
-                    </span>
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    {lang === 'th' ? 'ระบุระดับเลเวล (Level) และคลิกเลือกขั้นบวก 0, +1, +2, +3' : 'Enter spirit level and select enhancement tier'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {spiritStats.map((stat) => {
-                const cfg = stat.spiritConfig;
-                const neonColor = cfg?.accentColor || '#3b82f6';
-                const currentTier = spiritEnhancements[stat.id] ?? 0;
-
-                return (
-                  <div
-                    key={stat.id}
-                    className="p-4 rounded-2xl bg-slate-850/90 border border-slate-750 transition hover:border-slate-650 space-y-3.5 shadow-md"
-                  >
-                    {/* Spirit Header */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="size-7 rounded-lg flex items-center justify-center text-xs shadow-sm"
-                          style={{ backgroundColor: `${neonColor}22`, color: neonColor }}
-                        >
-                          {renderIcon(cfg?.icon)}
-                        </span>
-                        <span className="font-bold text-sm text-white">
-                          {lang === 'th' ? stat.labelTh.replace(/ผลึกวิญญาณ:\s*/, '') : stat.labelEn.replace(/Spirit:\s*/, '')}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-slate-500 font-mono">
-                        ×{stat.multiplier} PL
-                      </span>
+              {/* Level, Legend Classes, Legend Agathions (Compact Inline Strip) */}
+              <div className="grid grid-cols-3 gap-2.5 pt-1">
+                {/* Level */}
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase truncate">
+                      {lang === 'th' ? 'เลเวล' : 'Level'}
                     </div>
+                    <div className="text-[9px] text-slate-500 truncate">Lv. 1 - 99</div>
+                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    max="99"
+                    value={charLevel === 0 ? '' : charLevel}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      setCharLevel(isNaN(v) ? 0 : Math.max(0, Math.min(99, v)));
+                    }}
+                    placeholder="75"
+                    className="w-14 px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono font-bold text-sm text-center focus:border-purple-500 outline-none"
+                  />
+                </div>
 
-                    {/* Level & Enhancement Inputs */}
-                    <div className="flex items-center gap-3">
-                      {/* Level Input */}
-                      <div className="w-24 shrink-0 space-y-1">
-                        <label className="block text-[10px] text-slate-400 font-semibold uppercase">
-                          Level
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="20"
-                          value={stats[stat.id] === 0 ? '' : stats[stat.id]}
-                          onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
-                          placeholder="0"
-                          className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-center font-bold text-base text-white focus:outline-none focus:border-amber-400"
-                        />
-                      </div>
+                {/* Legend Classes */}
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase truncate">
+                      {lang === 'th' ? 'คลาสตำนาน' : 'Legend Class'}
+                    </div>
+                    <div className="text-[9px] text-slate-500 truncate">Count</div>
+                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    value={charLegendClasses === 0 ? '' : charLegendClasses}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      setCharLegendClasses(isNaN(v) ? 0 : Math.max(0, v));
+                    }}
+                    placeholder="0"
+                    className="w-14 px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono font-bold text-sm text-center focus:border-purple-500 outline-none"
+                  />
+                </div>
 
-                      {/* Enhancement Tiles [0] [+1] [+2] [+3] */}
-                      <div className="flex-1 space-y-1">
-                        <label className="block text-[10px] text-slate-400 font-semibold uppercase">
-                          Enhancement
-                        </label>
-                        <div className="grid grid-cols-4 gap-1.5">
-                          {[0, 1, 2, 3].map((tier) => {
-                            const isSelected = currentTier === tier;
-                            return (
-                              <button
-                                key={tier}
-                                type="button"
-                                onClick={() => handleSpiritEnhancementSelect(stat.id, tier)}
-                                className={`py-2 rounded-xl text-xs font-bold transition select-none flex items-center justify-center border ${
-                                  isSelected
-                                    ? 'shadow-md scale-105'
-                                    : 'bg-slate-900 text-slate-400 border-slate-750 hover:border-slate-650 hover:text-slate-200'
-                                }`}
-                                style={
-                                  isSelected
-                                    ? {
-                                        borderColor: neonColor,
-                                        color: neonColor,
-                                        backgroundColor: `${neonColor}18`,
-                                        boxShadow: `0 0 12px ${neonColor}44`
-                                      }
-                                    : undefined
-                                }
-                              >
-                                {tier === 0 ? '0' : `+${tier}`}
-                              </button>
-                            );
-                          })}
+                {/* Legend Agathions */}
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase truncate">
+                      {lang === 'th' ? 'อากาธีออน' : 'Agathion'}
+                    </div>
+                    <div className="text-[9px] text-slate-500 truncate">Legend</div>
+                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    value={charLegendAgathions === 0 ? '' : charLegendAgathions}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      setCharLegendAgathions(isNaN(v) ? 0 : Math.max(0, v));
+                    }}
+                    placeholder="0"
+                    className="w-14 px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono font-bold text-sm text-center focus:border-purple-500 outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* C. SPIRITS PROGRESSION (Compact 5-Spirits Grid) */}
+            {spiritStats.length > 0 && (
+              <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-4 space-y-3 shadow-lg">
+                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Flame className="size-4 text-purple-400" />
+                    <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide">
+                      {lang === 'th' ? 'ผลึกวิญญาณ (Spirits Progression)' : 'Spirits Progression'}
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                    5 SPIRITS
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {spiritStats.map((stat) => {
+                    const cfg = stat.spiritConfig;
+                    const neonColor = cfg?.accentColor || '#3b82f6';
+                    const currentTier = spiritEnhancements[stat.id] ?? 0;
+
+                    return (
+                      <div
+                        key={stat.id}
+                        className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-slate-700 flex items-center justify-between gap-3 transition"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="size-6 rounded-md flex items-center justify-center text-xs shrink-0"
+                            style={{ backgroundColor: `${neonColor}20`, color: neonColor }}
+                          >
+                            {renderIcon(cfg?.icon)}
+                          </span>
+                          <div className="truncate">
+                            <div className="font-bold text-xs text-white truncate">
+                              {lang === 'th' ? stat.labelTh.replace(/ผลึกวิญญาณ:\s*/, '') : stat.labelEn.replace(/Spirit:\s*/, '')}
+                            </div>
+                            <div className="text-[9px] text-slate-500 font-mono">
+                              ×{stat.multiplier} PL
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Level input + Enhancement Tiles */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <input
+                            type="number"
+                            min="0"
+                            max="20"
+                            value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                            onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
+                            placeholder="Lv"
+                            className="w-11 px-1.5 py-1 rounded-md bg-slate-900 border border-slate-700 text-center font-bold text-xs text-white outline-none focus:border-amber-400"
+                            title="Spirit Level"
+                          />
+
+                          <div className="flex items-center gap-0.5 bg-slate-900 p-0.5 rounded-md border border-slate-800">
+                            {[0, 1, 2, 3].map((tier) => {
+                              const isSelected = currentTier === tier;
+                              return (
+                                <button
+                                  key={tier}
+                                  type="button"
+                                  onClick={() => handleSpiritEnhancementSelect(stat.id, tier)}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition select-none ${
+                                    isSelected
+                                      ? 'shadow-sm'
+                                      : 'text-slate-400 hover:text-white'
+                                  }`}
+                                  style={
+                                    isSelected
+                                      ? {
+                                          borderColor: neonColor,
+                                          color: neonColor,
+                                          backgroundColor: `${neonColor}25`
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  {tier === 0 ? '0' : `+${tier}`}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ══════════════════════════════════════════════════════════
+              RIGHT COLUMN (5 COLS): STAT INPUTS + VERIFICATION & SUBMIT
+             ══════════════════════════════════════════════════════════ */}
+          <div className="lg:col-span-5 space-y-4">
+            
+            {/* D. STAT ATTRIBUTES CENTER (Tabbed to avoid endless scrolling) */}
+            <div className="rounded-2xl bg-slate-900/90 border border-slate-800 p-4 space-y-3.5 shadow-lg">
+              {/* Category Tab Switcher */}
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
+                <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setActiveStatCategory('combat');
+                    }}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition text-[11px] font-bold ${
+                      activeStatCategory === 'combat'
+                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Swords className="size-3" />
+                    <span>{lang === 'th' ? 'โจมตี' : 'Combat'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setActiveStatCategory('defense');
+                    }}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition text-[11px] font-bold ${
+                      activeStatCategory === 'defense'
+                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Shield className="size-3" />
+                    <span>{lang === 'th' ? 'ป้องกัน' : 'Defense'}</span>
+                  </button>
+
+                  {otherStats.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        setActiveStatCategory('special');
+                      }}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition text-[11px] font-bold ${
+                        activeStatCategory === 'special'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Star className="size-3" />
+                      <span>{lang === 'th' ? 'พิเศษ' : 'Special'}</span>
+                    </button>
+                  )}
+                </div>
+
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {activeStatCategory === 'combat'
+                    ? `${combatStats.length} ค่า`
+                    : activeStatCategory === 'defense'
+                    ? `${defenseStats.length} ค่า`
+                    : `${otherStats.length} ค่า`}
+                </span>
+              </div>
+
+              {/* Active Category Inputs (Clean 2-Column Compact Grid) */}
+              <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+                {(activeStatCategory === 'combat'
+                  ? combatStats
+                  : activeStatCategory === 'defense'
+                  ? defenseStats
+                  : otherStats
+                ).map((stat) => (
+                  <div
+                    key={stat.id}
+                    className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-slate-700 space-y-1 transition"
+                  >
+                    <div className="flex items-center justify-between text-[11px]">
+                      <label className="font-semibold text-slate-300 truncate" title={stat.labelTh}>
+                        {lang === 'th' ? stat.labelTh : stat.labelEn}
+                      </label>
+                      <span className="text-[9px] font-mono text-slate-500 shrink-0">
+                        ×{stat.multiplier}
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                        onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
+                        placeholder="0"
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-750 text-amber-300 font-bold font-mono text-sm focus:border-amber-400 outline-none"
+                      />
+                      {stat.inputType === 'percentage' && (
+                        <span className="absolute right-2 top-1.5 text-[10px] text-slate-500 font-bold pointer-events-none">
+                          %
+                        </span>
+                      )}
                     </div>
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
 
-        {/* SECTION 5: SPECIAL & PVP STATS */}
-        {otherStats.length > 0 && (
-          <div className="rounded-2xl bg-slate-900/90 border border-slate-750 p-5 space-y-4 shadow-xl">
-            <div className="flex items-center gap-2.5 border-b border-slate-800 pb-3">
-              <div className="size-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center">
-                <Star className="size-4" />
+            {/* E. VERIFICATION SCREENSHOT & LIVE CALCULATED PL SUBMIT HUB */}
+            <div className="rounded-2xl bg-slate-900/90 border border-amber-500/30 p-4 space-y-3.5 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                <div className="flex items-center gap-2">
+                  <ImageIcon className="size-4 text-emerald-400" />
+                  <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide">
+                    {lang === 'th' ? 'แนบภาพสกรีนช็อต & คำนวณค่าพลัง' : 'Proof & Submit Hub'}
+                  </h3>
+                </div>
+                <ScreenshotGuideTrigger onClick={() => setIsGuideOpen(true)} lang={lang} />
               </div>
-              <div>
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                  {lang === 'th' ? 'สเตตัสพิเศษและสงคราม (Special & PvP Stats)' : 'Special & PvP Stats'}
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  {lang === 'th' ? 'ต้านทาน/แม่นยำสตัน โอกาสทริปเปิ้ล และดวงดาว' : 'Stun resist/acc, triple chance, aster'}
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-              {otherStats.map((stat) => (
-                <div key={stat.id} className="p-3.5 rounded-xl bg-slate-850/80 border border-slate-750 space-y-1.5 hover:border-slate-650 transition">
-                  <label className="block text-xs font-semibold text-slate-300 truncate" title={stat.labelTh}>
-                    {lang === 'th' ? stat.labelTh : stat.labelEn}
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min="0"
-                      value={stats[stat.id] === 0 ? '' : stats[stat.id]}
-                      onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
-                      placeholder="0"
-                      className="w-full px-3 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-amber-300 font-bold text-base focus:border-amber-400 focus:outline-none"
-                    />
-                    {stat.inputType === 'percentage' && (
-                      <span className="absolute right-3 top-3 text-xs text-slate-500 font-bold pointer-events-none">
-                        %
-                      </span>
-                    )}
+
+              {/* Compact Screenshot Area */}
+              {screenshotUrl ? (
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div
+                      className="size-12 rounded-lg overflow-hidden border border-emerald-500/60 cursor-pointer shrink-0"
+                      onClick={() => onViewImageZoom?.(screenshotUrl, 'Stat Proof')}
+                    >
+                      <img src={screenshotUrl} alt="Proof" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="truncate">
+                      <div className="font-bold text-xs text-emerald-400 flex items-center gap-1 truncate">
+                        <CheckCircle className="size-3.5 shrink-0" />
+                        <span>{lang === 'th' ? 'แนบภาพสำเร็จแล้ว' : 'Proof Attached'}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {lang === 'th' ? 'คลิกเพื่อดูภาพขยาย' : 'Click to inspect'}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-[10px] text-slate-500 font-mono">
-                    × {stat.multiplier} PL
+
+                  <button
+                    type="button"
+                    onClick={() => setScreenshotUrl('')}
+                    className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-[11px] font-semibold border border-rose-500/30 transition shrink-0"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <label className="border border-dashed border-slate-700 hover:border-amber-400/80 rounded-xl p-3 flex items-center justify-between gap-3 bg-slate-950/60 hover:bg-slate-950 cursor-pointer transition">
+                  <input type="file" accept="image/*" onChange={handleFileUpload} className="sr-only" />
+                  <div className="flex items-center gap-2.5">
+                    <div className="size-8 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center shrink-0">
+                      <Upload className="size-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-200">
+                        {lang === 'th' ? 'เลือกไฟล์ หรือกด Ctrl + V' : 'Browse file or Ctrl + V'}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {lang === 'th' ? 'วางภาพถ่ายจากหน้าจอเกม' : 'Paste screenshot from game'}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono font-bold shrink-0">
+                    Ctrl + V
+                  </span>
+                </label>
+              )}
+
+              {/* Real-time Calculated PL Summary Strip */}
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400">
+                    {lang === 'th' ? 'ค่าพลังคำนวณสด (Calculated PL)' : 'Calculated Power'}
+                  </div>
+                  <div className="text-lg sm:text-xl font-black text-amber-400 font-mono">
+                    ⚡ {calculatedNewPL.toLocaleString()} PL
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {/* SECTION 6: SCREENSHOT PROOF UPLOAD (Spacious Full-Width Container) */}
-        <div className="rounded-2xl bg-slate-900/90 border border-slate-750 p-5 space-y-4 shadow-xl">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2.5">
-              <div className="size-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                <ImageIcon className="size-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                  {lang === 'th' ? 'แนบภาพสกรีนช็อตยืนยันสเตตัส (Proof of Stats) *' : 'Proof of Stats *'}
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  {lang === 'th' ? 'ภาพถ่ายหน้าต่างสเตตัสจากในเกม เพื่อให้ Admin ตรวจสอบความถูกต้อง' : 'Upload an in-game screenshot showing your character stats'}
-                </p>
-              </div>
-            </div>
-            <span className="text-xs text-amber-300/90 font-semibold flex items-center gap-1.5 self-start sm:self-auto bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/25">
-              <span>⚡</span>
-              <span>{lang === 'th' ? 'กด Ctrl + V วางภาพได้ทันที' : 'Ctrl + V to paste screenshot'}</span>
-            </span>
-          </div>
-
-          {/* Screenshot Guide Trigger */}
-          <ScreenshotGuideTrigger
-            onClick={() => setIsGuideOpen(true)}
-            lang={lang}
-          />
-
-          {screenshotUrl ? (
-            <div className="relative p-4 rounded-2xl bg-slate-950 border border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-5">
-              <div className="flex items-center gap-4 w-full sm:w-auto">
-                <div
-                  className="relative size-24 sm:size-28 rounded-xl overflow-hidden border-2 border-emerald-500/60 cursor-pointer group shrink-0"
-                  onClick={() => onViewImageZoom?.(screenshotUrl, 'Stat Proof')}
-                >
-                  <img
-                    src={screenshotUrl}
-                    alt="Stat Screenshot"
-                    className="w-full h-full object-cover group-hover:scale-105 transition"
-                  />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition">
-                    🔍 {lang === 'th' ? 'ดูรูปเต็ม' : 'Zoom'}
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
-                    <CheckCircle className="size-4" />
-                    <span>{lang === 'th' ? 'แนบภาพหลักฐานเรียบร้อยแล้ว' : 'Screenshot attached'}</span>
-                  </div>
-                  <p className="text-xs text-slate-400">
-                    {lang === 'th' ? 'คลิกที่ภาพเพื่อขยายดูภาพสกรีนช็อตเต็มจอ' : 'Click thumbnail to inspect in full resolution'}
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setScreenshotUrl('')}
-                className="px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold transition self-end sm:self-center"
-              >
-                {lang === 'th' ? 'เปลี่ยนภาพหลักฐาน' : 'Remove Image'}
-              </button>
-            </div>
-          ) : (
-            <label className="border-2 border-dashed border-slate-700 hover:border-amber-400/80 rounded-2xl p-8 flex flex-col items-center justify-center gap-2.5 bg-slate-950/40 hover:bg-slate-850/40 cursor-pointer transition text-center group">
-              <input type="file" accept="image/*" onChange={handleFileUpload} className="sr-only" />
-              <div className="size-12 rounded-full bg-slate-800 group-hover:bg-amber-500/20 text-slate-400 group-hover:text-amber-300 flex items-center justify-center transition">
-                <Upload className="size-6" />
-              </div>
-              <div className="text-sm font-bold text-slate-200">
-                {lang === 'th' ? 'คลิกเพื่อเลือกไฟล์ หรือลากไฟล์ภาพมาวาง' : 'Click to browse or drag image here'}
-              </div>
-              <div className="text-xs text-slate-400">
-                {lang === 'th'
-                  ? 'หรือกด Ctrl + V วางรูปจากหน้าจอเกมได้ทันที (รองรับ JPG, PNG)'
-                  : 'Or press Ctrl + V to paste image directly from clipboard'}
-              </div>
-            </label>
-          )}
-        </div>
-
-        {errorMessage && (
-          <div className="p-4 rounded-2xl bg-rose-500/20 border border-rose-500/50 text-rose-300 text-xs flex items-center gap-3 shadow-lg">
-            <AlertCircle className="size-5 shrink-0" />
-            <span>{errorMessage}</span>
-          </div>
-        )}
-
-        {successMessage && (
-          <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-xs flex items-center gap-3 shadow-lg">
-            <CheckCircle className="size-5 shrink-0" />
-            <span>{successMessage}</span>
-          </div>
-        )}
-
-        {/* STICKY BOTTOM REAL-TIME CALCULATION & SUBMIT BAR */}
-        <div className="sticky bottom-4 z-20 p-4 sm:p-5 rounded-2xl bg-slate-950/95 border border-slate-750 shadow-2xl backdrop-blur-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div>
-              <div className="text-[10px] text-slate-400 uppercase font-semibold">
-                {lang === 'th' ? 'ค่าพลังคำนวณสด (Calculated PL)' : 'Calculated PL'}
-              </div>
-              <div className="flex items-baseline gap-2.5">
-                <span className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">
-                  ⚡ {calculatedNewPL.toLocaleString()} PL
-                </span>
-                {plDiff !== 0 && (
-                  <span
-                    className={`text-xs sm:text-sm font-bold font-mono px-2 py-0.5 rounded-full ${
-                      plDiff > 0
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                <div className="text-right font-mono">
+                  <div className="text-[10px] text-slate-400">{lang === 'th' ? 'ส่วนต่าง' : 'Delta'}</div>
+                  <div
+                    className={`text-xs font-bold ${
+                      plDiff > 0 ? 'text-emerald-400' : plDiff < 0 ? 'text-rose-400' : 'text-slate-400'
                     }`}
                   >
                     {plDiff > 0 ? `+${plDiff.toLocaleString()}` : plDiff.toLocaleString()} PL
-                  </span>
-                )}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-3">
-            {onNavigateTab && (
+              {errorMessage && (
+                <div className="p-2.5 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
+                  <AlertCircle className="size-4 shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              {/* Big Action Submit CTA Button */}
               <button
-                type="button"
-                onClick={() => {
-                  sounds.playClick();
-                  onNavigateTab('dashboard');
-                }}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+                type="submit"
+                disabled={isSubmitting || calculatedNewPL <= 0 || !screenshotUrl}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-amber-500/25 transition active:scale-98 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
               >
-                {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
+                {isSubmitting ? (
+                  <>
+                    <RotateCcw className="size-4 animate-spin" />
+                    <span>{lang === 'th' ? 'กำลังส่งข้อมูล...' : 'Submitting...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="size-4 fill-slate-950" />
+                    <span>{lang === 'th' ? 'ส่งคำขออัปเดตสเตตัส' : 'Submit Stat Update Request'}</span>
+                  </>
+                )}
               </button>
-            )}
-            <button
-              type="submit"
-              disabled={isSubmitting || calculatedNewPL <= 0}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:brightness-110 disabled:opacity-50 text-slate-950 font-bold text-xs sm:text-sm shadow-xl shadow-amber-500/25 transition-all cursor-pointer"
-            >
-              <Zap className="size-4 fill-slate-950" />
-              <span>
-                {isSubmitting
-                  ? lang === 'th'
-                    ? 'กำลังส่งคำขอ...'
-                    : 'Submitting...'
-                  : lang === 'th'
-                  ? 'ส่งคำขออัปเดตสเตตัส'
-                  : 'Submit Stat Request'}
-              </span>
-            </button>
+            </div>
           </div>
         </div>
       </form>
 
-      {/* Kain7 Screenshot Guide Modal */}
+      {/* Screenshot Guide Modal */}
       <ScreenshotGuideModal
         isOpen={isGuideOpen}
         onClose={() => setIsGuideOpen(false)}
         lang={lang}
-        onViewImageZoom={onViewImageZoom}
       />
     </div>
   );
