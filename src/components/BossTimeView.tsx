@@ -60,7 +60,7 @@ export const BossTimeView: React.FC<BossTimeViewProps> = ({
       {/* 100% Exact Original Client Application via Iframe (Edge-to-Edge) */}
       <iframe
         ref={iframeRef}
-        src="/boss-tracker"
+        src="/boss-tracker.html"
         className="w-full h-full border-none select-auto block"
         title="Lineage 2 Exact Boss Tracker Standalone"
         allow="autoplay; fullscreen"

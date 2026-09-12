@@ -13,7 +13,8 @@ import {
   VolumeX,
   Sparkles,
   Users,
-  Zap
+  Zap,
+  Flame
 } from 'lucide-react';
 import { CharacterClass, ClanGroup, Language, User as UserType, CHARACTER_CLASSES, cleanClanName, DEFAULT_CLAN } from '../types';
 import { translations } from '../translations';
@@ -36,6 +37,7 @@ interface LoginScreenProps {
   users: UserType[];
   clans: ClanGroup[];
   onOpenBgModal?: () => void;
+  onOpenBossTime?: () => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
@@ -47,7 +49,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   onRegister,
   users,
   clans,
-  onOpenBgModal
+  onOpenBgModal,
+  onOpenBossTime
 }) => {
   const t = translations[lang];
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -564,6 +567,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             </form>
           )}
 
+          {/* Direct link to Standalone Boss Tracker (Zero Clan Hub login required) */}
+          {onOpenBossTime && (
+            <div className="mt-5 pt-4 border-t border-slate-800/80">
+              <button
+                id="btn-login-open-boss-tracker"
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  onOpenBossTime();
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500/10 via-amber-500/15 to-amber-500/10 hover:from-amber-500/20 hover:to-amber-500/20 border border-amber-500/40 hover:border-amber-400/70 text-amber-200 hover:text-amber-100 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md group"
+              >
+                <Flame className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform animate-pulse" />
+                <span>{lang === 'th' ? '⏱️ เปิดหน้าเวลาบอส (Standalone Boss Tracker)' : '⏱️ Open Standalone Boss Tracker'}</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Footer info */}

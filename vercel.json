@@ -1,5 +1,14 @@
 {
+  "cleanUrls": true,
   "rewrites": [
+    { "source": "/boss-tracker", "destination": "/boss-tracker.html" },
+    { "source": "/bosses/(.*)", "destination": "/api/index.js" },
+    { "source": "/events/(.*)", "destination": "/api/index.js" },
+    { "source": "/settings/(.*)", "destination": "/api/index.js" },
+    { "source": "/login", "destination": "/api/index.js" },
+    { "source": "/logout", "destination": "/api/index.js" },
+    { "source": "/force-reload", "destination": "/api/index.js" },
+    { "source": "/api/(.*)", "destination": "/api/index.js" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

@@ -1715,6 +1715,21 @@ export const App: React.FC = () => {
     );
   }, [vaultItems, selectedClanScope]);
 
+  // Priority 1: Standalone Boss Time View (Rule 4: Zero dependency on Clan Hub login, own PIN system)
+  if (activeTab === 'boss_time') {
+    return (
+      <div className="fixed inset-0 z-[99999] w-screen h-screen overflow-hidden bg-black select-auto">
+        <BossTimeView
+          currentUser={currentUser}
+          lang={lang}
+          isOwner={currentUser?.role === 'owner'}
+          isAdmin={canAccessAdminFeatures}
+          onBackToDashboard={() => setActiveTab('dashboard')}
+        />
+      </div>
+    );
+  }
+
   // If user is not logged in, display the centered Login/Register screen before entering the app
   if (!currentUser) {
     return (
@@ -1747,6 +1762,7 @@ export const App: React.FC = () => {
             users={users}
             clans={clans}
             onOpenBgModal={() => setShowBgModal(true)}
+            onOpenBossTime={() => setActiveTab('boss_time')}
           />
         </div>
 
