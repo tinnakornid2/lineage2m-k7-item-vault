@@ -17,7 +17,9 @@ import {
   DiscordSettings,
   ClanFundTxType,
   cleanClanName,
-  StatHistoryPoint
+  StatHistoryPoint,
+  UserRole,
+  UserStatus
 } from './types';
 import { getOrGenerateStatHistory } from './utils/growthTimelineHelper';
 import { translations } from './translations';
@@ -908,6 +910,10 @@ export const App: React.FC = () => {
       level?: number;
       legendClasses?: number;
       legendAgathions?: number;
+      inGameName?: string;
+      role?: UserRole;
+      status?: UserStatus;
+      clan?: string;
     }
   ) => {
     const timestamp = Date.now();
@@ -915,12 +921,20 @@ export const App: React.FC = () => {
     const reqLevel = profileData?.level;
     const reqLegendClasses = profileData?.legendClasses;
     const reqLegendAgathions = profileData?.legendAgathions;
+    const reqInGameName = profileData?.inGameName;
+    const reqRole = profileData?.role;
+    const reqStatus = profileData?.status;
+    const reqClan = profileData?.clan;
 
     setUsers((prev) =>
       prev.map((u) =>
         u.id === userId
           ? {
               ...u,
+              inGameName: reqInGameName || u.inGameName,
+              role: reqRole || u.role,
+              status: reqStatus || u.status,
+              clan: reqClan || u.clan,
               pendingPowerLevel: newPowerLevel,
               pendingPowerLevelRequestedAt: timestamp,
               pendingStats: newStats,
@@ -940,6 +954,10 @@ export const App: React.FC = () => {
         prev
           ? {
               ...prev,
+              inGameName: reqInGameName || prev.inGameName,
+              role: reqRole || prev.role,
+              status: reqStatus || prev.status,
+              clan: reqClan || prev.clan,
               pendingPowerLevel: newPowerLevel,
               pendingPowerLevelRequestedAt: timestamp,
               pendingStats: newStats,
@@ -955,7 +973,7 @@ export const App: React.FC = () => {
       );
     }
     try {
-      await updateUserDoc(userId, {
+      const docUpdates: Record<string, any> = {
         pendingPowerLevel: newPowerLevel,
         pendingPowerLevelRequestedAt: timestamp,
         pendingStats: newStats,
@@ -966,7 +984,13 @@ export const App: React.FC = () => {
         pendingLegendClasses: reqLegendClasses ?? null,
         pendingLegendAgathions: reqLegendAgathions ?? null,
         statRejectionReason: null
-      });
+      };
+      if (reqInGameName) docUpdates.inGameName = reqInGameName;
+      if (reqRole) docUpdates.role = reqRole;
+      if (reqStatus) docUpdates.status = reqStatus;
+      if (reqClan) docUpdates.clan = reqClan;
+
+      await updateUserDoc(userId, docUpdates);
 
       // Discord webhook notification
       if (discordSettings?.enabled) {
@@ -1585,6 +1609,8 @@ export const App: React.FC = () => {
           <MyStatsView
             currentUser={currentUser}
             lang={lang}
+            clans={clans}
+            onUpdateMember={handleUpdateMember}
             onRequestStatUpdate={handleRequestStatUpdate}
             onCancelPendingRequest={handleCancelPowerLevelRequest}
             onNavigateTab={(tab) => setActiveTab(tab)}

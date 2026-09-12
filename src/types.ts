@@ -25,7 +25,7 @@ export type CharacterClass = string;
 
 export type ItemRarity = 'RARE' | 'EPIC' | 'LAGEND' | 'MYTHIC';
 
-export type UserRole = 'owner' | 'admin' | 'manager' | 'member';
+export type UserRole = 'owner' | 'admin' | 'manager' | 'party_leader' | 'member';
 
 export type UserStatus = 'active' | 'pending_approval';
 

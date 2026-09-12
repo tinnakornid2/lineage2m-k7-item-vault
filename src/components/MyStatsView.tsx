@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Zap,
   Upload,
@@ -18,9 +18,10 @@ import {
   User as UserIcon,
   UserCheck,
   HelpCircle,
-  Check
+  Check,
+  ChevronDown
 } from 'lucide-react';
-import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint } from '../types';
+import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint, ClanGroup, UserRole, UserStatus, cleanClanName, OFFICIAL_CLANS } from '../types';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
@@ -30,6 +31,8 @@ import { GrowthTimelineChart } from './GrowthTimelineChart';
 interface MyStatsViewProps {
   currentUser: User | null;
   lang: 'th' | 'en';
+  clans?: ClanGroup[];
+  onUpdateMember?: (userId: string, updates: Partial<User>) => Promise<void>;
   onRequestStatUpdate: (
     userId: string,
     newStats: Record<string, number>,
@@ -41,6 +44,10 @@ interface MyStatsViewProps {
       level?: number;
       legendClasses?: number;
       legendAgathions?: number;
+      inGameName?: string;
+      role?: UserRole;
+      status?: UserStatus;
+      clan?: string;
     }
   ) => Promise<void>;
   onCancelPendingRequest?: (userId: string) => Promise<void>;
@@ -53,6 +60,8 @@ interface MyStatsViewProps {
 export const MyStatsView: React.FC<MyStatsViewProps> = ({
   currentUser,
   lang,
+  clans,
+  onUpdateMember,
   onRequestStatUpdate,
   onCancelPendingRequest,
   onNavigateTab,
@@ -68,10 +77,38 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const [charLevel, setCharLevel] = useState<number>(0);
   const [charLegendClasses, setCharLegendClasses] = useState<number>(0);
   const [charLegendAgathions, setCharLegendAgathions] = useState<number>(0);
+
+  // Profile Identity & Placement State (matching user image)
+  const [inGameName, setInGameName] = useState<string>(currentUser?.inGameName || '');
+  const [selectedRole, setSelectedRole] = useState<UserRole>(currentUser?.role || 'member');
+  const [isActiveStatus, setIsActiveStatus] = useState<boolean>(currentUser?.status === 'active');
+  const [selectedClan, setSelectedClan] = useState<string>(currentUser?.clan || 'VoltZ');
+
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Available Clan Options
+  const clanOptions = useMemo(() => {
+    const list: string[] = [];
+    if (clans && clans.length > 0) {
+      clans.forEach((c) => {
+        const name = cleanClanName(c.name);
+        if (name && !list.includes(name)) list.push(name);
+      });
+    } else {
+      OFFICIAL_CLANS.forEach((c) => {
+        const name = cleanClanName(c.name);
+        if (name && !list.includes(name)) list.push(name);
+      });
+    }
+    if (currentUser?.clan) {
+      const cur = cleanClanName(currentUser.clan);
+      if (cur && !list.includes(cur)) list.push(cur);
+    }
+    return list;
+  }, [clans, currentUser?.clan]);
 
   // Synchronize stats and profile from currentUser
   useEffect(() => {
@@ -95,6 +132,12 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
       setStats(initialStats);
       setSpiritEnhancements(initialSpirits);
       setScreenshotUrl(currentUser.pendingStatScreenshotUrl || '');
+
+      // Profile fields
+      setInGameName(currentUser.inGameName || '');
+      setSelectedRole(currentUser.role || 'member');
+      setIsActiveStatus(currentUser.status === 'active');
+      setSelectedClan(currentUser.clan || 'VoltZ');
 
       // Character Profile (classes, level, legends)
       const initialClasses = currentUser.pendingClasses !== undefined && currentUser.pendingClasses !== null
@@ -218,6 +261,86 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     );
   };
 
+  const isLeader = selectedRole === 'party_leader' || selectedRole === 'manager' || selectedRole === 'admin' || selectedRole === 'owner';
+
+  const handleRoleChange = async (type: 'member' | 'leader') => {
+    sounds.playClick();
+    let newRole: UserRole = 'member';
+    if (type === 'leader') {
+      newRole = (currentUser.role === 'owner' || currentUser.role === 'admin')
+        ? currentUser.role
+        : 'party_leader';
+    }
+    setSelectedRole(newRole);
+    if (onUpdateMember) {
+      try {
+        await onUpdateMember(currentUser.id, { role: newRole });
+        if (showToast) {
+          showToast(
+            type === 'leader'
+              ? (lang === 'th' ? 'เปลี่ยนบทบาทเป็น 👑 Leader เรียบร้อยแล้ว' : 'Role set to 👑 Leader')
+              : (lang === 'th' ? 'เปลี่ยนบทบาทเป็น Member เรียบร้อยแล้ว' : 'Role set to Member'),
+            'info'
+          );
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleToggleStatus = async () => {
+    sounds.playClick();
+    const nextStatus = !isActiveStatus;
+    setIsActiveStatus(nextStatus);
+    if (onUpdateMember) {
+      try {
+        await onUpdateMember(currentUser.id, { status: nextStatus ? 'active' : 'pending_approval' });
+        if (showToast) {
+          showToast(
+            nextStatus
+              ? (lang === 'th' ? 'สถานะ: Active (เปิดใช้งาน)' : 'Status: Active')
+              : (lang === 'th' ? 'สถานะ: Inactive (ระงับชั่วคราว)' : 'Status: Inactive'),
+            'info'
+          );
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleClanChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    sounds.playClick();
+    const newClan = e.target.value;
+    setSelectedClan(newClan);
+    if (onUpdateMember) {
+      try {
+        await onUpdateMember(currentUser.id, { clan: newClan });
+        if (showToast) {
+          showToast(lang === 'th' ? `เปลี่ยนสังกัดแคลนเป็น ${newClan} แล้ว` : `Clan set to ${newClan}`, 'success');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleIgnBlur = async () => {
+    const trimmed = inGameName.trim();
+    if (!trimmed || trimmed === currentUser.inGameName) return;
+    if (onUpdateMember) {
+      try {
+        await onUpdateMember(currentUser.id, { inGameName: trimmed });
+        if (showToast) {
+          showToast(lang === 'th' ? `เปลี่ยนชื่อตัวละครเป็น ${trimmed} แล้ว` : `In-Game Name updated to ${trimmed}`, 'success');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
   // Live Real-Time Power Level Calculation
   const currentVerifiedPL = currentUser.powerLevel || 0;
   const calculatedNewPL = calculatePowerLevel(stats, spiritEnhancements, formulaSettings, false);
@@ -255,6 +378,10 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
         calculatedNewPL,
         screenshotUrl,
         {
+          inGameName: inGameName.trim() || currentUser.inGameName,
+          role: selectedRole,
+          status: isActiveStatus ? 'active' : 'pending_approval',
+          clan: selectedClan,
           classes: selectedClasses,
           level: charLevel,
           legendClasses: charLegendClasses,
@@ -440,17 +567,17 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
              ══════════════════════════════════════════════════════════ */}
           <div className="order-2 lg:order-1 lg:col-span-4 space-y-4">
             
-            {/* 1. MEMBER INFORMATION CARD */}
-            <div className="rounded-2xl bg-zinc-800/90 border border-zinc-700 p-4 sm:p-5 space-y-4 shadow-lg">
-              <div className="flex items-start gap-3 pb-3 border-b border-zinc-700">
-                <span className="size-10 rounded-xl bg-zinc-750 border border-zinc-700 flex items-center justify-center text-zinc-300 shrink-0">
-                  <UserIcon className="size-5" />
+            {/* 1. MEMBER INFORMATION CARD (Matching Kain7 Design) */}
+            <div className="rounded-2xl bg-zinc-850/95 border border-zinc-700/80 p-5 space-y-4 shadow-xl">
+              <div className="flex items-start gap-3.5 pb-3.5 border-b border-zinc-700/70">
+                <span className="size-12 rounded-2xl bg-zinc-800 border border-zinc-700/70 flex items-center justify-center text-zinc-300 shrink-0 shadow-inner">
+                  <UserIcon className="size-5 text-zinc-300 fill-zinc-300" />
                 </span>
                 <div>
-                  <h2 className="text-sm sm:text-base font-bold text-white">
+                  <h2 className="text-base font-bold text-white tracking-tight">
                     {lang === 'th' ? 'ข้อมูลสมาชิก' : 'Member Information'}
                   </h2>
-                  <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
+                  <p className="text-xs text-zinc-400 mt-0.5 leading-relaxed">
                     {lang === 'th'
                       ? 'ตัวตน บทบาท สังกัดแคลน และสถานะของตัวละคร'
                       : 'Identity, role, clan placement, and profile-level settings.'}
@@ -458,56 +585,103 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                 </div>
               </div>
 
-              <div className="space-y-3.5">
-                {/* IGN */}
+              <div className="space-y-4">
+                {/* 1. In-Game Name */}
                 <div>
-                  <label className="block mb-1.5 font-semibold text-zinc-200 text-xs">
-                    {lang === 'th' ? 'ชื่อตัวละครในเกม' : 'In-Game Name'} <span className="text-rose-500">*</span>
+                  <label className="block mb-1.5 font-semibold text-zinc-200 text-xs sm:text-sm">
+                    {lang === 'th' ? 'ชื่อในเกม' : 'In-Game Name'} <span className="text-rose-500 font-bold">*</span>
                   </label>
                   <input
                     type="text"
-                    value={currentUser.inGameName}
-                    readOnly
-                    className="w-full px-3 py-2 rounded-lg bg-zinc-700/60 border border-zinc-600 text-white font-bold text-sm outline-none cursor-default"
+                    value={inGameName}
+                    onChange={(e) => setInGameName(e.target.value)}
+                    onBlur={handleIgnBlur}
+                    placeholder={currentUser?.inGameName || 'IGN'}
+                    className="w-full px-4 py-2.5 rounded-xl bg-zinc-750/70 border border-zinc-700 text-white font-bold text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all placeholder:text-zinc-500 shadow-inner"
                   />
                 </div>
 
-                {/* Role Picker (Radio group matching Kain7) */}
+                {/* 2. Role Selector (Member vs 👑 Leader) */}
                 <div>
-                  <label className="block mb-1.5 font-semibold text-zinc-200 text-xs">
-                    {lang === 'th' ? 'บทบาทในทีม' : 'Role'} <span className="text-rose-500">*</span>
+                  <label className="block mb-1.5 font-semibold text-zinc-200 text-xs sm:text-sm">
+                    {lang === 'th' ? 'บทบาท' : 'Role'} <span className="text-rose-500 font-bold">*</span>
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="py-2 text-center text-xs border-2 rounded-lg font-bold border-zinc-400 bg-zinc-700/60 text-white select-none">
-                      {currentUser.role === 'party_leader' ? 'Member' : 'Member'}
-                    </div>
-                    <div className="py-2 text-center text-xs border-2 rounded-lg font-bold border-zinc-700 bg-zinc-800/40 text-zinc-400 select-none">
-                      👑 Leader
-                    </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => handleRoleChange('member')}
+                      className={`py-2.5 px-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center cursor-pointer shadow-sm ${
+                        !isLeader
+                          ? 'border-2 border-zinc-300 bg-zinc-750 text-white'
+                          : 'border border-zinc-700 bg-zinc-800/80 text-zinc-300 hover:bg-zinc-750 hover:text-white'
+                      }`}
+                    >
+                      Member
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRoleChange('leader')}
+                      className={`py-2.5 px-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
+                        isLeader
+                          ? 'border-2 border-[#eab308] bg-zinc-800/90 text-white shadow-[0_0_12px_rgba(234,179,8,0.25)]'
+                          : 'border border-zinc-700 bg-zinc-800/80 text-zinc-400 hover:bg-zinc-750 hover:text-amber-300'
+                      }`}
+                    >
+                      <span>👑</span> Leader
+                    </button>
                   </div>
                 </div>
 
-                {/* Active Status & Clan */}
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <div>
-                    <label className="block mb-1 font-semibold text-zinc-300 text-xs">
-                      {lang === 'th' ? 'สถานะ' : 'Status'}
-                    </label>
-                    <div className="flex items-center gap-2 py-1.5">
-                      <span className="size-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span className="text-xs font-bold text-emerald-400">
-                        {lang === 'th' ? 'ใช้งานปกติ' : 'Active'}
-                      </span>
-                    </div>
+                {/* 3. Status Switch */}
+                <div>
+                  <label className="block mb-1.5 font-semibold text-zinc-200 text-xs sm:text-sm">
+                    {lang === 'th' ? 'สถานะ' : 'Status'}
+                  </label>
+                  <div className="flex items-center gap-3 pt-0.5">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isActiveStatus}
+                      onClick={handleToggleStatus}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        isActiveStatus ? 'bg-emerald-500' : 'bg-zinc-650'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block size-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                          isActiveStatus ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                    <span
+                      onClick={handleToggleStatus}
+                      className="text-sm font-bold text-white cursor-pointer select-none"
+                    >
+                      {isActiveStatus
+                        ? (lang === 'th' ? 'Active' : 'Active')
+                        : (lang === 'th' ? 'Inactive' : 'Inactive')}
+                    </span>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block mb-1 font-semibold text-zinc-300 text-xs">
-                      {lang === 'th' ? 'แคลน' : 'Clan'}
-                    </label>
-                    <div className="px-2.5 py-1.5 rounded-lg bg-zinc-700/50 border border-zinc-600 text-xs font-bold text-zinc-200 truncate">
-                      🛡️ {currentUser.clan || 'no-clan'}
-                    </div>
+                {/* 4. Clan Selector */}
+                <div>
+                  <label className="block mb-1.5 font-semibold text-zinc-200 text-xs sm:text-sm">
+                    {lang === 'th' ? 'สังกัดแคลน' : 'Clan'}
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={selectedClan}
+                      onChange={handleClanChange}
+                      className="w-full appearance-none rounded-xl bg-zinc-750/70 border border-zinc-700 px-4 py-2.5 text-sm font-medium text-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all cursor-pointer pr-10 shadow-inner"
+                    >
+                      {clanOptions.map((cName) => (
+                        <option key={cName} value={cName} className="bg-zinc-800 text-white font-medium">
+                          {cName}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 size-4 text-zinc-400" />
                   </div>
                 </div>
               </div>
