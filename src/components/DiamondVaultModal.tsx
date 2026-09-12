@@ -634,20 +634,20 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col rounded-2xl bg-gradient-to-b from-[#111827] via-[#0b0f19] to-[#070a12] border border-sky-500/30 shadow-[0_0_50px_rgba(56,189,248,0.15)] text-slate-200 overflow-hidden">
+      <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col rounded-2xl bg-gradient-to-b from-[#111827] via-[#0b0f19] to-[#070a12] border border-white/20 shadow-[0_0_50px_rgba(255,255,255,0.1)] text-slate-200 overflow-hidden">
         
         {/* Top Header */}
         <div className="p-4 sm:p-5 border-b border-slate-800/80 bg-slate-900/40 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/40 text-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.25)]">
+            <div className="p-2.5 rounded-xl bg-white/10 border border-white/30 text-white shadow-[0_0_15px_rgba(255,255,255,0.3)]">
               <Gem className="w-6 h-6 animate-pulse" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-bold font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-sky-200 via-sky-400 to-blue-400">
+                <h2 className="text-lg sm:text-xl font-bold font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-white via-slate-100 to-slate-300">
                   {t.clanFund}
                 </h2>
-                <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/10 border border-sky-500/30 text-sky-300">
+                <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/10 border border-white/20 text-slate-200">
                   Kain7 Vault Standard
                 </span>
               </div>
@@ -794,10 +794,10 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                 </span>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="text-3xl sm:text-4xl font-extrabold font-mono text-transparent bg-clip-text bg-gradient-to-r from-sky-300 via-sky-100 to-white drop-shadow-[0_0_15px_rgba(56,189,248,0.4)]">
+                <span className="text-3xl sm:text-4xl font-extrabold font-mono text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]">
                   {currentDisplayBalance.toLocaleString()}
                 </span>
-                <span className="text-base font-bold text-sky-400">💎</span>
+                <span className="text-base font-bold text-white">💎</span>
               </div>
               <div className="flex items-center gap-3 pt-1 text-xs">
                 <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 font-mono font-semibold text-[11px]">

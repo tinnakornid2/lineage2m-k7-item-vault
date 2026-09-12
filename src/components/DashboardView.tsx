@@ -161,13 +161,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {/* 1. Resized/Compact Diamond Vault Box */}
             <div
               id="diamond-vault-card"
-              className="w-full sm:w-56 md:w-60 rounded-xl bg-gradient-to-b from-[#111927] to-[#0a0f18] border border-[#38bdf8]/40 p-4 shadow-2xl relative flex flex-col justify-between group"
+              className="w-full sm:w-56 md:w-60 rounded-xl bg-gradient-to-b from-[#131929] to-[#080c14] border border-white/20 hover:border-white/45 p-4 shadow-2xl relative flex flex-col justify-between group transition-all"
             >
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-[#0284c7]/20 border border-[#38bdf8]/40 text-[#38bdf8]">
-                      <Gem className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                    <div className="p-1.5 rounded-lg bg-white/10 border border-white/25 text-white shadow-inner">
+                      <Gem className="w-4 h-4 text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.7)] group-hover:scale-110 transition-transform" />
                     </div>
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-cinzel">
@@ -178,11 +178,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </p>
                     </div>
                   </div>
-                  <Sparkles className="w-3.5 h-3.5 text-[#38bdf8] animate-pulse" />
+                  <Sparkles className="w-3.5 h-3.5 text-white animate-pulse" />
                 </div>
 
                 <div className="flex items-baseline gap-1.5 my-2">
-                  <span className="text-2xl sm:text-3xl font-extrabold font-mono text-[#38bdf8] drop-shadow-md">
+                  <span className="text-2xl sm:text-3xl font-extrabold font-mono text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.35)]">
                     {vaultBalance.toLocaleString()}
                   </span>
                   <span className="text-xs font-medium text-slate-400">
@@ -199,9 +199,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     sounds.playClick();
                     onOpenVaultModal();
                   }}
-                  className="w-full py-1.5 px-2.5 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-white/15 hover:bg-white/25 border border-white/25 text-white text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
                 >
-                  <ArrowDownCircle className="w-3.5 h-3.5" />
+                  <ArrowDownCircle className="w-3.5 h-3.5 text-white" />
                   <span>{t.deposit} / {t.withdraw}</span>
                 </button>
               ) : (
@@ -478,8 +478,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                         {/* 3. Price */}
                         <td className="py-1.5 px-3">
-                          <div className="flex items-center gap-1 font-mono font-bold text-xs sm:text-sm text-[#38bdf8]">
-                            <Gem className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+                          <div className="flex items-center gap-1 font-mono font-bold text-xs sm:text-sm text-white">
+                            <Gem className="w-3.5 h-3.5 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)] shrink-0" />
                             <span>{item.price.toLocaleString()}</span>
                             <span className="text-[10px] text-slate-400 font-normal">
                               {t.diamonds}

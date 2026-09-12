@@ -243,11 +243,11 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
           </div>
 
           <div className="p-3 rounded-xl bg-[#0f172a]/60 border border-slate-800 flex flex-col">
-            <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
-              <Gem className="w-3.5 h-3.5 text-sky-400" />
+            <span className="text-[11px] text-slate-300 font-medium flex items-center gap-1">
+              <Gem className="w-3.5 h-3.5 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)]" />
               <span>{lang === 'th' ? 'มูลค่าเพชรรวม' : 'Total Diamonds'}</span>
             </span>
-            <span className="text-xl font-bold font-mono text-[#38bdf8] mt-1">
+            <span className="text-xl font-bold font-mono text-white mt-1 drop-shadow-[0_0_8px_rgba(255,255,255,0.35)]">
               {totalDistributedDiamonds.toLocaleString()}
             </span>
           </div>

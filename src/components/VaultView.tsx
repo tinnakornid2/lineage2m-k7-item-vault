@@ -1497,7 +1497,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                       3. {t.itemPrice} *
                     </label>
                     <div className="relative">
-                      <Gem className="w-4 h-4 text-[#38bdf8] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <Gem className="w-4 h-4 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)] absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         id="input-vault-price"
                         type="number"
@@ -2457,7 +2457,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                       </td>
 
                       {/* 4. Price */}
-                      <td className="py-3 px-4 font-mono text-[#38bdf8] font-bold">
+                      <td className="py-3 px-4 font-mono text-white font-bold drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]">
                         {item.price.toLocaleString()} {t.diamonds}
                       </td>
 
@@ -2719,7 +2719,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                     <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border uppercase ${getRarityBadge(viewingDistributedHuntersItem.rarity)}`}>
                       {viewingDistributedHuntersItem.rarity}
                     </span>
-                    <span className="text-xs font-mono text-[#38bdf8] font-bold">
+                    <span className="text-xs font-mono text-white font-bold drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]">
                       {viewingDistributedHuntersItem.price.toLocaleString()} {t.diamonds}
                     </span>
                   </div>

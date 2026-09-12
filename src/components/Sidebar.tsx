@@ -266,9 +266,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               sounds.playClick();
               onOpenVaultModal();
             }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#0d1627]/90 border border-[#38bdf8]/40 text-xs font-mono font-bold text-[#7dd3fc] cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#0d1627]/90 border border-white/25 hover:border-white/50 text-xs font-mono font-bold text-white shadow-sm cursor-pointer transition-all"
           >
-            <Gem className="w-3.5 h-3.5 text-[#38bdf8]" />
+            <Gem className="w-3.5 h-3.5 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.6)]" />
             <span>{vaultBalance.toLocaleString()}</span>
           </button>
 
@@ -443,29 +443,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
               sounds.playClick();
               onOpenVaultModal();
             }}
-            className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-[#0c182c] via-[#091222] to-[#050b16] border border-[#38bdf8]/40 hover:border-[#38bdf8] p-3 shadow-lg shadow-black/50 transition-all duration-200 cursor-pointer"
+            className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-[#131929] via-[#0d131f] to-[#070a12] border border-white/20 hover:border-white/45 p-3 shadow-lg shadow-black/50 transition-all duration-200 cursor-pointer"
           >
             {/* Ambient inner glow */}
-            <div className="absolute top-0 right-0 w-24 h-24 bg-[#38bdf8]/10 rounded-full blur-xl pointer-events-none -mr-6 -mt-6" />
+            <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full blur-xl pointer-events-none -mr-6 -mt-6" />
 
             <div className="relative flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-[#38bdf8]/15 border border-[#38bdf8]/30 group-hover:scale-105 transition-transform">
-                  <Gem className="w-4 h-4 text-[#38bdf8]" />
+                <div className="p-2 rounded-lg bg-white/10 border border-white/25 group-hover:scale-105 transition-transform shadow-inner">
+                  <Gem className="w-4 h-4 text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
                 </div>
                 <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 group-hover:text-slate-200 flex items-center gap-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300 group-hover:text-white flex items-center gap-1">
                     <span>{t.diamondVault}</span>
-                    <Sparkles className="w-2.5 h-2.5 text-[#e0f2fe] animate-pulse" />
+                    <Sparkles className="w-2.5 h-2.5 text-white animate-pulse" />
                   </div>
-                  <div className="text-base sm:text-lg font-bold font-mono text-[#7dd3fc] tracking-tight">
+                  <div className="text-base sm:text-lg font-bold font-mono text-white tracking-tight drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]">
                     {vaultBalance.toLocaleString()}
                   </div>
                 </div>
               </div>
 
               <div className="text-right">
-                <span className="text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-medium group-hover:bg-sky-500/30 transition-colors">
+                <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-slate-200 font-medium border border-white/20 group-hover:bg-white/20 group-hover:text-white transition-colors">
                   {lang === 'th' ? 'เปิดคลัง' : 'Open'}
                 </span>
               </div>

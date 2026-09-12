@@ -150,17 +150,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onOpenVaultModal();
               }}
               title={t.diamondVault}
-              className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-[#0d1627]/80 border border-[#38bdf8]/40 hover:border-[#38bdf8] text-slate-200 hover:text-white transition-all shadow-md group"
+              className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-[#0d1627]/80 border border-white/25 hover:border-white/50 text-slate-200 hover:text-white transition-all shadow-md group"
             >
               <div className="relative">
-                <Gem className="w-4 h-4 sm:w-5 sm:h-5 text-[#38bdf8] group-hover:scale-110 transition-transform" />
-                <Sparkles className="w-2.5 h-2.5 text-[#e0f2fe] absolute -top-1 -right-1 animate-pulse" />
+                <Gem className="w-4 h-4 sm:w-5 sm:h-5 text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.7)] group-hover:scale-110 transition-transform" />
+                <Sparkles className="w-2.5 h-2.5 text-white absolute -top-1 -right-1 animate-pulse" />
               </div>
               <div className="text-left leading-tight">
-                <div className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">
+                <div className="text-[10px] uppercase tracking-wider text-slate-300 font-medium">
                   {t.diamonds}
                 </div>
-                <div className="text-xs sm:text-sm font-bold font-mono text-[#7dd3fc]">
+                <div className="text-xs sm:text-sm font-bold font-mono text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.3)]">
                   {vaultBalance.toLocaleString()}
                 </div>
               </div>
