@@ -170,27 +170,35 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
     // 2. Also check local backend /api/gemini-status if available
     const checkServerStatus = async () => {
-      try {
-        const res = await fetch('/api/gemini-status');
-        const text = await res.text();
-        if (text && !text.trim().startsWith('<')) {
-          const data = JSON.parse(text);
-          if (data?.clientKey && data.clientKey.trim().length > 10) {
-            const clean = data.clientKey.trim();
-            setActiveGeminiKey(clean);
-            setGeminiConfigured(true);
-            setGeminiMaskedKey(data.maskedKey || `${clean.slice(0, 6)}...${clean.slice(-4)}`);
-            localStorage.setItem('k7_gemini_api_key', clean);
+      const isLocalhost = typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+      if (isLocalhost) {
+        try {
+          const res = await fetch('/api/gemini-status');
+          const text = await res.text();
+          if (text && !text.trim().startsWith('<')) {
+            const data = JSON.parse(text);
+            if (data?.clientKey && data.clientKey.trim().length > 10) {
+              const clean = data.clientKey.trim();
+              setActiveGeminiKey(clean);
+              setGeminiConfigured(true);
+              setGeminiMaskedKey(data.maskedKey || `${clean.slice(0, 6)}...${clean.slice(-4)}`);
+              localStorage.setItem('k7_gemini_api_key', clean);
+              return;
+            }
           }
+        } catch {
+          // Ignore and fallback below
         }
-      } catch {
-        // Fallback to localStorage or DEFAULT_GEMINI_API_KEY
-        const localKey = localStorage.getItem('k7_gemini_api_key') || DEFAULT_GEMINI_API_KEY;
-        if (localKey && localKey.length > 10) {
-          setActiveGeminiKey(localKey);
-          setGeminiConfigured(true);
-          setGeminiMaskedKey(`${localKey.slice(0, 6)}...${localKey.slice(-4)}`);
-        }
+      }
+
+      // Fallback to localStorage or DEFAULT_GEMINI_API_KEY
+      const localKey = localStorage.getItem('k7_gemini_api_key') || DEFAULT_GEMINI_API_KEY;
+      if (localKey && localKey.length > 10) {
+        setActiveGeminiKey(localKey);
+        setGeminiConfigured(true);
+        setGeminiMaskedKey(`${localKey.slice(0, 6)}...${localKey.slice(-4)}`);
       }
     };
     checkServerStatus();
@@ -603,7 +611,14 @@ export const VaultView: React.FC<VaultViewProps> = ({
     knownList: any[],
     apiKey: string
   ): Promise<{ success: boolean; data?: any; error?: string }> => {
-    const candidateModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+    const candidateModels = [
+      "gemini-flash-latest",
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-flash-lite-latest",
+      "gemini-3-flash-preview",
+      "gemini-3.6-flash"
+    ];
 
     const imageParts = base64Images.slice(0, 8).map((img) => {
       const cleanBase64 = img.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
@@ -679,22 +694,35 @@ Do not include markdown or explanations. Return pure JSON only.`;
 
           if (!res.ok) {
             const apiMsg = jsonBody?.error?.message || `HTTP ${res.status}`;
-            const isBusy = res.status === 503 || res.status === 429 || apiMsg.toLowerCase().includes('high demand') || apiMsg.toLowerCase().includes('unavailable');
+            const isBusy = res.status === 503 || res.status === 429 || apiMsg.toLowerCase().includes('high demand') || apiMsg.toLowerCase().includes('unavailable') || apiMsg.toLowerCase().includes('quota') || apiMsg.toLowerCase().includes('rate');
             if (isBusy && attempt < maxAttempts) {
-              await new Promise((r) => setTimeout(r, 1500));
+              await new Promise((r) => setTimeout(r, 1200));
               continue;
             }
-            if (res.status === 404) {
+            if (res.status === 404 || isBusy) {
+              lastErrorMsg = apiMsg;
               break; // Try next candidate model
             }
             throw new Error(apiMsg);
           }
 
-          const generatedText = jsonBody?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          const match = generatedText.match(/\{[\s\S]*\}/);
+          const parts = jsonBody?.candidates?.[0]?.content?.parts || [];
+          const generatedText = parts.map((p: any) => p.text || '').filter(Boolean).join('\n');
+          if (!generatedText) {
+            console.warn(`Empty text returned from model ${model}, trying next...`);
+            break;
+          }
+
+          // Strip markdown code fences if present (e.g. ```json ... ```)
+          let cleanJson = generatedText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+          const match = cleanJson.match(/\{[\s\S]*\}/);
           if (match) {
-            const parsed = JSON.parse(match[0]);
-            return { success: true, data: parsed };
+            try {
+              const parsed = JSON.parse(match[0]);
+              return { success: true, data: parsed };
+            } catch (jsonErr) {
+              console.warn(`JSON parse error on model ${model}:`, jsonErr);
+            }
           }
           return { success: true, data: { detectedClanGroups: [], rawNames: [] } };
         } catch (err: any) {
@@ -730,34 +758,41 @@ Do not include markdown or explanations. Return pure JSON only.`;
       let data: any = null;
       let usedDirectFallback = false;
 
-      // 1. Try local backend server first
-      try {
-        const response = await fetch('/api/scan-hunters', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imagesBase64: base64Images,
-            imageBase64: base64Images[0],
-            customApiKey: effectiveApiKey,
-            knownMembers: knownMemberList
-          })
-        });
+      // Detect if running on localhost or on a deployed domain (Vercel)
+      const isLocalhost = typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-        const respText = await response.text();
-        if (respText && !respText.trim().startsWith('<')) {
-          try {
-            data = JSON.parse(respText);
-          } catch {
-            data = null;
+      if (isLocalhost) {
+        // 1. On localhost, try local Express backend server first
+        try {
+          const response = await fetch('/api/scan-hunters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              imagesBase64: base64Images,
+              imageBase64: base64Images[0],
+              customApiKey: effectiveApiKey,
+              knownMembers: knownMemberList
+            })
+          });
+
+          const respText = await response.text();
+          if (respText && !respText.trim().startsWith('<')) {
+            try {
+              data = JSON.parse(respText);
+            } catch {
+              data = null;
+            }
           }
+        } catch (fetchErr) {
+          console.warn('Backend /api/scan-hunters fetch failed, will try direct Gemini fallback:', fetchErr);
+          data = null;
         }
-      } catch (fetchErr) {
-        console.warn('Backend /api/scan-hunters fetch failed, will try direct Gemini fallback:', fetchErr);
-        data = null;
       }
 
-      // 2. If backend failed or returned HTML or 503 high demand, try Direct Client-Side Gemini Fallback!
+      // 2. If not localhost (deployed on Vercel), or local backend failed/high demand, run Direct Client-Side Gemini
       const shouldFallbackDirect =
+        !isLocalhost ||
         !data ||
         (data.error === 'GEMINI_ERROR' &&
           (data.message?.includes('หนาแน่น') ||

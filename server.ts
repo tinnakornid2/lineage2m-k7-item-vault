@@ -10,9 +10,16 @@ dotenv.config();
 const currentFilename = typeof import.meta !== "undefined" && import.meta.url ? fileURLToPath(import.meta.url) : (typeof __filename !== "undefined" ? __filename : "");
 const currentDirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(currentFilename);
 
-// Helper to generate content with modern Gemini model fallback (3.6 -> 2.5 -> 2.0 -> 1.5) and auto-retry for 503 high demand
+// Helper to generate content with modern Gemini model fallback (flash-latest -> 3.5-flash -> 3.1-flash-lite -> flash-lite-latest -> 3-flash-preview -> 3.6-flash) and auto-retry for 503 high demand
 async function generateWithModelFallback(ai: GoogleGenAI, request: { contents: any; systemInstruction?: any }) {
-  const candidateModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+  const candidateModels = [
+    "gemini-flash-latest",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-3-flash-preview",
+    "gemini-3.6-flash"
+  ];
   let lastError: any = null;
   for (const model of candidateModels) {
     const maxAttempts = 3;
