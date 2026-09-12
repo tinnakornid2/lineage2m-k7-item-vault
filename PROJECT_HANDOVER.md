@@ -1,13 +1,14 @@
 # 📋 PROJECT HANDOVER & WORK CONTINUATION GUIDE
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.7.0)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.7.2)**  
 > **Last Updated:** 2026-09-12  
 > **Repository:** `tinnakornid2/lineage2m-k7-item-vault`  
-> **Live Web App:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)
+> **Live Web App:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)  
+> **Master Architecture Guide:** [SYSTEM_ARCHITECTURE.md](file:///d:/K7%20item%20webapp/lineage2m-k7-item-vault%20%281%29/SYSTEM_ARCHITECTURE.md)
 
 ---
 
 ## 🎯 วัตถุประสงค์ของเอกสารนี้ (Purpose)
-เอกสารนี้จัดทำขึ้นเพื่อให้ **AI Assistant ในห้องแชทใหม่ (New Chat Session)** หรือนักพัฒนาท่านอื่น สามารถเข้ามาอ่านและเริ่มทำงานต่อได้ทันที โดยเข้าใจสถาปัตยกรรม ฟีเจอร์ล่าสุด สถานะโค้ดปัจจุบัน และกฎเกณฑ์สำคัญของระบบอย่างครบถ้วน 100%
+เอกสารนี้จัดทำขึ้นเพื่อให้ **AI Assistant ในห้องแชทใหม่ (New Chat Session)** หรือนักพัฒนาท่านอื่น สามารถเข้ามาอ่านและเริ่มทำงานต่อได้ทันที โดยเข้าใจสถาปัตยกรรม ฟีเจอร์ล่าสุด สถานะโค้ดปัจจุบัน และกฎเกณฑ์สำคัญของระบบอย่างครบถ้วน 100% **เพื่อป้องกันไม่ให้ไปแก้ไขส่วนอื่นโดยไม่จำเป็น**
 
 ---
 
@@ -27,7 +28,7 @@
 
 ---
 
-## 🏗️ ฟีเจอร์ล่าสุดในเวอร์ชัน v1.7.0 (What's New in v1.7.0)
+## 🏗️ ฟีเจอร์ล่าสุดในเวอร์ชัน v1.7.1 (What's New in v1.7.1)
 
 ### 1. ระบบสูตรคำนวณค่าพลัง Real-time Firestore Sync (`PowerFormula`)
 - เชื่อมต่อ `FormulaSettings` ลงใน Firestore collection `app_settings/power_formula`
@@ -69,9 +70,29 @@
 - **Firestore Cloud Key Sync:** ซิงค์ Gemini API Key ลงคอลเลกชัน `app_settings/gemini_ai` ทำให้แอดมินทุกคนที่เปิดจากเครื่องใหม่หรือเบราว์เซอร์ใหม่สามารถใช้งาน OCR ได้ทันทีโดยไม่ต้องตั้งค่าเอง
 - **GeminiKeyModal สำหรับ Owner:** สามารถกดทดสอบและบันทึกคีย์ผ่านหน้าเว็บ Vercel ได้โดยตรง โดยตรวจเช็กกับ Google Generative Language API ทันที
 
+### 9. มาตรฐานสีเพชรขาวสว่าง (White Diamond & Font Standard)
+- ปรับไอคอนเพชร `Gem` และตัวเลขแสดงยอดเพชรทั้งหมดจากสีฟ้าเป็น **สีขาวสว่าง คมชัด (`text-white font-mono font-bold`)** พร้อมประกายเงาคริสตัล
+- ครอบคลุมทุกจุดในระบบ: Sidebar Desktop Card, Mobile Top Header, Navbar Widget, Dashboard Vault Box, Items Table Price Column, และ Vault View
+
+### 10. ระบบการอนุมัติแบบทีละคนอย่างเคร่งครัดและป้องกันการกดเบิ้ล (Individual 1-by-1 Approval & Anti-Double Click)
+- **อนุมัติทีละคน 100%:** ระบบไม่มีปุ่ม "อนุมัติทุกคน" (No Approve All) เพื่อป้องกันการตรวจหลักฐานคลาดเคลื่อน
+- **Loading Spinner & Disabled State:** ปุ่มอนุมัติและปฏิเสธใน `MembersView.tsx`, `StatApprovalView.tsx`, และ `StatApprovalModal.tsx` มีสถานะ `processingUserId` / `processingMemberId` หมุนติ้วขณะบันทึกข้อมูล พร้อมปิดปุ่มชั่วคราวป้องกันการกดเบิ้ล
+- **Bilingual Toast ระบุชื่อสมาชิก:** เมื่ออนุมัติสำเร็จ จะมีข้อความ Toast แจ้งเตือนสองภาษาระบุชื่อสมาชิกทันที เช่น `อนุมัติสมาชิก [ชื่อสมาชิก] สำเร็จ 🎉`
+
+---
+
+## 🔒 กฎการป้องกันโค้ดเสียหาย (Code Protection & Safety Rules)
+> [!IMPORTANT]
+> เพื่อป้องกันไม่ให้ AI หรือผู้พัฒนาอื่นไปแก้ไขส่วนที่ไม่จำเป็น ให้ยึดถือเอกสาร [SYSTEM_ARCHITECTURE.md](file:///d:/K7%20item%20webapp/lineage2m-k7-item-vault%20%281%29/SYSTEM_ARCHITECTURE.md) เป็นหลักเกณฑ์สำคัญ:
+> 1. **ห้ามเปลี่ยนโมเดล OCR:** คงชุดโมเดล `gemini-flash-latest`, `gemini-3.5-flash` ไว้เสมอ
+> 2. **ห้ามลดสิทธิ์ Owner:** บัญชี `eloni` ต้องคงสิทธิ์สูงสุดเสมอ
+> 3. **ห้ามละเมิดระบบ 2 ภาษา:** ทุกการเพิ่มโค้ดต้องรองรับ TH และ EN 100%
+> 4. **Local First Rule:** ทดสอบบน `localhost:3000` ก่อน และห้ามรัน `git push` โดยไม่ได้รับคำสั่งยืนยัน
+
 ---
 
 ## 📂 แผนผังไฟล์สำคัญ (Key Files Map)
+- `SYSTEM_ARCHITECTURE.md`: **แผนผังวิศวกรรมระบบแม่บทและคู่มือป้องกันโค้ดเสียหาย (Master Blueprint)**
 - `src/App.tsx`: ควบคุม Global State, Firestore Real-time Listeners, Modal Routing, และการจัดเก็บ Current User
 - `src/components/MyStatsView.tsx`: หน้าระบบสเตตัสและการเติบโต (Kain7 Dashboard พร้อม Floating Pinned Proof)
 - `src/components/StatComparisonModal.tsx`: หน้าต่าง Split-View เปรียบเทียบสเตตัสก่อนอนุมัติ
@@ -102,10 +123,16 @@ npm run dev
 
 ## 💬 ข้อความตัวอย่างสำหรับ Copy ไปเริ่มในห้องแชทใหม่:
 ```
-โปรดอ่านไฟล์ AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
-ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.7.0)
+โปรดอ่านไฟล์ SYSTEM_ARCHITECTURE.md, AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
+ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.7.2)
 - บัญชี Owner: Eloni (รหัสผ่าน 0386231334)
 - Live URL: https://lineage2m-k7-item-vault.vercel.app/
-- สถานะล่าสุด: ระบบสเตตัส Kain7 ได้รับการรีเซ็ตค่าสเตตัสสมาชิกทุกคนเพื่อรออัปเดตรอบใหม่, ซ่อนป้ายตัวคูณแล้ว, ซิงค์สูตรผ่าน Firestore แบบ Real-time, และรองรับ 2 ภาษา 100%
-โปรดยืนยันว่าเข้าใจโครงสร้างระบบแล้ว พร้อมรับคำสั่งงานต่อไปครับ
+- สถานะล่าสุด:
+  1. ระบบอนุมัติสเตตัสและสมาชิกใหม่ทำงานแบบทีละคน (1-by-1) 100% พร้อม Loading Spinner และ Toast ระบุชื่อ
+  2. ระบบสเตตัส Kain7 ได้รับการรีเซ็ตเพื่อรออัปเดตรอบใหม่ พร้อมระบบ Floating Pinned Proof (S/M/L)
+  3. ระบบคำนวณ PL ซิงค์สูตรผ่าน Cloud Firestore แบบ Real-time
+  4. ระบบ AI OCR รองรับ Direct Client บน Vercel พร้อมชุดโมเดลล่าสุด (gemini-flash-latest, ฯลฯ)
+  5. เพชรและฟอนต์ตัวเลขแสดงผลเป็นสีขาวสว่างตามมาตรฐานล่าสุด
+  6. รองรับ 2 ภาษา (TH/EN) 100% และมีกฎ Local-First ก่อน Deploy
+โปรดยืนยันว่าเข้าใจสถาปัตยกรรมและกฎการป้องกันโค้ดเสียหายแล้ว พร้อมรับคำสั่งงานต่อไปครับ
 ```

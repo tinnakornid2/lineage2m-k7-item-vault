@@ -1,5 +1,5 @@
 # 🤖 AI_CONTEXT.md — สรุปบริบทและสถาปัตยกรรมระบบ Lineage2M Clan Hub
-> **สำหรับ AI ในการทำความเข้าใจโปรเจกต์อย่างรวดเร็วและครบถ้วน 100% (เวอร์ชันปัจจุบัน: v1.7.0)**
+> **สำหรับ AI ในการทำความเข้าใจโปรเจกต์อย่างรวดเร็วและครบถ้วน 100% (เวอร์ชันปัจจุบัน: v1.7.2)**
 
 เมื่อเปิดห้องแชทใหม่ ให้สั่ง AI อ่านไฟล์นี้ทันที เพื่อให้เข้าใจโครงสร้าง สถาปัตยกรรม โค้ด และกฎทางธุรกิจทั้งหมดโดยไม่ต้องอธิบายใหม่
 
@@ -210,32 +210,41 @@ d:/K7 item webapp/lineage2m-k7-item-vault (1)/
        - ลดความยาวหน้าเว็บ กรอกง่าย พร้อมตัวคูณกำกับแต่ละสเตตัส (`x1`, `x2`, `x3`) ตามสูตร Kain7
     3. **ปุ่มยืนยันส่งคำขอ (Submit Verification):** แพ็คข้อมูลทั้งหมดขึ้นระบบรออนุมัติ พร้อมส่งแจ้งเตือนเข้า Discord Webhook อัตโนมัติ
 
-### 4.14 กฎความปลอดภัยและการล็อคสิทธิ์เฉพาะ Owner / Admin (Role, Status & Clan Permissions)
-- **การ์ดข้อมูลสมาชิก (Member Information Card):**
-  - ช่อง **บทบาท (`Role *`)**, **สถานะ (`Status`)**, และ **แคลน (`Clan`)** ถูกกำหนดให้**แก้ไขได้เฉพาะบัญชี Owner หรือ Admin เท่านั้น** (`isOwner || isAdmin`)
-  - สำหรับสมาชิกทั่วไป (Regular Member): ช่องเหล่านี้จะขึ้นป้ายกำกับ `🔒 เฉพาะ: Owner / Admin` และอยู่ในสถานะ `disabled` ปิดการคลิกเพื่อป้องกันการแอบเปลี่ยนบทบาทหรือย้ายแคลนเอง
-  - **การคุ้มครองบัญชี Owner (`Eloni` / `user_owner_eloni`):**
-    - มีระบบ Immutable Owner Protection ทั้งใน Firestore, App State, LocalStorage, และ Form Submissions
-    - บัญชี Eloni จะถูกตรึงบทบาทเป็น `owner` ตลอดเวลา ไม่สามารถถูกลดระดับเป็น `member` ได้
+### 4.15 ระบบ AI OCR และโมเดลที่ใช้งานได้จริง (Working AI Models & Vercel Direct Fallback)
+- **โมเดลที่ใช้งานได้:** ต้องเป็นชุดโมเดลที่ Google เปิดให้บริการในปัจจุบันเท่านั้น ได้แก่: `gemini-flash-latest`, `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-flash-lite-latest`, `gemini-3-flash-preview`, `gemini-3.6-flash` (ห้ามใช้ 1.5/2.0/2.5 เพราะ Google คืนค่า 404)
+- **Direct Client OCR บน Vercel:** หากโฮสต์ไม่ใช่ Localhost (`!isLocalhost`) ระบบจะข้ามการเรียก `/api/scan-hunters` (ซึ่งไม่มี Backend บน Vercel) และประมวลผลผ่าน `runDirectGeminiClientOcr` โดยตรง
+- **Cloud Key Sync:** คีย์ Gemini ถูกซิงค์ผ่าน Firestore `app_settings/gemini_ai` เพื่อให้แอดมินทุกคนบนทุกอุปกรณ์ใช้งานได้ทันที
+
+### 4.16 มาตรฐานการป้องกันโค้ดเสียหาย (Code Protection Blueprint)
+- โปรดอ่านและยึดถือเอกสาร [SYSTEM_ARCHITECTURE.md](file:///d:/K7%20item%20webapp/lineage2m-k7-item-vault%20%281%29/SYSTEM_ARCHITECTURE.md) อย่างเคร่งครัด
+- **ห้ามแก้ไขส่วนที่ไม่จำเป็น:** เพื่อป้องกันการเกิด Regression บักที่ไม่ตั้งใจในฟังก์ชันที่ทำงานสมบูรณ์แล้ว
+- **มาตรฐานเพชรขาว:** ไอคอนและตัวเลขยอดเพชรทั้งหมดแสดงผลเป็นสีขาวสว่าง (`text-white font-mono font-bold`)
 
 ---
 
 ## 5. คำสั่งการทำงานและทดสอบ (Commands)
 - **รันเซิร์ฟเวอร์พัฒนา:** `npm run dev` (เปิดที่ `http://localhost:3000`)
 - **ตรวจสอบ Type TypeScript:** `npx tsc --noEmit`
-- **Build สำหรับ Production:** `npx vite build` หรือ `npm run build`
+- **Build สำหรับ Production:** `npm run build`
 - **URL ระบบที่ Deploy สด:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)
-- *หมายเหตุสำหรับ Windows PowerShell:* ห้ามใช้ `&&` ในการต่อคำสั่ง ให้ใช้เครื่องหมายเซมิโคลอน `;` แทน เช่น `npx vite build ; npx tsc --noEmit`
+- *หมายเหตุสำหรับ Windows PowerShell:* ห้ามใช้ `&&` ในการต่อคำสั่ง ให้ใช้เครื่องหมายเซมิโคลอน `;` แทน
 
 ---
 
 ## 6. ข้อความพร้อมใช้สำหรับเปิดแชทใหม่ (New Chat Prompt Template)
 คัดลอกข้อความด้านล่างนี้ไปวางเมื่อเปิดห้องแชทใหม่ เพื่อให้ AI สานต่องานได้ทันที 100%:
 ```
-โปรดอ่านไฟล์ AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
-ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.6.0)
+โปรดอ่านไฟล์ SYSTEM_ARCHITECTURE.md, AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
+ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.7.2)
 - บัญชี Owner: Eloni (รหัสผ่าน 0386231334)
 - Live URL: https://lineage2m-k7-item-vault.vercel.app/
-- ฟีเจอร์ล่าสุด: หน้าระบบสเตตัส Kain7 (MyStatsView) และการล็อคสิทธิ์ Member Information เฉพาะ Owner/Admin
-โปรดยืนยันว่าเข้าใจโครงสร้างระบบแล้ว พร้อมรับคำสั่งงานต่อไปครับ
+- สถานะล่าสุด:
+  1. ระบบอนุมัติสเตตัสและสมาชิกใหม่ทำงานแบบทีละคน (1-by-1) 100% พร้อม Loading Spinner และ Toast ระบุชื่อ
+  2. ระบบสเตตัส Kain7 ได้รับการรีเซ็ตเพื่อรออัปเดตรอบใหม่ พร้อมระบบ Floating Pinned Proof (S/M/L)
+  3. ระบบคำนวณ PL ซิงค์สูตรผ่าน Cloud Firestore แบบ Real-time
+  4. ระบบ AI OCR รองรับ Direct Client บน Vercel พร้อมชุดโมเดลล่าสุด (gemini-flash-latest, ฯลฯ)
+  5. เพชรและฟอนต์ตัวเลขแสดงผลเป็นสีขาวสว่างตามมาตรฐานล่าสุด
+  6. มีเอกสาร SYSTEM_ARCHITECTURE.md กำกับโซนห้ามแก้ไขโดยไม่จำเป็นและแนวทางต่อยอดฟังก์ชัน
+  7. รองรับ 2 ภาษา (TH/EN) 100% และมีกฎ Local-First ก่อน Deploy
+โปรดยืนยันว่าเข้าใจสถาปัตยกรรมและกฎการป้องกันโค้ดเสียหายแล้ว พร้อมรับคำสั่งงานต่อไปครับ
 ```

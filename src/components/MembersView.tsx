@@ -17,7 +17,8 @@ import {
   ArrowRightLeft,
   ArrowRight,
   LayoutGrid,
-  List
+  List,
+  Loader2
 } from 'lucide-react';
 import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, OFFICIAL_CLASSES, cleanClanName, ClanGroup } from '../types';
 import { translations } from '../translations';
@@ -68,6 +69,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [memberToDelete, setMemberToDelete] = useState<User | null>(null);
+  const [processingMemberId, setProcessingMemberId] = useState<string | null>(null);
 
   const canDeleteMember = (mem: User) => {
     if (!currentUser) return false;
@@ -423,21 +425,43 @@ export const MembersView: React.FC<MembersViewProps> = ({
 
                   <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
                     <button
-                      onClick={() => {
-                        sounds.playClaim();
-                        onApproveMember(member.id);
+                      type="button"
+                      disabled={processingMemberId === member.id}
+                      onClick={async () => {
+                        setProcessingMemberId(member.id);
+                        try {
+                          sounds.playClaim();
+                          await onApproveMember(member.id);
+                        } finally {
+                          setProcessingMemberId(null);
+                        }
                       }}
-                      className="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-1 shadow cursor-pointer"
+                      className="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-1 shadow cursor-pointer disabled:opacity-50"
                     >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>{t.approveBtn}</span>
+                      {processingMemberId === member.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      <span>
+                        {processingMemberId === member.id
+                          ? (lang === 'th' ? 'กำลังอนุมัติ...' : 'Approving...')
+                          : t.approveBtn}
+                      </span>
                     </button>
                     <button
-                      onClick={() => {
-                        sounds.playClick();
-                        onRejectMember(member.id);
+                      type="button"
+                      disabled={processingMemberId === member.id}
+                      onClick={async () => {
+                        setProcessingMemberId(member.id);
+                        try {
+                          sounds.playClick();
+                          await onRejectMember(member.id);
+                        } finally {
+                          setProcessingMemberId(null);
+                        }
                       }}
-                      className="p-1.5 rounded-lg bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 transition-all cursor-pointer"
+                      className="p-1.5 rounded-lg bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 transition-all cursor-pointer disabled:opacity-50"
                       title={t.rejectBtn}
                     >
                       <X className="w-3.5 h-3.5" />

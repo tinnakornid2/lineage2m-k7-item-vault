@@ -15,7 +15,8 @@ import {
   ArrowRight,
   Send,
   HelpCircle,
-  Eye
+  Eye,
+  Loader2
 } from 'lucide-react';
 import { User, StatDefinition, OFFICIAL_CLASSES } from '../types';
 import { sounds } from '../utils/sound';
@@ -64,6 +65,7 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
   const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingUserId, setProcessingUserId] = useState<string | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [inspectingUser, setInspectingUser] = useState<User | null>(null);
 
@@ -74,6 +76,7 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
 
   const handleApprove = async (user: User) => {
     setIsProcessing(true);
+    setProcessingUserId(user.id);
     try {
       sounds.playSuccess();
       await onApproveStatUpdate(user.id);
@@ -89,6 +92,7 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
       if (showToast) showToast(err?.message || 'Approval failed', 'error');
     } finally {
       setIsProcessing(false);
+      setProcessingUserId(null);
     }
   };
 
@@ -420,10 +424,18 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
                       type="button"
                       onClick={() => handleApprove(user)}
                       disabled={isProcessing}
-                      className="flex items-center gap-1.5 px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition"
+                      className="flex items-center gap-1.5 px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition disabled:opacity-50"
                     >
-                      <CheckCircle2 className="size-4" />
-                      <span>{lang === 'th' ? 'อนุมัติสเตตัส (Approve)' : 'Approve'}</span>
+                      {processingUserId === user.id ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="size-4" />
+                      )}
+                      <span>
+                        {processingUserId === user.id
+                          ? (lang === 'th' ? 'กำลังอนุมัติ...' : 'Approving...')
+                          : (lang === 'th' ? 'อนุมัติสเตตัส (Approve)' : 'Approve')}
+                      </span>
                     </button>
                   </div>
                 </div>

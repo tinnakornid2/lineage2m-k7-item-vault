@@ -880,22 +880,44 @@ export const App: React.FC = () => {
 
   // Members Handlers (Approvals & Management)
   const handleApproveMember = async (userId: string) => {
+    const target = users.find((u) => u.id === userId);
     setUsers((prev) =>
       prev.map((u) => (u.id === userId ? { ...u, status: 'active' } : u))
     );
     try {
       await updateUserDoc(userId, { status: 'active' });
+      showToast(
+        lang === 'th'
+          ? `อนุมัติสมาชิก ${target?.inGameName || ''} สำเร็จ 🎉`
+          : `Approved member ${target?.inGameName || ''} successfully 🎉`,
+        'success'
+      );
     } catch (err) {
       console.error('Failed to approve member in Firestore:', err);
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการอนุมัติสมาชิก' : 'Failed to approve member',
+        'error'
+      );
     }
   };
 
   const handleRejectMember = async (userId: string) => {
+    const target = users.find((u) => u.id === userId);
     setUsers((prev) => prev.filter((u) => u.id !== userId));
     try {
       await deleteUserDoc(userId);
+      showToast(
+        lang === 'th'
+          ? `ปฏิเสธคำขอสมัครของ ${target?.inGameName || ''} แล้ว`
+          : `Rejected registration for ${target?.inGameName || ''}`,
+        'info'
+      );
     } catch (err) {
       console.error('Failed to reject member in Firestore:', err);
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการปฏิเสธสมาชิก' : 'Failed to reject member',
+        'error'
+      );
     }
   };
 
