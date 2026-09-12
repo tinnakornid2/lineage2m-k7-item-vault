@@ -75,8 +75,28 @@ export const GROWTH_METRICS: GrowthMetricMeta[] = [
  * if none exists yet or has fewer than 2 data points.
  */
 export function getOrGenerateStatHistory(user: User): StatHistoryPoint[] {
-  if (user.statHistory && user.statHistory.length >= 2) {
+  if (Array.isArray(user.statHistory) && user.statHistory.length > 0) {
     return [...user.statHistory].sort((a, b) => a.date - b.date);
+  }
+  if (Array.isArray(user.statHistory) && user.statHistory.length === 0) {
+    const currentPl = user.powerLevel || 3000;
+    const currentLv = user.level || 75;
+    return [
+      {
+        id: `base_point_${user.id}`,
+        date: Date.now(),
+        powerLevel: currentPl,
+        level: currentLv,
+        classes: user.classes || (user.characterClass ? [user.characterClass] : []),
+        damage: user.stats?.['damage'] || 0,
+        accuracy: user.stats?.['accuracy'] || 0,
+        defense: user.stats?.['defense'] || 0,
+        damageReduction: user.stats?.['damage_reduction'] || 0,
+        note: 'สถานะปัจจุบัน',
+        type: 'approval',
+        verifiedBy: 'System'
+      }
+    ];
   }
 
   const currentPl = user.powerLevel || 3000;
