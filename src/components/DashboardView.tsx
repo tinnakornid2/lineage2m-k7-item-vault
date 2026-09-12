@@ -12,6 +12,10 @@ import {
   ShieldAlert,
   Crown,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Search,
+  SlidersHorizontal,
   X,
   Trash2,
   Eye,
@@ -71,6 +75,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const t = translations[lang];
   const [itemToDelete, setItemToDelete] = React.useState<VaultItem | null>(null);
   const [filterAvailableToMe, setFilterAvailableToMe] = React.useState(false);
+  const [queueSearchQuery, setQueueSearchQuery] = React.useState('');
+  const [queueRarityFilter, setQueueRarityFilter] = React.useState<string>('all');
+  const [expandedQueues, setExpandedQueues] = React.useState<Record<string, boolean>>({});
+
+  const toggleExpandQueue = (queueId: string) => {
+    sounds.playClick();
+    setExpandedQueues((prev) => ({
+      ...prev,
+      [queueId]: !prev[queueId]
+    }));
+  };
 
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
@@ -83,6 +98,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const isPrivileged = currentUser.role === 'owner' || currentUser.role === 'admin';
     return availableItems.filter((item) => isPrivileged || userPower >= Number(item.minPowerLevel || 0));
   }, [availableItems, filterAvailableToMe, currentUser]);
+
+  const displayedQueueItems = React.useMemo(() => {
+    return queueItems.filter((q) => {
+      const qQuery = queueSearchQuery.trim().toLowerCase();
+      const matchesSearch =
+        !qQuery ||
+        q.name.toLowerCase().includes(qQuery) ||
+        q.queueList.some((m) => m.name.toLowerCase().includes(qQuery) || m.clan.toLowerCase().includes(qQuery));
+      const matchesRarity = queueRarityFilter === 'all' || q.rarity === queueRarityFilter;
+      return matchesSearch && matchesRarity;
+    });
+  }, [queueItems, queueSearchQuery, queueRarityFilter]);
 
   const formatTimeAgo = (timestamp: number) => {
     const diff = Date.now() - timestamp;
@@ -640,124 +667,271 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         )}
       </section>
 
-      {/* 3. ITEM QUEUE PREVIEW (คิวไอเทมบนแดชบอร์ด) */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-400">
+      {/* 3. ITEM QUEUE PREVIEW (คิวไอเทมบนแดชบอร์ด - แสดงทุกรายการ) */}
+      <section className="space-y-4">
+        {/* Section Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 shadow-sm shrink-0">
               <Crown className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg sm:text-xl font-bold font-cinzel text-slate-100 flex items-center gap-2">
+              <h2 className="text-lg sm:text-xl font-bold font-cinzel text-slate-100 flex flex-wrap items-center gap-2">
                 <span>{t.queueTitle}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 font-mono">
-                  {queueItems.length}
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 font-mono font-bold">
+                  {queueItems.length} {lang === 'th' ? 'รายการทั้งหมด' : 'total items'}
                 </span>
+                {displayedQueueItems.length !== queueItems.length && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-mono">
+                    {lang === 'th' ? `ตรงกับค้นหา ${displayedQueueItems.length}` : `Matches: ${displayedQueueItems.length}`}
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-slate-400">
                 {lang === 'th'
-                  ? 'ลำดับคิวรับไอเทม'
-                  : 'Item queue distribution list'}
+                  ? 'แสดงลำดับคิวและผู้รอรับไอเทมทุกรายการในระบบ'
+                  : 'Displaying all item queues and waiting claimants in the system'}
               </p>
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              sounds.playClick();
-              onNavigateTab('queue');
-            }}
-            className="text-xs font-semibold text-[#f5d77f] hover:text-white flex items-center gap-1 transition-colors"
-          >
-            <span>{t.tabQueue}</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
+            {/* Quick search input */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+              <input
+                type="text"
+                value={queueSearchQuery}
+                onChange={(e) => setQueueSearchQuery(e.target.value)}
+                placeholder={lang === 'th' ? 'ค้นหาคิว / ชื่อคน...' : 'Search queue / name...'}
+                className="pl-8 pr-7 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500/70 focus:ring-1 focus:ring-purple-500/50 w-36 sm:w-48 transition-all"
+              />
+              {queueSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setQueueSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Link to Full Queue Management Tab */}
+            <button
+              onClick={() => {
+                sounds.playClick();
+                onNavigateTab('queue');
+              }}
+              className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600/30 to-purple-500/20 hover:from-purple-600/40 hover:to-purple-500/30 text-[#f5d77f] hover:text-white border border-purple-500/40 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer shrink-0"
+            >
+              <span>{lang === 'th' ? 'จัดการคิวทั้งหมด' : 'Full Queue Manager'}</span>
+              <ChevronRight className="w-3.5 h-3.5 text-[#f5d77f]" />
+            </button>
+          </div>
         </div>
 
-        {queueItems.length === 0 ? (
-          <div className="rounded-xl border border-slate-800 bg-[#0d131f]/60 p-8 text-center text-slate-500 text-xs">
-            {t.noQueueItems}
+        {/* Rarity Quick Filter Pills */}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-[11px] text-slate-500 mr-1 flex items-center gap-1">
+            <SlidersHorizontal className="w-3 h-3" />
+            <span>{lang === 'th' ? 'ระดับ:' : 'Rarity:'}</span>
+          </span>
+          {[
+            { id: 'all', labelTh: 'ทั้งหมด', labelEn: 'All' },
+            { id: 'MYTHIC', labelTh: 'MYTHIC (ทอง)', labelEn: 'Mythic' },
+            { id: 'LAGEND', labelTh: 'LAGEND (ม่วง)', labelEn: 'Legend' },
+            { id: 'EPIC', labelTh: 'EPIC (แดง)', labelEn: 'Epic' },
+            { id: 'RARE', labelTh: 'RARE (ฟ้า)', labelEn: 'Rare' }
+          ].map((pill) => {
+            const isSelected = queueRarityFilter === pill.id;
+            return (
+              <button
+                key={pill.id}
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  setQueueRarityFilter(pill.id);
+                }}
+                className={`px-2.5 py-0.5 rounded-lg text-[11px] font-medium transition cursor-pointer border ${
+                  isSelected
+                    ? 'bg-purple-500/25 border-purple-500/60 text-purple-200 shadow-sm'
+                    : 'bg-slate-900/60 hover:bg-slate-800/80 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {lang === 'th' ? pill.labelTh : pill.labelEn}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Queue Items Grid */}
+        {displayedQueueItems.length === 0 ? (
+          <div className="rounded-2xl border border-slate-800 bg-[#0d131f]/60 p-10 text-center space-y-2">
+            <Crown className="w-8 h-8 mx-auto text-slate-600 opacity-60" />
+            <div className="text-slate-400 font-semibold text-xs">
+              {queueItems.length === 0
+                ? t.noQueueItems
+                : (lang === 'th' ? 'ไม่พบคิวไอเทมที่ตรงกับเงื่อนไขค้นหา' : 'No queue items matching your filter')}
+            </div>
+            {queueItems.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQueueSearchQuery('');
+                  setQueueRarityFilter('all');
+                }}
+                className="text-[11px] text-purple-400 hover:text-purple-300 underline cursor-pointer"
+              >
+                {lang === 'th' ? 'ล้างตัวกรองทั้งหมด' : 'Clear all filters'}
+              </button>
+            )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            {queueItems.slice(0, 4).map((q) => (
-              <div
-                key={q.id}
-                className="p-4 rounded-xl bg-[#0d1422] border border-slate-800 hover:border-purple-800/40 transition-all flex items-start gap-3.5"
-              >
-                {q.imageUrl ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      onViewImage?.(q.imageUrl, q.name);
-                    }}
-                    title={t.zoomImage}
-                    className="shrink-0"
-                  >
-                    <img
-                      src={q.imageUrl}
-                      alt={q.name}
-                      className="w-14 h-14 rounded-lg object-cover border border-slate-700 hover:border-[#d4af37] transition-colors"
-                    />
-                  </button>
-                ) : (
-                  <div className="w-14 h-14 rounded-lg bg-[#151d2f] border border-dashed border-slate-700 flex items-center justify-center text-[10px] text-slate-500 text-center p-1 shrink-0">
-                    {t.waitingForImage}
-                  </div>
-                )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+            {displayedQueueItems.map((q) => {
+              const isExpanded = !!expandedQueues[q.id];
+              const pendingList = q.queueList.filter((m) => m.status !== 'received');
+              const receivedList = q.queueList.filter((m) => m.status === 'received');
+              const displayedMembers = isExpanded ? q.queueList : q.queueList.slice(0, 3);
 
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="text-xs sm:text-sm font-bold text-slate-200 truncate">
-                      {q.name}
-                    </h4>
-                    <span
-                      className={`text-[9px] font-bold px-1.5 py-0.2 rounded border shrink-0 ${getRarityBadge(
-                        q.rarity
-                      )}`}
-                    >
-                      {q.rarity}
-                    </span>
-                  </div>
+              return (
+                <div
+                  key={q.id}
+                  className={`p-4 rounded-2xl bg-gradient-to-b from-[#101728] to-[#090e18] border border-slate-800/90 hover:border-purple-500/50 transition-all duration-200 flex flex-col justify-between gap-3 shadow-xl ${getRarityBorder(
+                    q.rarity
+                  )}`}
+                >
+                  <div>
+                    {/* Top Header: Image, Title, Rarity */}
+                    <div className="flex items-start gap-3">
+                      {q.imageUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sounds.playClick();
+                            onViewImage?.(q.imageUrl, q.name);
+                          }}
+                          title={t.zoomImage}
+                          className="shrink-0 relative group cursor-pointer"
+                        >
+                          <img
+                            src={q.imageUrl}
+                            alt={q.name}
+                            className="w-13 h-13 rounded-xl object-cover border border-slate-700 group-hover:border-[#d4af37] transition-all shadow-md group-hover:scale-105"
+                          />
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 rounded-xl flex items-center justify-center transition">
+                            <Eye className="w-3.5 h-3.5 text-white drop-shadow" />
+                          </div>
+                        </button>
+                      ) : (
+                        <div className="w-13 h-13 rounded-xl bg-[#151d2f] border border-dashed border-slate-700 flex items-center justify-center text-[10px] text-slate-500 text-center p-1 shrink-0">
+                          {t.waitingForImage}
+                        </div>
+                      )}
 
-                  <div className="mt-2 space-y-1">
-                    {q.queueList.slice(0, 3).map((m, idx) => (
-                      <div
-                        key={m.id}
-                        className="flex items-center justify-between text-xs py-0.5 px-2 rounded bg-[#080d16]"
-                      >
-                        <div className="flex items-center gap-1.5 truncate">
-                          <span className="text-[10px] font-mono text-slate-500 font-bold">
-                            #{idx + 1}
-                          </span>
-                          <span className="text-slate-200 font-medium truncate">
-                            {m.name}
-                          </span>
-                          <span className="text-[10px] text-slate-400">
-                            ({m.clan})
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <h4 className="text-xs sm:text-sm font-bold text-slate-100 truncate" title={q.name}>
+                            {q.name}
+                          </h4>
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.2 rounded border shrink-0 ${getRarityBadge(
+                              q.rarity
+                            )}`}
+                          >
+                            {q.rarity}
                           </span>
                         </div>
-                        <span
-                          className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
-                            m.status === 'received'
-                              ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                              : 'bg-amber-950 text-amber-400 border border-amber-800'
-                          }`}
-                        >
-                          {m.status === 'received' ? t.statusReceived : t.statusPending}
-                        </span>
+
+                        {/* Counts summary badge */}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                            {q.queueList.length} {lang === 'th' ? 'คน' : 'total'}
+                          </span>
+                          {pendingList.length > 0 && (
+                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              {pendingList.length} {lang === 'th' ? 'รอรับ' : 'waiting'}
+                            </span>
+                          )}
+                          {receivedList.length > 0 && (
+                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                              {receivedList.length} {lang === 'th' ? 'ได้รับแล้ว' : 'received'}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    ))}
-                    {q.queueList.length > 3 && (
-                      <p className="text-[10px] text-slate-500 text-center">
-                        +{q.queueList.length - 3} {lang === 'th' ? 'คน' : 'more'}
-                      </p>
-                    )}
+                    </div>
+
+                    {/* Members In Queue List */}
+                    <div className="mt-3">
+                      {q.queueList.length === 0 ? (
+                        <div className="p-2.5 rounded-xl bg-[#060a12] border border-slate-800/80 text-center text-[11px] text-slate-500">
+                          {lang === 'th' ? 'ยังไม่มีรายชื่อในคิว' : 'No members queued yet'}
+                        </div>
+                      ) : (
+                        <div className={`space-y-1 ${isExpanded ? 'max-h-56 overflow-y-auto pr-1' : ''}`}>
+                          {displayedMembers.map((m, idx) => (
+                            <div
+                              key={m.id || idx}
+                              className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-[#070c16] border border-slate-800/50 hover:border-slate-700/60 transition-colors"
+                            >
+                              <div className="flex items-center gap-1.5 truncate min-w-0 pr-1">
+                                <span className="text-[10px] font-mono text-purple-400 font-bold shrink-0">
+                                  #{idx + 1}
+                                </span>
+                                <span className="text-slate-200 font-medium truncate text-xs">
+                                  {m.name}
+                                </span>
+                                <span className="text-[10px] text-slate-400 shrink-0">
+                                  ({m.clan})
+                                </span>
+                              </div>
+                              <span
+                                className={`text-[9px] px-1.5 py-0.2 rounded font-semibold shrink-0 ${
+                                  m.status === 'received'
+                                    ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                                    : 'bg-amber-950 text-amber-400 border border-amber-800'
+                                }`}
+                              >
+                                {m.status === 'received' ? t.statusReceived : t.statusPending}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Card Expand / Collapse Toggle Button */}
+                  {q.queueList.length > 3 && (
+                    <div className="pt-2 border-t border-slate-800/80">
+                      <button
+                        type="button"
+                        onClick={() => toggleExpandQueue(q.id)}
+                        className="w-full py-1 text-[11px] font-semibold text-purple-300 hover:text-purple-200 bg-purple-950/30 hover:bg-purple-900/40 rounded-lg border border-purple-800/30 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        {isExpanded ? (
+                          <>
+                            <span>{lang === 'th' ? 'ย่อรายการ' : 'Show less'}</span>
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          </>
+                        ) : (
+                          <>
+                            <span>
+                              {lang === 'th'
+                                ? `+ดูคิวทั้งหมด (อีก ${q.queueList.length - 3} คน)`
+                                : `+Show full queue (${q.queueList.length - 3} more)`}
+                            </span>
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
