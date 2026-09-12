@@ -195,11 +195,47 @@ d:/K7 item webapp/lineage2m-k7-item-vault (1)/
 - มีฟังก์ชันสากล `cleanClanName(clan?: string | null): string` ใน `src/types.ts`
 - ทำการล้างข้อมูลทั้งระดับ Database Reader/Writer ใน `firebase.ts`, Form Inputs, Dropdown Filters, การ์ดผู้ล่า, ตารางรายชื่อ, หน้าคิว, หน้าทำเนียบสมาชิก, หน้าสถิติ, OCR Prompts ทั้งบน Server และ Client, และ Discord Webhook notifications
 
+### 4.13 ระบบสเตตัสและการเติบโตสไตล์ Kain7 (Authentic Kain7 Stats & Progression Dashboard)
+- **หน้าสเตตัสของฉัน (`src/components/MyStatsView.tsx`):**
+  - ดีไซน์ถอดแบบจากระบบของ Kain7 จัด Layout แบบ 2-Column Responsive Dashboard ที่พอดีจอ ไม่ยาวจนเกินไป
+  - **แถบซ้าย (Sidebar 4 Cols):**
+    1. **การ์ดข้อมูลสมาชิก (Member Information):** แสดง IGN (แก้ไขได้), Role (Member vs 👑 Leader), Status (Active/Inactive toggle switch), และ Clan (Dropdown)
+    2. **การ์ดแนบภาพสกรีนช็อต (Screenshots Card):** รองรับลากวาง / อัปโหลด / กด `Ctrl+V` วางรูปจากคลิปบอร์ด พร้อมปุ่มดูคู่มือการแคปรูป
+    3. **การ์ด Live Power Level (เรียลไทม์):** แสดงผลคำนวณค่าพลัง PL ตามเวลาจริง พร้อมป้ายแสดงส่วนต่าง (`+50 PL` สีเขียว / `-120 PL` สีชมพู)
+    4. **การ์ดกราฟไทม์ไลน์การเติบโต (Growth Timeline Chart):** แสดงเส้นกราฟพัฒนาการย้อนหลัง กรองได้ 30D / 90D / 6M / ALL พร้อมบันทึก Milestone
+  - **แถบขวา (Main Content 8 Cols):**
+    1. **ข้อมูลตัวละคร (Character Stats):** เลือก Class หลัก/รอง (Multi-select), เลเวลตัวละคร (Level), คลาสตำนาน (Legend Classes), และอากาธีออนตำนาน (Legend Agathions)
+    2. **ศูนย์กรอกสเตตัสแบบแท็บ (Tabbed Attribute Center):**
+       - แบ่งแท็บชัดเจน: **`[⚔️ โจมตี (Offense)]`**, **`[🛡️ ป้องกัน (Defense)]`**, และ **`[⭐ พิเศษ (Special)]`**
+       - ลดความยาวหน้าเว็บ กรอกง่าย พร้อมตัวคูณกำกับแต่ละสเตตัส (`x1`, `x2`, `x3`) ตามสูตร Kain7
+    3. **ปุ่มยืนยันส่งคำขอ (Submit Verification):** แพ็คข้อมูลทั้งหมดขึ้นระบบรออนุมัติ พร้อมส่งแจ้งเตือนเข้า Discord Webhook อัตโนมัติ
+
+### 4.14 กฎความปลอดภัยและการล็อคสิทธิ์เฉพาะ Owner / Admin (Role, Status & Clan Permissions)
+- **การ์ดข้อมูลสมาชิก (Member Information Card):**
+  - ช่อง **บทบาท (`Role *`)**, **สถานะ (`Status`)**, และ **แคลน (`Clan`)** ถูกกำหนดให้**แก้ไขได้เฉพาะบัญชี Owner หรือ Admin เท่านั้น** (`isOwner || isAdmin`)
+  - สำหรับสมาชิกทั่วไป (Regular Member): ช่องเหล่านี้จะขึ้นป้ายกำกับ `🔒 เฉพาะ: Owner / Admin` และอยู่ในสถานะ `disabled` ปิดการคลิกเพื่อป้องกันการแอบเปลี่ยนบทบาทหรือย้ายแคลนเอง
+  - **การคุ้มครองบัญชี Owner (`Eloni` / `user_owner_eloni`):**
+    - มีระบบ Immutable Owner Protection ทั้งใน Firestore, App State, LocalStorage, และ Form Submissions
+    - บัญชี Eloni จะถูกตรึงบทบาทเป็น `owner` ตลอดเวลา ไม่สามารถถูกลดระดับเป็น `member` ได้
+
 ---
 
 ## 5. คำสั่งการทำงานและทดสอบ (Commands)
 - **รันเซิร์ฟเวอร์พัฒนา:** `npm run dev` (เปิดที่ `http://localhost:3000`)
 - **ตรวจสอบ Type TypeScript:** `npx tsc --noEmit`
-- **Build สำหรับ Production:** `npm run build`
-- **สร้างเอกสารคู่มือ PDF:** `node build_manuals.cjs`
-- *หมายเหตุสำหรับ Windows PowerShell:* ห้ามใช้ `&&` ในการต่อคำสั่ง ให้ใช้เครื่องหมายเซมิโคลอน `;` แทน เช่น `npm run build; npx tsc --noEmit`
+- **Build สำหรับ Production:** `npx vite build` หรือ `npm run build`
+- **URL ระบบที่ Deploy สด:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)
+- *หมายเหตุสำหรับ Windows PowerShell:* ห้ามใช้ `&&` ในการต่อคำสั่ง ให้ใช้เครื่องหมายเซมิโคลอน `;` แทน เช่น `npx vite build ; npx tsc --noEmit`
+
+---
+
+## 6. ข้อความพร้อมใช้สำหรับเปิดแชทใหม่ (New Chat Prompt Template)
+คัดลอกข้อความด้านล่างนี้ไปวางเมื่อเปิดห้องแชทใหม่ เพื่อให้ AI สานต่องานได้ทันที 100%:
+```
+โปรดอ่านไฟล์ AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
+ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.6.0)
+- บัญชี Owner: Eloni (รหัสผ่าน 0386231334)
+- Live URL: https://lineage2m-k7-item-vault.vercel.app/
+- ฟีเจอร์ล่าสุด: หน้าระบบสเตตัส Kain7 (MyStatsView) และการล็อคสิทธิ์ Member Information เฉพาะ Owner/Admin
+โปรดยืนยันว่าเข้าใจโครงสร้างระบบแล้ว พร้อมรับคำสั่งงานต่อไปครับ
+```
