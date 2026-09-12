@@ -29,7 +29,7 @@ const COLLECTIONS = [
 
 async function exportFullBackup() {
   const backupData = {
-    version: 'v1.7.2',
+    version: 'v1.8.0',
     createdAt: new Date().toISOString(),
     collections: {}
   };
@@ -50,7 +50,7 @@ async function exportFullBackup() {
     }
   }
 
-  const outPath = './backups/firestore_snapshot_v1.7.2.json';
+  const outPath = './backups/firestore_snapshot_v1.8.0.json';
   fs.writeFileSync(outPath, JSON.stringify(backupData, null, 2), 'utf8');
   fs.writeFileSync('./backups/firestore_snapshot_latest.json', JSON.stringify(backupData, null, 2), 'utf8');
   console.log(`Full Firestore snapshot successfully saved to ${outPath}`);

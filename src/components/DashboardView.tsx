@@ -21,7 +21,9 @@ import {
   Eye,
   RotateCcw,
   History,
-  Clock
+  Clock,
+  AlertTriangle,
+  AlertCircle
 } from 'lucide-react';
 import {
   ActiveTab,
@@ -30,7 +32,9 @@ import {
   Language,
   QueueItem,
   User,
-  VaultItem
+  VaultItem,
+  hasUserUpdatedStats,
+  isUserStatsPending
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
@@ -74,6 +78,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   const t = translations[lang];
   const [itemToDelete, setItemToDelete] = React.useState<VaultItem | null>(null);
+  const [statWarningModalItem, setStatWarningModalItem] = React.useState<VaultItem | null>(null);
   const [filterAvailableToMe, setFilterAvailableToMe] = React.useState(false);
   const [queueSearchQuery, setQueueSearchQuery] = React.useState('');
   const [queueRarityFilter, setQueueRarityFilter] = React.useState<string>('all');
@@ -407,6 +412,55 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
+        {/* Stat Update Alert Banner for members who haven't updated stats */}
+        {currentUser && !hasUserUpdatedStats(currentUser) && (
+          <div className="p-3.5 sm:p-4 rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-[#181308] to-[#0d121f] text-slate-200 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="p-2 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-400 shrink-0 mt-0.5 sm:mt-0">
+                {isUserStatsPending(currentUser) ? (
+                  <Clock className="w-4 h-4 animate-pulse" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4" />
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs sm:text-sm font-bold text-amber-300">
+                    {isUserStatsPending(currentUser)
+                      ? t.statsPendingBannerTitle
+                      : t.statsRequiredBannerTitle}
+                  </h4>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    {isUserStatsPending(currentUser)
+                      ? t.statsPendingBadge
+                      : (lang === 'th' ? 'ต้องอัปเดตก่อน' : 'Action Required')}
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs text-slate-300 mt-1 leading-relaxed">
+                  {isUserStatsPending(currentUser)
+                    ? t.statsPendingBannerDesc
+                    : t.statsRequiredBannerDesc}
+                </p>
+              </div>
+            </div>
+
+            {!isUserStatsPending(currentUser) && (
+              <button
+                type="button"
+                id="btn-banner-go-update-stats"
+                onClick={() => {
+                  sounds.playClick();
+                  onNavigateTab('my_stats');
+                }}
+                className="w-full sm:w-auto px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#aa841c] hover:brightness-110 text-slate-950 text-xs font-bold shadow transition-all cursor-pointer shrink-0 flex items-center justify-center gap-1.5 active:scale-95"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+                <span>{t.goToUpdateStats}</span>
+              </button>
+            )}
+          </div>
+        )}
+
         {displayedAvailableItems.length === 0 ? (
           <div className="rounded-xl border border-slate-800 bg-[#0d131f]/60 p-6 text-center text-slate-400 space-y-1.5">
             <p className="text-xs sm:text-sm font-medium">
@@ -458,8 +512,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       )
                     );
                     const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+                    const hasStats = hasUserUpdatedStats(currentUser);
+                    const isStatsPendingState = isUserStatsPending(currentUser);
                     const userPower = Number(currentUser?.powerLevel || 0);
-                    const hasEnoughPower = isPrivileged || userPower >= Number(item.minPowerLevel || 0);
+                    const hasEnoughPower = isPrivileged || (hasStats && userPower >= Number(item.minPowerLevel || 0));
 
                     return (
                       <tr
@@ -597,6 +653,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                   </button>
                                 )}
                               </div>
+                            ) : !currentUser ? (
+                              <button
+                                id={`btn-claim-${item.id}`}
+                                onClick={() => onOpenAuth()}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 btn-l2m-gold text-slate-950 shadow-md cursor-pointer active:scale-95"
+                              >
+                                <Sparkles className="w-3 h-3" />
+                                <span>{t.claimItemBtn}</span>
+                              </button>
+                            ) : !hasStats && !isPrivileged ? (
+                              <button
+                                id={`btn-claim-${item.id}`}
+                                onClick={() => {
+                                  sounds.playClick();
+                                  setStatWarningModalItem(item);
+                                }}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-sm cursor-pointer active:scale-95"
+                                title={isStatsPendingState ? t.statsPendingBadge : t.updateStatsFirst}
+                              >
+                                {isStatsPendingState ? (
+                                  <>
+                                    <Clock className="w-3 h-3 text-amber-400 animate-pulse" />
+                                    <span>{t.statsPendingBadge}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <AlertCircle className="w-3 h-3 text-amber-400" />
+                                    <span>{t.updateStatsFirst}</span>
+                                  </>
+                                )}
+                              </button>
                             ) : (
                               <button
                                 id={`btn-claim-${item.id}`}
@@ -607,7 +694,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 }}
                                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 ${
                                   hasEnoughPower
-                                    ? 'btn-l2m-gold text-slate-950 font-bold shadow-md cursor-pointer'
+                                    ? 'btn-l2m-gold text-slate-950 font-bold shadow-md cursor-pointer active:scale-95'
                                     : 'bg-slate-800/60 text-slate-500 border border-slate-700/40 cursor-not-allowed'
                                 }`}
                               >
@@ -986,6 +1073,84 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{lang === 'th' ? 'ยืนยันลบ' : 'Delete'}</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          STAT UPDATE REQUIRED MODAL
+         ───────────────────────────────────────────────────────────── */}
+      {statWarningModalItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md rounded-2xl bg-gradient-to-b from-[#18151f] via-[#100e17] to-[#09080d] border border-amber-500/50 shadow-[0_20px_60px_rgba(0,0,0,0.95),0_0_30px_rgba(245,158,11,0.2)] p-6 text-slate-200">
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-400 shrink-0">
+                {isUserStatsPending(currentUser) ? (
+                  <Clock className="w-6 h-6 animate-pulse" />
+                ) : (
+                  <AlertTriangle className="w-6 h-6" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-base font-bold font-cinzel text-amber-300">
+                  {t.statsRequiredModalTitle}
+                </h3>
+                <p className="text-xs text-slate-400 font-medium">
+                  {isUserStatsPending(currentUser) ? t.statsPendingBadge : (lang === 'th' ? 'ต้องระบุข้อมูลสเตตัส' : 'Stat Verification Needed')}
+                </p>
+              </div>
+            </div>
+
+            {/* Target Item Overview */}
+            <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-xs text-slate-300 mb-4 space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-400">{t.itemName}:</span>
+                <span className="font-bold text-slate-100">{statWarningModalItem.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">{t.itemMinPower}:</span>
+                <span className="font-mono font-bold text-amber-400">⚡ {Number(statWarningModalItem.minPowerLevel || 0).toLocaleString()} PL</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">{lang === 'th' ? 'ค่าพลังของคุณขณะนี้:' : 'Your Current Power:'}</span>
+                <span className="font-mono text-slate-400">⚡ {Number(currentUser?.powerLevel || 0).toLocaleString()} PL</span>
+              </div>
+            </div>
+
+            {/* Reassurance/Instruction Callout */}
+            <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-[11px] text-amber-200/90 mb-5 leading-relaxed">
+              {isUserStatsPending(currentUser)
+                ? t.statsPendingModalDesc
+                : t.statsRequiredModalDesc}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                id="btn-close-stat-required-modal"
+                onClick={() => setStatWarningModalItem(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-600 transition-all cursor-pointer"
+              >
+                {t.close}
+              </button>
+              {!isUserStatsPending(currentUser) && (
+                <button
+                  type="button"
+                  id="btn-modal-go-update-stats"
+                  onClick={() => {
+                    sounds.playClick();
+                    setStatWarningModalItem(null);
+                    onNavigateTab('my_stats');
+                  }}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#aa841c] hover:brightness-110 text-slate-950 font-bold text-xs shadow-lg shadow-amber-900/40 transition-all cursor-pointer flex items-center gap-1.5 active:scale-95"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{t.goToUpdateStats}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -120,11 +120,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     const finalUsername = regUsername.trim();
     const finalPassword = regPassword.trim();
     const finalInGameName = regInGameName.trim();
-    const finalClan = cleanClanName(isCustomClan ? customClan.trim() : regClan.trim()) || 'VoltZ';
-    const parsedPowerLevel = regPowerLevel ? parseInt(regPowerLevel.replace(/,/g, ''), 10) : 0;
 
     if (!finalUsername || !finalPassword || !finalInGameName) {
-      setRegError(lang === 'th' ? 'กรุณากรอกข้อมูลให้ครบทุกช่องที่จำเป็น' : 'Please fill all required fields');
+      setRegError(lang === 'th' ? 'กรุณากรอกข้อมูลให้ครบทุกช่อง (Username, Password, IGN)' : 'Please fill all fields (Username, Password, In-Game Name)');
       return;
     }
 
@@ -134,10 +132,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         username: finalUsername,
         password: finalPassword,
         inGameName: finalInGameName,
-        clan: finalClan,
+        clan: 'no-clan',
         characterClass: '',
         classes: [],
-        powerLevel: isNaN(parsedPowerLevel) ? 0 : parsedPowerLevel
+        powerLevel: 0
       });
 
       if (result.success) {
@@ -249,7 +247,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 CLAN HUB SYSTEM
               </span>
               <span className="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/35 text-[10px] font-mono font-bold text-sky-300">
-                v1.7.2
+                v1.8.0
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-2 font-prompt">
@@ -525,83 +523,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 />
               </div>
 
-              {/* 4. Initial Power Level (CP) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5 text-amber-400" />
-                    <span>{t.initialPowerLevel}</span>
-                  </label>
-                  {regPowerLevel && !isNaN(parseInt(regPowerLevel.replace(/,/g, ''), 10)) && (
-                    <span className="text-[11px] font-mono font-bold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 shadow-sm animate-in fade-in">
-                      ⚡ {parseInt(regPowerLevel.replace(/,/g, ''), 10).toLocaleString()} PL
-                    </span>
-                  )}
-                </div>
-                <input
-                  id="input-reg-powerlevel"
-                  type="number"
-                  min="0"
-                  step="1000"
-                  value={regPowerLevel}
-                  onChange={(e) => setRegPowerLevel(e.target.value)}
-                  placeholder={lang === 'th' ? 'เช่น 500000' : 'e.g. 500000'}
-                  className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700/80 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none transition-all shadow-inner placeholder:text-slate-600"
-                />
-                <p className="text-[10px] text-slate-500 mt-1">
-                  {lang === 'th'
-                    ? 'ใส่ค่าพลังปัจจุบันของคุณ (หากมีการอัปเดตภายหลังต้องรอ Admin หรือ Owner อนุมัติ)'
-                    : 'Enter your character PL (future updates will require Admin or Owner approval)'}
-                </p>
-              </div>
-
-              {/* 4. Clan Selection */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-slate-300">
-                    {t.clanName}
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomClan(!isCustomClan)}
-                    className="text-[11px] text-[#f5d77f] hover:underline cursor-pointer"
-                  >
-                    {isCustomClan
-                      ? (lang === 'th' ? 'เลือกจากแคลนที่มี' : 'Choose existing')
-                      : (lang === 'th' ? '+ พิมพ์ชื่อแคลนเอง' : '+ Type custom clan')}
-                  </button>
-                </div>
-
-                {isCustomClan ? (
-                  <input
-                    id="input-reg-custom-clan"
-                    type="text"
-                    value={customClan}
-                    onChange={(e) => setCustomClan(e.target.value)}
-                    placeholder={lang === 'th' ? 'เช่น VoltZ' : 'e.g. VoltZ'}
-                    className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700/80 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none transition-all shadow-inner"
-                  />
-                ) : (
-                  <select
-                    id="select-reg-clan"
-                    value={regClan}
-                    onChange={(e) => setRegClan(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700/80 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none cursor-pointer transition-all shadow-inner"
-                  >
-                    {clanNames.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
               {/* Note about Character Profile */}
               <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-750 text-[11px] text-slate-400">
                 {lang === 'th'
-                  ? '💡 อาชีพ (Multi-class), เลเวล และสถิติสเตตัส สามารถระบุและแก้ไขได้ในหน้า "สถิติของฉัน (My Stats)" หลังเข้าสู่ระบบ'
-                  : '💡 Class (Multi-class), level, and stats can be configured in "My Stats" after logging in.'}
+                  ? '💡 ค่าพลัง (PL), เลเวล, อาชีพ และการจัดสรรแคลน สามารถอัปเดตและดำเนินการได้ในระบบหลังเข้าสู่ระบบ'
+                  : '💡 Power level (PL), level, class, and clan assignment can be updated in the system after logging in.'}
               </div>
 
               {/* Submit Register Button */}

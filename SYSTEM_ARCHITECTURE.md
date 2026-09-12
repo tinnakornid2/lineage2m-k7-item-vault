@@ -1,5 +1,5 @@
 # 🏛️ SYSTEM_ARCHITECTURE.md — สถาปัตยกรรมระบบและคู่มือป้องกันโค้ดเสียหาย
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.7.2)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.8.0)**  
 > **Last Updated:** 2026-09-12  
 > **Live Production:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)  
 > **Repository:** `tinnakornid2/lineage2m-k7-item-vault`
@@ -172,6 +172,6 @@ graph TD
 ---
 
 ## 💾 5. ข้อมูลการสำรองระบบ (System Backups Registry)
-- **ไฟล์ Source Code Backup:** `backup-v1.7.2-stable.zip` (ขนาด ~4.0 MB ครอบคลุม Source Code, สคริปต์, คอนฟิก และเอกสารทั้งหมด)
-- **ไฟล์ Database Snapshot:** `backups/firestore_snapshot_v1.7.2.json` และ `backups/firestore_snapshot_latest.json` (สำรองข้อมูล Users, Clans, Item Queues, และ Settings จาก Cloud Firestore ทั้งหมด 100%)
+- **ไฟล์ Source Code Backup:** `backup-v1.8.0-stable.zip` (ขนาด ~4.0 MB ครอบคลุม Source Code, สคริปต์, คอนฟิก และเอกสารทั้งหมด)
+- **ไฟล์ Database Snapshot:** `backups/firestore_snapshot_v1.8.0.json` และ `backups/firestore_snapshot_latest.json` (สำรองข้อมูล Users, Clans, Item Queues, และ Settings จาก Cloud Firestore ทั้งหมด 100%)
 - **การกู้คืนข้อมูล (Restore):** ใช้สคริปต์ในโฟลเดอร์ `scripts/` เพื่อกู้คืนฐานข้อมูลหากเกิดเหตุฉุกเฉิน

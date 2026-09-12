@@ -183,13 +183,13 @@ export interface ClanGroup {
   name: string;
   color?: string;
   order?: number;
+  enabled?: boolean;
 }
 
 export const OFFICIAL_CLANS: ClanGroup[] = [
-  { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0 },
-  { id: 'clan_levels', name: 'LevelS', color: '#ef4444', order: 1 },
-  { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2 },
-  { id: 'clan_noclan', name: 'no-clan', color: '#3b82f6', order: 3 }
+  { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0, enabled: true },
+  { id: 'clan_levels', name: 'LevelS', color: '#ef4444', order: 1, enabled: true },
+  { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2, enabled: true }
 ];
 
 /**
@@ -200,9 +200,52 @@ export function cleanClanName(clan?: string | null): string {
   return clan.replace(/^clan:\s*/i, '').trim();
 }
 
+/**
+ * Checks if a clan string represents no clan / unassigned
+ */
+export function isNoClan(clan?: string | null): boolean {
+  if (!clan || typeof clan !== 'string') return true;
+  const clean = cleanClanName(clan).toLowerCase().trim();
+  return (
+    clean === '' ||
+    clean === 'no-clan' ||
+    clean === 'no clan' ||
+    clean === 'noclan' ||
+    clean === 'unassigned' ||
+    clean === 'none' ||
+    clean === 'ไม่มีแคลน' ||
+    clean === '-'
+  );
+}
+
 export const DEFAULT_CLAN = 'VoltZ';
 
-export type ActiveTab = 'dashboard' | 'vault' | 'queue' | 'all_members' | 'clans' | 'my_stats' | 'stat_approvals';
+/**
+ * Checks if a user has verified/updated stats (powerLevel > 0 or non-zero stats values)
+ */
+export function hasUserUpdatedStats(user?: User | null): boolean {
+  if (!user) return false;
+  if (typeof user.powerLevel === 'number' && user.powerLevel > 0) return true;
+  if (user.stats && typeof user.stats === 'object') {
+    return Object.values(user.stats).some((v) => typeof v === 'number' && v > 0);
+  }
+  return false;
+}
+
+/**
+ * Checks if a user has submitted stats that are currently pending Admin/Owner approval
+ */
+export function isUserStatsPending(user?: User | null): boolean {
+  if (!user) return false;
+  if (hasUserUpdatedStats(user)) return false;
+  if (typeof user.pendingPowerLevel === 'number' && user.pendingPowerLevel > 0) return true;
+  if (user.pendingStats && typeof user.pendingStats === 'object') {
+    return Object.values(user.pendingStats).some((v) => typeof v === 'number' && v > 0);
+  }
+  return false;
+}
+
+export type ActiveTab = 'dashboard' | 'vault' | 'queue' | 'all_members' | 'clans' | 'bulk_swap' | 'my_stats' | 'stat_approvals';
 
 export type Language = 'th' | 'en';
 

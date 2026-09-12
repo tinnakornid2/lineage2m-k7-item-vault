@@ -1,5 +1,5 @@
 # 📋 PROJECT HANDOVER & WORK CONTINUATION GUIDE
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.7.2)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.8.0)**  
 > **Last Updated:** 2026-09-12  
 > **Repository:** `tinnakornid2/lineage2m-k7-item-vault`  
 > **Live Web App:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)  
@@ -124,15 +124,15 @@ npm run dev
 ## 💬 ข้อความตัวอย่างสำหรับ Copy ไปเริ่มในห้องแชทใหม่:
 ```
 โปรดอ่านไฟล์ SYSTEM_ARCHITECTURE.md, AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
-ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.7.2)
+ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.8.0)
 - บัญชี Owner: Eloni (รหัสผ่าน 0386231334)
 - Live URL: https://lineage2m-k7-item-vault.vercel.app/
-- สถานะล่าสุด:
-  1. ระบบอนุมัติสเตตัสและสมาชิกใหม่ทำงานแบบทีละคน (1-by-1) 100% พร้อม Loading Spinner และ Toast ระบุชื่อ
-  2. ระบบสเตตัส Kain7 ได้รับการรีเซ็ตเพื่อรออัปเดตรอบใหม่ พร้อมระบบ Floating Pinned Proof (S/M/L)
-  3. ระบบคำนวณ PL ซิงค์สูตรผ่าน Cloud Firestore แบบ Real-time
-  4. ระบบ AI OCR รองรับ Direct Client บน Vercel พร้อมชุดโมเดลล่าสุด (gemini-flash-latest, ฯลฯ)
-  5. เพชรและฟอนต์ตัวเลขแสดงผลเป็นสีขาวสว่างตามมาตรฐานล่าสุด
+- สถานะล่าสุด (v1.8.0):
+  1. แก้ไขบั๊กการลบแคลน (Clan Deletion) ถาวร ไม่ฟื้นคืนชีพจากการ hardcode official clans
+  2. เพิ่มระบบตรวจสอบสเตตัสก่อนเคลมไอเทม (Stat Requirement Before Claim) สมาชิกต้องอัปเดตสเตตัส Kain7 และผ่านการอนุมัติก่อน
+  3. แบนเนอร์และโมดอลแจ้งเตือนผู้เล่นที่ยังไม่อัปเดตสเตตัส พร้อมปุ่มนำทางไปหน้า "สเตตัสของฉัน" ทันที
+  4. ระบบอนุมัติสเตตัสและสมาชิกใหม่ทำงานแบบทีละคน (1-by-1) 100% พร้อม Loading Spinner และ Toast ระบุชื่อ
+  5. ระบบ AI OCR รองรับ Direct Client บน Vercel พร้อมชุดโมเดลล่าสุด
   6. รองรับ 2 ภาษา (TH/EN) 100% และมีกฎ Local-First ก่อน Deploy
 โปรดยืนยันว่าเข้าใจสถาปัตยกรรมและกฎการป้องกันโค้ดเสียหายแล้ว พร้อมรับคำสั่งงานต่อไปครับ
 ```

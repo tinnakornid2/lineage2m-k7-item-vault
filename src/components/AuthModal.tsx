@@ -99,13 +99,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      const parsedPowerLevel = regPowerLevel ? parseInt(regPowerLevel.replace(/,/g, ''), 10) : 0;
       const result = await onRegister({
         username: regUsername.trim(),
         password: regPassword,
         inGameName: regInGameName.trim(),
-        powerLevel: isNaN(parsedPowerLevel) ? 0 : parsedPowerLevel,
-        clan: cleanClanName(regClan.trim()) || DEFAULT_CLAN,
+        powerLevel: 0,
+        clan: 'no-clan',
         characterClass: '',
         classes: [],
         role: 'member',
@@ -337,50 +336,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               />
             </div>
 
-            {/* 4. Initial Power Level (CP) */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5 text-amber-400" />
-                  <span>4. {t.initialPowerLevel}</span>
-                </label>
-                {regPowerLevel && !isNaN(parseInt(regPowerLevel.replace(/,/g, ''), 10)) && (
-                  <span className="text-[11px] font-mono font-bold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30">
-                    ⚡ {parseInt(regPowerLevel.replace(/,/g, ''), 10).toLocaleString()} PL
-                  </span>
-                )}
-              </div>
-              <input
-                id="input-reg-powerlevel"
-                type="number"
-                min="0"
-                step="1000"
-                value={regPowerLevel}
-                onChange={(e) => setRegPowerLevel(e.target.value)}
-                placeholder="เช่น 500000"
-                className="w-full px-3 py-2 rounded-lg bg-[#0a0e17] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none"
-              />
-            </div>
-
-            {/* 5. Clan */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                5. {t.clanName}
-              </label>
-              <input
-                id="input-reg-clan"
-                type="text"
-                value={regClan}
-                onChange={(e) => setRegClan(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-[#0a0e17] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none"
-              />
-            </div>
-
             {/* Note about Character Profile */}
             <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-750 text-[11px] text-slate-400">
               {lang === 'th'
-                ? '💡 อาชีพ (Multi-class), เลเวล และสถิติสเตตัส สามารถระบุและแก้ไขได้ในหน้า "สถิติของฉัน (My Stats)" หลังเข้าสู่ระบบ'
-                : '💡 Class, level, and stats can be specified in "My Stats" after logging in.'}
+                ? '💡 ค่าพลัง (PL), เลเวล, อาชีพ และการจัดสรรแคลน สามารถอัปเดตและดำเนินการได้ในระบบหลังเข้าสู่ระบบ'
+                : '💡 Power level (PL), level, class, and clan assignment can be updated in the system after logging in.'}
             </div>
 
             <button

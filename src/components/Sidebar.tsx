@@ -170,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'clans',
-      label: lang === 'th' ? (canAccessVault ? 'จัดการแคลน' : 'ทำเนียบแคลน') : (canAccessVault ? 'Clan Management' : 'Clan Rosters'),
+      label: t.tabClans,
       icon: Shield,
       accentColor: 'text-rose-400',
       restricted: false
@@ -555,14 +555,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   id="btn-sidebar-bulk-swap"
                   onClick={() => {
                     sounds.playClick();
-                    onOpenBulkSwap();
-                    setIsMobileOpen(false);
+                    handleTabSelect('bulk_swap');
+                    if (onOpenBulkSwap) onOpenBulkSwap();
                   }}
-                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-slate-800/70 transition-all cursor-pointer mb-1"
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer mb-1 ${
+                    effectiveCurrentTab === 'bulk_swap'
+                      ? 'bg-purple-500/25 text-purple-200 border border-purple-500/60 font-semibold shadow-inner'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                  }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <ArrowRightLeft className="size-3.5 text-purple-400" />
-                    <span>{lang === 'th' ? 'จัดสรรแคลน (Bulk Swap)' : 'Bulk Swap Clans'}</span>
+                    <span>{t.tabBulkSwap}</span>
                   </div>
                 </button>
               )}
@@ -767,7 +771,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v1.7.2</span>
+              <span>v1.8.0</span>
             </div>
           </div>
 

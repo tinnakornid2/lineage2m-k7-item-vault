@@ -17,9 +17,12 @@ import {
   DiscordSettings,
   ClanFundTxType,
   cleanClanName,
+  isNoClan,
   StatHistoryPoint,
   UserRole,
-  UserStatus
+  UserStatus,
+  hasUserUpdatedStats,
+  isUserStatsPending
 } from './types';
 import { getOrGenerateStatHistory } from './utils/growthTimelineHelper';
 import { translations } from './translations';
@@ -81,13 +84,13 @@ import {
   DEFAULT_BG_CONFIG
 } from './components/BackgroundSettingsModal';
 import { PowerFormulaSettingsModal } from './components/PowerFormulaSettingsModal';
-import { BulkSwapClanModal } from './components/BulkSwapClanModal';
 
 import { DashboardView } from './components/DashboardView';
 import { VaultView } from './components/VaultView';
 import { QueueView } from './components/QueueView';
 import { MembersView } from './components/MembersView';
 import { ClanView } from './components/ClanView';
+import { ClanRosterView } from './components/ClanRosterView';
 import { MyStatsView } from './components/MyStatsView';
 import { StatApprovalView } from './components/StatApprovalView';
 
@@ -140,7 +143,7 @@ export const App: React.FC = () => {
   const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [quickItems, setQuickItems] = useState<QuickItem[]>(INITIAL_QUICK_ITEMS);
-  const [clans, setClans] = useState<ClanGroup[]>(INITIAL_CLANS);
+  const [clans, setClans] = useState<ClanGroup[]>([]);
   const [diamondLogs, setDiamondLogs] = useState<DiamondVaultRecord[]>([]);
 
   // 5. Modals State
@@ -163,9 +166,8 @@ export const App: React.FC = () => {
     currentIndex?: number;
   } | null>(null);
 
-  // 5c. Kain7 Power Formula & Bulk Swap Modals State
+  // 5c. Kain7 Power Formula State
   const [isPowerFormulaOpen, setIsPowerFormulaOpen] = useState(false);
-  const [isBulkSwapOpen, setIsBulkSwapOpen] = useState(false);
   const [selectedClanScope, setSelectedClanScope] = useState<string>('all');
 
   // 5b. In-App Toast Feedback State
@@ -224,15 +226,38 @@ export const App: React.FC = () => {
         }
         return u;
       });
-      setUsers(normalizedUsers);
+
+      // Consolidate & deduplicate into exactly ONE Eloni profile (user_owner_eloni)
+      const seen = new Set<string>();
+      const finalUsers: User[] = [];
+      for (const u of normalizedUsers) {
+        const isEloni = u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni';
+        if (isEloni) {
+          if (!seen.has('user_owner_eloni')) {
+            seen.add('user_owner_eloni');
+            const primaryEloni = normalizedUsers.find((x) => x.id === 'user_owner_eloni') || u;
+            finalUsers.push({
+              ...primaryEloni,
+              role: 'owner' as UserRole,
+              status: 'active' as UserStatus
+            });
+          }
+        } else {
+          finalUsers.push(u);
+        }
+      }
+
+      setUsers(finalUsers);
 
       // Keep currentUser in sync if updated
       const current = currentUserRef.current;
       if (current) {
-        const found = normalizedUsers.find((u) => u.id === current.id);
+        const isCurrentEloni = current.id === 'user_owner_eloni' || current.username?.toLowerCase() === 'eloni' || current.inGameName?.toLowerCase() === 'eloni';
+        const found = isCurrentEloni
+          ? finalUsers.find((u) => u.id === 'user_owner_eloni') || finalUsers.find((u) => u.username?.toLowerCase() === 'eloni')
+          : finalUsers.find((u) => u.id === current.id);
         if (found) {
-          const isEloni = found.id === 'user_owner_eloni' || found.username?.toLowerCase() === 'eloni' || found.inGameName?.toLowerCase() === 'eloni';
-          const safeUser: User = isEloni
+          const safeUser: User = isCurrentEloni
             ? { ...found, role: 'owner' as UserRole, status: 'active' as UserStatus }
             : found;
           setCurrentUser(safeUser);
@@ -247,7 +272,8 @@ export const App: React.FC = () => {
       if (items.length > 0) setQuickItems(items);
     });
     const unsubClans = listenToClans((clanList) => {
-      if (clanList.length > 0) setClans(clanList);
+      const validClans = clanList.filter((c) => !isNoClan(c.name));
+      setClans(validClans);
     });
     const unsubDiamonds = listenToDiamondTransactions((logs) => setDiamondLogs(logs));
     const unsubBg = listenToBackgroundSettings((settings) => {
@@ -483,8 +509,27 @@ export const App: React.FC = () => {
     const item = vaultItems.find((i) => i.id === itemId);
     if (!item) return;
 
-    // Check power requirement (owner and admin bypass minimum PL)
     const isPrivileged = currentUser.role === 'owner' || currentUser.role === 'admin';
+    const hasStats = hasUserUpdatedStats(currentUser);
+
+    // Block claim if member has not updated character stats
+    if (!isPrivileged && !hasStats) {
+      sounds.playClick();
+      const isPending = isUserStatsPending(currentUser);
+      showToast(
+        lang === 'th'
+          ? (isPending
+              ? 'สเตตัสของคุณอยู่ระหว่างรอ Admin ตรวจสอบและอนุมัติ จึงยังไม่สามารถลงชื่อเคลมไอเทมได้'
+              : 'คุณยังไม่ได้อัปเดตค่าสเตตัสตัวละคร กรุณาไปที่หน้า "ข้อมูลของฉัน" เพื่ออัปเดตสเตตัสก่อนเคลมไอเทม')
+          : (isPending
+              ? 'Your stats update is pending Admin approval. You cannot claim items yet.'
+              : 'You must update your character stats in "My Stats" before claiming items.'),
+        'warning'
+      );
+      return;
+    }
+
+    // Check power requirement (owner and admin bypass minimum PL)
     const userCP = Number(currentUser.powerLevel || 0);
     const requiredCP = Number(item.minPowerLevel || 0);
 
@@ -755,13 +800,29 @@ export const App: React.FC = () => {
 
   const handleAddClan = async (clanName: string, color?: string) => {
     const cleanName = cleanClanName(clanName);
-    if (!cleanName) return;
+    if (!cleanName || isNoClan(cleanName)) return;
+
+    // Prevent duplicate clan names
+    const exists = clans.some(
+      (c) => cleanClanName(c.name).toLowerCase() === cleanName.toLowerCase()
+    );
+    if (exists) {
+      showToast(
+        lang === 'th'
+          ? `มีแคลนชื่อ "${cleanName}" อยู่ในระบบแล้ว`
+          : `Clan "${cleanName}" already exists`,
+        'error'
+      );
+      return;
+    }
+
     const nextOrder = clans.length;
     const newClan: ClanGroup = {
       id: 'clan_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       name: cleanName,
       color: color || '#d4af37',
-      order: nextOrder
+      order: nextOrder,
+      enabled: true
     };
     setClans((prev) => [...prev, newClan]);
     try {
@@ -789,10 +850,15 @@ export const App: React.FC = () => {
     );
 
     // Cascade update users state if name changed
-    if (oldCleanName && oldCleanName !== cleanNew) {
+    if (oldCleanName && oldCleanName.toLowerCase() !== cleanNew.toLowerCase()) {
       setUsers((prev) =>
-        prev.map((u) => (cleanClanName(u.clan) === oldCleanName ? { ...u, clan: cleanNew } : u))
+        prev.map((u) => (cleanClanName(u.clan).toLowerCase() === oldCleanName.toLowerCase() ? { ...u, clan: cleanNew } : u))
       );
+      if (currentUser && cleanClanName(currentUser.clan).toLowerCase() === oldCleanName.toLowerCase()) {
+        const updated = { ...currentUser, clan: cleanNew };
+        setCurrentUser(updated);
+        localStorage.setItem('k7_vault_user', JSON.stringify(updated));
+      }
     }
 
     try {
@@ -802,49 +868,97 @@ export const App: React.FC = () => {
       });
 
       // Cascade update users in Firestore
-      if (oldCleanName && oldCleanName !== cleanNew) {
-        const affected = users.filter((u) => cleanClanName(u.clan) === oldCleanName);
+      if (oldCleanName && oldCleanName.toLowerCase() !== cleanNew.toLowerCase()) {
+        const affected = users.filter((u) => cleanClanName(u.clan).toLowerCase() === oldCleanName.toLowerCase());
         for (const mem of affected) {
           updateUserDoc(mem.id, { clan: cleanNew }).catch(console.error);
         }
       }
-      showToast(lang === 'th' ? 'แก้ไขแคลนสำเร็จ' : 'Clan updated', 'success');
+      showToast(lang === 'th' ? `แก้ไขแคลน ${cleanNew} สำเร็จ` : `Clan ${cleanNew} updated`, 'success');
     } catch (err) {
       console.error('Failed to update clan:', err);
       showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการแก้ไขแคลน' : 'Failed to update clan', 'error');
     }
   };
 
-  const handleDeleteClan = async (clanId: string) => {
+  const handleDeleteClan = async (clanId: string, clanName?: string) => {
     sounds.playClick();
-    const targetClan = clans.find((c) => c.id === clanId);
-    const oldCleanName = targetClan ? cleanClanName(targetClan.name) : '';
+    const targetClan = clans.find(
+      (c) =>
+        c.id === clanId ||
+        (clanName && cleanClanName(c.name).toLowerCase() === cleanClanName(clanName).toLowerCase())
+    );
+    const resolvedName = targetClan ? cleanClanName(targetClan.name) : (clanName ? cleanClanName(clanName) : '');
+    const resolvedId = targetClan ? targetClan.id : clanId;
 
     // Optimistic update clans state
-    setClans((prev) => prev.filter((c) => c.id !== clanId));
-    if (oldCleanName) {
+    setClans((prev) =>
+      prev.filter(
+        (c) =>
+          c.id !== resolvedId &&
+          (!resolvedName || cleanClanName(c.name).toLowerCase() !== resolvedName.toLowerCase())
+      )
+    );
+
+    // Reassign all members of this clan to 'no-clan'
+    if (resolvedName) {
       setUsers((prev) =>
-        prev.map((u) => (cleanClanName(u.clan) === oldCleanName ? { ...u, clan: 'no-clan' } : u))
+        prev.map((u) =>
+          cleanClanName(u.clan).toLowerCase() === resolvedName.toLowerCase()
+            ? { ...u, clan: 'no-clan' }
+            : u
+        )
       );
+      if (currentUser && cleanClanName(currentUser.clan).toLowerCase() === resolvedName.toLowerCase()) {
+        const updated = { ...currentUser, clan: 'no-clan' };
+        setCurrentUser(updated);
+        localStorage.setItem('k7_vault_user', JSON.stringify(updated));
+      }
     }
 
     try {
-      await deleteClanDoc(clanId);
-      if (oldCleanName) {
-        const affected = users.filter((u) => cleanClanName(u.clan) === oldCleanName);
+      await deleteClanDoc(resolvedId);
+      if (resolvedName) {
+        const affected = users.filter(
+          (u) => cleanClanName(u.clan).toLowerCase() === resolvedName.toLowerCase()
+        );
         for (const mem of affected) {
           updateUserDoc(mem.id, { clan: 'no-clan' }).catch(console.error);
         }
       }
       showToast(
         lang === 'th'
-          ? `ลบแคลน ${oldCleanName} สำเร็จ (สมาชิกถูกย้ายไปที่ no-clan)`
-          : `Clan ${oldCleanName} deleted (members moved to no-clan)`,
+          ? `ลบแคลน ${resolvedName} สำเร็จ (สมาชิกถูกย้ายไปที่ ไม่มีแคลน)`
+          : `Clan ${resolvedName} deleted (members moved to Unassigned)`,
         'info'
       );
     } catch (err) {
       console.error('Failed to delete clan:', err);
       showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการลบแคลน' : 'Failed to delete clan', 'error');
+    }
+  };
+
+  const handleToggleClanVisibility = async (clanId: string) => {
+    sounds.playClick();
+    const targetClan = clans.find((c) => c.id === clanId);
+    if (!targetClan) return;
+    const nextEnabled = targetClan.enabled === false ? true : false;
+
+    setClans((prev) =>
+      prev.map((c) => (c.id === clanId ? { ...c, enabled: nextEnabled } : c))
+    );
+
+    try {
+      await updateClanDoc(clanId, { enabled: nextEnabled });
+      showToast(
+        lang === 'th'
+          ? `${nextEnabled ? 'เปิดแสดง' : 'ซ่อน'}แคลน ${cleanClanName(targetClan.name)} เรียบร้อย`
+          : `Clan ${cleanClanName(targetClan.name)} is now ${nextEnabled ? 'visible' : 'hidden'}`,
+        'info'
+      );
+    } catch (err) {
+      console.error('Failed to toggle clan visibility:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการตั้งค่าแคลน' : 'Failed to toggle clan visibility', 'error');
     }
   };
 
@@ -867,15 +981,31 @@ export const App: React.FC = () => {
 
   const handleMoveMemberClan = async (userId: string, newClanName: string) => {
     sounds.playClaim();
+    const cleanTarget = isNoClan(newClanName) ? 'no-clan' : (cleanClanName(newClanName) || 'no-clan');
     setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, clan: newClanName } : u))
+      prev.map((u) => (u.id === userId ? { ...u, clan: cleanTarget } : u))
     );
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) => (prev ? { ...prev, clan: cleanTarget } : null));
+    }
     try {
-      await updateUserDoc(userId, { clan: newClanName });
-      showToast(lang === 'th' ? 'ย้ายแคลนสำเร็จ' : 'Member moved', 'success');
+      await updateUserDoc(userId, { clan: cleanTarget });
+      showToast(
+        lang === 'th'
+          ? (cleanTarget === 'no-clan' ? 'ปลดสมาชิกออกจากแคลนแล้ว' : `ย้ายเข้าแคลน ${cleanTarget} สำเร็จ`)
+          : (cleanTarget === 'no-clan' ? 'Member unassigned from clan' : `Member moved to ${cleanTarget}`),
+        'success'
+      );
     } catch (err) {
       console.error('Failed to move member clan:', err);
     }
+  };
+
+  const handleBatchMoveMembersClan = async (userIds: string[], targetClan: string) => {
+    sounds.playClaim();
+    const cleanTarget = isNoClan(targetClan) ? 'no-clan' : (cleanClanName(targetClan) || 'no-clan');
+    const swaps = userIds.map((id) => ({ memberId: id, toClan: cleanTarget }));
+    await handleBulkUpdateClans(swaps);
   };
 
   // Members Handlers (Approvals & Management)
@@ -945,11 +1075,19 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteMember = async (userId: string) => {
+    const target = users.find((u) => u.id === userId);
     setUsers((prev) => prev.filter((u) => u.id !== userId));
     try {
       await deleteUserDoc(userId);
+      showToast(
+        lang === 'th'
+          ? `ลบสมาชิก ${target?.inGameName || ''} สำเร็จ`
+          : `Deleted member ${target?.inGameName || ''}`,
+        'info'
+      );
     } catch (err) {
       console.error('Failed to delete member in Firestore:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการลบสมาชิก' : 'Failed to delete member', 'error');
     }
   };
 
@@ -1454,13 +1592,19 @@ export const App: React.FC = () => {
 
   const handleBatchDeleteMembers = async (userIds: string[]) => {
     const idSet = new Set(userIds);
+    const count = userIds.length;
     setUsers((prev) => prev.filter((u) => !idSet.has(u.id)));
-    for (const uid of userIds) {
-      try {
+    try {
+      for (const uid of userIds) {
         await deleteUserDoc(uid);
-      } catch (err) {
-        console.error('Failed to batch delete member:', uid, err);
       }
+      showToast(
+        lang === 'th' ? `ลบสมาชิกทั้งหมด ${count} คนสำเร็จ` : `Deleted ${count} members successfully`,
+        'info'
+      );
+    } catch (err) {
+      console.error('Failed to batch delete member:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการลบสมาชิกแบบกลุ่ม' : 'Failed to batch delete members', 'error');
     }
   };
 
@@ -1573,7 +1717,7 @@ export const App: React.FC = () => {
         onOpenRequestCp={() => setActiveTab('my_stats')}
         onOpenMyStats={() => setActiveTab('my_stats')}
         onOpenPowerFormula={() => setIsPowerFormulaOpen(true)}
-        onOpenBulkSwap={() => setIsBulkSwapOpen(true)}
+        onOpenBulkSwap={() => setActiveTab('bulk_swap')}
         onOpenStatApproval={() => setActiveTab('stat_approvals')}
         pendingStatApprovalCount={users.filter((u) => u.pendingPowerLevel && u.pendingPowerLevel > 0).length}
         discordEnabled={discordSettings?.enabled}
@@ -1665,7 +1809,7 @@ export const App: React.FC = () => {
             selectedClanScope={selectedClanScope}
             onSelectClanScope={setSelectedClanScope}
             onOpenRequestCp={() => setActiveTab('my_stats')}
-            onOpenBulkSwap={() => setIsBulkSwapOpen(true)}
+            onOpenBulkSwap={() => setActiveTab('bulk_swap')}
             onApproveMember={handleApproveMember}
             onRejectMember={handleRejectMember}
             onApproveCpUpdate={handleApprovePowerLevelUpdate}
@@ -1677,6 +1821,16 @@ export const App: React.FC = () => {
         )}
 
         {activeTab === 'clans' && (
+          <ClanRosterView
+            lang={lang}
+            currentUser={currentUser}
+            allMembers={users}
+            clans={clans}
+            onNavigateToBulkSwap={() => setActiveTab('bulk_swap')}
+          />
+        )}
+
+        {activeTab === 'bulk_swap' && canAccessAdminFeatures && (
           <ClanView
             lang={lang}
             currentUser={currentUser}
@@ -1687,9 +1841,26 @@ export const App: React.FC = () => {
             onDeleteClan={handleDeleteClan}
             onReorderClans={handleReorderClans}
             onMoveMemberClan={handleMoveMemberClan}
+            onBatchMoveMembers={handleBatchMoveMembersClan}
+            onToggleClanVisibility={handleToggleClanVisibility}
             onDeleteMember={handleDeleteMember}
             onBatchDeleteMembers={handleBatchDeleteMembers}
+            onNavigateToClans={() => setActiveTab('clans')}
           />
+        )}
+
+        {activeTab === 'bulk_swap' && !canAccessAdminFeatures && (
+          <div className="p-8 text-center bg-slate-900/80 rounded-2xl border border-slate-800">
+            <p className="text-slate-300 font-semibold mb-4">
+              {lang === 'th' ? 'หน้านี้สำหรับ Admin และ Owner เท่านั้น' : 'This page is restricted to Admin and Owner.'}
+            </p>
+            <button
+              onClick={() => setActiveTab('clans')}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#aa841c] text-slate-950 font-bold text-xs cursor-pointer"
+            >
+              {lang === 'th' ? 'กลับไปหน้าแคลน' : 'Go to Clans'}
+            </button>
+          </div>
         )}
 
         {activeTab === 'my_stats' && (
@@ -1855,23 +2026,6 @@ export const App: React.FC = () => {
           isOpen={isPowerFormulaOpen}
           onClose={() => setIsPowerFormulaOpen(false)}
           lang={lang}
-          showToast={showToast}
-        />
-      )}
-
-
-
-
-
-      {isBulkSwapOpen && canAccessAdminFeatures && (
-        <BulkSwapClanModal
-          isOpen={isBulkSwapOpen}
-          onClose={() => setIsBulkSwapOpen(false)}
-          allMembers={users}
-          clans={clans.map((c) => c.name)}
-          lang={lang}
-          onBulkUpdateClans={handleBulkUpdateClans}
-          onAddClan={handleAddClan}
           showToast={showToast}
         />
       )}

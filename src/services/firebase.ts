@@ -68,18 +68,22 @@ export const QUEUES_COLLECTION = 'item_queues';
 export const VAULT_COLLECTION = 'diamond_vault';
 export const CLANS_COLLECTION = 'clans';
 
-// Default seeded owner account & sample data
+// Default seeded owner account & sample data (Synced with latest verified profile)
 export const DEFAULT_OWNER: User = {
   id: 'user_owner_eloni',
   username: 'Eloni',
   password: '0386231334',
   inGameName: 'Eloni',
-  powerLevel: 650000,
+  powerLevel: 3722,
+  level: 79,
   clan: 'VoltZ',
   characterClass: 'Orb',
+  classes: ['Orb', 'Dual Blades', 'Spear', 'Greatsword'],
   role: 'owner',
   status: 'active',
-  createdAt: Date.now() - 86400000 * 30,
+  verified: true,
+  createdAt: 1786449061493,
+  statScreenshotUrl: 'https://kain7.com/screenshot/1810',
 };
 
 export const INITIAL_MEMBERS: User[] = [
@@ -147,10 +151,9 @@ export const INITIAL_MEMBERS: User[] = [
 ];
 
 export const INITIAL_CLANS: ClanGroup[] = [
-  { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0 },
-  { id: 'clan_levels', name: 'LevelS', color: '#ef4444', order: 1 },
-  { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2 },
-  { id: 'clan_noclan', name: 'no-clan', color: '#3b82f6', order: 3 }
+  { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0, enabled: true },
+  { id: 'clan_levels', name: 'LevelS', color: '#ef4444', order: 1, enabled: true },
+  { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2, enabled: true }
 ];
 
 export const INITIAL_QUICK_ITEMS: QuickItem[] = [
@@ -766,7 +769,7 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
     q,
     (snapshot) => {
       if (snapshot.empty) {
-        callback(INITIAL_CLANS);
+        callback([]);
         return;
       }
       const clans: ClanGroup[] = [];
@@ -781,7 +784,7 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
     },
     (err) => {
       console.warn('Firestore clans fallback:', err);
-      callback(INITIAL_CLANS);
+      callback([]);
     }
   );
 }
