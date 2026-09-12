@@ -641,6 +641,7 @@ function setupBossTracker(app, httpServer) {
                 db.updateBoss(b.id, { post_maintenance: true });
             }
         }
+        if (firestoreSync) firestoreSync.syncAllBossesToFirestore(db.getBosses());
         broadcaster.broadcast('bosses.updated', { bosses: db.getBosses() });
         return respondInertiaOrRedirect(req, res, '/boss-tracker');
     });
@@ -654,6 +655,7 @@ function setupBossTracker(app, httpServer) {
             }
         }
         db.setSavedMaintenanceEndTime(null);
+        if (firestoreSync) firestoreSync.syncAllBossesToFirestore(db.getBosses());
         broadcaster.broadcast('bosses.updated', { bosses: db.getBosses() });
         return respondInertiaOrRedirect(req, res, '/boss-tracker');
     });
@@ -674,9 +676,11 @@ function setupBossTracker(app, httpServer) {
             }
         }
         db.setSavedMaintenanceEndTime(null);
+        if (firestoreSync) firestoreSync.syncAllBossesToFirestore(db.getBosses());
         broadcaster.broadcast('bosses.updated', { bosses: db.getBosses() });
         return respondInertiaOrRedirect(req, res, '/boss-tracker');
     });
+
 
     // ==========================================================
     // EVENTS ACTIONS
