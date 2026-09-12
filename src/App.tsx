@@ -16,8 +16,10 @@ import {
   AnnouncementSettings,
   DiscordSettings,
   ClanFundTxType,
-  cleanClanName
+  cleanClanName,
+  StatHistoryPoint
 } from './types';
+import { getOrGenerateStatHistory } from './utils/growthTimelineHelper';
 import { translations } from './translations';
 import { sounds } from './utils/sound';
 import { sendDiscordNotification } from './utils/discord';
@@ -1017,6 +1019,28 @@ export const App: React.FC = () => {
       : (target.legendAgathions || 0);
     const primaryClass = approvedClasses.length > 0 ? approvedClasses[0] : (target.characterClass || '');
 
+    const newHistoryPoint: StatHistoryPoint = {
+      id: `approval_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      date: Date.now(),
+      powerLevel: approvedPower,
+      level: approvedLevel,
+      classes: approvedClasses,
+      damage: approvedStats?.['damage'] || 0,
+      accuracy: approvedStats?.['accuracy'] || 0,
+      defense: approvedStats?.['defense'] || 0,
+      damageReduction: approvedStats?.['damage_reduction'] || 0,
+      skillDamageBoost: approvedStats?.['skill_damage_boost_percent'] || 0,
+      weaponDamageBoost: approvedStats?.['weapon_damage_boost_percent'] || 0,
+      note: `อนุมัติสเตตัสโดย ${currentUser?.inGameName || 'Admin'}`,
+      type: 'approval',
+      verifiedBy: currentUser?.inGameName || 'Admin',
+      statsSnapshot: approvedStats
+    };
+    const targetHistory = target.statHistory && target.statHistory.length > 0
+      ? target.statHistory
+      : getOrGenerateStatHistory(target);
+    const updatedHistory = [...targetHistory, newHistoryPoint];
+
     setUsers((prev) =>
       prev.map((u) =>
         u.id === userId
@@ -1030,6 +1054,7 @@ export const App: React.FC = () => {
               level: approvedLevel,
               legendClasses: approvedLegendClasses,
               legendAgathions: approvedLegendAgathions,
+              statHistory: updatedHistory,
               pendingPowerLevel: null,
               pendingPowerLevelRequestedAt: null,
               pendingStats: null,
@@ -1057,6 +1082,7 @@ export const App: React.FC = () => {
               level: approvedLevel,
               legendClasses: approvedLegendClasses,
               legendAgathions: approvedLegendAgathions,
+              statHistory: updatedHistory,
               pendingPowerLevel: null,
               pendingPowerLevelRequestedAt: null,
               pendingStats: null,
@@ -1081,6 +1107,7 @@ export const App: React.FC = () => {
         level: approvedLevel,
         legendClasses: approvedLegendClasses,
         legendAgathions: approvedLegendAgathions,
+        statHistory: updatedHistory,
         pendingPowerLevel: null,
         pendingPowerLevelRequestedAt: null,
         pendingStats: null,
@@ -1179,6 +1206,18 @@ export const App: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to reject stat update:', err);
+    }
+  };
+
+  const handleSaveUserHistory = async (newHistory: StatHistoryPoint[]) => {
+    if (!currentUser) return;
+    const updatedUser = { ...currentUser, statHistory: newHistory };
+    setCurrentUser(updatedUser);
+    setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? { ...u, statHistory: newHistory } : u)));
+    try {
+      await updateUserDoc(currentUser.id, { statHistory: newHistory });
+    } catch (err) {
+      console.error('Failed to save user history:', err);
     }
   };
 
@@ -1551,6 +1590,7 @@ export const App: React.FC = () => {
             onNavigateTab={(tab) => setActiveTab(tab)}
             showToast={showToast}
             onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
+            onSaveHistory={handleSaveUserHistory}
           />
         )}
 

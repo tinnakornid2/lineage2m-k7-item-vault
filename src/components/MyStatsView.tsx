@@ -17,11 +17,12 @@ import {
   ArrowLeft,
   Info
 } from 'lucide-react';
-import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab } from '../types';
+import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint } from '../types';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
 import { ScreenshotGuideModal, ScreenshotGuideTrigger } from './ScreenshotGuideModal';
+import { GrowthTimelineChart } from './GrowthTimelineChart';
 
 interface MyStatsViewProps {
   currentUser: User | null;
@@ -43,6 +44,7 @@ interface MyStatsViewProps {
   onNavigateTab?: (tab: ActiveTab) => void;
   showToast?: (msg: string, type: 'info' | 'success' | 'warning' | 'error') => void;
   onViewImageZoom?: (url: string, title?: string) => void;
+  onSaveHistory?: (newHistory: StatHistoryPoint[]) => Promise<void>;
 }
 
 export const MyStatsView: React.FC<MyStatsViewProps> = ({
@@ -52,7 +54,8 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   onCancelPendingRequest,
   onNavigateTab,
   showToast,
-  onViewImageZoom
+  onViewImageZoom,
+  onSaveHistory
 }) => {
   const [formulaSettings, setFormulaSettings] = useState<FormulaSettings>(getFormulaSettings());
   const [stats, setStats] = useState<Record<string, number>>({});
@@ -415,6 +418,14 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
           )}
         </div>
       )}
+
+      {/* GROWTH & PROGRESSION TIMELINE CHART */}
+      <GrowthTimelineChart
+        user={currentUser}
+        lang={lang}
+        onSaveHistory={onSaveHistory}
+        showToast={showToast}
+      />
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* SECTION 1: CHARACTER STATS PROFILE CARD (Exact 1:1 match with Kain7) */}

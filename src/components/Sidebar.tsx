@@ -766,8 +766,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Lineage2M Clan Hub Made By Elon
             </span>
             <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold shrink-0">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>v1.5.0</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+              <span>v1.6.0</span>
             </div>
           </div>
 

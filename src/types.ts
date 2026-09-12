@@ -60,6 +60,25 @@ export interface User {
   statRejectionReason?: string;
   statRejectionAt?: number;
   lastStatUpdatedAt?: number;
+  statHistory?: StatHistoryPoint[];
+}
+
+export interface StatHistoryPoint {
+  id: string;
+  date: number; // timestamp in ms
+  powerLevel: number;
+  level?: number;
+  classes?: string[];
+  damage?: number;
+  accuracy?: number;
+  defense?: number;
+  damageReduction?: number;
+  skillDamageBoost?: number;
+  weaponDamageBoost?: number;
+  note?: string;
+  type?: 'approval' | 'self_record' | 'milestone' | 'initial';
+  verifiedBy?: string;
+  statsSnapshot?: Record<string, number>;
 }
 
 export interface QuickItem {
