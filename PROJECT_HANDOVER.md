@@ -62,6 +62,13 @@
 ### 7. กฎเหล็กสองภาษา 100% (Rule 1: Bilingual Compliance)
 - ทุกข้อความ ปุ่ม ตัวเลือก กล่องข้อความ และรายงาน Discord Share รองรับทั้ง **ไทย (TH)** และ **อังกฤษ (EN)** ครบถ้วน 100% ไม่มีการ Hardcode ภาษาใดภาษาหนึ่ง
 
+### 8. ปรับปรุงระบบ AI OCR ให้ใช้งานได้สมบูรณ์ 100% บนลิงก์ Deploy (Vercel) และทุกอุปกรณ์
+- **อัปเดตโมเดลล่าสุด:** เปลี่ยนเป็นชุดโมเดลที่ Google ให้บริการในปัจจุบัน ได้แก่ `gemini-flash-latest`, `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-flash-lite-latest`, `gemini-3-flash-preview`, `gemini-3.6-flash` (ตัดโมเดล 1.5/2.0/2.5 ที่ Google ปิดบริการ 404 ออก)
+- **Direct Client-side OCR บน Vercel:** เมื่อแอดมินใช้งานผ่านลิงก์ Vercel ระบบจะประมวลผลรูปภาพและส่งคำขอไปยัง Gemini AI จากฝั่ง Client โดยตรง รวดเร็ว แม่นยำ ไม่ต้องพึ่งพา Express backend
+- **ระบบสลับโมเดลอัตโนมัติ (Intelligent Model Fallback):** หากโมเดลใดโมเดลหนึ่งติด Quota (429) หรือเซิร์ฟเวอร์หนาแน่น (503) ระบบจะข้ามไปลองใช้โมเดลถัดไปทันที
+- **Firestore Cloud Key Sync:** ซิงค์ Gemini API Key ลงคอลเลกชัน `app_settings/gemini_ai` ทำให้แอดมินทุกคนที่เปิดจากเครื่องใหม่หรือเบราว์เซอร์ใหม่สามารถใช้งาน OCR ได้ทันทีโดยไม่ต้องตั้งค่าเอง
+- **GeminiKeyModal สำหรับ Owner:** สามารถกดทดสอบและบันทึกคีย์ผ่านหน้าเว็บ Vercel ได้โดยตรง โดยตรวจเช็กกับ Google Generative Language API ทันที
+
 ---
 
 ## 📂 แผนผังไฟล์สำคัญ (Key Files Map)
