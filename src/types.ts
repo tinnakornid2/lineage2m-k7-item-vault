@@ -57,9 +57,11 @@ export interface User {
   pendingLegendClasses?: number;
   pendingLegendAgathions?: number;
   pendingStatScreenshotUrl?: string;
+  statScreenshotUrl?: string;
   statRejectionReason?: string;
   statRejectionAt?: number;
   lastStatUpdatedAt?: number;
+  verified?: boolean;
   statHistory?: StatHistoryPoint[];
 }
 

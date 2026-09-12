@@ -554,9 +554,6 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] text-slate-500">
-                      × {stat.multiplier} PL
-                    </div>
                   </div>
                 ))}
               </div>
@@ -592,9 +589,6 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                           %
                         </span>
                       )}
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      × {stat.multiplier} PL
                     </div>
                   </div>
                 ))}
@@ -651,9 +645,6 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                             {lang === 'th' ? stat.labelTh.replace(/ผลึกวิญญาณ:\s*/, '') : stat.labelEn.replace(/Spirit:\s*/, '')}
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-500 font-mono">
-                          ×{stat.multiplier} PL
-                        </span>
                       </div>
 
                       {/* Level & Enhancement Inputs */}
@@ -746,9 +737,6 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                           %
                         </span>
                       )}
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      × {stat.multiplier} PL
                     </div>
                   </div>
                 ))}

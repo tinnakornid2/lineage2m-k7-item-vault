@@ -117,7 +117,10 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
       try {
         data = JSON.parse(resText);
       } catch {
-        data = { success: false, error: 'ไม่สามารถแยกวิเคราะห์ข้อมูลจากเซิร์ฟเวอร์ได้' };
+        data = {
+          success: false,
+          error: lang === 'th' ? 'ไม่สามารถแยกวิเคราะห์ข้อมูลจากเซิร์ฟเวอร์ได้' : 'Failed to parse server response'
+        };
       }
 
       if (data.success) {

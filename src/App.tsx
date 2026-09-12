@@ -56,9 +56,11 @@ import {
   updateDiamondTransactionNoteDoc,
   registerUserDoc,
   loginUserQuery,
+  listenToFormulaSettings,
   INITIAL_QUICK_ITEMS,
   INITIAL_CLANS
 } from './services/firebase';
+import { setInMemoryFormulaSettings } from './services/powerFormulaService';
 
 import { Sidebar } from './components/Sidebar';
 import { AnnouncementBar } from './components/AnnouncementBar';
@@ -163,8 +165,6 @@ export const App: React.FC = () => {
 
   // 5c. Kain7 Power Formula & Bulk Swap Modals State
   const [isPowerFormulaOpen, setIsPowerFormulaOpen] = useState(false);
-  const [isMyStatsOpen, setIsMyStatsOpen] = useState(false);
-  const [isStatApprovalOpen, setIsStatApprovalOpen] = useState(false);
   const [isBulkSwapOpen, setIsBulkSwapOpen] = useState(false);
   const [selectedClanScope, setSelectedClanScope] = useState<string>('all');
 
@@ -268,6 +268,9 @@ export const App: React.FC = () => {
     const unsubDiscord = listenToDiscordSettings((settings) => {
       if (settings) setDiscordSettings(settings);
     });
+    const unsubFormula = listenToFormulaSettings((settings) => {
+      if (settings) setInMemoryFormulaSettings(settings);
+    });
 
     return () => {
       unsubUsers();
@@ -279,6 +282,7 @@ export const App: React.FC = () => {
       unsubBg();
       unsubAnnouncement();
       unsubDiscord();
+      unsubFormula();
     };
   }, []);
 
@@ -955,14 +959,15 @@ export const App: React.FC = () => {
     const reqStatus = profileData?.status;
     const reqClan = profileData?.clan;
 
-    const isOwnerTarget = userId === 'user_owner_eloni' || currentUser?.role === 'owner' || currentUser?.username?.toLowerCase() === 'eloni' || currentUser?.inGameName?.toLowerCase() === 'eloni';
+    const targetUser = users.find((u) => u.id === userId) || currentUser;
+    const isOwnerUser = userId === 'user_owner_eloni' || targetUser?.username?.toLowerCase() === 'eloni' || targetUser?.inGameName?.toLowerCase() === 'eloni' || targetUser?.role === 'owner';
     const isAuthorized = currentUser?.role === 'owner' || currentUser?.role === 'admin';
 
-    const safeRole: UserRole = isOwnerTarget
+    const safeRole: UserRole = isOwnerUser
       ? 'owner'
-      : (isAuthorized && reqRole ? reqRole : (currentUser?.role || 'member'));
-    const safeStatus: UserStatus = isAuthorized && reqStatus ? reqStatus : (currentUser?.status || 'active');
-    const safeClan: string = isAuthorized && reqClan ? reqClan : (currentUser?.clan || 'VoltZ');
+      : (isAuthorized && reqRole ? reqRole : (targetUser?.role || 'member'));
+    const safeStatus: UserStatus = isAuthorized && reqStatus ? reqStatus : (targetUser?.status || 'active');
+    const safeClan: string = isAuthorized && reqClan ? reqClan : (targetUser?.clan || 'VoltZ');
 
     setUsers((prev) =>
       prev.map((u) =>
@@ -970,7 +975,7 @@ export const App: React.FC = () => {
           ? {
               ...u,
               inGameName: reqInGameName || u.inGameName,
-              role: isOwnerTarget ? 'owner' : (isAuthorized && reqRole ? reqRole : u.role),
+              role: isOwnerUser ? 'owner' : (isAuthorized && reqRole ? reqRole : u.role),
               status: isAuthorized && reqStatus ? reqStatus : u.status,
               clan: isAuthorized && reqClan ? reqClan : u.clan,
               pendingPowerLevel: newPowerLevel,
@@ -982,7 +987,8 @@ export const App: React.FC = () => {
               pendingLevel: reqLevel ?? u.level,
               pendingLegendClasses: reqLegendClasses ?? u.legendClasses,
               pendingLegendAgathions: reqLegendAgathions ?? u.legendAgathions,
-              statRejectionReason: null
+              statRejectionReason: null,
+              statRejectionAt: null
             }
           : u
       )
@@ -993,7 +999,7 @@ export const App: React.FC = () => {
           ? {
               ...prev,
               inGameName: reqInGameName || prev.inGameName,
-              role: isOwnerTarget ? 'owner' : (isAuthorized && reqRole ? reqRole : prev.role),
+              role: isOwnerUser ? 'owner' : (isAuthorized && reqRole ? reqRole : prev.role),
               status: isAuthorized && reqStatus ? reqStatus : prev.status,
               clan: isAuthorized && reqClan ? reqClan : prev.clan,
               pendingPowerLevel: newPowerLevel,
@@ -1005,7 +1011,8 @@ export const App: React.FC = () => {
               pendingLevel: reqLevel ?? prev.level,
               pendingLegendClasses: reqLegendClasses ?? prev.legendClasses,
               pendingLegendAgathions: reqLegendAgathions ?? prev.legendAgathions,
-              statRejectionReason: null
+              statRejectionReason: null,
+              statRejectionAt: null
             }
           : null
       );
@@ -1021,10 +1028,11 @@ export const App: React.FC = () => {
         pendingLevel: reqLevel ?? null,
         pendingLegendClasses: reqLegendClasses ?? null,
         pendingLegendAgathions: reqLegendAgathions ?? null,
-        statRejectionReason: null
+        statRejectionReason: null,
+        statRejectionAt: null
       };
       if (reqInGameName) docUpdates.inGameName = reqInGameName;
-      if (isOwnerTarget) {
+      if (isOwnerUser) {
         docUpdates.role = 'owner';
       } else if (isAuthorized && reqRole) {
         docUpdates.role = reqRole;
@@ -1084,6 +1092,7 @@ export const App: React.FC = () => {
       ? target.pendingLegendAgathions
       : (target.legendAgathions || 0);
     const primaryClass = approvedClasses.length > 0 ? approvedClasses[0] : (target.characterClass || '');
+    const approvedScreenshot = target.pendingStatScreenshotUrl || target.statScreenshotUrl || null;
 
     const newHistoryPoint: StatHistoryPoint = {
       id: `approval_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -1126,11 +1135,13 @@ export const App: React.FC = () => {
               pendingStats: null,
               pendingSpiritEnhancements: null,
               pendingStatScreenshotUrl: null,
+              statScreenshotUrl: approvedScreenshot,
               pendingClasses: null,
               pendingLevel: null,
               pendingLegendClasses: null,
               pendingLegendAgathions: null,
-              statRejectionReason: null
+              statRejectionReason: null,
+              statRejectionAt: null
             }
           : u
       )
@@ -1154,11 +1165,13 @@ export const App: React.FC = () => {
               pendingStats: null,
               pendingSpiritEnhancements: null,
               pendingStatScreenshotUrl: null,
+              statScreenshotUrl: approvedScreenshot,
               pendingClasses: null,
               pendingLevel: null,
               pendingLegendClasses: null,
               pendingLegendAgathions: null,
-              statRejectionReason: null
+              statRejectionReason: null,
+              statRejectionAt: null
             }
           : null
       );
@@ -1179,11 +1192,13 @@ export const App: React.FC = () => {
         pendingStats: null,
         pendingSpiritEnhancements: null,
         pendingStatScreenshotUrl: null,
+        statScreenshotUrl: approvedScreenshot,
         pendingClasses: null,
         pendingLevel: null,
         pendingLegendClasses: null,
         pendingLegendAgathions: null,
-        statRejectionReason: null
+        statRejectionReason: null,
+        statRejectionAt: null
       });
 
       // Discord webhook notification
@@ -1227,7 +1242,8 @@ export const App: React.FC = () => {
               pendingLevel: null,
               pendingLegendClasses: null,
               pendingLegendAgathions: null,
-              statRejectionReason: rejectionReason
+              statRejectionReason: rejectionReason,
+              statRejectionAt: Date.now()
             }
           : u
       )
@@ -1246,7 +1262,8 @@ export const App: React.FC = () => {
               pendingLevel: null,
               pendingLegendClasses: null,
               pendingLegendAgathions: null,
-              statRejectionReason: rejectionReason
+              statRejectionReason: rejectionReason,
+              statRejectionAt: Date.now()
             }
           : null
       );
@@ -1262,7 +1279,8 @@ export const App: React.FC = () => {
         pendingLevel: null,
         pendingLegendClasses: null,
         pendingLegendAgathions: null,
-        statRejectionReason: rejectionReason
+        statRejectionReason: rejectionReason,
+        statRejectionAt: Date.now()
       });
       showToast(
         lang === 'th'
@@ -1424,11 +1442,16 @@ export const App: React.FC = () => {
     }
   };
 
-  // Available items to show on Dashboard (status === 'available') - Memoized
-  const availableDashboardItems = useMemo(
-    () => vaultItems.filter((i) => i.status === 'available'),
-    [vaultItems]
-  );
+  // Available items to show on Dashboard (status === 'available') filtered by Clan Scope
+  const availableDashboardItems = useMemo(() => {
+    const available = vaultItems.filter((i) => i.status === 'available');
+    if (!selectedClanScope || selectedClanScope === 'all') return available;
+    const scope = cleanClanName(selectedClanScope).toLowerCase();
+    return available.filter((item) =>
+      item.hunters?.some((h) => cleanClanName(h.clan).toLowerCase() === scope) ||
+      item.claimants?.some((c) => cleanClanName(c.clan).toLowerCase() === scope)
+    );
+  }, [vaultItems, selectedClanScope]);
 
   // If user is not logged in, display the centered Login/Register screen before entering the app
   if (!currentUser) {
@@ -1753,17 +1776,6 @@ export const App: React.FC = () => {
         />
       )}
 
-      {imageViewerData && (
-        <ImageViewerModal
-          isOpen={true}
-          onClose={() => setImageViewerData(null)}
-          imageUrl={imageViewerData.url}
-          title={imageViewerData.title}
-          images={imageViewerData.images}
-          initialIndex={imageViewerData.currentIndex}
-          lang={lang}
-        />
-      )}
 
       <QuickItemModal
         isOpen={showQuickItemsModal && canAccessAdminFeatures}

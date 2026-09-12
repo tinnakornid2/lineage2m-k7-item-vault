@@ -24,6 +24,7 @@ import {
   ClanGroup,
   AnnouncementSettings,
   DiscordSettings,
+  FormulaSettings,
   cleanClanName,
   DEFAULT_CLAN
 } from '../types';
@@ -1126,4 +1127,72 @@ export async function saveGeminiAiSettingsDoc(apiKey: string, updatedBy?: string
   }
 }
 
+// 12. Power Formula Settings Sync (Kain7 Dynamic Multipliers across all devices)
+export function listenToFormulaSettings(
+  callback: (settings: FormulaSettings | null) => void
+) {
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'power_formula');
+  return onSnapshot(
+    ref,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as FormulaSettings;
+        if (data && Array.isArray(data.stats) && data.stats.length > 0) {
+          callback(data);
+          return;
+        }
+      }
+      callback(null);
+    },
+    (err) => {
+      console.warn('Firestore power_formula sync notice:', err);
+      callback(null);
+    }
+  );
+}
 
+export async function saveFormulaSettingsDoc(settings: FormulaSettings) {
+  const cleanData = sanitizeForFirestore({
+    ...settings,
+    updatedAt: Date.now()
+  });
+  try {
+    const ref = doc(db, APP_SETTINGS_COLLECTION, 'power_formula');
+    await setDoc(ref, cleanData, { merge: true });
+  } catch (err) {
+    console.error('Failed to save power_formula to Firestore:', err);
+    throw err;
+  }
+}
+
+export async function resetAllUserStatsDoc(): Promise<number> {
+  const snap = await getDocs(collection(db, USERS_COLLECTION));
+  const batch = writeBatch(db);
+  let count = 0;
+  snap.forEach((docSnap) => {
+    batch.update(docSnap.ref, {
+      powerLevel: 0,
+      stats: {},
+      spiritEnhancements: {},
+      statScreenshotUrl: null,
+      pendingPowerLevel: null,
+      pendingPowerLevelRequestedAt: null,
+      pendingStats: null,
+      pendingSpiritEnhancements: null,
+      pendingClasses: null,
+      pendingLevel: null,
+      pendingLegendClasses: null,
+      pendingLegendAgathions: null,
+      pendingStatScreenshotUrl: null,
+      statRejectionReason: null,
+      statRejectionAt: null,
+      verified: false,
+      lastStatUpdatedAt: null
+    });
+    count++;
+  });
+  if (count > 0) {
+    await batch.commit();
+  }
+  return count;
+}

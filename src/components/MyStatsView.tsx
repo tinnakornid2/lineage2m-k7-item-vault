@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Zap,
   Upload,
@@ -20,7 +20,10 @@ import {
   HelpCircle,
   Check,
   ChevronDown,
-  Lock
+  Lock,
+  Eye,
+  Maximize2,
+  ExternalLink
 } from 'lucide-react';
 import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint, ClanGroup, UserRole, UserStatus, cleanClanName, OFFICIAL_CLANS } from '../types';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
@@ -71,9 +74,23 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   onSaveHistory
 }) => {
   const [formulaSettings, setFormulaSettings] = useState<FormulaSettings>(getFormulaSettings());
+
+  useEffect(() => {
+    const handleFormulaUpdated = (e: any) => {
+      if (e?.detail) setFormulaSettings(e.detail);
+      else setFormulaSettings(getFormulaSettings());
+    };
+    window.addEventListener('l2m_formula_settings_updated', handleFormulaUpdated);
+    return () => window.removeEventListener('l2m_formula_settings_updated', handleFormulaUpdated);
+  }, []);
   const [stats, setStats] = useState<Record<string, number>>({});
   const [spiritEnhancements, setSpiritEnhancements] = useState<Record<string, number>>({});
   const [screenshotUrl, setScreenshotUrl] = useState<string>('');
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isProofPinned, setIsProofPinned] = useState(false);
+  const [pinnedProofSize, setPinnedProofSize] = useState<'normal' | 'large' | 'split'>('normal');
+  const [pinnedProofZoom, setPinnedProofZoom] = useState<number>(1);
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [charLevel, setCharLevel] = useState<number>(0);
   const [charLegendClasses, setCharLegendClasses] = useState<number>(0);
@@ -137,7 +154,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
 
       setStats(initialStats);
       setSpiritEnhancements(initialSpirits);
-      setScreenshotUrl(currentUser.pendingStatScreenshotUrl || '');
+      setScreenshotUrl(currentUser.pendingStatScreenshotUrl || currentUser.statScreenshotUrl || '');
 
       // Profile fields
       const isOwnerAcc = currentUser.role === 'owner' || currentUser.id === 'user_owner_eloni' || currentUser.username?.toLowerCase() === 'eloni' || currentUser.inGameName?.toLowerCase() === 'eloni';
@@ -240,6 +257,33 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     if (file) {
       processScreenshotFile(file, false);
       e.target.value = '';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        if (files[i].type.startsWith('image/')) {
+          await processScreenshotFile(files[i], false);
+          break;
+        }
+      }
     }
   };
 
@@ -411,16 +455,15 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     setErrorMessage('');
     setSuccessMessage('');
 
-    if (calculatedNewPL <= 0) {
-      setErrorMessage(lang === 'th' ? 'กรุณากรอกสเตตัสให้ได้ค่าพลังมากกว่า 0' : 'Please enter valid stats greater than 0');
-      return;
-    }
+    // Determine effective Power Level: calculate from entered stats or retain existing verified PL
+    const finalPL = calculatedNewPL > 0 ? calculatedNewPL : (currentUser.powerLevel || 0);
 
-    if (!screenshotUrl) {
+    // Only block if literally no stats, no PL, no level, and no classes entered
+    if (finalPL <= 0 && (!charLevel || charLevel <= 0) && selectedClasses.length === 0) {
       setErrorMessage(
         lang === 'th'
-          ? 'กรุณาแนบภาพสกรีนช็อตสเตตัสในเกม (วางรูปด้วย Ctrl+V หรืออัปโหลด) เพื่อยืนยัน'
-          : 'Please attach a screenshot of your stats in game for verification'
+          ? 'กรุณากรอกข้อมูลสเตตัส เลเวล หรือเลือกคลาสตัวละครก่อนกดบันทึก'
+          : 'Please enter stats, character level, or select classes before saving'
       );
       return;
     }
@@ -432,8 +475,8 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
         currentUser.id,
         stats,
         spiritEnhancements,
-        calculatedNewPL,
-        screenshotUrl,
+        finalPL,
+        screenshotUrl || undefined,
         {
           inGameName: inGameName.trim() || currentUser.inGameName,
           role: isOwner ? 'owner' : (canEditAdminFields ? selectedRole : currentUser.role),
@@ -447,12 +490,12 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
       );
       setSuccessMessage(
         lang === 'th'
-          ? 'ส่งคำขออัปเดตสเตตัสเรียบร้อยแล้ว! แอดมินจะทำการตรวจสอบเร็วๆ นี้'
-          : 'Stat update request submitted! Admin will verify shortly'
+          ? 'ส่งคำขออัปเดตสเตตัสเรียบร้อยแล้ว! รอแอดมินหรือโอเนอร์ตรวจสอบและอนุมัติ ⚡'
+          : 'Stat update request submitted! Waiting for Admin/Owner approval ⚡'
       );
       if (showToast) {
         showToast(
-          lang === 'th' ? 'ส่งคำขออัปเดตสเตตัสสำเร็จ ⚡' : 'Stat update request submitted ⚡',
+          lang === 'th' ? 'ส่งคำขออัปเดตสเตตัสสำเร็จ (รออนุมัติ) ⚡' : 'Stat update request submitted (Pending approval) ⚡',
           'success'
         );
       }
@@ -559,19 +602,83 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
           </div>
         </div>
 
-        {/* Current Verified Power Badge */}
-        <div className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl bg-zinc-850 border border-zinc-700 shadow-md">
-          <div className="size-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
-            <Zap className="size-4" />
-          </div>
-          <div className="text-right">
-            <div className="text-[9px] uppercase font-bold text-zinc-400">
-              {lang === 'th' ? 'ค่าพลังยืนยันแล้ว' : 'Verified Power'}
+        <div className="flex items-center gap-2.5">
+          {/* Current Verified Power Badge */}
+          <div className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl bg-zinc-850 border border-zinc-700 shadow-md">
+            <div className="size-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+              <Zap className="size-4" />
             </div>
-            <div className="text-sm sm:text-base font-black text-amber-400 font-mono leading-none">
-              ⚡ {currentVerifiedPL.toLocaleString()} PL
+            <div className="text-right">
+              <div className="text-[9px] uppercase font-bold text-zinc-400">
+                {lang === 'th' ? 'ค่าพลังยืนยันแล้ว' : 'Verified Power'}
+              </div>
+              <div className="text-sm sm:text-base font-black text-amber-400 font-mono leading-none">
+                ⚡ {currentVerifiedPL.toLocaleString()} PL
+              </div>
             </div>
           </div>
+
+          {/* Quick Screenshot Indicator & Scroll Trigger */}
+          <button
+            type="button"
+            onClick={() => {
+              const el = document.getElementById('screenshot-upload-card');
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs transition cursor-pointer shadow-md ${
+              screenshotUrl
+                ? 'bg-zinc-850 border-emerald-500/50 text-emerald-300 hover:border-emerald-400'
+                : 'bg-zinc-850 border-zinc-700 text-zinc-400 hover:border-amber-500/60 hover:text-amber-300'
+            }`}
+            title={screenshotUrl ? (lang === 'th' ? 'มีรูปแนบแล้ว คลิกดูหรือแก้ไข' : 'Screenshot attached') : (lang === 'th' ? 'ยังไม่ได้แนบรูป คลิกเพื่อไปที่กล่องแนบรูป' : 'No screenshot attached')}
+          >
+            {screenshotUrl ? (
+              <>
+                <img
+                  src={screenshotUrl}
+                  alt="Proof thumbnail"
+                  className="size-6 rounded object-cover border border-emerald-500/40 shrink-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onViewImageZoom?.(screenshotUrl, 'Stat Proof');
+                  }}
+                />
+                <span className="font-semibold hidden sm:inline">
+                  {currentUser.pendingStatScreenshotUrl && screenshotUrl === currentUser.pendingStatScreenshotUrl
+                    ? (lang === 'th' ? 'รูปแนบ (รอตรวจ)' : 'Proof (Pending)')
+                    : currentUser.statScreenshotUrl && screenshotUrl === currentUser.statScreenshotUrl
+                    ? (lang === 'th' ? 'รูปหลักฐานยืนยันแล้ว' : 'Proof (Verified)')
+                    : (lang === 'th' ? 'รูปที่เลือก' : 'Proof Selected')}
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold">✓</span>
+              </>
+            ) : (
+              <>
+                <ImageIcon className="size-4 text-zinc-400 shrink-0" />
+                <span className="font-semibold hidden sm:inline">
+                  {lang === 'th' ? 'แนบสกรีนช็อต' : 'Screenshot'}
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-750 text-zinc-400 font-mono">0</span>
+              </>
+            )}
+          </button>
+
+          {/* Quick Header Save Button */}
+          <button
+            type="submit"
+            form="mystats-form"
+            disabled={isSubmitting}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs tracking-wide shadow-md shadow-amber-500/20 transition active:scale-98 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-1.5 cursor-pointer"
+          >
+            {isSubmitting ? (
+              <RotateCcw className="size-3.5 animate-spin" />
+            ) : (
+              <Zap className="size-3.5 fill-slate-950" />
+            )}
+            <span>{lang === 'th' ? 'บันทึก (Save)' : 'Save Changes'}</span>
+          </button>
         </div>
       </div>
 
@@ -616,13 +723,13 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
       )}
 
       {/* ── 2-COLUMN AUTHENTIC KAIN7 DASHBOARD GRID ────────────────── */}
-      <form onSubmit={handleSubmit}>
+      <form id="mystats-form" onSubmit={handleSubmit}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           
           {/* ══════════════════════════════════════════════════════════
               LEFT SIDEBAR (4 COLS): INFO, SCREENSHOTS, LIVE PL, PROGRESSION
              ══════════════════════════════════════════════════════════ */}
-          <div className="order-2 lg:order-1 lg:col-span-4 space-y-4">
+          <div className="order-1 lg:order-1 lg:col-span-4 space-y-4">
             
             {/* 1. MEMBER INFORMATION CARD (Matching Kain7 Design) */}
             <div className="rounded-2xl bg-zinc-850/95 border border-zinc-700/80 p-5 space-y-4 shadow-xl">
@@ -801,7 +908,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
             </div>
 
             {/* 2. SCREENSHOTS CARD */}
-            <div className="rounded-2xl bg-zinc-800/90 border border-zinc-700 p-4 sm:p-5 space-y-3.5 shadow-lg">
+            <div id="screenshot-upload-card" className="rounded-2xl bg-zinc-800/90 border border-zinc-700 p-4 sm:p-5 space-y-3.5 shadow-lg scroll-mt-20">
               <div className="flex items-start gap-3 pb-3 border-b border-zinc-700">
                 <span className="size-10 rounded-xl bg-zinc-750 border border-zinc-700 flex items-center justify-center text-zinc-300 shrink-0">
                   <ImageIcon className="size-5" />
@@ -809,16 +916,18 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm sm:text-base font-bold text-white">
-                      {lang === 'th' ? 'ภาพสกรีนช็อต' : 'Screenshots'}
+                      {lang === 'th' ? 'ภาพสกรีนช็อตหลักฐาน' : 'Screenshots Proof'}
                     </h3>
-                    <span className="text-[10px] text-zinc-400 font-mono">
-                      {screenshotUrl ? '1 total' : '0 total'}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                      screenshotUrl ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-zinc-750 text-zinc-400 border border-zinc-700'
+                    }`}>
+                      {screenshotUrl ? (lang === 'th' ? '1 รูปแนบอยู่' : '1 Attached') : (lang === 'th' ? '0 รูป (ไม่บังคับ)' : '0 Attached')}
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
                     {lang === 'th'
-                      ? 'อัปโหลดและจัดการรูปภาพสเตตัสในเกมเพื่อยืนยัน'
-                      : 'Upload and manage the screenshots used for stat verification.'}
+                      ? 'อัปโหลดภาพสเตตัสในเกมเพื่อเป็นหลักฐานยืนยันความถูกต้อง (ช่วยให้แอดมินตรวจเร็วขึ้น)'
+                      : 'Upload and manage screenshots used for stat verification (optional).'}
                   </p>
                 </div>
               </div>
@@ -835,11 +944,11 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                   </span>
                   <div className="min-w-0">
                     <div className="text-xs font-bold text-white truncate">
-                      How to submit correct screenshot
+                      {lang === 'th' ? 'วิธีแคปรูปสเตตัสให้ถูกต้อง' : 'How to submit correct screenshot'}
                     </div>
                     <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-zinc-400">
                       <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span>View examples</span>
+                      <span>{lang === 'th' ? 'ดูตัวอย่างรูปภาพ' : 'View examples'}</span>
                     </div>
                   </div>
                 </div>
@@ -849,53 +958,146 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
               {/* Thumbnail Gallery Preview or Dropzone */}
               {screenshotUrl ? (
                 <div className="space-y-2">
-                  <div className="relative border border-zinc-700 rounded-xl overflow-hidden aspect-video bg-zinc-900 group">
+                  <div className="relative border-2 border-zinc-700 hover:border-amber-400/80 rounded-xl overflow-hidden bg-black/95 p-2 min-h-[260px] max-h-[500px] flex items-center justify-center group shadow-md transition">
                     <img
                       src={screenshotUrl}
                       alt="Proof Screenshot"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 cursor-pointer"
+                      className="w-full h-auto max-h-[480px] object-contain rounded-lg group-hover:scale-[1.01] transition-transform duration-200 cursor-zoom-in"
                       onClick={() => onViewImageZoom?.(screenshotUrl, 'Stat Proof')}
                     />
-                    <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-amber-500/90 text-slate-950 font-bold text-[10px] shadow">
-                      Pending
+                    
+                    {/* Status Badge */}
+                    <span className={`absolute top-2 left-2 px-2.5 py-0.5 rounded-full font-bold text-[10px] shadow backdrop-blur-sm ${
+                      currentUser.pendingStatScreenshotUrl && screenshotUrl === currentUser.pendingStatScreenshotUrl
+                        ? 'bg-amber-500 text-slate-950'
+                        : currentUser.statScreenshotUrl && screenshotUrl === currentUser.statScreenshotUrl
+                        ? 'bg-emerald-500 text-slate-950'
+                        : 'bg-blue-500 text-white'
+                    }`}>
+                      {currentUser.pendingStatScreenshotUrl && screenshotUrl === currentUser.pendingStatScreenshotUrl
+                        ? (lang === 'th' ? 'รอแอดมินตรวจ' : 'Pending Review')
+                        : currentUser.statScreenshotUrl && screenshotUrl === currentUser.statScreenshotUrl
+                        ? (lang === 'th' ? '✓ ผ่านการตรวจแล้ว' : 'Verified Proof')
+                        : (lang === 'th' ? 'รูปใหม่ที่เลือก' : 'New Image')}
                     </span>
+
+                    {/* Action Buttons Top Right */}
+                    <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setIsProofPinned(prev => !prev)}
+                        className={`size-7 rounded-lg text-xs shadow-lg transition backdrop-blur-sm cursor-pointer flex items-center justify-center ${
+                          isProofPinned
+                            ? 'bg-amber-500 text-slate-950 font-bold ring-2 ring-amber-300'
+                            : 'bg-black/70 hover:bg-black/90 text-zinc-200 hover:text-white'
+                        }`}
+                        title={lang === 'th' ? 'ตรึงรูปดูเทียบขณะกรอกสเตตัส' : 'Pin Proof beside form'}
+                      >
+                        📌
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onViewImageZoom?.(screenshotUrl, 'Stat Proof')}
+                        className="size-7 rounded-lg bg-black/70 hover:bg-black/90 text-zinc-200 hover:text-white flex items-center justify-center text-xs shadow-lg transition backdrop-blur-sm cursor-pointer"
+                        title={lang === 'th' ? 'คลิกขยายภาพ' : 'Zoom In'}
+                      >
+                        🔍
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="size-7 rounded-lg bg-black/70 hover:bg-blue-600 text-zinc-200 hover:text-white flex items-center justify-center text-xs shadow-lg transition backdrop-blur-sm cursor-pointer"
+                        title={lang === 'th' ? 'เปลี่ยนรูปใหม่' : 'Change Image'}
+                      >
+                        🔄
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScreenshotUrl('');
+                          setIsProofPinned(false);
+                        }}
+                        className="size-7 rounded-lg bg-rose-600/80 hover:bg-rose-600 text-white flex items-center justify-center text-xs shadow-lg transition backdrop-blur-sm cursor-pointer"
+                        title={lang === 'th' ? 'ลบรูปภาพ' : 'Remove image'}
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div
+                      onClick={() => onViewImageZoom?.(screenshotUrl, 'Stat Proof')}
+                      className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition backdrop-blur-[1px] pointer-events-none"
+                    >
+                      🔍 {lang === 'th' ? 'คลิกเพื่อดูภาพขนาดเต็ม (Zoom & Pan)' : 'Click to inspect full size'}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between text-[11px] text-zinc-400 px-1 gap-2">
                     <button
                       type="button"
-                      onClick={() => setScreenshotUrl('')}
-                      className="absolute top-2 right-2 size-6 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center text-xs shadow-lg transition"
-                      title={lang === 'th' ? 'ลบรูปภาพ' : 'Remove image'}
+                      onClick={() => setIsProofPinned(prev => !prev)}
+                      className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 cursor-pointer"
                     >
-                      ✕
+                      <span>
+                        {isProofPinned
+                          ? (lang === 'th' ? '📌 ซ่อนหน้าต่างตรึงรูป' : '📌 Hide Pinned Proof')
+                          : (lang === 'th' ? '📌 ตรึงรูปดูเทียบขณะกรอกสเตตัส' : '📌 Pin Proof Reference')}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="text-zinc-400 hover:text-zinc-200 hover:underline cursor-pointer"
+                    >
+                      {lang === 'th' ? '🔄 เปลี่ยนรูปภาพ' : 'Change Image'}
                     </button>
                   </div>
-                  <p className="text-[10px] text-zinc-400 text-center">
-                    {lang === 'th' ? 'คลิกที่ภาพเพื่อขยายดูรายละเอียด' : 'Click image to inspect full size'}
-                  </p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {/* Dropzone */}
-                  <label className="flex items-center justify-center gap-2 px-3 py-3 border border-dashed border-zinc-600 hover:border-blue-400 rounded-xl text-zinc-400 hover:text-blue-400 text-xs transition cursor-pointer bg-zinc-800/40 hover:bg-zinc-800">
-                    <Upload className="size-4 shrink-0" />
-                    <span>Click or drag & drop screenshots here</span>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      onChange={handleFileUpload}
-                      className="sr-only"
-                    />
-                  </label>
+                  {/* Dropzone with full drag and drop */}
+                  <div
+                    onDragOver={handleDragOver}
+                    onDragEnter={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`flex flex-col items-center justify-center gap-2 p-5 border-2 border-dashed rounded-xl transition cursor-pointer text-center select-none ${
+                      isDraggingOver
+                        ? 'border-blue-500 bg-blue-500/15 text-blue-300 scale-[1.01]'
+                        : 'border-zinc-600 hover:border-blue-400 text-zinc-400 hover:text-blue-300 bg-zinc-800/50 hover:bg-zinc-800'
+                    }`}
+                  >
+                    <Upload className={`size-6 ${isDraggingOver ? 'text-blue-400 scale-110' : 'text-zinc-400'} transition-transform`} />
+                    <div>
+                      <p className="text-xs font-bold text-white">
+                        {lang === 'th' ? 'คลิกเลือกไฟล์ หรือลากรูปภาพมาวางที่นี่' : 'Click to browse or drag & drop screenshot'}
+                      </p>
+                      <p className="text-[11px] text-zinc-400 mt-0.5">
+                        JPG, PNG, WEBP ({lang === 'th' ? 'ไม่บังคับ' : 'Optional'})
+                      </p>
+                    </div>
+                  </div>
 
                   {/* Paste Zone */}
                   <div
                     tabIndex={0}
-                    className="flex items-center justify-center gap-2 px-3 py-2 border border-dashed border-zinc-700 rounded-xl text-zinc-500 text-xs cursor-text select-none outline-none focus:border-blue-500 focus:text-blue-400"
-                    title="Click here, then paste an image (Ctrl+V / ⌘V)"
+                    className="flex items-center justify-center gap-2 px-3 py-2.5 border border-dashed border-zinc-700 hover:border-zinc-500 rounded-xl text-zinc-400 hover:text-zinc-200 text-xs cursor-text select-none outline-none focus:border-blue-500 focus:text-blue-400 transition bg-zinc-850/50"
+                    title={lang === 'th' ? 'คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ' : 'Click here, then paste an image (Ctrl+V / ⌘V)'}
                   >
-                    <span>📋 or Click here, then paste (Ctrl+V / ⌘V)</span>
+                    <span>📋 {lang === 'th' ? 'หรือคลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพทันที' : 'or click here & paste (Ctrl+V / ⌘V)'}</span>
                   </div>
                 </div>
               )}
+
+              {/* Hidden file input for reliable triggers */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
             </div>
 
             {/* 3. LIVE POWER BANNER CARD */}
@@ -1019,7 +1221,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
           {/* ══════════════════════════════════════════════════════════
               RIGHT MAIN FORM (8 COLS): CHARACTER, COMBAT, OTHER, SPIRITS
              ══════════════════════════════════════════════════════════ */}
-          <div className="order-1 lg:order-2 lg:col-span-8 space-y-5">
+          <div className="order-2 lg:order-2 lg:col-span-8 space-y-5">
             
             {/* 1. CHARACTER STATS CARD (Exact media_1789154890036.png match) */}
             <div className="rounded-2xl bg-zinc-800/90 border border-zinc-700 p-4 sm:p-6 space-y-4 shadow-lg">
@@ -1162,9 +1364,26 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                     </p>
                   </div>
                 </div>
-                <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-zinc-700/60 text-zinc-300 border border-zinc-600/60">
-                  CORE FORMULA
-                </span>
+                <div className="flex items-center gap-2">
+                  {screenshotUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setIsProofPinned((prev) => !prev)}
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm ${
+                        isProofPinned
+                          ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                          : 'bg-zinc-750 hover:bg-zinc-700 text-amber-300 border-zinc-600'
+                      }`}
+                      title={isProofPinned ? (lang === 'th' ? 'ซ่อนรูปเทียบ' : 'Hide Proof') : (lang === 'th' ? 'ตรึงรูปดูเทียบขณะกรอกสเตตัส' : 'Pin Proof beside form')}
+                    >
+                      <Eye className="size-3.5" />
+                      <span>{isProofPinned ? (lang === 'th' ? 'ซ่อนรูปเทียบ' : 'Hide Proof') : (lang === 'th' ? '📌 ดูรูปเทียบสเตตัส' : 'Compare Proof')}</span>
+                    </button>
+                  )}
+                  <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-zinc-700/60 text-zinc-300 border border-zinc-600/60">
+                    CORE FORMULA
+                  </span>
+                </div>
               </div>
 
               {/* All Combat & Defense Stats Grid (3 columns on desktop, 2 on mobile) */}
@@ -1178,9 +1397,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                       <label className="font-semibold text-zinc-200 text-xs truncate" title={stat.labelEn}>
                         {stat.labelEn}
                       </label>
-                      <span className="text-[10px] font-mono text-zinc-500">
-                        ×{stat.multiplier}
-                      </span>
                     </div>
 
                     <div className="relative">
@@ -1235,9 +1451,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                         <label className="font-semibold text-zinc-200 text-xs truncate" title={stat.labelEn}>
                           {stat.labelEn}
                         </label>
-                        <span className="text-[10px] font-mono text-zinc-500">
-                          ×{stat.multiplier}
-                        </span>
                       </div>
 
                       <div className="relative">
@@ -1302,9 +1515,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                               {colorCfg.name}
                             </span>
                           </div>
-                          <span className="text-[10px] font-mono text-zinc-400">
-                            ×{stat.multiplier} PL
-                          </span>
                         </div>
 
                         {/* Level + Enhancement Controls */}
@@ -1377,14 +1587,14 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                 <div className="text-xs text-zinc-400">
                   {lang === 'th'
-                    ? 'กรุณาตรวจสอบข้อมูลสเตตัสและภาพสกรีนช็อตให้ตรงกันก่อนกดส่ง'
-                    : 'Ensure your entered stats match your attached screenshot before submitting.'}
+                    ? 'กรุณาตรวจสอบข้อมูลสเตตัสก่อนกดบันทึก (ภาพสกรีนช็อตไม่บังคับ แต่ช่วยให้ตรวจสอบเร็วขึ้น)'
+                    : 'Verify stats before saving. Screenshots are optional but speed up verification.'}
                 </div>
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || calculatedNewPL <= 0 || !screenshotUrl}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-amber-500/25 transition active:scale-98 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-2 ml-auto"
+                  disabled={isSubmitting}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-amber-500/25 transition active:scale-98 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-2 ml-auto cursor-pointer"
                 >
                   {isSubmitting ? (
                     <>
@@ -1404,6 +1614,138 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
           </div>
         </div>
       </form>
+
+      {/* Floating Pinned Proof Inspector for Side-by-Side Comparison while Filling Stats */}
+      {isProofPinned && screenshotUrl && (
+        <div
+          className={`fixed z-40 bg-zinc-900/95 border-2 border-amber-400/80 rounded-2xl shadow-2xl p-3.5 space-y-2.5 backdrop-blur-md transition-all ${
+            pinnedProofSize === 'split'
+              ? 'bottom-4 right-4 w-[95vw] sm:w-[48vw] h-[85vh] max-h-[85vh] flex flex-col'
+              : pinnedProofSize === 'large'
+              ? 'bottom-5 right-5 w-[92vw] sm:w-[720px] max-w-[92vw]'
+              : 'bottom-5 right-5 w-80 sm:w-[480px] max-w-[92vw]'
+          }`}
+        >
+          <div className="flex items-center justify-between border-b border-zinc-800 pb-2 shrink-0">
+            <div className="flex items-center gap-2 text-xs font-bold text-white">
+              <span className="size-2 rounded-full bg-amber-400 animate-pulse"></span>
+              <span>{lang === 'th' ? '📌 รูปหลักฐานเทียบกรอกสเตตัส' : '📌 Proof Reference'}</span>
+            </div>
+            
+            <div className="flex items-center gap-1.5">
+              {/* Size toggles */}
+              <div className="flex items-center gap-1 p-0.5 rounded-lg bg-zinc-800 text-[10px] mr-1">
+                <button
+                  type="button"
+                  onClick={() => setPinnedProofSize('normal')}
+                  className={`px-1.5 py-0.5 rounded cursor-pointer ${pinnedProofSize === 'normal' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-zinc-400 hover:text-white'}`}
+                  title={lang === 'th' ? 'ขนาดปกติ' : 'Normal'}
+                >
+                  S
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPinnedProofSize('large')}
+                  className={`px-1.5 py-0.5 rounded cursor-pointer ${pinnedProofSize === 'large' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-zinc-400 hover:text-white'}`}
+                  title={lang === 'th' ? 'ขนาดใหญ่' : 'Large'}
+                >
+                  M
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPinnedProofSize('split')}
+                  className={`px-1.5 py-0.5 rounded cursor-pointer ${pinnedProofSize === 'split' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-zinc-400 hover:text-white'}`}
+                  title={lang === 'th' ? 'แบ่งครึ่งจอ' : 'Split View'}
+                >
+                  L
+                </button>
+              </div>
+
+              {/* In-dock zoom */}
+              <button
+                type="button"
+                onClick={() => setPinnedProofZoom(prev => Math.max(0.6, Math.round((prev - 0.2) * 10) / 10))}
+                className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs cursor-pointer"
+                title={lang === 'th' ? 'ซูมออก' : 'Zoom Out'}
+              >
+                -
+              </button>
+              <span className="text-[10px] font-mono text-amber-300 font-bold px-1">
+                {Math.round(pinnedProofZoom * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setPinnedProofZoom(prev => Math.min(3, Math.round((prev + 0.2) * 10) / 10))}
+                className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs cursor-pointer"
+                title={lang === 'th' ? 'ซูมเข้า' : 'Zoom In'}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                onClick={() => setPinnedProofZoom(1)}
+                className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-[10px] cursor-pointer"
+                title={lang === 'th' ? 'รีเซ็ต' : 'Reset'}
+              >
+                100%
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onViewImageZoom?.(screenshotUrl, 'Stat Proof')}
+                className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition cursor-pointer"
+                title={lang === 'th' ? 'ขยายเต็มจอ' : 'Zoom In'}
+              >
+                <ExternalLink className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsProofPinned(false)}
+                className="p-1.5 rounded-lg bg-zinc-800 hover:bg-rose-500 text-zinc-300 hover:text-white transition cursor-pointer"
+                title={lang === 'th' ? 'ปิดหน้าต่างลอย' : 'Close'}
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <div
+            className={`relative rounded-xl overflow-auto bg-black/95 flex items-center justify-center p-2 border border-zinc-800 ${
+              pinnedProofSize === 'split'
+                ? 'flex-1 min-h-0'
+                : pinnedProofSize === 'large'
+                ? 'max-h-[500px]'
+                : 'max-h-[340px]'
+            }`}
+          >
+            <div
+              style={{
+                transform: `scale(${pinnedProofZoom})`,
+                transformOrigin: 'top center',
+                transition: 'transform 0.1s ease-out'
+              }}
+              className="w-full flex items-center justify-center"
+            >
+              <img
+                src={screenshotUrl}
+                alt="Proof Reference"
+                className={`w-full h-auto object-contain rounded-lg ${
+                  pinnedProofSize === 'split'
+                    ? 'max-h-[72vh]'
+                    : pinnedProofSize === 'large'
+                    ? 'max-h-[480px]'
+                    : 'max-h-[320px]'
+                }`}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between text-[10px] text-zinc-400 px-1 shrink-0">
+            <span>{lang === 'th' ? '✓ รูปเต็มไม่ถูกตัดขอบ (กด +/- เพื่อซูมตัวเลขชัดๆ)' : '✓ Uncropped full image'}</span>
+            <span className="text-amber-400 font-semibold">{lang === 'th' ? 'ตรึงหน้าจอขณะกรอกสเตตัส' : 'Pinned Reference'}</span>
+          </div>
+        </div>
+      )}
 
       {/* Screenshot Guide Modal */}
       <ScreenshotGuideModal

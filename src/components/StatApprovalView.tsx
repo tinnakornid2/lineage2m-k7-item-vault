@@ -8,11 +8,18 @@ import {
   ArrowRight,
   HelpCircle,
   ExternalLink,
-  ArrowLeft
+  ArrowLeft,
+  Maximize2,
+  Eye,
+  Rows,
+  Columns,
+  Sparkles,
+  ZoomIn
 } from 'lucide-react';
 import { User, OFFICIAL_CLASSES, ActiveTab } from '../types';
 import { sounds } from '../utils/sound';
 import { ScreenshotGuideModal } from './ScreenshotGuideModal';
+import { StatComparisonModal } from './StatComparisonModal';
 import { getFormulaSettings } from '../services/powerFormulaService';
 
 interface StatApprovalViewProps {
@@ -25,13 +32,22 @@ interface StatApprovalViewProps {
   showToast?: (msg: string, type: 'info' | 'success' | 'warning' | 'error') => void;
 }
 
-const QUICK_REJECTION_REASONS = [
-  '📷 ภาพสกรีนช็อตไม่ชัดเจน หรือไม่เห็นชื่อตัวละคร',
-  '🔢 ตัวเลขสเตตัสที่กรอกไม่ตรงกับในภาพสกรีนช็อต',
-  '🔮 ขาดภาพหน้าผลึกวิญญาณ (Spirits)',
-  '⏳ ภาพสกรีนช็อตเก่าเกินไป รบกวนแคปภาพล่าสุด',
-  '🛡️ มีบัฟหรือน้ำยาชั่วคราวติดมา รบกวนแคปภาพสเตตัสเปล่า'
-];
+const QUICK_REJECTION_REASONS: Record<'th' | 'en', string[]> = {
+  th: [
+    '📷 ภาพสกรีนช็อตไม่ชัดเจน หรือไม่เห็นชื่อตัวละคร',
+    '🔢 ตัวเลขสเตตัสที่กรอกไม่ตรงกับในภาพสกรีนช็อต',
+    '🔮 ขาดภาพหน้าผลึกวิญญาณ (Spirits)',
+    '⏳ ภาพสกรีนช็อตเก่าเกินไป รบกวนแคปภาพล่าสุด',
+    '🛡️ มีบัฟหรือน้ำยาชั่วคราวติดมา รบกวนแคปภาพสเตตัสเปล่า'
+  ],
+  en: [
+    '📷 Screenshot is blurry or character name is not visible',
+    '🔢 Submitted stat numbers do not match screenshot values',
+    '🔮 Missing spirit enhancement screenshot (Spirits)',
+    '⏳ Screenshot is outdated, please submit latest screenshot',
+    '🛡️ Temporary buffs/potions active, please submit unbuffed screenshot'
+  ]
+};
 
 export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
   pendingUsers,
@@ -46,6 +62,9 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [expanded100, setExpanded100] = useState<Record<string, boolean>>({});
+  const [inspectingUser, setInspectingUser] = useState<User | null>(null);
+  const [cardLayoutMode, setCardLayoutMode] = useState<Record<string, 'side-by-side' | 'full-width'>>({});
 
   const formulaConfig = getFormulaSettings();
   const classMap = new Map(OFFICIAL_CLASSES.map((c) => [c.nameEn.toLowerCase(), c]));
@@ -73,7 +92,7 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
   const handleOpenReject = (userId: string) => {
     sounds.playClick();
     setRejectingUserId(userId);
-    setRejectionReason(QUICK_REJECTION_REASONS[1]);
+    setRejectionReason(QUICK_REJECTION_REASONS[lang][1]);
   };
 
   const handleConfirmReject = async () => {
@@ -240,8 +259,8 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
                           <Clock className="size-3.5 text-slate-500" />
                           <span>
                             {user.pendingPowerLevelRequestedAt
-                              ? new Date(user.pendingPowerLevelRequestedAt).toLocaleString('th-TH')
-                              : 'เมื่อสักครู่'}
+                              ? new Date(user.pendingPowerLevelRequestedAt).toLocaleString(lang === 'th' ? 'th-TH' : 'en-US')
+                              : (lang === 'th' ? 'เมื่อสักครู่' : 'Just now')}
                           </span>
                         </span>
                         {(displayLegendClasses > 0 || displayLegendAgathions > 0) && (
@@ -270,101 +289,282 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
                   </div>
                 </div>
 
-                {/* Body Grid: Stats breakdown vs Proof Screenshot */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  {/* Left: Submitted Stats breakdown (7 cols) */}
-                  <div className="lg:col-span-7 space-y-3">
-                    <div className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
-                      <span>{lang === 'th' ? 'สเตตัสที่ขออัปเดต:' : 'Submitted Stat Values:'}</span>
-                    </div>
+                {(() => {
+                  const displayScreenshot = user.pendingStatScreenshotUrl || user.statScreenshotUrl;
+                  const isPendingNew = !!user.pendingStatScreenshotUrl;
+                  const isFullWidth = cardLayoutMode[user.id] === 'full-width';
+                  const is100Percent = !!expanded100[user.id];
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
-                      {formulaConfig.stats
-                        .filter((s) => s.isActive && (pendingStats[s.id] !== undefined || s.inputType === 'spirit_card'))
-                        .map((s) => {
-                          const val = pendingStats[s.id] ?? 0;
-                          const prevVal = user.stats?.[s.id] ?? 0;
-                          const isChanged = val !== prevVal;
-                          const enh = pendingSpirits[s.id];
+                  return (
+                    <div className="space-y-4">
+                      {/* Comparison Toolbar & Layout Switcher */}
+                      <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                            <Sparkles className="size-3.5 text-amber-400" />
+                            <span>{lang === 'th' ? 'การแสดงผลเทียบสเตตัส:' : 'Comparison View:'}</span>
+                          </span>
 
-                          return (
-                            <div
-                              key={s.id}
-                              className={`p-2.5 rounded-xl border transition ${
-                                isChanged
-                                  ? 'bg-amber-500/10 border-amber-500/40 text-amber-200 shadow-sm'
-                                  : 'bg-slate-950/70 border-slate-800 text-slate-300'
-                              }`}
+                          {displayScreenshot && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sounds.playClick();
+                                setInspectingUser(user);
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 transition flex items-center gap-1.5 cursor-pointer active:scale-98"
                             >
-                              <div className="text-[10px] text-slate-400 truncate" title={s.labelTh}>
-                                {lang === 'th' ? s.labelTh : s.labelEn}
-                              </div>
-                              <div className="flex items-center justify-between mt-1">
-                                <span className="font-bold text-sm text-white">
-                                  {val}
-                                  {s.inputType === 'percentage' && '%'}
-                                  {s.inputType === 'spirit_card' && enh !== undefined && (
-                                    <span
-                                      className="ml-1.5 px-1.5 py-0.2 rounded text-[10px] font-bold"
-                                      style={{
-                                        color: s.spiritConfig?.accentColor || '#3b82f6',
-                                        backgroundColor: `${s.spiritConfig?.accentColor || '#3b82f6'}22`
-                                      }}
-                                    >
-                                      {enh === 0 ? '0' : `+${enh}`}
+                              <Eye className="size-3.5" />
+                              <span>{lang === 'th' ? '🔍 เปิดโหมดเทียบข้างรูปเต็มจอ' : '🔍 Full Side-by-Side Compare'}</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {displayScreenshot && (
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className="text-[11px] text-slate-400 mr-1 hidden sm:inline">
+                              {lang === 'th' ? 'รูปแบบบนการ์ด:' : 'Card Layout:'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sounds.playClick();
+                                setCardLayoutMode(prev => ({
+                                  ...prev,
+                                  [user.id]: prev[user.id] === 'full-width' ? 'side-by-side' : 'full-width'
+                                }));
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer ${
+                                isFullWidth
+                                  ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                              }`}
+                              title={isFullWidth ? (lang === 'th' ? 'สลับเป็นแบ่ง 2 ข้าง' : 'Switch to Side-by-Side') : (lang === 'th' ? 'แสดงภาพเต็มความกว้างแถว' : 'Full Width Image')}
+                            >
+                              {isFullWidth ? <Columns className="size-3.5" /> : <Rows className="size-3.5" />}
+                              <span>{isFullWidth ? (lang === 'th' ? '↕ ภาพเต็มความกว้าง' : 'Full Width') : (lang === 'th' ? '↔ แบ่ง 2 ข้าง' : 'Side-by-Side')}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Body Grid: Stats breakdown vs Proof Screenshot */}
+                      <div className={`grid grid-cols-1 ${isFullWidth ? 'lg:grid-cols-12 gap-5' : 'lg:grid-cols-12 gap-6'} items-start`}>
+                        {/* 1. In Full-Width mode: Screenshot spans all 12 cols on TOP so numbers are giant & uncropped */}
+                        {isFullWidth && displayScreenshot && (
+                          <div className="lg:col-span-12 space-y-2">
+                            <div className="rounded-2xl border-2 border-amber-500/40 bg-slate-950/95 p-4 shadow-2xl space-y-3">
+                              <div className="flex items-center justify-between text-xs font-bold text-slate-300 border-b border-slate-800 pb-2">
+                                <div className="flex items-center gap-2">
+                                  <span>{lang === 'th' ? '📸 ภาพหลักฐานขนาดเต็ม (ไม่ถูกตัดขอบ):' : '📸 Proof Screenshot (Full Width Uncropped):'}</span>
+                                  {isPendingNew ? (
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-bold text-[10px]">
+                                      ✨ {lang === 'th' ? 'รูปใหม่ที่แนบมา' : 'New Image'}
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-[10px]">
+                                      📸 {lang === 'th' ? 'รูปเดิม' : 'Previous'}
                                     </span>
                                   )}
-                                </span>
-                                {isChanged && prevVal > 0 && (
-                                  <span className="text-[10px] text-slate-500 line-through">
-                                    {prevVal}
-                                  </span>
-                                )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setInspectingUser(user)}
+                                    className="px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <Eye className="size-3.5" />
+                                    <span>{lang === 'th' ? 'เปิดโหมดเทียบข้างรูป' : 'Side-by-Side View'}</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div
+                                onClick={() => setInspectingUser(user)}
+                                className="relative rounded-xl border border-slate-800 bg-black/95 flex items-center justify-center p-2 cursor-zoom-in group transition hover:border-amber-500/60 overflow-hidden"
+                              >
+                                <img
+                                  src={displayScreenshot}
+                                  alt="Full Width Proof"
+                                  className="w-full h-auto max-h-[800px] object-contain rounded-lg transition duration-200 group-hover:scale-[1.005]"
+                                />
+                                <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition backdrop-blur-[1px] pointer-events-none">
+                                  🔍 {lang === 'th' ? 'คลิกเพื่อเปิดโหมดเปรียบเทียบเต็มจอ (ซูม/เลื่อนดูชัดๆ)' : 'Click to inspect side-by-side'}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                                <span>{lang === 'th' ? '✓ ขยายกว้างเต็มหน้าจอ ตัวเลขในภาพชัดเจน อ่านง่าย' : '✓ Full width uncropped image'}</span>
+                                <span className="text-amber-400 font-semibold">{lang === 'th' ? 'เทียบสเตตัสที่กรอกด้านล่างนี้ ↓' : 'Compare with submitted stats below ↓'}</span>
                               </div>
                             </div>
-                          );
-                        })}
-                    </div>
-                  </div>
+                          </div>
+                        )}
 
-                  {/* Right: Screenshot Proof (5 cols) */}
-                  <div className="lg:col-span-5 space-y-2.5">
-                    <div className="text-xs font-bold text-slate-300 flex items-center justify-between uppercase tracking-wider">
-                      <span>{lang === 'th' ? 'ภาพหลักฐานในเกม:' : 'Proof Screenshot:'}</span>
-                      {user.pendingStatScreenshotUrl && (
-                        <button
-                          type="button"
-                          onClick={() => onViewImageZoom?.(user.pendingStatScreenshotUrl!, `${user.inGameName} Stat Proof`)}
-                          className="text-xs text-amber-400 hover:underline flex items-center gap-1 cursor-pointer font-semibold"
-                        >
-                          <ExternalLink className="size-3" />
-                          <span>{lang === 'th' ? 'คลิกขยายใหญ่' : 'Zoom In'}</span>
-                        </button>
-                      )}
-                    </div>
+                        {/* 2. Submitted Stats Breakdown (6 cols in side-by-side, or 12 cols in full-width mode) */}
+                        <div className={`${isFullWidth ? 'lg:col-span-12' : 'lg:col-span-6'} space-y-3`}>
+                          <div className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                            <span>{lang === 'th' ? 'สเตตัสที่ขออัปเดต:' : 'Submitted Stat Values:'}</span>
+                            <span className="text-[11px] text-slate-400 font-normal">
+                              {isFullWidth
+                                ? (lang === 'th' ? 'เทียบตัวเลขกับรูปภาพขนาดใหญ่ด้านบน' : 'Compare values with proof above')
+                                : (lang === 'th' ? 'เทียบตัวเลขกับรูปภาพด้านขวา' : 'Compare values with proof on the right')}
+                            </span>
+                          </div>
 
-                    {user.pendingStatScreenshotUrl ? (
-                      <div
-                        className="relative rounded-2xl overflow-hidden border-2 border-slate-700 hover:border-amber-400/80 bg-slate-950 aspect-video cursor-pointer group shadow-xl transition"
-                        onClick={() => onViewImageZoom?.(user.pendingStatScreenshotUrl!, `${user.inGameName} Stat Proof`)}
-                      >
-                        <img
-                          src={user.pendingStatScreenshotUrl}
-                          alt="Stat Proof"
-                          className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                        />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition backdrop-blur-[2px]">
-                          🔍 {lang === 'th' ? 'คลิกเพื่อดูภาพเต็ม' : 'Click to inspect full size'}
+                          <div className={`grid ${isFullWidth ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2 sm:grid-cols-3'} gap-2.5 text-xs`}>
+                            {formulaConfig.stats
+                              .filter((s) => s.isActive && (pendingStats[s.id] !== undefined || s.inputType === 'spirit_card'))
+                              .map((s) => {
+                                const val = pendingStats[s.id] ?? 0;
+                                const prevVal = user.stats?.[s.id] ?? 0;
+                                const isChanged = val !== prevVal;
+                                const enh = pendingSpirits[s.id];
+
+                                return (
+                                  <div
+                                    key={s.id}
+                                    className={`p-2.5 rounded-xl border transition ${
+                                      isChanged
+                                        ? 'bg-amber-500/10 border-amber-500/40 text-amber-200 shadow-sm ring-1 ring-amber-500/20'
+                                        : 'bg-slate-950/70 border-slate-800 text-slate-300'
+                                    }`}
+                                  >
+                                    <div className="text-[10px] text-slate-400 truncate font-medium" title={s.labelTh}>
+                                      {lang === 'th' ? s.labelTh : s.labelEn}
+                                    </div>
+                                    <div className="flex items-center justify-between mt-1">
+                                      <span className="font-bold text-sm text-white font-mono">
+                                        {val}
+                                        {s.inputType === 'percentage' && '%'}
+                                        {s.inputType === 'spirit_card' && enh !== undefined && (
+                                          <span
+                                            className="ml-1.5 px-1.5 py-0.2 rounded text-[10px] font-bold"
+                                            style={{
+                                              color: s.spiritConfig?.accentColor || '#3b82f6',
+                                              backgroundColor: `${s.spiritConfig?.accentColor || '#3b82f6'}22`
+                                            }}
+                                          >
+                                            {enh === 0 ? '0' : `+${enh}`}
+                                          </span>
+                                        )}
+                                      </span>
+                                      {isChanged && prevVal > 0 && (
+                                        <span className="text-[10px] text-slate-500 line-through font-mono">
+                                          {prevVal}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
                         </div>
+
+                        {/* 3. In Side-by-Side mode: Screenshot Proof (6 cols, sticky on desktop) */}
+                        {!isFullWidth && (
+                          <div className="lg:col-span-6 space-y-2.5 lg:sticky lg:top-4 self-start">
+                            <div className="rounded-2xl border-2 border-slate-700/90 bg-slate-950/95 p-3.5 shadow-2xl space-y-2.5 backdrop-blur-sm">
+                              {/* Header toolbar */}
+                              <div className="text-xs font-bold text-slate-300 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                                <div className="flex items-center gap-2">
+                                  <span>{lang === 'th' ? 'ภาพหลักฐานในเกม:' : 'Proof Screenshot:'}</span>
+                                  {isPendingNew ? (
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-bold text-[10px] normal-case shadow">
+                                      ✨ {lang === 'th' ? 'รูปใหม่' : 'New'}
+                                    </span>
+                                  ) : user.statScreenshotUrl ? (
+                                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-[10px] normal-case">
+                                      📸 {lang === 'th' ? 'รูปเดิม' : 'Prev'}
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                {displayScreenshot && (
+                                  <div className="flex items-center gap-1.5">
+                                    {/* Open Full Side-by-Side Compare Modal */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        sounds.playClick();
+                                        setInspectingUser(user);
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer"
+                                      title={lang === 'th' ? 'เปิดโหมดเทียบข้างรูปเต็มจอ' : 'Side-by-Side Compare'}
+                                    >
+                                      <Eye className="size-3" />
+                                      <span>{lang === 'th' ? 'เทียบเต็มจอ' : 'Compare'}</span>
+                                    </button>
+
+                                    {/* Toggle Fit vs 100% Natural */}
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpanded100(prev => ({ ...prev, [user.id]: !prev[user.id] }))}
+                                      className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition flex items-center gap-1 cursor-pointer ${
+                                        is100Percent
+                                          ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                                      }`}
+                                      title={is100Percent ? (lang === 'th' ? 'ย่อให้พอดีกรอบ' : 'Fit to Box') : (lang === 'th' ? 'ดูขนาดจริง 100%' : '100% Natural Size')}
+                                    >
+                                      <Maximize2 className="size-3" />
+                                      <span>{is100Percent ? (lang === 'th' ? 'พอดีกรอบ' : 'Fit') : (lang === 'th' ? 'ขนาด 100%' : '100%')}</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Uncropped Full Screenshot Box */}
+                              {displayScreenshot ? (
+                                <div className="space-y-1.5">
+                                  <div
+                                    className={`relative rounded-xl border border-slate-800 bg-black/95 transition-all ${
+                                      is100Percent
+                                        ? 'max-h-[640px] overflow-auto cursor-grab'
+                                        : 'min-h-[360px] max-h-[600px] flex items-center justify-center overflow-hidden cursor-zoom-in group'
+                                    }`}
+                                    onClick={() => setInspectingUser(user)}
+                                  >
+                                    <img
+                                      src={displayScreenshot}
+                                      alt="Stat Proof"
+                                      className={
+                                        is100Percent
+                                          ? 'max-w-none w-auto rounded-lg'
+                                          : 'w-full h-auto max-h-[580px] object-contain rounded-lg transition duration-200 group-hover:scale-[1.01]'
+                                      }
+                                    />
+                                    {!is100Percent && (
+                                      <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition backdrop-blur-[1px] pointer-events-none">
+                                        🔍 {lang === 'th' ? 'คลิกเพื่อเปิดโหมดเปรียบเทียบสเตตัสเต็มจอ' : 'Click to open side-by-side comparison'}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                                    <span>{lang === 'th' ? '✓ แสดงภาพเต็ม ไม่ถูกตัดขอบ' : '✓ Full uncropped screenshot'}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setInspectingUser(user)}
+                                      className="text-amber-400 hover:text-amber-300 hover:underline font-semibold cursor-pointer"
+                                    >
+                                      {lang === 'th' ? '🔍 ซูมเทียบสเตตัส' : 'Compare Side-by-Side'}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="p-8 rounded-xl bg-slate-900/80 border border-slate-800 text-center text-xs text-slate-500 flex flex-col items-center justify-center gap-2 aspect-video">
+                                  <AlertCircle className="size-7 text-amber-400" />
+                                  <span className="font-semibold text-slate-300">{lang === 'th' ? 'ไม่มีการแนบรูปสกรีนช็อต' : 'No screenshot attached'}</span>
+                                  <span className="text-[11px] text-slate-500">{lang === 'th' ? 'คำขอนี้ส่งมาโดยไม่มีรูปประกอบ' : 'Submitted without proof screenshot'}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <div className="p-6 rounded-2xl bg-slate-950 border border-slate-800 text-center text-xs text-slate-500 flex flex-col items-center justify-center gap-2 aspect-video">
-                        <AlertCircle className="size-6 text-amber-400" />
-                        <span>{lang === 'th' ? 'ไม่มีการแนบรูปสกรีนช็อต' : 'No screenshot attached'}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Actions Footer */}
                 <div className="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-slate-800">
@@ -412,7 +612,7 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
             </p>
 
             <div className="space-y-1.5">
-              {QUICK_REJECTION_REASONS.map((r, i) => (
+              {QUICK_REJECTION_REASONS[lang].map((r, i) => (
                 <button
                   key={i}
                   type="button"
@@ -459,6 +659,22 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Side-by-Side Fullscreen Inspector Modal */}
+      {inspectingUser && (
+        <StatComparisonModal
+          isOpen={!!inspectingUser}
+          onClose={() => setInspectingUser(null)}
+          user={inspectingUser}
+          lang={lang}
+          onApprove={handleApprove}
+          onOpenReject={(userId) => {
+            setInspectingUser(null);
+            handleOpenReject(userId);
+          }}
+          isProcessing={isProcessing}
+        />
       )}
 
       {/* Screenshot Guide Lightbox */}

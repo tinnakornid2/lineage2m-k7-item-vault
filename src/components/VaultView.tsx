@@ -1403,7 +1403,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                         className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1 text-xs font-bold text-white transition-opacity cursor-pointer"
                       >
                         <span>{t.chooseImage}</span>
-                        <span className="text-[10px] text-amber-300 font-mono">หรือกด Ctrl + V</span>
+                        <span className="text-[10px] text-amber-300 font-mono">{lang === 'th' ? 'หรือกด Ctrl + V' : 'or press Ctrl + V'}</span>
                       </label>
                     </div>
                   ) : (

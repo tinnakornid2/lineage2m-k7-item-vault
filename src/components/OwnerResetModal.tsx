@@ -20,7 +20,8 @@ import {
   clearAllVaultItemsDoc,
   clearAllQueuesDoc,
   clearDiamondTransactionsDoc,
-  resetToDefaultVaultDataDoc
+  resetToDefaultVaultDataDoc,
+  resetAllUserStatsDoc
 } from '../services/firebase';
 
 interface OwnerResetModalProps {
@@ -39,7 +40,8 @@ type ResetTarget =
   | 'clear_all_vault'
   | 'clear_queues'
   | 'clear_diamond_logs'
-  | 'restore_defaults';
+  | 'restore_defaults'
+  | 'reset_all_user_stats';
 
 export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
   isOpen,
@@ -67,7 +69,8 @@ export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
   const requiresTypeConfirm =
     selectedTarget === 'clear_all_vault' ||
     selectedTarget === 'clear_queues' ||
-    selectedTarget === 'restore_defaults';
+    selectedTarget === 'restore_defaults' ||
+    selectedTarget === 'reset_all_user_stats';
 
   const isConfirmValid = !requiresTypeConfirm || confirmText.trim().toUpperCase() === 'RESET';
 
@@ -126,6 +129,13 @@ export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
           lang === 'th'
             ? 'รีเซ็ตคืนค่าตัวอย่างไอเทมและคิวเริ่มต้นสำเร็จเรียบร้อย!'
             : 'Default sample items and queues restored successfully!'
+        );
+      } else if (selectedTarget === 'reset_all_user_stats') {
+        affectedCount = await resetAllUserStatsDoc();
+        setResultMessage(
+          lang === 'th'
+            ? `รีเซ็ตค่าสเตตัสและรูปสมาชิกทุกคนเรียบร้อย (${affectedCount} สมาชิก) รอการส่งสเตตัสใหม่`
+            : `Reset stats and proof screenshots for ${affectedCount} members successfully. Awaiting fresh submissions!`
         );
       }
 
@@ -437,6 +447,53 @@ export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
               checked={selectedTarget === 'restore_defaults'}
               onChange={() => setSelectedTarget('restore_defaults')}
               className="mt-1 accent-blue-400 cursor-pointer"
+            />
+          </div>
+
+          {/* Option 6: Reset All Member Stats & Proof Screenshots */}
+          <div
+            id="opt-reset-all-user-stats"
+            onClick={() => {
+              sounds.playClick();
+              setSelectedTarget('reset_all_user_stats');
+              setResultMessage(null);
+            }}
+            className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start justify-between gap-3 ${
+              selectedTarget === 'reset_all_user_stats'
+                ? 'bg-amber-950/40 border-amber-500 text-white shadow-md'
+                : 'bg-[#0d121e] border-slate-800 text-slate-300 hover:bg-[#151c2c]'
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`p-2 rounded-lg shrink-0 mt-0.5 ${
+                  selectedTarget === 'reset_all_user_stats'
+                    ? 'bg-amber-500/20 text-amber-400'
+                    : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                <RotateCcw className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-xs font-bold flex items-center gap-2 text-amber-300">
+                  <span>{lang === 'th' ? 'รีเซ็ตค่าสเตตัสและรูปสมาชิกทุกคน (รอส่งใหม่)' : 'Reset All Member Stats & Screenshots'}</span>
+                  <span className="text-[10px] px-2 py-0.2 rounded-full bg-amber-950 text-amber-300 border border-amber-800 font-mono">
+                    {lang === 'th' ? 'ทุกคน 0 PL' : 'All 0 PL'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {lang === 'th'
+                    ? 'ล้างค่าสเตตัส รูปสกรีนช็อต และคำขอสเตตัสค้างอยู่ของสมาชิกทุกคนเป็นค่าเริ่มต้น (0 PL) เพื่อรอให้ทุกคนอัปเดตสเตตัสและส่งรูปใหม่ (ชื่อผู้ใช้, บทบาท และบัญชียังคงอยู่ครบถ้วน)'
+                    : 'Reset verified/pending stats, PL (to 0), and proof screenshots for all members. Waiting for members to submit new screenshots and stats (accounts and roles preserved).'}
+                </p>
+              </div>
+            </div>
+            <input
+              type="radio"
+              name="resetTarget"
+              checked={selectedTarget === 'reset_all_user_stats'}
+              onChange={() => setSelectedTarget('reset_all_user_stats')}
+              className="mt-1 accent-amber-400 cursor-pointer"
             />
           </div>
         </div>

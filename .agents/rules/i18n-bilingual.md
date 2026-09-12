@@ -3,9 +3,10 @@
 ## กฎเหล็กสำหรับการแก้ไขและพัฒนาโค้ด (Mandatory Rule for All Future AI & Chats)
 
 1. **รองรับ 2 ภาษาทุกจุด 100% (Dual-Language Requirement):**
-   - ทุกหน้าจอ, ทุกปุ่ม, ทุกข้อความแจ้งเตือน (Toast/Alert), กล่องข้อความ (Modal), ป้ายระบุ (Badge), Tooltip และ Placeholder **ต้องรองรับ 2 ภาษาเสมอ** คือ **ภาษาไทย ('th')** และ **ภาษาอังกฤษ ('en')**
+   - ทุกหน้าจอ, ทุกปุ่ม, ทุกข้อความแจ้งเตือน (Toast/Alert), กล่องข้อความ (Modal), ป้ายระบุ (Badge), Tooltip, Placeholder, ตัวเลือกสำเร็จรูป (Quick Presets / Rejection Reasons) **ต้องรองรับ 2 ภาษาเสมอ** คือ **ภาษาไทย ('th')** และ **ภาษาอังกฤษ ('en')**
    - ห้าม Hardcode ข้อความภาษาใดภาษาหนึ่งโดยไม่มีการสลับตาม `lang` prop หรือ `translations[lang]`
-   - การเพิ่มข้อความใหม่ต้องเพิ่มทั้งในส่วนภาษาไทย (`th`) และภาษาอังกฤษ (`en`) ในไฟล์ `src/translations.ts` พร้อมกันเสมอ
+   - การสร้างชุดข้อความสำเร็จรูป (เช่น เหตุผลการปฏิเสธ หรือตัวกรอง) ต้องทำเป็น `Record<'th' | 'en', string[]>` เสมอ
+   - วันที่และเวลา: ใช้ `toLocaleString(lang === 'th' ? 'th-TH' : 'en-US')` และคำสำรองสองภาษาเสมอ
    - ตัวอย่างการเขียน:
      ```tsx
      // ใช้ translations
@@ -13,6 +14,12 @@
 
      // หรือใช้ conditional ตาม lang
      <span>{lang === 'th' ? 'ข้อความภาษาไทย' : 'English text'}</span>
+
+     // ชุดข้อความสำเร็จรูป
+     const QUICK_REASONS: Record<'th' | 'en', string[]> = {
+       th: ['เหตุผลที่ 1', 'เหตุผลที่ 2'],
+       en: ['Reason 1', 'Reason 2']
+     };
      ```
 
 2. **สิทธิ์การมองเห็นและการใช้งานปุ่ม Gemini AI (Gemini AI Key Owner-Only Rule):**

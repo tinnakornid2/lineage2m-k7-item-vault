@@ -139,22 +139,40 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
   // Copy summary to clipboard
   const handleCopySummary = () => {
     sounds.playClick();
-    const text = [
-      `📊 **[K7-VAULT] รายงานสถิติการแจกไอเทม & ความยุติธรรม**`,
-      `━━━━━━━━━━━━━━━━━━━━`,
-      `📦 แจกแล้วทั้งหมด: ${distributedItems.length} ชิ้น`,
-      `💎 มูลค่าเพชรรวม: ${totalDistributedDiamonds.toLocaleString()} Diamonds`,
-      `👥 สมาชิกที่ได้รับของแล้ว: ${recipientStats.length} คน`,
-      `⏳ สมาชิกที่ยังไม่เคยได้รับ: ${zeroItemMembers.length} คน`,
-      ``,
-      `🏆 **Top 5 สมาชิกที่ได้รับไอเทมมูลค่าสูงสุด:**`,
-      ...recipientStats.slice(0, 5).map((r, i) => `${i + 1}. **${r.name}** (${cleanClanName(r.clan)}): ${r.itemCount} ชิ้น | ${r.totalDiamonds.toLocaleString()} 💎`),
-      ``,
-      `🎯 **Top 5 นักล่าบอสที่ร่วมกิจกรรมมากที่สุด:**`,
-      ...hunterStats.slice(0, 5).map((h, i) => `${i + 1}. **${h.name}** (${cleanClanName(h.clan)}): ${h.huntCount} รอบ`),
-      `━━━━━━━━━━━━━━━━━━━━`,
-      `🔗 อัปเดตล่าสุด: ${new Date().toLocaleDateString('th-TH')}`
-    ].join('\n');
+    const isTh = lang === 'th';
+    const text = isTh
+      ? [
+          `📊 **[K7-VAULT] รายงานสถิติการแจกไอเทม & ความยุติธรรม**`,
+          `━━━━━━━━━━━━━━━━━━━━`,
+          `📦 แจกแล้วทั้งหมด: ${distributedItems.length} ชิ้น`,
+          `💎 มูลค่าเพชรรวม: ${totalDistributedDiamonds.toLocaleString()} Diamonds`,
+          `👥 สมาชิกที่ได้รับของแล้ว: ${recipientStats.length} คน`,
+          `⏳ สมาชิกที่ยังไม่เคยได้รับ: ${zeroItemMembers.length} คน`,
+          ``,
+          `🏆 **Top 5 สมาชิกที่ได้รับไอเทมมูลค่าสูงสุด:**`,
+          ...recipientStats.slice(0, 5).map((r, i) => `${i + 1}. **${r.name}** (${cleanClanName(r.clan)}): ${r.itemCount} ชิ้น | ${r.totalDiamonds.toLocaleString()} 💎`),
+          ``,
+          `🎯 **Top 5 นักล่าบอสที่ร่วมกิจกรรมมากที่สุด:**`,
+          ...hunterStats.slice(0, 5).map((h, i) => `${i + 1}. **${h.name}** (${cleanClanName(h.clan)}): ${h.huntCount} รอบ`),
+          `━━━━━━━━━━━━━━━━━━━━`,
+          `🔗 อัปเดตล่าสุด: ${new Date().toLocaleDateString('th-TH')}`
+        ].join('\n')
+      : [
+          `📊 **[K7-VAULT] Item Distribution & Fair Play Report**`,
+          `━━━━━━━━━━━━━━━━━━━━`,
+          `📦 Total Items Distributed: ${distributedItems.length} pcs`,
+          `💎 Total Diamond Value: ${totalDistributedDiamonds.toLocaleString()} Diamonds`,
+          `👥 Members Received Items: ${recipientStats.length} members`,
+          `⏳ Members Yet to Receive: ${zeroItemMembers.length} members`,
+          ``,
+          `🏆 **Top 5 Members with Highest Item Value:**`,
+          ...recipientStats.slice(0, 5).map((r, i) => `${i + 1}. **${r.name}** (${cleanClanName(r.clan)}): ${r.itemCount} items | ${r.totalDiamonds.toLocaleString()} 💎`),
+          ``,
+          `🎯 **Top 5 Boss Hunters (Most Active):**`,
+          ...hunterStats.slice(0, 5).map((h, i) => `${i + 1}. **${h.name}** (${cleanClanName(h.clan)}): ${h.huntCount} runs`),
+          `━━━━━━━━━━━━━━━━━━━━`,
+          `🔗 Latest Update: ${new Date().toLocaleDateString('en-US')}`
+        ].join('\n');
 
     navigator.clipboard.writeText(text);
     setCopied(true);

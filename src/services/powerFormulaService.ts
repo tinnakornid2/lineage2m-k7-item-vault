@@ -1,4 +1,5 @@
 import { StatDefinition, FormulaSettings, FormulaPreset } from '../types';
+import { saveFormulaSettingsDoc } from './firebase';
 
 export const DEFAULT_STAT_DEFINITIONS: StatDefinition[] = [
   // Combat Stats
@@ -303,12 +304,26 @@ export const FORMULA_PRESETS: Record<FormulaPreset, { nameTh: string; nameEn: st
 
 const STORAGE_KEY = 'l2m_power_formula_settings_v1';
 
+let inMemorySettings: FormulaSettings | null = null;
+
+export function setInMemoryFormulaSettings(settings: FormulaSettings): void {
+  inMemorySettings = settings;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  } catch {}
+  window.dispatchEvent(new CustomEvent('l2m_formula_settings_updated', { detail: settings }));
+}
+
 export function getFormulaSettings(): FormulaSettings {
+  if (inMemorySettings && Array.isArray(inMemorySettings.stats) && inMemorySettings.stats.length > 0) {
+    return inMemorySettings;
+  }
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && Array.isArray(parsed.stats) && parsed.stats.length > 0) {
+        inMemorySettings = parsed;
         return parsed;
       }
     }
@@ -331,8 +346,12 @@ export function getFormulaSettings(): FormulaSettings {
 export function saveFormulaSettings(settings: FormulaSettings): void {
   try {
     settings.updatedAt = Date.now();
+    inMemorySettings = settings;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
     window.dispatchEvent(new CustomEvent('l2m_formula_settings_updated', { detail: settings }));
+    saveFormulaSettingsDoc(settings).catch((err) => {
+      console.warn('Firestore formula sync notice:', err);
+    });
   } catch (err) {
     console.error('Error saving formula settings:', err);
   }

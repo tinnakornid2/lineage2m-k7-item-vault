@@ -14,11 +14,13 @@ import {
   Sparkles,
   ArrowRight,
   Send,
-  HelpCircle
+  HelpCircle,
+  Eye
 } from 'lucide-react';
 import { User, StatDefinition, OFFICIAL_CLASSES } from '../types';
 import { sounds } from '../utils/sound';
 import { ScreenshotGuideModal } from './ScreenshotGuideModal';
+import { StatComparisonModal } from './StatComparisonModal';
 import { getFormulaSettings } from '../services/powerFormulaService';
 
 interface StatApprovalModalProps {
@@ -32,13 +34,22 @@ interface StatApprovalModalProps {
   showToast?: (msg: string, type: 'info' | 'success' | 'warning' | 'error') => void;
 }
 
-const QUICK_REJECTION_REASONS = [
-  '📷 ภาพสกรีนช็อตไม่ชัดเจน หรือไม่เห็นชื่อตัวละคร',
-  '🔢 ตัวเลขสเตตัสที่กรอกไม่ตรงกับในภาพสกรีนช็อต',
-  '🔮 ขาดภาพหน้าผลึกวิญญาณ (Spirits)',
-  '⏳ ภาพสกรีนช็อตเก่าเกินไป รบกวนแคปภาพล่าสุด',
-  '🛡️ มีบัฟหรือน้ำยาชั่วคราวติดมา รบกวนแคปภาพสเตตัสเปล่า'
-];
+const QUICK_REJECTION_REASONS: Record<'th' | 'en', string[]> = {
+  th: [
+    '📷 ภาพสกรีนช็อตไม่ชัดเจน หรือไม่เห็นชื่อตัวละคร',
+    '🔢 ตัวเลขสเตตัสที่กรอกไม่ตรงกับในภาพสกรีนช็อต',
+    '🔮 ขาดภาพหน้าผลึกวิญญาณ (Spirits)',
+    '⏳ ภาพสกรีนช็อตเก่าเกินไป รบกวนแคปภาพล่าสุด',
+    '🛡️ มีบัฟหรือน้ำยาชั่วคราวติดมา รบกวนแคปภาพสเตตัสเปล่า'
+  ],
+  en: [
+    '📷 Screenshot is blurry or character name is not visible',
+    '🔢 Submitted stat numbers do not match screenshot values',
+    '🔮 Missing spirit enhancement screenshot (Spirits)',
+    '⏳ Screenshot is outdated, please submit latest screenshot',
+    '🛡️ Temporary buffs/potions active, please submit unbuffed screenshot'
+  ]
+};
 
 export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
   isOpen,
@@ -54,6 +65,7 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [inspectingUser, setInspectingUser] = useState<User | null>(null);
 
   const formulaConfig = getFormulaSettings();
   const classMap = new Map(OFFICIAL_CLASSES.map((c) => [c.nameEn.toLowerCase(), c]));
@@ -83,7 +95,7 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
   const handleOpenReject = (userId: string) => {
     sounds.playClick();
     setRejectingUserId(userId);
-    setRejectionReason(QUICK_REJECTION_REASONS[1]); // Default to "number mismatch"
+    setRejectionReason(QUICK_REJECTION_REASONS[lang][1]); // Default to "number mismatch"
   };
 
   const handleConfirmReject = async () => {
@@ -244,8 +256,8 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
                           <span className="flex items-center gap-1">
                             <Clock className="size-3" />
                             {user.pendingPowerLevelRequestedAt
-                              ? new Date(user.pendingPowerLevelRequestedAt).toLocaleString('th-TH')
-                              : 'เมื่อสักครู่'}
+                              ? new Date(user.pendingPowerLevelRequestedAt).toLocaleString(lang === 'th' ? 'th-TH' : 'en-US')
+                              : (lang === 'th' ? 'เมื่อสักครู่' : 'Just now')}
                           </span>
                           {(displayLegendClasses > 0 || displayLegendAgathions > 0) && (
                             <span className="text-slate-400 font-mono">
@@ -274,9 +286,9 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
                   </div>
 
                   {/* Body: Side-by-Side Stat Breakdown + Screenshot */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                    {/* Left: Submitted Stats Breakdown (8 cols) */}
-                    <div className="lg:col-span-8 space-y-3">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                    {/* Left: Submitted Stats Breakdown (6 cols) */}
+                    <div className="lg:col-span-6 space-y-3">
                       <div className="text-xs font-bold text-slate-300">
                         {lang === 'th' ? 'รายละเอียดสเตตัสที่ขออัปเดต:' : 'Submitted Stat Values:'}
                       </div>
@@ -303,7 +315,7 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
                                   {lang === 'th' ? s.labelTh : s.labelEn}
                                 </div>
                                 <div className="flex items-center justify-between mt-1">
-                                  <span className="font-bold text-white">
+                                  <span className="font-bold text-white font-mono">
                                     {val}
                                     {s.inputType === 'percentage' && '%'}
                                     {s.inputType === 'spirit_card' && enh !== undefined && (
@@ -319,7 +331,7 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
                                     )}
                                   </span>
                                   {isChanged && prevVal > 0 && (
-                                    <span className="text-[10px] text-slate-500 line-through">
+                                    <span className="text-[10px] text-slate-500 line-through font-mono">
                                       {prevVal}
                                     </span>
                                   )}
@@ -330,42 +342,65 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Right: Screenshot Proof (4 cols) */}
-                    <div className="lg:col-span-4 space-y-2">
-                      <div className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                        <span>{lang === 'th' ? 'ภาพสกรีนช็อตหลักฐาน:' : 'Proof Screenshot:'}</span>
-                        {user.pendingStatScreenshotUrl && (
-                          <button
-                            type="button"
-                            onClick={() => onViewImageZoom?.(user.pendingStatScreenshotUrl!, `${user.inGameName} Stat Proof`)}
-                            className="text-[10px] text-amber-400 hover:underline flex items-center gap-1"
-                          >
-                            <ExternalLink className="size-3" />
-                            {lang === 'th' ? 'คลิกขยายใหญ่' : 'Zoom In'}
-                          </button>
-                        )}
-                      </div>
+                    {/* Right: Screenshot Proof (6 cols) */}
+                    <div className="lg:col-span-6 space-y-2">
+                      {(() => {
+                        const displayScreenshot = user.pendingStatScreenshotUrl || user.statScreenshotUrl;
+                        const isPendingNew = !!user.pendingStatScreenshotUrl;
+                        return (
+                          <>
+                            <div className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span>{lang === 'th' ? 'ภาพสกรีนช็อตหลักฐาน:' : 'Proof Screenshot:'}</span>
+                                {isPendingNew ? (
+                                  <span className="px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 font-bold text-[9px]">
+                                    ✨ {lang === 'th' ? 'ใหม่' : 'New'}
+                                  </span>
+                                ) : user.statScreenshotUrl ? (
+                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-[9px]">
+                                    📸 {lang === 'th' ? 'รูปเดิม' : 'Prev'}
+                                  </span>
+                                ) : null}
+                              </div>
+                              {displayScreenshot && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    sounds.playClick();
+                                    setInspectingUser(user);
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer"
+                                  title={lang === 'th' ? 'เปิดโหมดเทียบข้างรูปเต็มจอ' : 'Side-by-Side Compare'}
+                                >
+                                  <Eye className="size-3" />
+                                  <span>{lang === 'th' ? '🔍 เทียบเต็มจอ' : 'Compare'}</span>
+                                </button>
+                              )}
+                            </div>
 
-                      {user.pendingStatScreenshotUrl ? (
-                        <div
-                          className="relative rounded-xl overflow-hidden border border-slate-700 bg-slate-950 aspect-video cursor-pointer group"
-                          onClick={() => onViewImageZoom?.(user.pendingStatScreenshotUrl!, `${user.inGameName} Stat Proof`)}
-                        >
-                          <img
-                            src={user.pendingStatScreenshotUrl}
-                            alt="Stat Proof"
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                          />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold transition">
-                            🔍 {lang === 'th' ? 'คลิกเพื่อดูรูปเต็ม' : 'Click to inspect'}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 text-center text-xs text-slate-500 flex flex-col items-center justify-center gap-2 aspect-video">
-                          <AlertCircle className="size-5 text-amber-400" />
-                          <span>{lang === 'th' ? 'ไม่มีการแนบรูปสกรีนช็อต' : 'No screenshot attached'}</span>
-                        </div>
-                      )}
+                            {displayScreenshot ? (
+                              <div
+                                className="relative rounded-xl overflow-hidden border border-slate-700 bg-black/95 min-h-[300px] max-h-[520px] flex items-center justify-center p-2 cursor-pointer group"
+                                onClick={() => setInspectingUser(user)}
+                              >
+                                <img
+                                  src={displayScreenshot}
+                                  alt="Stat Proof"
+                                  className="w-full h-auto max-h-[500px] object-contain rounded-lg group-hover:scale-[1.01] transition duration-200"
+                                />
+                                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold transition backdrop-blur-[1px]">
+                                  🔍 {lang === 'th' ? 'คลิกเพื่อเปิดโหมดเปรียบเทียบเต็มจอ' : 'Click to inspect side-by-side'}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 text-center text-xs text-slate-500 flex flex-col items-center justify-center gap-2 aspect-video">
+                                <AlertCircle className="size-5 text-amber-400" />
+                                <span>{lang === 'th' ? 'ไม่มีการแนบรูปสกรีนช็อต' : 'No screenshot attached'}</span>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -435,7 +470,7 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
                 {lang === 'th' ? 'เลือกเหตุผลสำเร็จรูป (คลิกเดียว):' : 'Quick Presets:'}
               </label>
               <div className="space-y-1.5">
-                {QUICK_REJECTION_REASONS.map((reason) => (
+                {QUICK_REJECTION_REASONS[lang].map((reason) => (
                   <button
                     key={reason}
                     type="button"
@@ -460,7 +495,11 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
                 rows={3}
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
-                placeholder="เช่น ค่าป้องกันในรูปคือ 320 แต่กรอกมา 350 รบกวนแก้ไขตรงช่อง Defense แล้วส่งใหม่ครับ"
+                placeholder={
+                  lang === 'th'
+                    ? 'เช่น ค่าป้องกันในรูปคือ 320 แต่กรอกมา 350 รบกวนแก้ไขตรงช่อง Defense แล้วส่งใหม่ครับ'
+                    : 'e.g., Defense in screenshot is 320 but 350 was entered. Please adjust Defense and resubmit.'
+                }
                 className="w-full p-3 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs focus:border-rose-400 focus:outline-none"
               />
             </div>
@@ -485,6 +524,22 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Side-by-Side Fullscreen Inspector Modal */}
+      {inspectingUser && (
+        <StatComparisonModal
+          isOpen={!!inspectingUser}
+          onClose={() => setInspectingUser(null)}
+          user={inspectingUser}
+          lang={lang}
+          onApprove={handleApprove}
+          onOpenReject={(userId) => {
+            setInspectingUser(null);
+            handleOpenReject(userId);
+          }}
+          isProcessing={isProcessing}
+        />
       )}
 
       {/* Screenshot Guide Modal for Admin verification reference */}

@@ -227,7 +227,7 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
         date: Date.now(),
         powerLevel: user.powerLevel || 3000,
         level: user.level || 75,
-        note: 'สถานะปัจจุบัน (รีเซ็ตประวัติ)',
+        note: lang === 'th' ? 'สถานะปัจจุบัน (รีเซ็ตประวัติ)' : 'Current Status (Reset History)',
         type: 'approval'
       };
       

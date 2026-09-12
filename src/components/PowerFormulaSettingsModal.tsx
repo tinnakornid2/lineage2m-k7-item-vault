@@ -752,11 +752,11 @@ export const PowerFormulaSettingsModal: React.FC<PowerFormulaSettingsModalProps>
                     onChange={(e) => setNewCategory(e.target.value as StatCategory)}
                     className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:border-amber-400 focus:outline-none"
                   >
-                    <option value="combat">⚔️ โจมตี (Combat)</option>
-                    <option value="defense">🛡️ ป้องกัน (Defense)</option>
-                    <option value="spirit">🔮 ผลึกวิญญาณ (Spirit)</option>
-                    <option value="special">✨ สเตตัสพิเศษ / PvP (Special)</option>
-                    <option value="custom">⚙️ ทั่วไป (Custom)</option>
+                    <option value="combat">{lang === 'th' ? '⚔️ โจมตี (Combat)' : '⚔️ Combat'}</option>
+                    <option value="defense">{lang === 'th' ? '🛡️ ป้องกัน (Defense)' : '🛡️ Defense'}</option>
+                    <option value="spirit">{lang === 'th' ? '🔮 ผลึกวิญญาณ (Spirit)' : '🔮 Soul Crystal (Spirit)'}</option>
+                    <option value="special">{lang === 'th' ? '✨ สเตตัสพิเศษ / PvP (Special)' : '✨ Special / PvP'}</option>
+                    <option value="custom">{lang === 'th' ? '⚙️ ทั่วไป (Custom)' : '⚙️ Custom'}</option>
                   </select>
                 </div>
 
@@ -769,9 +769,9 @@ export const PowerFormulaSettingsModal: React.FC<PowerFormulaSettingsModalProps>
                     onChange={(e) => setNewInputType(e.target.value as StatInputType)}
                     className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs focus:border-amber-400 focus:outline-none"
                   >
-                    <option value="number"># ตัวเลขจำนวนเต็ม (Number)</option>
-                    <option value="percentage">% เปอร์เซ็นต์ (Percentage)</option>
-                    <option value="spirit_card">🔮 การ์ดผลึกวิญญาณ (Level + Enhancement [0][+1][+2][+3])</option>
+                    <option value="number">{lang === 'th' ? '# ตัวเลขจำนวนเต็ม (Number)' : '# Integer Number'}</option>
+                    <option value="percentage">{lang === 'th' ? '% เปอร์เซ็นต์ (Percentage)' : '% Percentage'}</option>
+                    <option value="spirit_card">{lang === 'th' ? '🔮 การ์ดผลึกวิญญาณ (Level + Enhancement [0][+1][+2][+3])' : '🔮 Soul Crystal Card (Level + Enhancement [0][+1][+2][+3])'}</option>
                   </select>
                 </div>
 
@@ -864,7 +864,7 @@ export const PowerFormulaSettingsModal: React.FC<PowerFormulaSettingsModalProps>
                   <div className="mt-3 p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
                       <span className="size-3 rounded-full" style={{ backgroundColor: newNeonColor, boxShadow: `0 0 8px ${newNeonColor}` }} />
-                      <span className="font-bold text-xs text-white">{newLabelTh || 'ชื่อผลึกตัวอย่าง'}</span>
+                      <span className="font-bold text-xs text-white">{(lang === 'th' ? (newLabelTh || newLabelEn) : (newLabelEn || newLabelTh)) || (lang === 'th' ? 'ชื่อผลึกตัวอย่าง' : 'Sample Spirit Name')}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       {[0, 1, 2, 3].map((tier) => (

@@ -1,5 +1,5 @@
 # 📋 PROJECT HANDOVER & WORK CONTINUATION GUIDE
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.6.0)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.7.0)**  
 > **Last Updated:** 2026-09-12  
 > **Repository:** `tinnakornid2/lineage2m-k7-item-vault`  
 > **Live Web App:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)
@@ -27,36 +27,53 @@
 
 ---
 
-## 🏗️ ฟีเจอร์ล่าสุดที่เพิ่งพัฒนาเสร็จสมบูรณ์ (Recent Implementations)
+## 🏗️ ฟีเจอร์ล่าสุดในเวอร์ชัน v1.7.0 (What's New in v1.7.0)
 
-### 1. หน้าจอระบบสเตตัสและการเติบโตสไตล์ Kain7 (`src/components/MyStatsView.tsx`)
-- **โครงสร้างแบบ 2-Column Responsive Dashboard:**
-  - พอดีจอ ไม่ยาวจนเกินไป คุมสเกลและจัดสัดส่วนชัดเจน
-  - **คอลัมน์ซ้าย (Sidebar 4 Cols):**
-    - **การ์ดข้อมูลสมาชิก (Member Information):**
-      - `In-Game Name *`: กล่องพิมพ์ชื่อตัวละครในเกม (แก้ไขได้และบันทึกอัตโนมัติเมื่อ blur)
-      - `Role *`: ปุ่มสลับ `[ Member ]` และ `[ 👑 Leader ]` (มีขอบทองเรืองแสง `#eab308`)
-      - `Status`: สวิตช์เปิด-ปิดทรงแคปซูล `Active` (สีเขียว) / `Inactive` (สีเทา)
-      - `Clan`: กล่อง Dropdown รายชื่อแคลนของระบบ (`VoltZ`, `LevelS`, `STRONK`, etc.)
-      - **ระบบความปลอดภัย (Security Lock):** ช่อง Role, Status, Clan ถูกล็อคให้**เฉพาะ Owner และ Admin เท่านั้นที่แก้ไขได้** สมาชิกทั่วไปจะขึ้นป้าย `🔒 เฉพาะ: Owner / Admin` และอยู่ในสถานะ Disabled ห้ามกด
-    - **การ์ดแนบภาพสกรีนช็อต (Screenshots):** อัปโหลด ลากวาง หรือกด `Ctrl + V` วางภาพจาก Clipboard
-    - **การ์ด Live Power Level:** คำนวณค่าพลัง PL เรียลไทม์ตามสูตร พร้อมแถบแสดงผลต่าง (`+50 PL` / `-120 PL`)
-    - **การ์ดกราฟไทม์ไลน์การเติบโต (`GrowthTimelineChart.tsx`):** เส้นกราฟ SVG เวกเตอร์แบบโค้งมน กรองช่วงเวลา 30D / 90D / 6M / ALL พร้อมบันทึกประวัติ Milestone
-  - **คอลัมน์ขวา (Main Content 8 Cols):**
-    - **ข้อมูลตัวละคร (Character Stats):** เลือก Class หลัก/รอง (Multi-select), Level, Legend Classes, Legend Agathions
-    - **ศูนย์กรอกสเตตัสแบบแท็บ (Tabbed Attribute Center):**
-      - แท็บ **`[⚔️ โจมตี]`**, **`[🛡️ ป้องกัน]`**, และ **`[⭐ พิเศษ]`**
-      - ลดความยาวหน้าเว็บ กรอกง่าย พร้อมตัวคูณกำกับแต่ละสเตตัส (`x1`, `x2`, `x3`) ตามสูตร Kain7
-    - **ปุ่มยืนยันส่งคำขอ (Submit Verification):** แพ็คข้อมูลขึ้น Firestore รออนุมัติ และส่งแจ้งเตือนเข้า Discord Webhook อัตโนมัติ
+### 1. ระบบสูตรคำนวณค่าพลัง Real-time Firestore Sync (`PowerFormula`)
+- เชื่อมต่อ `FormulaSettings` ลงใน Firestore collection `app_settings/power_formula`
+- เมื่อ Owner แก้ไขสูตรใน `PowerFormulaSettingsModal.tsx` ระบบจะซิงค์ขึ้น Cloud ทันที
+- `App.tsx` และ `MyStatsView.tsx` มี Event Listener รับการอัปเดตแบบเรียลไทม์ ทำให้ทุกเครื่องและสมาชิกทุกคนเห็นตัวเลข Power Level (PL) ตรงกัน 100% โดยไม่ต้องรีเฟรชหน้าจอ
+
+### 2. ปรับปรุงหน้าต่างกรอกสเตตัสและการเทียบรูปหลักฐาน (`MyStatsView.tsx`)
+- **ซ่อนป้ายตัวคูณ:** นำป้าย `×1`, `×10 PL` ออกจากกล่องกรอกสเตตัสตามความต้องการ เพื่อความสะอาดตา สบายตา โดยการคำนวณเบื้องหลังยังคงใช้น้ำหนักตามสูตรอย่างแม่นยำ
+- **หน้าต่างลอยตรึงรูปหลักฐาน (Floating Pinned Proof):**
+  - สมาชิกสามารถกดปุ่ม **"📌 ดูรูปเทียบสเตตัส"** เพื่อเปิดหน้าต่างรูปหลักฐานลอยขึ้นมาขณะกรอกข้อมูล
+  - รองรับการปรับขนาด 3 ระดับ: **S (ปกติ)**, **M (ใหญ่)**, และ **L (แบ่งครึ่งจอ Split View)**
+  - มีปุ่มซูมในตัว: **[-]**, **[+]**, และ **[100%]** พร้อมเลื่อนดูตัวเลขได้ชัดเจน
+  - แสดงภาพเต็มสัดส่วน Uncropped ไม่มีการตัดขอบ
+
+### 3. หน้าต่างตรวจสอบและเปรียบเทียบสเตตัสแบบ Split-View (`StatComparisonModal.tsx`)
+- Admin และ Owner สามารถกดเปิดเปรียบเทียบสเตตัสเดิม vs สเตตัสใหม่ที่ขออัปเดตแบบเคียงข้าง (Side-by-side)
+- แสดงแถบส่วนต่างสีเขียว/แดง (+/- diff) ชัดเจน
+- แสดงรูปสกรีนช็อตหลักฐานพร้อมปุ่มขยายและเครื่องมืออนุมัติ/ปฏิเสธในหน้าเดียว
+
+### 4. ปรับหน้าต่าง Bulk Swap Clan Organizer ให้ย่อขยายอัตโนมัติ (`BulkSwapClanModal.tsx`)
+- รองรับการแสดงผลแคลนและสมาชิกจำนวนมาก ปรับกล่องและตารางให้พอดีกับหน้าต่างจอเสมอ
+- รองรับการค้นหา กรอง และสลับแคลนแบบกลุ่มได้อย่างคล่องตัว
+
+### 5. เชื่อมต่อ Clan Scope กับหน้า Dashboard (`DashboardView.tsx`)
+- อัปเดต `availableDashboardItems` ใน `App.tsx` ให้กรองตามแคลนที่เลือกจาก Sidebar (`selectedClanScope`) ทั้งผู้ล่าและผู้ขอรับไอเทม
+
+### 6. การรีเซ็ตสเตตัสทั้งระบบเพื่อเริ่มรอบใหม่ (System-wide Stat Reset)
+- ทำการสำรองข้อมูล (Safety Backup) สมาชิกเดิมทั้งหมดไว้ที่ `backups/users_stats_backup_*.json`
+- รีเซ็ตค่าสเตตัส, PL (เป็น 0), และรูปสเตตัสของสมาชิกทุกคน (118 คน) เพื่อรอรับการอัปเดตใหม่อย่างเท่าเทียม
+- เพิ่มตัวเลือก **"รีเซ็ตค่าสเตตัสและรูปสมาชิกทุกคน (รอส่งใหม่)"** ใน **Owner Reset Modal** ให้ Owner สามารถสั่งรันได้เองผ่าน UI ในอนาคต
+
+### 7. กฎเหล็กสองภาษา 100% (Rule 1: Bilingual Compliance)
+- ทุกข้อความ ปุ่ม ตัวเลือก กล่องข้อความ และรายงาน Discord Share รองรับทั้ง **ไทย (TH)** และ **อังกฤษ (EN)** ครบถ้วน 100% ไม่มีการ Hardcode ภาษาใดภาษาหนึ่ง
 
 ---
 
 ## 📂 แผนผังไฟล์สำคัญ (Key Files Map)
 - `src/App.tsx`: ควบคุม Global State, Firestore Real-time Listeners, Modal Routing, และการจัดเก็บ Current User
-- `src/components/MyStatsView.tsx`: หน้าระบบสเตตัสและการเติบโต (Kain7 Dashboard)
-- `src/components/GrowthTimelineChart.tsx`: คอมโพเนนต์กราฟแสดงพัฒนาการสเตตัส
+- `src/components/MyStatsView.tsx`: หน้าระบบสเตตัสและการเติบโต (Kain7 Dashboard พร้อม Floating Pinned Proof)
+- `src/components/StatComparisonModal.tsx`: หน้าต่าง Split-View เปรียบเทียบสเตตัสก่อนอนุมัติ
+- `src/components/StatApprovalView.tsx` / `StatApprovalModal.tsx`: ระบบศูนย์อนุมัติสเตตัสของ Admin/Owner
+- `src/components/PowerFormulaSettingsModal.tsx`: หน้าต่างตั้งค่าสูตรคำนวณ Power Level (PL)
+- `src/components/BulkSwapClanModal.tsx`: หน้าต่างย้ายแคลนแบบกลุ่ม
+- `src/components/OwnerResetModal.tsx`: ศูนย์รีเซ็ตระบบของ Owner
 - `src/services/firebase.ts`: การเชื่อมต่อ Google Cloud Firestore (`users`, `vault_items`, `item_queues`, `clans`, ฯลฯ)
-- `src/services/powerFormulaService.ts`: สูตรคำนวณค่าพลัง Power Level (PL) และค่าสปิริต
+- `src/services/powerFormulaService.ts`: สูตรคำนวณค่าพลัง Power Level (PL)
 - `src/types.ts`: โมเดลข้อมูลทั้งหมด (`User`, `UserRole`, `VaultItem`, `ClanGroup`, ฯลฯ)
 - `src/translations.ts`: ระบบ 2 ภาษา (TH / EN) 100%
 
@@ -68,13 +85,10 @@
 npx tsc --noEmit
 
 # สร้าง Production Bundle
-npx vite build
+npm run build
 
 # รันเซิร์ฟเวอร์ Local Development
 npm run dev
-
-# หมายเหตุสำหรับ Windows PowerShell: ใช้เครื่องหมาย ; แทน &&
-npx vite build ; npx tsc --noEmit
 ```
 
 ---
@@ -82,9 +96,9 @@ npx vite build ; npx tsc --noEmit
 ## 💬 ข้อความตัวอย่างสำหรับ Copy ไปเริ่มในห้องแชทใหม่:
 ```
 โปรดอ่านไฟล์ AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
-ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.6.0)
+ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.7.0)
 - บัญชี Owner: Eloni (รหัสผ่าน 0386231334)
 - Live URL: https://lineage2m-k7-item-vault.vercel.app/
-- สถานะล่าสุด: หน้าระบบสเตตัส Kain7 (MyStatsView) เสร็จสมบูรณ์ และล็อคสิทธิ์ Member Information เฉพาะ Owner/Admin เรียบร้อยแล้ว
+- สถานะล่าสุด: ระบบสเตตัส Kain7 ได้รับการรีเซ็ตค่าสเตตัสสมาชิกทุกคนเพื่อรออัปเดตรอบใหม่, ซ่อนป้ายตัวคูณแล้ว, ซิงค์สูตรผ่าน Firestore แบบ Real-time, และรองรับ 2 ภาษา 100%
 โปรดยืนยันว่าเข้าใจโครงสร้างระบบแล้ว พร้อมรับคำสั่งงานต่อไปครับ
 ```
