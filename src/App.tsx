@@ -146,9 +146,9 @@ export const App: React.FC = () => {
         return hash;
       }
 
-      // 3. Priority: localStorage
+      // 3. Priority: localStorage (restore internal tabs, but root URL without params defaults to dashboard)
       const saved = localStorage.getItem('k7_active_tab') as ActiveTab;
-      if (saved && VALID_TABS.includes(saved)) {
+      if (saved && VALID_TABS.includes(saved) && saved !== 'boss_time') {
         return saved;
       }
     } catch {
@@ -1715,23 +1715,33 @@ export const App: React.FC = () => {
     );
   }, [vaultItems, selectedClanScope]);
 
-  // Priority 1: Standalone Boss Time View (Rule 4: Zero dependency on Clan Hub login, own PIN system)
-  if (activeTab === 'boss_time') {
-    return (
-      <div className="fixed inset-0 z-[99999] w-screen h-screen overflow-hidden bg-black select-auto">
-        <BossTimeView
-          currentUser={currentUser}
-          lang={lang}
-          isOwner={currentUser?.role === 'owner'}
-          isAdmin={canAccessAdminFeatures}
-          onBackToDashboard={() => setActiveTab('dashboard')}
-        />
-      </div>
-    );
-  }
-
-  // If user is not logged in, display the centered Login/Register screen before entering the app
+  // If user is not logged in:
   if (!currentUser) {
+    // Priority: Standalone Boss Time View when accessed directly via ?tab=boss_time without Clan Hub login (Rule 4)
+    if (activeTab === 'boss_time') {
+      return (
+        <div className="fixed inset-0 z-[99999] w-screen h-screen overflow-hidden bg-black select-auto">
+          <BossTimeView
+            currentUser={null}
+            lang={lang}
+            isOwner={false}
+            isAdmin={false}
+            onBackToDashboard={() => {
+              setActiveTab('dashboard');
+              try {
+                localStorage.setItem('k7_active_tab', 'dashboard');
+                const url = new URL(window.location.href);
+                url.searchParams.delete('tab');
+                window.history.replaceState(null, '', url.toString());
+              } catch {
+                // ignore
+              }
+            }}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="relative min-h-screen bg-[#04070d] text-slate-100 overflow-x-hidden font-prompt selection:bg-[#d4af37]/30 selection:text-[#f5d77f]">
         {/* Fantasy Castle Background Layer */}
