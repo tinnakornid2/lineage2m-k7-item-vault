@@ -1,5 +1,5 @@
 node_modules/
-build/
+/build/
 dist/
 coverage/
 .DS_Store
@@ -7,5 +7,8 @@ coverage/
 .env*
 !.env.example
 *.zip
+*.bak
 scratch/
 backups/
+!public/build/
+

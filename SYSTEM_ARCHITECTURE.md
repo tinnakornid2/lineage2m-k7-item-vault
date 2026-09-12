@@ -1,6 +1,6 @@
 # 🏛️ SYSTEM_ARCHITECTURE.md — สถาปัตยกรรมระบบและคู่มือป้องกันโค้ดเสียหาย
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.8.0)**  
-> **Last Updated:** 2026-09-12  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.9.0)**  
+> **Last Updated:** 2026-09-13  
 > **Live Production:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)  
 > **Repository:** `tinnakornid2/lineage2m-k7-item-vault`
 

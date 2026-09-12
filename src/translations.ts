@@ -49,6 +49,7 @@ export const translations = {
     tabPowerFormula: 'สูตรค่าพลัง (PL)',
     tabBulkSwap: 'จัดสรรแคลน (Bulk Swap)',
     tabStatApprovals: 'คำขอสเตตัส',
+    tabBossTime: 'เวลาบอส',
     availableToMe: '⚡ พลังถึงเกณฑ์',
     filterAvailableToMe: 'แสดงเฉพาะไอเทมที่ขอรับได้',
 
@@ -423,6 +424,7 @@ export const translations = {
     tabPowerFormula: 'Power Formula',
     tabBulkSwap: 'Bulk Swap',
     tabStatApprovals: 'Stat Approvals',
+    tabBossTime: 'Boss Time',
     availableToMe: '⚡ Available to me',
     filterAvailableToMe: 'Show only items I can claim',
 

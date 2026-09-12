@@ -93,6 +93,7 @@ import { ClanView } from './components/ClanView';
 import { ClanRosterView } from './components/ClanRosterView';
 import { MyStatsView } from './components/MyStatsView';
 import { StatApprovalView } from './components/StatApprovalView';
+import { BossTimeView } from './components/BossTimeView';
 
 export const App: React.FC = () => {
   // 1. App-wide Language & Sound
@@ -117,8 +118,88 @@ export const App: React.FC = () => {
     setSoundEnabled(next);
   };
 
-  // 2. Navigation Tab State
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  // 2. Navigation Tab State (Persisted across browser refreshes & synced with URL)
+  const VALID_TABS: ActiveTab[] = [
+    'dashboard',
+    'vault',
+    'queue',
+    'all_members',
+    'clans',
+    'bulk_swap',
+    'my_stats',
+    'stat_approvals',
+    'boss_time'
+  ];
+
+  const getInitialTab = (): ActiveTab => {
+    try {
+      // 1. Priority: URL search parameter ?tab=...
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab') as ActiveTab;
+      if (tabParam && VALID_TABS.includes(tabParam)) {
+        return tabParam;
+      }
+
+      // 2. Priority: URL hash #...
+      const hash = window.location.hash.replace(/^#\/?/, '') as ActiveTab;
+      if (hash && VALID_TABS.includes(hash)) {
+        return hash;
+      }
+
+      // 3. Priority: localStorage
+      const saved = localStorage.getItem('k7_active_tab') as ActiveTab;
+      if (saved && VALID_TABS.includes(saved)) {
+        return saved;
+      }
+    } catch {
+      // ignore
+    }
+    return 'dashboard';
+  };
+
+  const [activeTab, setActiveTab] = useState<ActiveTab>(getInitialTab);
+
+  // Sync activeTab with localStorage & URL without triggering full page reload
+  useEffect(() => {
+    try {
+      localStorage.setItem('k7_active_tab', activeTab);
+      const url = new URL(window.location.href);
+      if (activeTab === 'dashboard') {
+        url.searchParams.delete('tab');
+      } else {
+        url.searchParams.set('tab', activeTab);
+      }
+      window.history.replaceState(null, '', url.toString());
+    } catch {
+      // ignore
+    }
+  }, [activeTab]);
+
+  // Support browser back/forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const tabParam = params.get('tab') as ActiveTab;
+        if (tabParam && VALID_TABS.includes(tabParam)) {
+          setActiveTab(tabParam);
+          return;
+        }
+        const hash = window.location.hash.replace(/^#\/?/, '') as ActiveTab;
+        if (hash && VALID_TABS.includes(hash)) {
+          setActiveTab(hash);
+          return;
+        }
+        setActiveTab('dashboard');
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
 
   // 3. Current User / Authentication
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -166,9 +247,24 @@ export const App: React.FC = () => {
     currentIndex?: number;
   } | null>(null);
 
-  // 5c. Kain7 Power Formula State
+  // 5c. Kain7 Power Formula State & Clan Scope Persistence
   const [isPowerFormulaOpen, setIsPowerFormulaOpen] = useState(false);
-  const [selectedClanScope, setSelectedClanScope] = useState<string>('all');
+  const [selectedClanScope, setSelectedClanScope] = useState<string>(() => {
+    try {
+      return localStorage.getItem('k7_clan_scope') || 'all';
+    } catch {
+      return 'all';
+    }
+  });
+
+  const handleSelectClanScope = (scope: string) => {
+    setSelectedClanScope(scope);
+    try {
+      localStorage.setItem('k7_clan_scope', scope);
+    } catch {
+      // ignore
+    }
+  };
 
   // 5b. In-App Toast Feedback State
   const [toast, setToast] = useState<{
@@ -1723,7 +1819,7 @@ export const App: React.FC = () => {
         discordEnabled={discordSettings?.enabled}
         pendingQueueCount={queueItems.filter((i) => i.status === 'queued').length}
         selectedClanScope={selectedClanScope}
-        onSelectClanScope={setSelectedClanScope}
+        onSelectClanScope={handleSelectClanScope}
         clans={clans}
         allMembers={users}
         isMobileOpen={isMobileOpen}
@@ -1807,7 +1903,7 @@ export const App: React.FC = () => {
             allMembers={users}
             clans={clans}
             selectedClanScope={selectedClanScope}
-            onSelectClanScope={setSelectedClanScope}
+            onSelectClanScope={handleSelectClanScope}
             onOpenRequestCp={() => setActiveTab('my_stats')}
             onOpenBulkSwap={() => setActiveTab('bulk_swap')}
             onApproveMember={handleApproveMember}
@@ -1887,6 +1983,16 @@ export const App: React.FC = () => {
             onNavigateTab={(tab) => setActiveTab(tab)}
             onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
             showToast={showToast}
+          />
+        )}
+
+        {activeTab === 'boss_time' && (
+          <BossTimeView
+            currentUser={currentUser}
+            lang={lang}
+            isOwner={currentUser?.role === 'owner'}
+            isAdmin={canAccessAdminFeatures}
+            onBackToDashboard={() => setActiveTab('dashboard')}
           />
         )}
       </main>

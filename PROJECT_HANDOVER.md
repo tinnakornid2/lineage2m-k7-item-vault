@@ -1,6 +1,6 @@
 # 📋 PROJECT HANDOVER & WORK CONTINUATION GUIDE
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.8.0)**  
-> **Last Updated:** 2026-09-12  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.9.0)**  
+> **Last Updated:** 2026-09-13  
 > **Repository:** `tinnakornid2/lineage2m-k7-item-vault`  
 > **Live Web App:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)  
 > **Master Architecture Guide:** [SYSTEM_ARCHITECTURE.md](file:///d:/K7%20item%20webapp/lineage2m-k7-item-vault%20%281%29/SYSTEM_ARCHITECTURE.md)
@@ -13,6 +13,36 @@
 ---
 
 ## 🔑 ข้อมูลบัญชีและสิทธิ์สำคัญ (Credentials & Permissions)
+
+### 1. บัญชีผู้ดูแลระบบหลักของ Clan Hub (Main Clan Hub):
+- **Owner Account:** `Eloni`
+- **Password:** `0386231334`
+- **สิทธิ์:** เข้าถึงทุกหน้า, อนุมัติสเตตัส, สลับโหมด Owner/Member, ตั้งค่า Gemini AI OCR Key
+
+### 2. รหัสผ่านระบบติดตามเวลาบอส (Boss Tracker Standalone):
+ระบบติดตามเวลาบอสแยกอิสระ 100% ตามกฎข้อ 4 (Boss Time Complete Isolation Rule) โดยมีรหัส PIN เฉพาะตัว:
+- **Member PIN:** `2221` (Role: `member` - ดูเวลาเกิด, นับถอยหลัง, ช่องค้นหา, ฟิลเตอร์, ปิดเสียง)
+- **Admin PIN:** `9876` (Role: `admin` - จัดการเวลาบอส, บันทึกเวลาตาย, Still alive, Reset Boss Time, จัดการ Event, ประกาศกิลด์)
+- **เซสชันถาวร:** บันทึกผ่าน Secure Cookie อายุ 1 ปี เข้าแล้วล็อกอินค้างไว้จนกว่าจะกด Log out
+
+---
+
+## 💬 ข้อความตัวอย่างสำหรับ Copy ไปเริ่มในห้องแชทใหม่:
+```
+โปรดอ่านไฟล์ SYSTEM_ARCHITECTURE.md, AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
+ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.9.0)
+- บัญชี Clan Hub Owner: Eloni (รหัสผ่าน 0386231334)
+- บอสแทร็กเกอร์ PIN: Member (2221), Admin (9876)
+- Live URL: https://lineage2m-k7-item-vault.vercel.app/
+- สถานะล่าสุด (v1.9.0):
+  1. ติดตั้งระบบ Lineage 2M Boss Tracker แท้ 100% แยกอิสระแบบ Standalone ไม่กระทบระบบคลังไอเทม
+  2. ระบบแสดงผล Edge-to-Edge ไร้ขอบ พร้อมวิดเจ็ตลอยมุมจอสำหรับสลับโหมดเต็มจอ/กลับ Clan Hub
+  3. ระบบล็อกอิน PIN แท้: Member (2221), Admin (9876) จดจำเซสชัน 1 ปี ไม่หลุดเมื่อรีเฟรช
+  4. ระบบคำนวณวันและเวลานับถอยหลังของอีเวนต์ (Clan Catacomb, Boss Rush, Tower of Insolence ฯลฯ) ทำงาน 100%
+  5. ระบบ Reset Boss Time สำหรับตั้งเวลาบอสทั้ง 89 ตัวหลังเปิดเซิร์ฟ พร้อมระบบคำนวณ Delay ป้องกัน Crash Error 500
+  6. รองรับ 2 ภาษา (TH/EN) 100% และมีกฎ Local-First ก่อน Deploy
+โปรดยืนยันว่าเข้าใจสถาปัตยกรรมและกฎการป้องกันโค้ดเสียหายแล้ว พร้อมรับคำสั่งงานต่อไปครับ
+```
 1. **บัญชีเจ้าของระบบ (Owner Account):**
    - **Username:** `eloni` (หรือ `Eloni`)
    - **Password:** `0386231334`

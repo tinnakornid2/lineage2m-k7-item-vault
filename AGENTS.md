@@ -44,3 +44,14 @@
 ## 3. สิทธิ์และการอนุมัติค่าพลัง (Security & Permissions)
 - **Gemini AI OCR Key:** ปุ่มตั้งค่า API Key ต้องมองเห็นและแก้ไขได้เฉพาะ `Owner` เท่านั้น
 - **การอนุมัติสเตตัส (Stat Approvals):** เมื่อสมาชิกส่งการแก้ไขสเตตัส ตัวเลขจะอยู่ในสถานะ `Pending` เท่านั้น ค่าพลังจริง (`Verified Power`) จะอัปเดตต่อเมื่อ Admin หรือ Owner ตรวจสอบเทียบกับภาพสกรีนช็อตและกดยืนยันอนุมัติแล้ว
+
+---
+
+## 4. กฎการแยกอิสระของหน้าเวลาบอส (Boss Time Complete Isolation Rule)
+- **ระบบแยกอิสระ 100%:** ระบบเวลาบอส (Boss Time / Boss Tracker) ไม่ผูกกับระบบสมาชิก, สิทธิ์ (Role), หรือข้อมูลของ Clan Hub ใดๆ ทั้งสิ้น โดยระบบเวลาบอสจะใช้ระบบรหัสผ่านและ PIN (`4321`) ของตัวเองโดยเฉพาะ
+- **ขอบเขตการแก้ไขโค้ดที่อนุญาต:** ทุกการแก้ไขหรือเพิ่มเติมต่อจากนี้ ให้ดำเนินการเฉพาะไฟล์ในส่วนของหน้าเวลาบอสเท่านั้น ได้แก่:
+  - `src/components/BossTimeView.tsx`
+  - `boss_server/` (เช่น `boss_server/index.js`, `boss_server/data/store.json`, `boss_server/routes/` ฯลฯ)
+  - `public/build/`
+  - **ห้ามแตะต้องหรือกระทบไฟล์ระบบหลักของ Clan Hub โดยเด็ดขาด** (เช่น คลังเพชร/ไอเทม `VaultView`, สมาชิก `MembersView`, จัดการแคลน `ClanView`, คิวไอเทม `QueueView`, คำนวณพลัง `MyStatsView`, อนุมัติพลัง `StatApprovalView`, `DashboardView` ฯลฯ)
+

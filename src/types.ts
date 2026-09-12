@@ -245,9 +245,80 @@ export function isUserStatsPending(user?: User | null): boolean {
   return false;
 }
 
-export type ActiveTab = 'dashboard' | 'vault' | 'queue' | 'all_members' | 'clans' | 'bulk_swap' | 'my_stats' | 'stat_approvals';
+export type ActiveTab = 'dashboard' | 'vault' | 'queue' | 'all_members' | 'clans' | 'bulk_swap' | 'my_stats' | 'stat_approvals' | 'boss_time';
 
 export type Language = 'th' | 'en';
+
+// ─────────────────────────────────────────────────────────────
+// Boss Tracker (#Kain7 Edition) Types
+// ─────────────────────────────────────────────────────────────
+
+export interface BossItem {
+  id: number;
+  name: string;
+  location: string;
+  interval: number; // minutes
+  is_invasion: boolean;
+  chance_of_appearing: string;
+  last_kill_time: string | null;
+  next_spawn: string | null;
+  auto_advanced: boolean;
+  post_maintenance: boolean;
+  pinned_alive: boolean;
+  pre_spawned: boolean;
+  created_at?: string;
+  updated_at?: string;
+  last_reporter?: string;
+}
+
+export interface BossEvent {
+  id: number;
+  name: string;
+  location: string;
+  is_invasion: boolean;
+  interval: number;
+  last_kill_time: string | null;
+  auto_advanced: boolean;
+  post_maintenance: boolean;
+  pinned_alive: boolean;
+  pre_spawned: boolean;
+  chance_of_appearing: string;
+  next_spawn: string | null;
+  created_at?: string;
+  updated_at?: string;
+  is_event: boolean;
+  event_time: string;
+  occurs_on: string[];
+  done_on: string | null;
+  auto_done_minutes: number;
+}
+
+export type BossResetTimeConfigs = Record<string, { hours: number; minutes: number }>;
+
+export interface BossAnnouncement {
+  message: string;
+  sent_by?: string;
+  urgent?: boolean;
+  resent_at?: string;
+}
+
+export interface BossTrackerSettings {
+  serverName: string;
+  invasionLabel: string;
+  invasionEmoji: string;
+  invasionColor: string;
+  invasionPosition?: string;
+  hideInvasionBosses?: boolean;
+  announcement?: BossAnnouncement | string;
+  pinCode?: string;
+  adminUsername?: string;
+  adminPasswordHash?: string;
+  discordWebhook?: string;
+  alertBeforeMinutes?: number;
+  defaultAlertSound?: string;
+  defaultSpawnSound?: string;
+}
+
 
 export interface AnnouncementSettings {
   text: string;

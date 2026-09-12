@@ -419,10 +419,26 @@ Do not include markdown or explanations. Return pure JSON only.`;
     });
   });
 
+  // 100% Exact Original Lineage 2 Boss Tracker Engine
+  // @ts-ignore
+  const { setupBossTracker } = await import("./boss_server/index.js");
+  setupBossTracker(app, null);
+
   // Vite middleware in dev, static files in production
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        watch: {
+          ignored: [
+            '**/boss_server/**',
+            '**/public/**',
+            '**/*.json',
+            '**/*.tmp',
+            '**/.git/**'
+          ]
+        }
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -434,9 +450,22 @@ Do not include markdown or explanations. Return pure JSON only.`;
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Lineage2M Clan Hub server running on http://0.0.0.0:${PORT}`);
+  const server = app.listen(PORT, () => {
+    console.log(`Lineage2M Clan Hub server running on http://localhost:${PORT}`);
   });
+
+  // Attach WebSocket to HTTP server
+  try {
+    // @ts-ignore
+    const broadcaster = await import("./boss_server/broadcaster.js");
+    if (broadcaster.default?.init) {
+      broadcaster.default.init(server);
+    } else if (broadcaster.init) {
+      broadcaster.init(server);
+    }
+  } catch (err) {
+    console.warn("WebSocket init deferred:", err);
+  }
 }
 
 startServer().catch((err) => {

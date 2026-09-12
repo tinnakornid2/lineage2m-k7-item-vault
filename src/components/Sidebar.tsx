@@ -23,7 +23,8 @@ import {
   ArrowRightLeft,
   CheckSquare,
   Check,
-  ChevronDown
+  ChevronDown,
+  Flame
 } from 'lucide-react';
 import { ActiveTab, Language, User, ClanGroup, cleanClanName } from '../types';
 import { translations } from '../translations';
@@ -147,6 +148,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: t.tabDashboard,
       icon: LayoutDashboard,
       accentColor: 'text-sky-400'
+    },
+    {
+      id: 'boss_time',
+      label: t.tabBossTime,
+      icon: Flame,
+      accentColor: 'text-orange-400'
     },
     {
       id: 'vault',
@@ -771,7 +778,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v1.8.0</span>
+              <span>v1.9.0</span>
             </div>
           </div>
 
