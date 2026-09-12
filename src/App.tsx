@@ -120,7 +120,12 @@ export const App: React.FC = () => {
     const saved = localStorage.getItem('k7_logged_user');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const u = JSON.parse(saved);
+        if (u && (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni')) {
+          u.role = 'owner';
+          u.status = 'active';
+        }
+        return u;
       } catch {
         return null;
       }
@@ -212,14 +217,26 @@ export const App: React.FC = () => {
   // Firestore Subscriptions (run once on mount)
   useEffect(() => {
     const unsubUsers = listenToUsers((updatedUsers) => {
-      setUsers(updatedUsers);
+      // Ensure Eloni is always owner in the users list
+      const normalizedUsers = updatedUsers.map((u) => {
+        if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') {
+          return { ...u, role: 'owner' as UserRole, status: 'active' as UserStatus };
+        }
+        return u;
+      });
+      setUsers(normalizedUsers);
+
       // Keep currentUser in sync if updated
       const current = currentUserRef.current;
       if (current) {
-        const found = updatedUsers.find((u) => u.id === current.id);
+        const found = normalizedUsers.find((u) => u.id === current.id);
         if (found) {
-          setCurrentUser(found);
-          localStorage.setItem('k7_logged_user', JSON.stringify(found));
+          const isEloni = found.id === 'user_owner_eloni' || found.username?.toLowerCase() === 'eloni' || found.inGameName?.toLowerCase() === 'eloni';
+          const safeUser: User = isEloni
+            ? { ...found, role: 'owner' as UserRole, status: 'active' as UserStatus }
+            : found;
+          setCurrentUser(safeUser);
+          localStorage.setItem('k7_logged_user', JSON.stringify(safeUser));
         }
       }
     });
@@ -879,11 +896,23 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateMember = async (userId: string, updates: Partial<User>) => {
+    const isOwnerTarget = userId === 'user_owner_eloni';
+    const safeUpdates = isOwnerTarget && updates.role && updates.role !== 'owner'
+      ? { ...updates, role: 'owner' as UserRole }
+      : updates;
+
     setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, ...updates } : u))
+      prev.map((u) => {
+        if (u.id === userId) {
+          const isOwnerU = u.id === 'user_owner_eloni' || u.role === 'owner' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni';
+          const finalRole = isOwnerU ? 'owner' : (safeUpdates.role || u.role);
+          return { ...u, ...safeUpdates, role: finalRole };
+        }
+        return u;
+      })
     );
     try {
-      await updateUserDoc(userId, updates);
+      await updateUserDoc(userId, safeUpdates);
     } catch (err) {
       console.error('Failed to update member in Firestore:', err);
     }
@@ -926,15 +955,24 @@ export const App: React.FC = () => {
     const reqStatus = profileData?.status;
     const reqClan = profileData?.clan;
 
+    const isOwnerTarget = userId === 'user_owner_eloni' || currentUser?.role === 'owner' || currentUser?.username?.toLowerCase() === 'eloni' || currentUser?.inGameName?.toLowerCase() === 'eloni';
+    const isAuthorized = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+
+    const safeRole: UserRole = isOwnerTarget
+      ? 'owner'
+      : (isAuthorized && reqRole ? reqRole : (currentUser?.role || 'member'));
+    const safeStatus: UserStatus = isAuthorized && reqStatus ? reqStatus : (currentUser?.status || 'active');
+    const safeClan: string = isAuthorized && reqClan ? reqClan : (currentUser?.clan || 'VoltZ');
+
     setUsers((prev) =>
       prev.map((u) =>
         u.id === userId
           ? {
               ...u,
               inGameName: reqInGameName || u.inGameName,
-              role: reqRole || u.role,
-              status: reqStatus || u.status,
-              clan: reqClan || u.clan,
+              role: isOwnerTarget ? 'owner' : (isAuthorized && reqRole ? reqRole : u.role),
+              status: isAuthorized && reqStatus ? reqStatus : u.status,
+              clan: isAuthorized && reqClan ? reqClan : u.clan,
               pendingPowerLevel: newPowerLevel,
               pendingPowerLevelRequestedAt: timestamp,
               pendingStats: newStats,
@@ -955,9 +993,9 @@ export const App: React.FC = () => {
           ? {
               ...prev,
               inGameName: reqInGameName || prev.inGameName,
-              role: reqRole || prev.role,
-              status: reqStatus || prev.status,
-              clan: reqClan || prev.clan,
+              role: isOwnerTarget ? 'owner' : (isAuthorized && reqRole ? reqRole : prev.role),
+              status: isAuthorized && reqStatus ? reqStatus : prev.status,
+              clan: isAuthorized && reqClan ? reqClan : prev.clan,
               pendingPowerLevel: newPowerLevel,
               pendingPowerLevelRequestedAt: timestamp,
               pendingStats: newStats,
@@ -986,9 +1024,13 @@ export const App: React.FC = () => {
         statRejectionReason: null
       };
       if (reqInGameName) docUpdates.inGameName = reqInGameName;
-      if (reqRole) docUpdates.role = reqRole;
-      if (reqStatus) docUpdates.status = reqStatus;
-      if (reqClan) docUpdates.clan = reqClan;
+      if (isOwnerTarget) {
+        docUpdates.role = 'owner';
+      } else if (isAuthorized && reqRole) {
+        docUpdates.role = reqRole;
+      }
+      if (isAuthorized && reqStatus) docUpdates.status = reqStatus;
+      if (isAuthorized && reqClan) docUpdates.clan = reqClan;
 
       await updateUserDoc(userId, docUpdates);
 
