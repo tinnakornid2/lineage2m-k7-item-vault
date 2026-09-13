@@ -28,6 +28,7 @@ import {
   cleanClanName,
   DEFAULT_CLAN
 } from '../types';
+import { REAL_BACKUP_MEMBERS, REAL_BACKUP_CLANS, REAL_BACKUP_QUEUES } from '../data/offlineMembersData';
 
 const firebaseConfig = {
   apiKey: firebaseConfigData.apiKey,
@@ -86,75 +87,79 @@ export const DEFAULT_OWNER: User = {
   statScreenshotUrl: 'https://kain7.com/screenshot/1810',
 };
 
-export const INITIAL_MEMBERS: User[] = [
-  DEFAULT_OWNER,
-  {
-    id: 'user_zenkaii',
-    username: 'zenkaii',
-    password: '123456',
-    inGameName: 'Zenkaii',
-    powerLevel: 580000,
-    clan: 'VoltZ',
-    characterClass: 'Dual Blade',
-    role: 'admin',
-    status: 'active',
-    createdAt: Date.now() - 86400000 * 20,
-  },
-  {
-    id: 'user_dvd',
-    username: 'dvd_player',
-    password: '123456',
-    inGameName: 'DVD',
-    powerLevel: 540000,
-    clan: 'LevelS',
-    characterClass: 'Spear',
-    role: 'member',
-    status: 'active',
-    createdAt: Date.now() - 86400000 * 15,
-  },
-  {
-    id: 'user_arthur',
-    username: 'arthur99',
-    password: '123456',
-    inGameName: 'KingArthur',
-    powerLevel: 490000,
-    clan: 'VoltZ',
-    characterClass: 'Greatsword',
-    role: 'member',
-    status: 'active',
-    createdAt: Date.now() - 86400000 * 10,
-  },
-  {
-    id: 'user_valkyrie',
-    username: 'valkyrie',
-    password: '123456',
-    inGameName: 'ValkyrieX',
-    powerLevel: 510000,
-    clan: 'LevelS',
-    characterClass: 'Staff',
-    role: 'member',
-    status: 'active',
-    createdAt: Date.now() - 86400000 * 8,
-  },
-  {
-    id: 'user_pending_one',
-    username: 'shadow_hunter',
-    password: '123456',
-    inGameName: 'NightHawk',
-    powerLevel: 380000,
-    clan: 'VoltZ',
-    characterClass: 'Dagger',
-    role: 'member',
-    status: 'pending_approval',
-    createdAt: Date.now() - 86400000 * 2,
-  }
-];
+export const INITIAL_MEMBERS: User[] = (REAL_BACKUP_MEMBERS && REAL_BACKUP_MEMBERS.length > 0)
+  ? (REAL_BACKUP_MEMBERS.some((u) => u.username?.toLowerCase() === 'eloni') ? REAL_BACKUP_MEMBERS : [DEFAULT_OWNER, ...REAL_BACKUP_MEMBERS])
+  : [
+      DEFAULT_OWNER,
+      {
+        id: 'user_zenkaii',
+        username: 'zenkaii',
+        password: '123456',
+        inGameName: 'Zenkaii',
+        powerLevel: 580000,
+        clan: 'VoltZ',
+        characterClass: 'Dual Blade',
+        role: 'admin',
+        status: 'active',
+        createdAt: Date.now() - 86400000 * 20,
+      },
+      {
+        id: 'user_dvd',
+        username: 'dvd_player',
+        password: '123456',
+        inGameName: 'DVD',
+        powerLevel: 540000,
+        clan: 'LevelS',
+        characterClass: 'Spear',
+        role: 'member',
+        status: 'active',
+        createdAt: Date.now() - 86400000 * 15,
+      },
+      {
+        id: 'user_arthur',
+        username: 'arthur99',
+        password: '123456',
+        inGameName: 'KingArthur',
+        powerLevel: 490000,
+        clan: 'VoltZ',
+        characterClass: 'Greatsword',
+        role: 'member',
+        status: 'active',
+        createdAt: Date.now() - 86400000 * 10,
+      },
+      {
+        id: 'user_valkyrie',
+        username: 'valkyrie',
+        password: '123456',
+        inGameName: 'ValkyrieX',
+        powerLevel: 510000,
+        clan: 'LevelS',
+        characterClass: 'Staff',
+        role: 'member',
+        status: 'active',
+        createdAt: Date.now() - 86400000 * 8,
+      },
+      {
+        id: 'user_pending_one',
+        username: 'shadow_hunter',
+        password: '123456',
+        inGameName: 'NightHawk',
+        powerLevel: 380000,
+        clan: 'VoltZ',
+        characterClass: 'Dagger',
+        role: 'member',
+        status: 'pending_approval',
+        createdAt: Date.now() - 86400000 * 2,
+      }
+    ];
 
-export const INITIAL_CLANS: ClanGroup[] = [
-  { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0, enabled: true },
-  { id: 'clan_levels', name: 'LevelS', color: '#ef4444', order: 1, enabled: true },
-  { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2, enabled: true }
-];
+export const INITIAL_CLANS: ClanGroup[] = (REAL_BACKUP_CLANS && REAL_BACKUP_CLANS.length > 0)
+  ? REAL_BACKUP_CLANS
+  : [
+      { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0, enabled: true },
+      { id: 'clan_levels', name: 'LevelS', color: '#ef4444', order: 1, enabled: true },
+      { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2, enabled: true }
+    ];
 
 export const INITIAL_QUICK_ITEMS: QuickItem[] = [
   {
@@ -235,7 +240,9 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [
   }
 ];
 
-export const INITIAL_QUEUES: QueueItem[] = [
+export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QUEUES.length > 0)
+  ? REAL_BACKUP_QUEUES
+  : [
   {
     id: 'queue_1',
     name: "Archangel's Sword",
@@ -576,6 +583,10 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
   return onSnapshot(
     q,
     (snapshot) => {
+      if (snapshot.empty) {
+        callback(INITIAL_QUEUES);
+        return;
+      }
       const queues: QueueItem[] = [];
       snapshot.forEach((docSnap) => {
         const qItem = { ...docSnap.data(), id: docSnap.id } as QueueItem;
@@ -590,8 +601,8 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
       callback(queues);
     },
     (err) => {
-      console.warn('Firestore queue listener fallback:', err);
-      callback([]);
+      console.warn('Firestore queue listener fallback to initial queues:', err);
+      callback(INITIAL_QUEUES);
     }
   );
 }
@@ -769,7 +780,7 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
     q,
     (snapshot) => {
       if (snapshot.empty) {
-        callback([]);
+        callback(INITIAL_CLANS);
         return;
       }
       const clans: ClanGroup[] = [];
@@ -783,8 +794,8 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
       callback(clans);
     },
     (err) => {
-      console.warn('Firestore clans fallback:', err);
-      callback([]);
+      console.warn('Firestore clans fallback to initial clans:', err);
+      callback(INITIAL_CLANS);
     }
   );
 }

@@ -63,6 +63,11 @@ export interface User {
   lastStatUpdatedAt?: number;
   verified?: boolean;
   statHistory?: StatHistoryPoint[];
+  screenshots?: string[];
+  screenshotUrl?: string;
+  spirits?: Record<string, any>;
+  kain7Id?: string;
+  updatedAt?: number;
 }
 
 export interface StatHistoryPoint {
