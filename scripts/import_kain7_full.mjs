@@ -76,17 +76,15 @@ async function runImport() {
     // Determine target docId: if existing user, use their docId; otherwise create unique id
     const docId = existing ? existing.docId : `user_k7_${m.kain7Id}`;
 
-    // Preserve owner / custom admin credentials if existing
-    const isOwner = ignLower === 'eloni' || (existing && existing.role === 'owner');
-    const existingPassword = existing?.password;
-    const defaultPassword = isOwner ? (existingPassword || '0386231334') : (existingPassword || '123456');
+    // Preserve roles only. Authentication credentials must never be created,
+    // copied, or stored by a public profile import script.
+    const isOwner = existing?.role === 'owner';
     const role = isOwner ? 'owner' : (existing?.role === 'admin' ? 'admin' : (m.role || 'member'));
 
     const userPayload = cleanDoc({
       id: docId,
       kain7Id: m.kain7Id,
       username: existing?.username || m.username || ignLower.replace(/[^a-z0-9_]/g, '') || `k7_${m.kain7Id}`,
-      password: defaultPassword,
       inGameName: m.inGameName,
       clan: m.clan,
       classes: m.classes || ['Dual Blades'],

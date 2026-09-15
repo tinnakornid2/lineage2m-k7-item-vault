@@ -1762,6 +1762,9 @@ export const App: React.FC = () => {
             onViewImage={(url, title) => setImageViewerData({ url, title })}
             onOpenOwnerResetModal={() => setShowOwnerResetModal(true)}
             onDeleteItem={handleDeleteVaultItem}
+            allMembers={users}
+            distributedItems={vaultItems.filter((i) => i.status === 'distributed')}
+            clans={clans}
           />
         )}
 

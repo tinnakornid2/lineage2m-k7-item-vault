@@ -25,8 +25,7 @@ export const AnnouncementBar: React.FC<AnnouncementBarProps> = ({
 
   const canEdit =
     currentUser?.role === 'owner' ||
-    currentUser?.role === 'admin' ||
-    currentUser?.role === 'manager';
+    currentUser?.role === 'admin';
 
   const activeAnnouncement = announcement || {
     text: '⚔️ ยินดีต้อนรับสู่ระบบ Lineage 2M Clan Hub',

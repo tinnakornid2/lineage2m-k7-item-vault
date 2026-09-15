@@ -15,9 +15,10 @@ import {
   Users,
   Zap
 } from 'lucide-react';
-import { CharacterClass, ClanGroup, Language, User as UserType, CHARACTER_CLASSES, cleanClanName, DEFAULT_CLAN } from '../types';
+import { Language } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { registrationErrorMessage, validateRegistration } from '../utils/registration';
 
 interface LoginScreenProps {
   lang: Language;
@@ -29,12 +30,7 @@ interface LoginScreenProps {
     username: string;
     password: string;
     inGameName: string;
-    clan: string;
-    characterClass: CharacterClass;
-    powerLevel?: number;
   }) => Promise<{ success: boolean; message?: string }>;
-  users: UserType[];
-  clans: ClanGroup[];
   onOpenBgModal?: () => void;
 }
 
@@ -45,8 +41,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   onToggleSound,
   onLogin,
   onRegister,
-  users,
-  clans,
   onOpenBgModal
 }) => {
   const t = translations[lang];
@@ -63,24 +57,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [regPassword, setRegPassword] = useState('');
   const [showRegPass, setShowRegPass] = useState(false);
   const [regInGameName, setRegInGameName] = useState('');
-  const [regPowerLevel, setRegPowerLevel] = useState('');
-  const [regClan, setRegClan] = useState('VoltZ');
-  const [customClan, setCustomClan] = useState('');
-  const [isCustomClan, setIsCustomClan] = useState(false);
-  const [regClass, setRegClass] = useState<CharacterClass>('Orb');
   const [regSuccessMessage, setRegSuccessMessage] = useState('');
   const [regError, setRegError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Available clans for dropdown
-  const clanNames = Array.from(
-    new Set([
-      'VoltZ',
-      'LevelS',
-      'DVD',
-      ...clans.map((c) => cleanClanName(c.name)).filter(Boolean)
-    ])
-  );
 
   const handleLoginSubmit = async (e?: React.FormEvent | React.KeyboardEvent) => {
     if (e) {
@@ -118,11 +97,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setRegSuccessMessage('');
 
     const finalUsername = regUsername.trim();
-    const finalPassword = regPassword.trim();
+    const finalPassword = regPassword;
     const finalInGameName = regInGameName.trim();
 
-    if (!finalUsername || !finalPassword || !finalInGameName) {
-      setRegError(lang === 'th' ? 'กรุณากรอกข้อมูลให้ครบทุกช่อง (Username, Password, IGN)' : 'Please fill all fields (Username, Password, In-Game Name)');
+    const invalidField = validateRegistration(finalUsername, finalPassword, finalInGameName);
+    if (invalidField) {
+      setRegError(registrationErrorMessage(invalidField, lang));
       return;
     }
 
@@ -132,10 +112,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         username: finalUsername,
         password: finalPassword,
         inGameName: finalInGameName,
-        clan: 'no-clan',
-        characterClass: '',
-        classes: [],
-        powerLevel: 0
       });
 
       if (result.success) {
@@ -152,7 +128,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         setRegUsername('');
         setRegPassword('');
         setRegInGameName('');
-        setRegPowerLevel('');
       } else {
         setRegError(result.message || t.error);
       }
@@ -247,7 +222,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 CLAN HUB SYSTEM
               </span>
               <span className="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/35 text-[10px] font-mono font-bold text-sky-300">
-                v1.8.0
+                v1.9.0
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-2 font-prompt">
@@ -399,21 +374,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 </button>
               </div>
 
-              {/* Quick Fill for Owner Account */}
-              <div className="pt-1 flex items-center justify-center">
-                <button
-                  id="btn-quick-fill-owner"
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    setLoginUser('eloni');
-                    setLoginPass('0386231334');
-                  }}
-                  className="text-[11px] text-slate-500 hover:text-[#f5d77f] transition-colors underline underline-offset-4 cursor-pointer"
-                >
-                  {lang === 'th' ? '⚡ เข้าสู่ระบบด่วนด้วยบัญชี Owner (Eloni)' : '⚡ Quick fill Owner account (Eloni)'}
-                </button>
-              </div>
             </form>
           )}
 
@@ -461,8 +421,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 <Shield className="w-4 h-4 shrink-0 text-[#38bdf8] mt-0.5" />
                 <div className="leading-relaxed text-[11px]">
                   {lang === 'th'
-                    ? 'สามารถระบุค่าพลังตัวละครของคุณได้ทันที เมื่อลงทะเบียนแล้ว บัญชีจะรอให้ Admin หรือ Owner ตรวจสอบและอนุมัติเข้าสู่ระบบ'
-                    : 'Enter your character details and Power Level. An Admin or Owner will verify and approve your account.'}
+                    ? 'กรอกชื่อผู้ใช้ รหัสผ่าน และชื่อตัวละคร จากนั้นรอ Admin หรือ Owner อนุมัติบัญชี'
+                    : 'Enter your username, password, and character name, then wait for Admin or Owner approval.'}
                 </div>
               </div>
 
@@ -475,6 +435,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   id="input-reg-username"
                   type="text"
                   required
+                  minLength={3}
+                  maxLength={40}
                   value={regUsername}
                   onChange={(e) => setRegUsername(e.target.value)}
                   placeholder={lang === 'th' ? 'เช่น warrior01' : 'e.g. warrior01'}
@@ -490,8 +452,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 <div className="relative">
                   <input
                     id="input-reg-password"
-                    type={showRegPass ? 'text' : 'password'}
-                    required
+                     type={showRegPass ? 'text' : 'password'}
+                     required
+                     minLength={6}
+                     maxLength={128}
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
                     placeholder="••••••••"
@@ -516,6 +480,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   id="input-reg-ingamename"
                   type="text"
                   required
+                  maxLength={60}
                   value={regInGameName}
                   onChange={(e) => setRegInGameName(e.target.value)}
                   placeholder={lang === 'th' ? 'เช่น Zenkaii หรือ DVD' : 'e.g. Zenkaii or DVD'}

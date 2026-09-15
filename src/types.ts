@@ -93,6 +93,7 @@ export interface QuickItem {
   name: string;
   rarity: ItemRarity;
   imageUrl: string;
+  quantity?: number;
   createdAt: number;
 }
 
@@ -124,6 +125,7 @@ export interface VaultItem {
   price: number;
   minPowerLevel: number;
   rarity: ItemRarity;
+  quantity?: number;
   hunters: HunterRecord[];
   hunterScreenshots: string[];
   status: 'available' | 'distributed';

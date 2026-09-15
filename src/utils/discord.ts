@@ -1,4 +1,5 @@
-import { DiscordSettings, ItemRarity, VaultItem, DistributedInfo, cleanClanName } from '../types';
+import { DiscordSettings, ItemRarity, VaultItem, DistributedInfo, Language, cleanClanName } from '../types';
+import { getCurrentUserIdToken } from '../services/firebase';
 
 function getRarityColor(rarity: ItemRarity): number {
   switch (rarity) {
@@ -30,10 +31,13 @@ export async function sendDiscordNotification(
     newPowerLevel?: number;
     screenshotUrl?: string;
     statsSummary?: string;
+    lang?: Language;
   }
 ): Promise<{ success: boolean; message?: string }> {
-  if (!settings.enabled || !settings.webhookUrl) {
-    return { success: false, message: 'Discord Webhook is disabled or not configured' };
+  const lang = data?.lang || 'th';
+  const th = lang === 'th';
+  if (!settings.enabled) {
+    return { success: false, message: th ? 'ปิดการใช้งาน Discord Webhook อยู่' : 'Discord Webhook is disabled' };
   }
 
   let payload: any = null;
@@ -44,18 +48,22 @@ export async function sendDiscordNotification(
       avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
       embeds: [
         {
-          title: '🔔 ทดสอบการเชื่อมต่อ Discord Webhook สำเร็จ!',
-          description: 'ระบบแคลนและคลังไอเทม **Lineage 2M Clan Hub** เชื่อมต่อกับช่อง Discord นี้เรียบร้อยแล้ว\nต่อไปนี้เมื่อมีการลงทะเบียนไอเทมใหม่ หรือแจกไอเทม สมาชิกในกิลด์จะได้รับการแจ้งเตือนอัตโนมัติที่นี่',
+          title: th ? '🔔 ทดสอบการเชื่อมต่อ Discord Webhook สำเร็จ!' : '🔔 Discord Webhook connection successful!',
+          description: th
+            ? 'ระบบแคลนและคลังไอเทม **Lineage 2M Clan Hub** เชื่อมต่อกับช่อง Discord นี้เรียบร้อยแล้ว\nเมื่อมีไอเทมใหม่หรือมีการแจกไอเทม ระบบจะแจ้งเตือนที่นี่โดยอัตโนมัติ'
+            : '**Lineage 2M Clan Hub** is now connected to this Discord channel.\nNew items and item distributions will be announced here automatically.',
           color: 0x10b981, // Green
           fields: [
             {
-              name: '👑 ผู้ทดสอบระบบ',
+              name: th ? '👑 ผู้ทดสอบระบบ' : '👑 Tested by',
               value: data?.actorName || 'Admin/Owner',
               inline: true
             },
             {
-              name: '⚡ สถานะการแจ้งเตือน',
-              value: `• แจ้งเตือนของใหม่: ${settings.notifyOnNewItem ? '✅ เปิด' : '❌ ปิด'}\n• แจ้งเตือนเมื่อแจก: ${settings.notifyOnDistribute ? '✅ เปิด' : '❌ ปิด'}`,
+              name: th ? '⚡ สถานะการแจ้งเตือน' : '⚡ Notification status',
+              value: th
+                ? `• แจ้งเตือนของใหม่: ${settings.notifyOnNewItem ? '✅ เปิด' : '❌ ปิด'}\n• แจ้งเตือนเมื่อแจก: ${settings.notifyOnDistribute ? '✅ เปิด' : '❌ ปิด'}`
+                : `• New item alerts: ${settings.notifyOnNewItem ? '✅ On' : '❌ Off'}\n• Distribution alerts: ${settings.notifyOnDistribute ? '✅ On' : '❌ Off'}`,
               inline: true
             }
           ],
@@ -68,44 +76,49 @@ export async function sendDiscordNotification(
     };
   } else if (event === 'new_item' && data?.item) {
     if (!settings.notifyOnNewItem) {
-      return { success: false, message: 'Notification for new items is disabled in settings' };
+      return { success: false, message: th ? 'ปิดการแจ้งเตือนไอเทมใหม่อยู่' : 'New item notifications are disabled' };
     }
 
     const item = data.item;
     const color = getRarityColor(item.rarity);
     const hunterCount = item.hunters?.length || 0;
     const hunterSample = item.hunters && item.hunters.length > 0
-      ? item.hunters.slice(0, 10).map((h) => `${h.name} (${cleanClanName(h.clan) || 'VoltZ'})`).join(', ') + (item.hunters.length > 10 ? ` และอีก ${item.hunters.length - 10} คน` : '')
-      : 'ไม่มีรายชื่อ';
+      ? item.hunters.slice(0, 10).map((h) => `${h.name} (${cleanClanName(h.clan) || 'VoltZ'})`).join(', ') + (item.hunters.length > 10 ? (th ? ` และอีก ${item.hunters.length - 10} คน` : ` and ${item.hunters.length - 10} more`) : '')
+      : (th ? 'ไม่มีรายชื่อ' : 'No hunters listed');
 
     payload = {
       username: settings.botName || 'Lineage 2M Clan Hub',
       avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
       embeds: [
         {
-          title: `⚔️ ไอเทมใหม่เข้าคลัง! [${item.rarity}] ${item.name}`,
-          description: `แอดมินนำไอเทมบอสเข้าสู่ระบบคลังเรียบร้อยแล้ว สมาชิกที่มีพลังตามเกณฑ์สามารถเข้าเว็บไซต์เพื่อลงชื่อเครมไอเทมได้ทันที!`,
+          title: th ? `⚔️ ไอเทมใหม่เข้าคลัง! [${item.rarity}] ${item.name}` : `⚔️ New vault item! [${item.rarity}] ${item.name}`,
+          description: th ? 'แอดมินนำไอเทมบอสเข้าสู่ระบบคลังแล้ว สมาชิกที่มีพลังตามเกณฑ์สามารถเข้ามาลงชื่อรับไอเทมได้ทันที' : 'A new boss item has been added to the vault. Eligible members can submit a claim now.',
           color: color,
           thumbnail: item.imageUrl ? { url: item.imageUrl } : undefined,
           fields: [
             {
-              name: '💎 มูลค่าคลัง',
+              name: th ? '📦 จำนวน' : '📦 Quantity',
+              value: `**${item.quantity || 1} ${th ? 'ชิ้น' : 'pcs'}**`,
+              inline: true
+            },
+            {
+              name: th ? '💎 มูลค่าคลัง' : '💎 Vault value',
               value: `**${item.price.toLocaleString()} Diamonds**`,
               inline: true
             },
             {
-              name: '🛡️ พลังรบขั้นต่ำ (Min PL)',
+              name: th ? '🛡️ พลังรบขั้นต่ำ' : '🛡️ Minimum Power Level',
               value: `**⚡ ${item.minPowerLevel.toLocaleString()} PL**`,
               inline: true
             },
             {
-              name: '👥 สมาชิกร่วมล่าบอส',
-              value: `**${hunterCount} คน**\n${hunterSample}`,
+              name: th ? '👥 สมาชิกร่วมล่าบอส' : '👥 Boss hunters',
+              value: `**${hunterCount} ${th ? 'คน' : 'members'}**\n${hunterSample}`,
               inline: false
             }
           ],
           footer: {
-            text: `ลงระบบโดย: ${data.actorName || 'Admin'} • Lineage 2M Clan Hub`
+            text: `${th ? 'ลงระบบโดย' : 'Added by'}: ${data.actorName || 'Admin'} • Lineage 2M Clan Hub`
           },
           timestamp: new Date().toISOString()
         }
@@ -113,7 +126,7 @@ export async function sendDiscordNotification(
     };
   } else if (event === 'distribute' && data?.item && data?.distributeInfo) {
     if (!settings.notifyOnDistribute) {
-      return { success: false, message: 'Notification for distributed items is disabled in settings' };
+      return { success: false, message: th ? 'ปิดการแจ้งเตือนการแจกไอเทมอยู่' : 'Item distribution notifications are disabled' };
     }
 
     const item = data.item;
@@ -125,29 +138,29 @@ export async function sendDiscordNotification(
       avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
       embeds: [
         {
-          title: `🏆 ประกาศผลการแจกไอเทม! [${item.rarity}] ${item.name}`,
-          description: `ขอแสดงความยินดีกับ **${dist.name}** แห่ง **${cleanClanName(dist.clan) || 'Alliance'}** ที่ได้รับไอเทมชิ้นนี้ไปครอบครอง!`,
+          title: th ? `🏆 ประกาศผลการแจกไอเทม! [${item.rarity}] ${item.name}` : `🏆 Item distribution result! [${item.rarity}] ${item.name}`,
+          description: th ? `ขอแสดงความยินดีกับ **${dist.name}** แห่ง **${cleanClanName(dist.clan) || 'Alliance'}** ที่ได้รับไอเทมชิ้นนี้` : `Congratulations to **${dist.name}** of **${cleanClanName(dist.clan) || 'Alliance'}**, who received this item!`,
           color: color,
           thumbnail: item.imageUrl ? { url: item.imageUrl } : undefined,
           fields: [
             {
-              name: '👤 ผู้ได้รับไอเทม',
+              name: th ? '👤 ผู้ได้รับไอเทม' : '👤 Recipient',
               value: `**${dist.name}**\n(${cleanClanName(dist.clan) || 'No Clan'})`,
               inline: true
             },
             {
-              name: '💎 มูลค่าไอเทม',
+              name: th ? '💎 มูลค่าไอเทม' : '💎 Item value',
               value: `**${item.price.toLocaleString()} Diamonds**`,
               inline: true
             },
             {
-              name: '👑 ผู้ดำเนินการแจก',
+              name: th ? '👑 ผู้ดำเนินการแจก' : '👑 Distributed by',
               value: dist.distributedBy || data.actorName || 'Owner/Admin',
               inline: true
             }
           ],
           footer: {
-            text: `แจกจ่ายเมื่อ: ${new Date(dist.distributedAt).toLocaleString('th-TH')} • Lineage 2M Clan Hub`
+            text: `${th ? 'แจกจ่ายเมื่อ' : 'Distributed at'}: ${new Date(dist.distributedAt).toLocaleString(th ? 'th-TH' : 'en-US')} • Lineage 2M Clan Hub`
           },
           timestamp: new Date().toISOString()
         }
@@ -163,24 +176,24 @@ export async function sendDiscordNotification(
       avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
       embeds: [
         {
-          title: `⚡ มีคำขออัปเดตสเตตัสและค่าพลังใหม่!`,
-          description: `สมาชิก **${data?.memberName}** แห่ง **${cleanClanName(data?.memberClan) || 'Alliance'}** ส่งคำขออัปเดตสเตตัสเพื่อคำนวณ Power Level ใหม่ แอดมินสามารถเปิดหน้าเว็บเพื่อตรวจสเตตัสได้ทันที`,
+          title: th ? '⚡ มีคำขออัปเดตสเตตัสและค่าพลังใหม่!' : '⚡ New stats and Power Level update request!',
+          description: th ? `สมาชิก **${data?.memberName}** แห่ง **${cleanClanName(data?.memberClan) || 'Alliance'}** ส่งคำขออัปเดตสเตตัสเพื่อคำนวณ Power Level ใหม่ แอดมินสามารถเปิดหน้าเว็บเพื่อตรวจสอบได้ทันที` : `**${data?.memberName}** of **${cleanClanName(data?.memberClan) || 'Alliance'}** submitted updated stats for a new Power Level calculation. An admin can review the request on the website.`,
           color: 0xf59e0b, // Amber
           image: data?.screenshotUrl && !data.screenshotUrl.startsWith('data:') ? { url: data.screenshotUrl } : undefined,
           fields: [
             {
-              name: '👤 สมาชิก',
+              name: th ? '👤 สมาชิก' : '👤 Member',
               value: `**${data?.memberName}** (${cleanClanName(data?.memberClan) || 'VoltZ'})`,
               inline: true
             },
             {
-              name: '⚡ พลังรบใหม่ (PL)',
+              name: th ? '⚡ พลังรบใหม่ (PL)' : '⚡ New Power Level',
               value: `**${next.toLocaleString()} PL** (${diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString()})`,
               inline: true
             },
             {
-              name: '📊 สถานะการตรวจ',
-              value: '⏳ รอแอดมินตรวจสอบและอนุมัติ',
+              name: th ? '📊 สถานะการตรวจ' : '📊 Review status',
+              value: th ? '⏳ รอแอดมินตรวจสอบและอนุมัติ' : '⏳ Waiting for admin review and approval',
               inline: true
             }
           ],
@@ -199,22 +212,22 @@ export async function sendDiscordNotification(
       avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
       embeds: [
         {
-          title: `✅ อนุมัติการอัปเดตสเตตัสเรียบร้อย!`,
-          description: `ยินดีกับ **${data?.memberName}** สเตตัสได้รับการอนุมัติแล้ว และค่าพลังอย่างเป็นทางการถูกอัปเดตทั่วทั้งระบบ`,
+          title: th ? '✅ อนุมัติการอัปเดตสเตตัสเรียบร้อย!' : '✅ Stats update approved!',
+          description: th ? `สเตตัสของ **${data?.memberName}** ได้รับการอนุมัติ และค่าพลังอย่างเป็นทางการได้รับการอัปเดตแล้ว` : `**${data?.memberName}**'s stats were approved and the verified Power Level has been updated.`,
           color: 0x10b981, // Emerald
           fields: [
             {
-              name: '👤 สมาชิก',
+              name: th ? '👤 สมาชิก' : '👤 Member',
               value: `**${data?.memberName}** (${cleanClanName(data?.memberClan) || 'VoltZ'})`,
               inline: true
             },
             {
-              name: '⚡ พลังรบอย่างเป็นทางการ',
+              name: th ? '⚡ พลังรบอย่างเป็นทางการ' : '⚡ Verified Power Level',
               value: `**${next.toLocaleString()} PL**`,
               inline: true
             },
             {
-              name: '👑 ผู้ตรวจอนุมัติ',
+              name: th ? '👑 ผู้ตรวจอนุมัติ' : '👑 Approved by',
               value: data?.actorName || 'Admin/Owner',
               inline: true
             }
@@ -229,18 +242,19 @@ export async function sendDiscordNotification(
   }
 
   if (!payload) {
-    return { success: false, message: 'Invalid notification event or payload' };
+    return { success: false, message: th ? 'เหตุการณ์หรือข้อมูลแจ้งเตือนไม่ถูกต้อง' : 'Invalid notification event or payload' };
   }
 
   // 1. Try local/backend proxy first
   try {
+    const token = await getCurrentUserIdToken();
     const res = await fetch('/api/discord-webhook', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        webhookUrl: settings.webhookUrl,
-        payload
-      })
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ payload })
     });
 
     if (res.ok) {
@@ -252,25 +266,10 @@ export async function sendDiscordNotification(
         // Fallback to direct fetch below
       }
     }
-  } catch {
-    // Backend unavailable, fallback to direct fetch below
-  }
-
-  // 2. Direct Discord webhook call (Fallback for Vercel / Static hosting)
-  try {
-    const directRes = await fetch(settings.webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    if (directRes.ok || directRes.status === 204) {
-      return { success: true };
-    }
-    const errText = await directRes.text();
-    return { success: false, message: `Discord returned ${directRes.status}: ${errText}` };
   } catch (err: any) {
     console.error('Error sending discord notification:', err);
-    return { success: false, message: err.message || 'Network error sending webhook' };
+    return { success: false, message: th ? 'เกิดข้อผิดพลาดขณะส่งข้อความไป Discord' : 'Network error while sending the Discord notification' };
   }
+
+  return { success: false, message: th ? 'เซิร์ฟเวอร์ปฏิเสธการแจ้งเตือน Discord' : 'The server rejected the Discord notification' };
 }

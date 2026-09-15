@@ -190,7 +190,7 @@ export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
             <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
             <span>
               {lang === 'th'
-                ? 'เมนูนี้สงวนสิทธิ์เฉพาะบัญชีที่มีบทบาทเป็น "Owner" (เช่น Eloni) เท่านั้น'
+                ? 'เมนูนี้สงวนสิทธิ์เฉพาะบัญชีที่ผ่านการยืนยันและมีบทบาทเป็น "Owner" เท่านั้น'
                 : 'This action is strictly restricted to accounts with the "Owner" role.'}
             </span>
           </div>

@@ -1,5 +1,5 @@
 # 🤖 AI_CONTEXT.md — สรุปบริบทและสถาปัตยกรรมระบบ Lineage2M Clan Hub
-> **สำหรับ AI ในการทำความเข้าใจโปรเจกต์อย่างรวดเร็วและครบถ้วน 100% (เวอร์ชันปัจจุบัน: v1.8.0)**
+> **สำหรับ AI ในการทำความเข้าใจโปรเจกต์อย่างรวดเร็วและครบถ้วน 100% (เวอร์ชันปัจจุบัน: v1.9.0)**
 
 เมื่อเปิดห้องแชทใหม่ ให้สั่ง AI อ่านไฟล์นี้ทันที เพื่อให้เข้าใจโครงสร้าง สถาปัตยกรรม โค้ด และกฎทางธุรกิจทั้งหมดโดยไม่ต้องอธิบายใหม่
 
@@ -76,10 +76,9 @@ d:/K7 item webapp/lineage2m-k7-item-vault (1)/
 
 ### 4.1 ระบบสิทธิ์ผู้ใช้งาน (Roles & Permissions)
 - **Owner (เจ้าของ):**
-  - มีบัญชี Hardcoded พิเศษ: Username: `eloni` / Password: `0386231334`
+  - ใช้ Firebase Authentication และไม่มีรหัสผ่านฝังในโค้ดหรือเอกสาร / Uses Firebase Authentication; no password is embedded in source code or documentation.
   - มีสิทธิ์สูงสุด ควบคุมระบบทั้งหมด แต่งตั้ง Admin ได้ผู้เดียว และใช้ Owner Reset Center ได้ผู้เดียว
 - **Admin (ผู้ดูแล):** เพิ่มไอเทม, จัดการคิว, แจกของ, อนุมัติสมาชิกใหม่, อนุมัติการปรับ CP, จัดการเพชร
-- **Manager (ผู้จัดการแคลน):** ช่วยดูแลสมาชิกและคิวไอเทม
 - **Member (สมาชิกทั่วไป):** ดูคลัง, ลงชื่อเคลมไอเทม, ขอปรับค่าพลัง CP ของตนเอง
 
 ### 4.2 ระบบค่าพลัง (Power Level / CP)
@@ -183,7 +182,7 @@ d:/K7 item webapp/lineage2m-k7-item-vault (1)/
 - **การแชร์ Key ระหว่างแอดมิน (Shared Key across Admins):**
   - แม้จะมีเฉพาะ Owner ที่สามารถกดเปิดดูหรือแก้ไข Gemini API Key ได้ แต่**แอดมินคนอื่นๆ ทุกคนสามารถใช้งานสแกน OCR ได้ 100%**
   - ตัวระบบทำการซิงค์ค่า Key ผ่าน Firestore ในคอลเลกชัน `app_settings/gemini_ai` แบบ Real-time (`listenToGeminiAiSettings`)
-  - มี Key สำรองอัตโนมัติ (`DEFAULT_GEMINI_API_KEY`) เตรียมไว้ให้ในโค้ด ทำให้ไม่ว่าแอดมินคนใดเปิดเว็บจากเครื่องไหน ระบบจะมี API Key ใช้งานเสมอโดยไม่ต้องตั้งค่าซ้ำ
+  - คีย์ถูกเก็บในเอกสาร Backend ที่ปิดกั้นการอ่านจาก Browser ทำให้แอดมินทุกเครื่องใช้ OCR ร่วมกันได้ โดยมีเฉพาะ Owner ที่เปลี่ยนคีย์ได้
   - รองรับการเรียกตรงไปยัง Google Gemini REST API (`gemini-3.6-flash`, `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`) จากเบราว์เซอร์ของแอดมินทันทีหาก Backend Express ไม่ได้รัน (เช่น บน Static Hosting)
 - **ข้อความแจ้งเตือนข้อผิดพลาด OCR 2 ภาษา 100% (Pure Bilingual OCR Error Messaging):**
   - ข้อความ error ทุกชนิดจะถูกจำแนกเป็น structured code เช่น `'ai_server_connect'`, `'high_demand'`, `'glitch'`, `'missing_key'`
@@ -235,10 +234,10 @@ d:/K7 item webapp/lineage2m-k7-item-vault (1)/
 คัดลอกข้อความด้านล่างนี้ไปวางเมื่อเปิดห้องแชทใหม่ เพื่อให้ AI สานต่องานได้ทันที 100%:
 ```
 โปรดอ่านไฟล์ SYSTEM_ARCHITECTURE.md, AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
-ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.8.0)
-- บัญชี Owner: Eloni (รหัสผ่าน 0386231334)
+ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.9.0)
+- บัญชี Owner: Eloni (รหัสผ่านจัดการผ่าน Firebase Authentication และไม่บันทึกใน repository / Password managed by Firebase Authentication and not stored in the repository)
 - Live URL: https://lineage2m-k7-item-vault.vercel.app/
-- สถานะล่าสุด (v1.8.0):
+- สถานะล่าสุด (v1.9.0):
   1. แก้ไขบั๊กการลบแคลน (Clan Deletion) ถาวร ไม่ฟื้นคืนชีพจากการ hardcode official clans
   2. เพิ่มระบบตรวจสอบสเตตัสก่อนเคลมไอเทม (Stat Requirement Before Claim) สมาชิกต้องอัปเดตสเตตัส Kain7 และผ่านการอนุมัติก่อน
   3. แบนเนอร์และโมดอลแจ้งเตือนผู้เล่นที่ยังไม่อัปเดตสเตตัส พร้อมปุ่มนำทางไปหน้า "สเตตัสของฉัน" ทันที

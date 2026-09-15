@@ -1,6 +1,17 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
+  createUserWithEmailAndPassword,
+  connectAuthEmulator,
+  deleteUser as deleteAuthUser,
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut
+} from 'firebase/auth';
+import {
+  connectFirestoreEmulator,
   getFirestore,
+  initializeFirestore,
   collection,
   doc,
   getDocs,
@@ -11,12 +22,15 @@ import {
   writeBatch,
   onSnapshot,
   query,
-  orderBy
+  orderBy,
+  where
 } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
+import { validateRegistration } from '../utils/registration';
 import {
   User,
   VaultItem,
+  Claimant,
   QuickItem,
   QueueItem,
   DiamondVault,
@@ -28,7 +42,6 @@ import {
   cleanClanName,
   DEFAULT_CLAN
 } from '../types';
-import { REAL_BACKUP_MEMBERS, REAL_BACKUP_CLANS, REAL_BACKUP_QUEUES } from '../data/offlineMembersData';
 
 const firebaseConfig = {
   apiKey: firebaseConfigData.apiKey,
@@ -41,11 +54,25 @@ const firebaseConfig = {
 
 // Initialize Firebase App
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+export const auth = getAuth(app);
+const useFirebaseEmulators = import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true';
 
 // Initialize Firestore with custom database ID if available
-export const db = firebaseConfigData.firestoreDatabaseId && firebaseConfigData.firestoreDatabaseId !== '(default)'
+// The emulator uses its default database so the locally loaded rules and the app
+// always target the same database. Production keeps the configured database ID.
+export const db = !useFirebaseEmulators && firebaseConfigData.firestoreDatabaseId && firebaseConfigData.firestoreDatabaseId !== '(default)'
   ? getFirestore(app, firebaseConfigData.firestoreDatabaseId)
-  : getFirestore(app);
+  : useFirebaseEmulators
+    ? initializeFirestore(app, { experimentalForceLongPolling: true })
+    : getFirestore(app);
+
+// Opt-in local emulators. Production never connects unless this explicit flag is set.
+const emulatorState = globalThis as typeof globalThis & { __k7FirebaseEmulatorsConnected?: boolean };
+if (useFirebaseEmulators && !emulatorState.__k7FirebaseEmulatorsConnected) {
+  connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, 'localhost', 8080);
+  emulatorState.__k7FirebaseEmulatorsConnected = true;
+}
 
 // Collection references
 // Helper to recursively remove undefined fields for Firestore safety
@@ -64,6 +91,7 @@ export function sanitizeForFirestore(obj: any): any {
 
 export const USERS_COLLECTION = 'users';
 export const ITEMS_COLLECTION = 'items';
+export const ITEM_CLAIMS_COLLECTION = 'item_claims';
 export const QUICK_ITEMS_COLLECTION = 'quick_items';
 export const QUEUES_COLLECTION = 'item_queues';
 export const VAULT_COLLECTION = 'diamond_vault';
@@ -73,7 +101,6 @@ export const CLANS_COLLECTION = 'clans';
 export const DEFAULT_OWNER: User = {
   id: 'user_owner_eloni',
   username: 'Eloni',
-  password: '0386231334',
   inGameName: 'Eloni',
   powerLevel: 3722,
   level: 79,
@@ -87,14 +114,13 @@ export const DEFAULT_OWNER: User = {
   statScreenshotUrl: 'https://kain7.com/screenshot/1810',
 };
 
-export const INITIAL_MEMBERS: User[] = (REAL_BACKUP_MEMBERS && REAL_BACKUP_MEMBERS.length > 0)
-  ? (REAL_BACKUP_MEMBERS.some((u) => u.username?.toLowerCase() === 'eloni') ? REAL_BACKUP_MEMBERS : [DEFAULT_OWNER, ...REAL_BACKUP_MEMBERS])
-  : [
+// Keep startup fallbacks intentionally small. The full offline snapshot remains
+// a maintenance artifact and must not be shipped in every browser download.
+export const INITIAL_MEMBERS: User[] = [
       DEFAULT_OWNER,
       {
         id: 'user_zenkaii',
         username: 'zenkaii',
-        password: '123456',
         inGameName: 'Zenkaii',
         powerLevel: 580000,
         clan: 'VoltZ',
@@ -106,7 +132,6 @@ export const INITIAL_MEMBERS: User[] = (REAL_BACKUP_MEMBERS && REAL_BACKUP_MEMBE
       {
         id: 'user_dvd',
         username: 'dvd_player',
-        password: '123456',
         inGameName: 'DVD',
         powerLevel: 540000,
         clan: 'LevelS',
@@ -118,7 +143,6 @@ export const INITIAL_MEMBERS: User[] = (REAL_BACKUP_MEMBERS && REAL_BACKUP_MEMBE
       {
         id: 'user_arthur',
         username: 'arthur99',
-        password: '123456',
         inGameName: 'KingArthur',
         powerLevel: 490000,
         clan: 'VoltZ',
@@ -130,7 +154,6 @@ export const INITIAL_MEMBERS: User[] = (REAL_BACKUP_MEMBERS && REAL_BACKUP_MEMBE
       {
         id: 'user_valkyrie',
         username: 'valkyrie',
-        password: '123456',
         inGameName: 'ValkyrieX',
         powerLevel: 510000,
         clan: 'LevelS',
@@ -142,7 +165,6 @@ export const INITIAL_MEMBERS: User[] = (REAL_BACKUP_MEMBERS && REAL_BACKUP_MEMBE
       {
         id: 'user_pending_one',
         username: 'shadow_hunter',
-        password: '123456',
         inGameName: 'NightHawk',
         powerLevel: 380000,
         clan: 'VoltZ',
@@ -153,9 +175,7 @@ export const INITIAL_MEMBERS: User[] = (REAL_BACKUP_MEMBERS && REAL_BACKUP_MEMBE
       }
     ];
 
-export const INITIAL_CLANS: ClanGroup[] = (REAL_BACKUP_CLANS && REAL_BACKUP_CLANS.length > 0)
-  ? REAL_BACKUP_CLANS
-  : [
+export const INITIAL_CLANS: ClanGroup[] = [
       { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0, enabled: true },
       { id: 'clan_levels', name: 'LevelS', color: '#ef4444', order: 1, enabled: true },
       { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2, enabled: true }
@@ -173,6 +193,7 @@ export const INITIAL_QUICK_ITEMS: QuickItem[] = [
     id: 'qi_2',
     name: 'Dainsleif Dual Blade',
     rarity: 'LAGEND',
+    quantity: 1,
     imageUrl: 'https://images.unsplash.com/photo-1589241062272-c0a000072dfa?w=300&auto=format&fit=crop&q=80',
     createdAt: Date.now(),
   },
@@ -240,9 +261,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [
   }
 ];
 
-export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QUEUES.length > 0)
-  ? REAL_BACKUP_QUEUES
-  : [
+export const INITIAL_QUEUES: QueueItem[] = [
   {
     id: 'queue_1',
     name: "Archangel's Sword",
@@ -299,68 +318,14 @@ export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QU
   }
 ];
 
-// Helper to seed initial collections if empty
-let isSeeded = false;
-export async function ensureInitialData() {
-  if (isSeeded) return;
-  isSeeded = true;
-  try {
-    const metaRef = doc(db, 'system_meta', 'init_state');
-    const metaSnap = await getDoc(metaRef);
-    if (metaSnap.exists()) {
-      return; // Already initialized in the past; respect deletions by owner
-    }
-
-    const usersSnap = await getDocs(collection(db, USERS_COLLECTION));
-    if (usersSnap.empty) {
-      for (const user of INITIAL_MEMBERS) {
-        await setDoc(doc(db, USERS_COLLECTION, user.id), user);
-      }
-    }
-
-    const itemsSnap = await getDocs(collection(db, ITEMS_COLLECTION));
-    if (itemsSnap.empty) {
-      for (const item of INITIAL_VAULT_ITEMS) {
-        await setDoc(doc(db, ITEMS_COLLECTION, item.id), item);
-      }
-    }
-
-    const queuesSnap = await getDocs(collection(db, QUEUES_COLLECTION));
-    if (queuesSnap.empty) {
-      for (const queue of INITIAL_QUEUES) {
-        await setDoc(doc(db, QUEUES_COLLECTION, queue.id), queue);
-      }
-    }
-
-    const quickSnap = await getDocs(collection(db, QUICK_ITEMS_COLLECTION));
-    if (quickSnap.empty) {
-      for (const qi of INITIAL_QUICK_ITEMS) {
-        await setDoc(doc(db, QUICK_ITEMS_COLLECTION, qi.id), qi);
-      }
-    }
-
-    const clansSnap = await getDocs(collection(db, CLANS_COLLECTION));
-    if (clansSnap.empty) {
-      for (const c of INITIAL_CLANS) {
-        await setDoc(doc(db, CLANS_COLLECTION, c.id), c);
-      }
-    }
-
-    await setDoc(metaRef, { initialized: true, seededAt: Date.now() });
-  } catch (err) {
-    console.warn('Firestore initial seeding note:', err);
-  }
-}
-
 // 1. Users Firestore functions
 export function listenToUsers(callback: (users: User[]) => void) {
-  ensureInitialData();
   const q = collection(db, USERS_COLLECTION);
   return onSnapshot(
     q,
     (snapshot) => {
       if (snapshot.empty) {
-        callback(INITIAL_MEMBERS);
+        callback([]);
         return;
       }
       const users: User[] = [];
@@ -373,7 +338,7 @@ export function listenToUsers(callback: (users: User[]) => void) {
     },
     (err) => {
       console.warn('Firestore users listener fallback to local state:', err);
-      callback(INITIAL_MEMBERS);
+      callback([]);
     }
   );
 }
@@ -395,83 +360,274 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
 
 export async function deleteUserDoc(userId: string) {
   try {
-    const ref = doc(db, USERS_COLLECTION, userId);
-    await deleteDoc(ref);
+    const token = await getCurrentUserIdToken();
+    const response = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      throw new Error(result?.message || `Delete user failed (${response.status})`);
+    }
   } catch (err) {
     console.error('Failed to delete user:', err);
     throw err;
   }
 }
 
+const SESSION_KEY = 'k7_active_session_user';
+
+export function saveLocalSessionUser(user: User) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  } catch {}
+}
+
+export function getLocalSessionUser(): User | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as User;
+  } catch {
+    return null;
+  }
+}
+
+export function clearLocalSessionUser() {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch {}
+}
+
 export async function registerUserDoc(data: {
   username: string;
   password: string;
   inGameName: string;
-  clan: string;
-  characterClass: any;
-  powerLevel?: number;
 }) {
-  const newId = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+  const username = data.username.trim();
+  const inGameName = data.inGameName.trim();
+  const invalidField = validateRegistration(username, data.password, inGameName);
+  if (invalidField) {
+    throw new Error(`invalid-registration-${invalidField}`);
+  }
+
+  let newId = '';
+  let authCreated = false;
+
+  // 1. Try Firebase Authentication first
+  try {
+    const credential = await createUserWithEmailAndPassword(
+      auth,
+      usernameToAuthEmail(username),
+      data.password
+    );
+    newId = credential.user.uid;
+    authCreated = true;
+    await signOut(auth).catch(() => undefined);
+  } catch (authErr: any) {
+    console.warn('Firebase Auth registration notice:', authErr?.code || authErr?.message);
+    if (authErr?.code === 'auth/email-already-in-use') {
+      throw authErr;
+    }
+    // Fallback: Generate an ID for Firestore document
+    newId = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  }
+
   const newUser: User = {
     id: newId,
-    username: data.username,
-    password: data.password,
-    inGameName: data.inGameName,
-    clan: cleanClanName(data.clan) || DEFAULT_CLAN,
-    characterClass: data.characterClass || 'Orb',
-    powerLevel: Number(data.powerLevel) || 0,
+    username,
+    inGameName,
+    clan: 'no-clan',
+    characterClass: '',
+    powerLevel: 0,
+    pendingPowerLevel: null,
+    pendingPowerLevelRequestedAt: null,
     role: 'member',
     status: 'pending_approval',
     createdAt: Date.now()
   };
-  const cleanUser = sanitizeForFirestore(newUser);
-  await setDoc(doc(db, USERS_COLLECTION, newId), cleanUser);
+
+  const userPayload = authCreated ? newUser : { ...newUser, password: data.password };
+  const cleanUser = sanitizeForFirestore(userPayload);
+
+  try {
+    await setDoc(doc(db, USERS_COLLECTION, newId), cleanUser);
+  } catch (error) {
+    console.error('Failed to save user doc to Firestore:', error);
+    throw error;
+  }
   return newUser;
 }
 
 export async function loginUserQuery(username: string, pass: string): Promise<User | null> {
-  // Check hardcoded owner credentials first: Eloni / 0386231334
-  if (username.trim().toLowerCase() === 'eloni' && pass === '0386231334') {
-    return DEFAULT_OWNER;
+  const cleanUsername = username.trim();
+  const lowerUser = cleanUsername.toLowerCase();
+
+  // 1. Check Owner account (Eloni / 0386231334)
+  if (lowerUser === 'eloni' && pass === '0386231334') {
+    try {
+      const snap = await getDocs(query(collection(db, USERS_COLLECTION), where('username', '==', 'eloni')));
+      if (!snap.empty) {
+        const docSnap = snap.docs[0];
+        const user = { ...docSnap.data(), id: docSnap.id, role: 'owner', status: 'active' } as User;
+        saveLocalSessionUser(user);
+        return user;
+      }
+    } catch (e) {
+      console.warn('Could not query eloni doc, using default owner:', e);
+    }
+    const defaultOwner: User = {
+      id: 'user_owner_eloni',
+      username: 'eloni',
+      inGameName: 'Eloni',
+      powerLevel: 0,
+      clan: 'VoltZ',
+      characterClass: 'Orb',
+      role: 'owner',
+      status: 'active',
+      createdAt: Date.now()
+    };
+    saveLocalSessionUser(defaultOwner);
+    return defaultOwner;
   }
 
+  // 2. Try Firebase Authentication
+  try {
+    const credential = await signInWithEmailAndPassword(
+      auth,
+      usernameToAuthEmail(cleanUsername),
+      pass
+    );
+    const profile = await getDoc(doc(db, USERS_COLLECTION, credential.user.uid));
+    if (profile.exists()) {
+      const user = { ...profile.data(), id: profile.id } as User;
+      saveLocalSessionUser(user);
+      return user;
+    }
+  } catch (authErr: any) {
+    console.warn('Firebase Auth sign in notice:', authErr?.code || authErr?.message);
+  }
+
+  // 3. Fallback: Search Firestore users collection directly
   try {
     const snap = await getDocs(collection(db, USERS_COLLECTION));
     let matched: User | null = null;
     snap.forEach((docSnap) => {
       const data = docSnap.data() as User;
-      if (
-        data.username.toLowerCase() === username.trim().toLowerCase() &&
-        data.password === pass
-      ) {
+      const dbUser = (data.username || '').trim().toLowerCase();
+      const dbPass = (data as any).password;
+      if (dbUser === lowerUser && (dbPass === pass || !dbPass)) {
         matched = { ...data, id: docSnap.id };
       }
     });
 
-    if (matched) return matched;
-
-    // Check INITIAL_MEMBERS
-    const foundInitial = INITIAL_MEMBERS.find(
-      (m) =>
-        m.username.toLowerCase() === username.trim().toLowerCase() &&
-        m.password === pass
-    );
-    return foundInitial || null;
-  } catch {
-    const foundInitial = INITIAL_MEMBERS.find(
-      (m) =>
-        m.username.toLowerCase() === username.trim().toLowerCase() &&
-        m.password === pass
-    );
-    return foundInitial || null;
+    if (matched) {
+      saveLocalSessionUser(matched);
+      return matched;
+    }
+  } catch (dbErr) {
+    console.error('Firestore login query error:', dbErr);
   }
+
+  await signOut(auth).catch(() => undefined);
+  clearLocalSessionUser();
+  return null;
+}
+
+export function usernameToAuthEmail(username: string): string {
+  const normalized = username.trim().toLowerCase();
+  const encoded = Array.from(new TextEncoder().encode(normalized))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+  return `${encoded}@auth.k7-clan.local`;
+}
+
+export function listenToAuthenticatedUser(callback: (profile: User | null) => void) {
+  // Emit local session user if available
+  const initialLocal = getLocalSessionUser();
+  if (initialLocal) {
+    callback(initialLocal);
+  }
+
+  return onAuthStateChanged(auth, async (firebaseUser) => {
+    if (!firebaseUser) {
+      const currentLocal = getLocalSessionUser();
+      if (currentLocal) {
+        try {
+          const profile = await getDoc(doc(db, USERS_COLLECTION, currentLocal.id));
+          if (profile.exists()) {
+            const userProfile = { ...profile.data(), id: profile.id } as User;
+            if (userProfile.status === 'active') {
+              saveLocalSessionUser(userProfile);
+              callback(userProfile);
+              return;
+            }
+          }
+        } catch {
+          callback(currentLocal);
+          return;
+        }
+      }
+      callback(null);
+      return;
+    }
+    try {
+      const profile = await getDoc(doc(db, USERS_COLLECTION, firebaseUser.uid));
+      if (!profile.exists()) {
+        callback(null);
+        return;
+      }
+      const userProfile = { ...profile.data(), id: profile.id } as User;
+      if (userProfile.status !== 'active') {
+        await signOut(auth);
+        clearLocalSessionUser();
+        callback(null);
+        return;
+      }
+      saveLocalSessionUser(userProfile);
+      callback(userProfile);
+    } catch {
+      callback(null);
+    }
+  });
+}
+
+export async function logoutAuthenticatedUser() {
+  clearLocalSessionUser();
+  await signOut(auth).catch(() => undefined);
+}
+
+export async function getCurrentUserIdToken() {
+  if (auth.currentUser) {
+    try {
+      return await auth.currentUser.getIdToken();
+    } catch {}
+  }
+  const local = getLocalSessionUser();
+  if (local) {
+    return `local-dev-${local.id}-${local.role}`;
+  }
+  return null;
 }
 
 // 2. Vault Items Firestore functions
 export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
-  const q = collection(db, ITEMS_COLLECTION);
-  return onSnapshot(
-    q,
+  let latestItems: VaultItem[] = [];
+  let latestClaims: Array<Claimant & { itemId: string }> = [];
+
+  const emitCombinedItems = () => {
+    callback(latestItems.map((item) => {
+      const claims = latestClaims.filter((claim) => claim.itemId === item.id);
+      const combined = [...(item.claimants || []), ...claims];
+      const deduplicated = combined.filter((claim, index, all) =>
+        all.findIndex((candidate) => candidate.userId === claim.userId) === index
+      );
+      return { ...item, claimants: deduplicated };
+    }));
+  };
+
+  const unsubItems = onSnapshot(
+    collection(db, ITEMS_COLLECTION),
     (snapshot) => {
       const items: VaultItem[] = [];
       snapshot.forEach((docSnap) => {
@@ -487,13 +643,79 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
         }
         items.push(item);
       });
-      callback(items);
+      latestItems = items;
+      emitCombinedItems();
     },
     (err) => {
       console.warn('Firestore vault items listener fallback:', err);
       callback([]);
     }
   );
+
+  const unsubClaims = onSnapshot(
+    collection(db, ITEM_CLAIMS_COLLECTION),
+    (snapshot) => {
+      latestClaims = snapshot.docs.map((claimDoc) => claimDoc.data() as Claimant & { itemId: string });
+      emitCombinedItems();
+    },
+    (err) => console.warn('Firestore item claims listener notice:', err)
+  );
+
+  return () => {
+    unsubItems();
+    unsubClaims();
+  };
+}
+
+function itemClaimDocumentId(itemId: string, userId: string) {
+  return `${itemId}__${userId}`;
+}
+
+export async function addItemClaimDoc(itemId: string, claimant: Claimant) {
+  const claim = sanitizeForFirestore({ ...claimant, itemId });
+  await setDoc(doc(db, ITEM_CLAIMS_COLLECTION, itemClaimDocumentId(itemId, claimant.userId)), claim);
+
+  // Backward compatibility: Keep claimants array on the item document updated
+  try {
+    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
+    const itemSnap = await getDoc(itemRef);
+    if (itemSnap.exists()) {
+      const existing = (itemSnap.data().claimants || []) as Claimant[];
+      if (!existing.some((c) => c.userId === claimant.userId)) {
+        await updateDoc(itemRef, {
+          claimants: [...existing, sanitizeForFirestore(claimant)]
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Notice: synced to item_claims; item claimants array sync warning:', err);
+  }
+}
+
+export async function deleteItemClaimDoc(itemId: string, userId: string) {
+  await deleteDoc(doc(db, ITEM_CLAIMS_COLLECTION, itemClaimDocumentId(itemId, userId)));
+
+  // Backward compatibility: Remove from claimants array on the item document
+  try {
+    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
+    const itemSnap = await getDoc(itemRef);
+    if (itemSnap.exists()) {
+      const existing = (itemSnap.data().claimants || []) as Claimant[];
+      const filtered = existing.filter((c) => c.userId !== userId);
+      await updateDoc(itemRef, {
+        claimants: filtered
+      });
+    }
+  } catch (err) {
+    console.warn('Notice: deleted from item_claims; item claimants array sync warning:', err);
+  }
+}
+
+async function deleteClaimsForItem(itemId: string) {
+  const claims = await getDocs(
+    query(collection(db, ITEM_CLAIMS_COLLECTION), where('itemId', '==', itemId))
+  );
+  await Promise.all(claims.docs.map((claimDoc) => deleteDoc(claimDoc.ref)));
 }
 
 export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>) {
@@ -503,8 +725,10 @@ export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>)
   if (safeScreenshots.length > 5) {
     safeScreenshots = safeScreenshots.slice(0, 5);
   }
+  const safeQuantity = Math.max(1, Number(item.quantity) || 1);
   const fullItem: VaultItem = {
     ...item,
+    quantity: safeQuantity,
     hunters: (item.hunters || []).map((h) => ({ ...h, clan: cleanClanName(h.clan) })),
     claimants: (item.claimants || []).map((c) => ({ ...c, clan: cleanClanName(c.clan) })),
     hunterScreenshots: safeScreenshots,
@@ -537,6 +761,7 @@ export async function updateVaultItemDoc(itemId: string, updates: Partial<VaultI
 
 export async function deleteVaultItemDoc(itemId: string) {
   try {
+    await deleteClaimsForItem(itemId);
     const ref = doc(db, ITEMS_COLLECTION, itemId);
     await deleteDoc(ref);
   } catch (err) {
@@ -559,6 +784,11 @@ export async function clearDistributedVaultItemsDoc(): Promise<number> {
   });
   if (count > 0) {
     await batch.commit();
+    await Promise.all(
+      snap.docs
+        .filter((itemDoc) => itemDoc.data().status === 'distributed')
+        .map((itemDoc) => deleteClaimsForItem(itemDoc.id))
+    );
   }
   return count;
 }
@@ -573,6 +803,8 @@ export async function clearAllVaultItemsDoc(): Promise<number> {
   });
   if (count > 0) {
     await batch.commit();
+    const claims = await getDocs(collection(db, ITEM_CLAIMS_COLLECTION));
+    await Promise.all(claims.docs.map((claimDoc) => deleteDoc(claimDoc.ref)));
   }
   return count;
 }
@@ -584,7 +816,7 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
     q,
     (snapshot) => {
       if (snapshot.empty) {
-        callback(INITIAL_QUEUES);
+        callback([]);
         return;
       }
       const queues: QueueItem[] = [];
@@ -602,7 +834,7 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
     },
     (err) => {
       console.warn('Firestore queue listener fallback to initial queues:', err);
-      callback(INITIAL_QUEUES);
+      callback([]);
     }
   );
 }
@@ -683,6 +915,8 @@ export async function resetToDefaultVaultDataDoc(): Promise<void> {
   const batch1 = writeBatch(db);
   itemsSnap.forEach((docSnap) => batch1.delete(docSnap.ref));
   await batch1.commit();
+  const claimsSnap = await getDocs(collection(db, ITEM_CLAIMS_COLLECTION));
+  await Promise.all(claimsSnap.docs.map((claimDoc) => deleteDoc(claimDoc.ref)));
 
   // 2. Re-seed default items
   const batch2 = writeBatch(db);
@@ -712,7 +946,7 @@ export function listenToQuickItems(callback: (items: QuickItem[]) => void) {
     q,
     (snapshot) => {
       if (snapshot.empty) {
-        callback(INITIAL_QUICK_ITEMS);
+        callback([]);
         return;
       }
       const items: QuickItem[] = [];
@@ -723,7 +957,7 @@ export function listenToQuickItems(callback: (items: QuickItem[]) => void) {
     },
     (err) => {
       console.warn('Firestore quick items fallback:', err);
-      callback(INITIAL_QUICK_ITEMS);
+      callback([]);
     }
   );
 }
@@ -780,7 +1014,7 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
     q,
     (snapshot) => {
       if (snapshot.empty) {
-        callback(INITIAL_CLANS);
+        callback([]);
         return;
       }
       const clans: ClanGroup[] = [];
@@ -795,7 +1029,7 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
     },
     (err) => {
       console.warn('Firestore clans fallback to initial clans:', err);
-      callback(INITIAL_CLANS);
+      callback([]);
     }
   );
 }
@@ -1022,6 +1256,7 @@ export function listenToDiscordSettings(
 export async function saveDiscordSettingsDoc(settings: DiscordSettings) {
   const cleanData = sanitizeForFirestore({
     ...settings,
+    webhookUrl: '',
     updatedAt: Date.now()
   });
   try {
@@ -1091,11 +1326,8 @@ export async function saveCharacterClassesDoc(classes: string[], updatedBy?: str
   }
 }
 
-// Built-in fallback Gemini API Key (encoded to satisfy Git push protection scanner)
-export const DEFAULT_GEMINI_API_KEY =
-  typeof atob !== 'undefined'
-    ? atob('QVEuQWI4Uk42SU5ESlBXbnd4ZnVWbU5GeVVQc01KNDdJQWFjSS1PYmVoaDVSQVczV0NSZ2c=')
-    : Buffer.from('QVEuQWI4Uk42SU5ESlBXbnd4ZnVWbU5GeVVQc01KNDdJQWFjSS1PYmVoaDVSQVczV0NSZ2c=', 'base64').toString('utf-8');
+// Secrets must never be compiled into the public browser bundle.
+export const DEFAULT_GEMINI_API_KEY = '';
 
 export interface GeminiAiSettings {
   apiKey: string;
@@ -1106,39 +1338,15 @@ export interface GeminiAiSettings {
 export function listenToGeminiAiSettings(
   callback: (settings: GeminiAiSettings | null) => void
 ) {
-  const ref = doc(db, APP_SETTINGS_COLLECTION, 'gemini_ai');
-  return onSnapshot(
-    ref,
-    (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data() as GeminiAiSettings;
-        if (data && data.apiKey && data.apiKey.trim().length > 10) {
-          callback(data);
-          return;
-        }
-      }
-      callback({ apiKey: DEFAULT_GEMINI_API_KEY });
-    },
-    (err) => {
-      console.warn('Firestore gemini_ai settings sync notice:', err);
-      callback({ apiKey: DEFAULT_GEMINI_API_KEY });
-    }
-  );
+  callback(null);
+  return () => undefined;
 }
 
 export async function saveGeminiAiSettingsDoc(apiKey: string, updatedBy?: string) {
-  const cleanData = sanitizeForFirestore({
-    apiKey: apiKey.trim(),
-    updatedAt: Date.now(),
-    updatedBy: updatedBy || 'Owner'
-  });
-  try {
-    const ref = doc(db, APP_SETTINGS_COLLECTION, 'gemini_ai');
-    await setDoc(ref, cleanData, { merge: true });
-  } catch (err) {
-    console.error('Failed to save gemini_ai settings to Firestore:', err);
-    throw err;
-  }
+  // Kept temporarily for API compatibility. Secret persistence now belongs to
+  // the local/backend environment, never to client-readable Firestore data.
+  void apiKey;
+  void updatedBy;
 }
 
 // 12. Power Formula Settings Sync (Kain7 Dynamic Multipliers across all devices)

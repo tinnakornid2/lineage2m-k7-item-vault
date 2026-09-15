@@ -109,21 +109,16 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
 
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
-    currentUser?.role === 'admin' ||
-    currentUser?.role === 'manager';
+    currentUser?.role === 'admin';
 
   // ── Scopes & Clans ───────────────────────────────────────────────────────
   const availableClans = useMemo(() => {
-    if (clans && clans.length > 0) return clans;
-    return [
-      { id: 'clan_voltz', name: 'VoltZ', color: '#38bdf8' },
-      { id: 'clan_levels', name: 'LevelS', color: '#10b981' }
-    ];
+    return clans || [];
   }, [clans]);
 
   // ── Calculate Balances Per Scope ─────────────────────────────────────────
   const balanceMap = useMemo(() => {
-    const map: Record<string, number> = { all: 150000 };
+    const map: Record<string, number> = { all: 0 };
     availableClans.forEach((c) => {
       map[c.name] = 0;
     });

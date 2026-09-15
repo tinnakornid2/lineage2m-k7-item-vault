@@ -89,8 +89,12 @@ export const ClanView: React.FC<ClanViewProps> = ({
   const t = translations[lang];
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
-    currentUser?.role === 'admin' ||
-    currentUser?.role === 'manager';
+    currentUser?.role === 'admin';
+  const canManageMember = (member: User) => {
+    if (!currentUser || currentUser.id === member.id || member.role === 'owner') return false;
+    if (currentUser.role === 'owner') return true;
+    return currentUser.role === 'admin' && ['party_leader', 'member'].includes(member.role);
+  };
 
   // Search & Help State
   const [searchQuery, setSearchQuery] = useState('');
@@ -369,6 +373,8 @@ export const ClanView: React.FC<ClanViewProps> = ({
 
   // Batch Select Handlers
   const handleToggleSelectUser = (id: string) => {
+    const member = allMembers.find((user) => user.id === id);
+    if (!member || !canManageMember(member)) return;
     sounds.playClick();
     setSelectedUserIds((prev) =>
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
@@ -377,7 +383,8 @@ export const ClanView: React.FC<ClanViewProps> = ({
 
   const handleSelectAllInClan = (clanMembers: User[]) => {
     sounds.playClick();
-    const ids = clanMembers.map((m) => m.id);
+    const ids = clanMembers.filter(canManageMember).map((m) => m.id);
+    if (ids.length === 0) return;
     const allSelected = ids.every((id) => selectedUserIds.includes(id));
     if (allSelected) {
       setSelectedUserIds((prev) => prev.filter((id) => !ids.includes(id)));
@@ -994,6 +1001,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                 ) : (
                   filteredClanMembers.map((member, mIdx) => {
                     const isSelected = selectedUserIds.includes(member.id);
+                    const canManage = canManageMember(member);
                     const primaryClass =
                       member.classes && member.classes.length > 0
                         ? member.classes[0]
@@ -1003,7 +1011,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                     return (
                       <div
                         key={member.id}
-                        draggable={isAdminOrOwner}
+                        draggable={canManage}
                         onDragStart={() => handleMemberDragStart(member.id)}
                         className={`relative p-2.5 rounded-xl border flex flex-col gap-1.5 transition-all ${
                           isSelected
@@ -1014,7 +1022,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
                             {/* Batch select checkbox */}
-                            {isAdminOrOwner && (
+                            {canManage && (
                               <button
                                 type="button"
                                 onClick={() => handleToggleSelectUser(member.id)}
@@ -1029,7 +1037,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                             )}
 
                             {/* Drag handle */}
-                            {isAdminOrOwner && (
+                            {canManage && (
                               <GripVertical className="w-3.5 h-3.5 text-slate-600 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0" />
                             )}
 
@@ -1073,7 +1081,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                           </div>
 
                           {/* Individual Delete for Admin/Owner */}
-                          {isAdminOrOwner && member.role !== 'owner' && (
+                          {canManage && (
                             <button
                               id={`btn-delete-clan-member-${member.id}`}
                               type="button"
@@ -1090,7 +1098,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                         </div>
 
                         {/* Quick Move Button for Individual Member */}
-                        {isAdminOrOwner && (
+                        {canManage && (
                           <div className="relative quick-move-popover-container pt-0.5">
                             <button
                               type="button"
@@ -1270,6 +1278,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
             ) : (
               filteredUnassignedMembers.map((member, mIdx) => {
                 const isSelected = selectedUserIds.includes(member.id);
+                const canManage = canManageMember(member);
                 const primaryClass =
                   member.classes && member.classes.length > 0
                     ? member.classes[0]
@@ -1281,7 +1290,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                 return (
                   <div
                     key={member.id}
-                    draggable={isAdminOrOwner}
+                    draggable={canManage}
                     onDragStart={() => handleMemberDragStart(member.id)}
                     className={`relative p-2.5 rounded-xl border flex flex-col gap-1.5 transition-all ${
                       isSelected
@@ -1292,7 +1301,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         {/* Batch select checkbox */}
-                        {isAdminOrOwner && (
+                        {canManage && (
                           <button
                             type="button"
                             onClick={() => handleToggleSelectUser(member.id)}
@@ -1307,7 +1316,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                         )}
 
                         {/* Drag handle */}
-                        {isAdminOrOwner && (
+                        {canManage && (
                           <GripVertical className="w-3.5 h-3.5 text-slate-600 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0" />
                         )}
 
@@ -1351,7 +1360,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                       </div>
 
                       {/* Individual Delete for Admin/Owner */}
-                      {isAdminOrOwner && member.role !== 'owner' && (
+                      {canManage && (
                         <button
                           id={`btn-delete-unassigned-member-${member.id}`}
                           type="button"
@@ -1368,7 +1377,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                     </div>
 
                     {/* Quick Move Button for Individual Member */}
-                    {isAdminOrOwner && (
+                    {canManage && (
                       <div className="relative quick-move-popover-container pt-0.5">
                         <button
                           type="button"

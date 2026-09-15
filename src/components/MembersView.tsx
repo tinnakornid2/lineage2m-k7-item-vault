@@ -8,7 +8,6 @@ import {
   Check,
   X,
   Lock,
-  KeyRound,
   UserCheck,
   Search,
   Crown,
@@ -63,8 +62,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
   const isOwner = currentUser?.role === 'owner';
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
-    currentUser?.role === 'admin' ||
-    currentUser?.role === 'manager';
+    currentUser?.role === 'admin';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -75,17 +73,19 @@ export const MembersView: React.FC<MembersViewProps> = ({
     if (!currentUser) return false;
     // Cannot delete your own account
     if (mem.id === currentUser.id) return false;
-    // Owner can delete anyone except themselves
-    if (currentUser.role === 'owner') return true;
-    // Admin can delete members and managers
+    // Owner accounts are immutable and cannot be deleted by another owner.
+    if (currentUser.role === 'owner') return mem.role !== 'owner';
+    // Admin can delete standard members and party leaders
     if (currentUser.role === 'admin') {
       return mem.role !== 'owner' && mem.role !== 'admin';
     }
-    // Manager can delete standard members
-    if (currentUser.role === 'manager') {
-      return mem.role === 'member';
-    }
     return false;
+  };
+
+  const canEditMember = (mem: User) => {
+    if (!currentUser || mem.id === currentUser.id || mem.role === 'owner') return false;
+    if (currentUser.role === 'owner') return true;
+    return currentUser.role === 'admin' && (mem.role === 'party_leader' || mem.role === 'member');
   };
 
   const classMap = new Map(OFFICIAL_CLASSES.map((c) => [c.nameEn.toLowerCase(), c]));
@@ -100,7 +100,6 @@ export const MembersView: React.FC<MembersViewProps> = ({
   const [editLegendClasses, setEditLegendClasses] = useState<number>(0);
   const [editLegendAgathions, setEditLegendAgathions] = useState<number>(0);
   const [editRole, setEditRole] = useState<UserRole>('member');
-  const [editPassword, setEditPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   // View mode: Table vs 4-Column Grid
@@ -198,7 +197,6 @@ export const MembersView: React.FC<MembersViewProps> = ({
     setEditLegendClasses(user.legendClasses || 0);
     setEditLegendAgathions(user.legendAgathions || 0);
     setEditRole(user.role);
-    setEditPassword(user.password || '');
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -220,8 +218,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
         level: Number(editLevel) || 0,
         legendClasses: Number(editLegendClasses) || 0,
         legendAgathions: Number(editLegendAgathions) || 0,
-        role: editRole,
-        password: editPassword.trim() || editingUser.password
+        role: editRole
       });
       setEditingUser(null);
     } catch (err) {
@@ -755,14 +752,10 @@ export const MembersView: React.FC<MembersViewProps> = ({
                                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                                     : mem.role === 'admin'
                                     ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
-                                    : mem.role === 'manager'
-                                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
                                     : 'bg-slate-800 text-slate-300 border-slate-700'
                                 }`}
                               >
-                                {mem.role === 'manager'
-                                  ? t.roleManager
-                                  : mem.role === 'admin'
+                                {mem.role === 'admin'
                                   ? t.roleAdmin
                                   : mem.role === 'owner'
                                   ? t.roleOwner
@@ -772,14 +765,16 @@ export const MembersView: React.FC<MembersViewProps> = ({
                             {isAdminOrOwner && (
                               <td className="py-2.5 px-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
-                                  <button
-                                    id={`btn-edit-member-${mem.id}`}
-                                    onClick={() => handleOpenEdit(mem)}
-                                    className="p-1.5 rounded-lg bg-[#162235] hover:bg-[#1f314d] text-[#f5d77f] border border-slate-700 transition-all cursor-pointer"
-                                    title={t.editProfile}
-                                  >
-                                    <Edit className="w-3.5 h-3.5" />
-                                  </button>
+                                  {canEditMember(mem) && (
+                                    <button
+                                      id={`btn-edit-member-${mem.id}`}
+                                      onClick={() => handleOpenEdit(mem)}
+                                      className="p-1.5 rounded-lg bg-[#162235] hover:bg-[#1f314d] text-[#f5d77f] border border-slate-700 transition-all cursor-pointer"
+                                      title={t.editProfile}
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                   {canDeleteMember(mem) && (
                                     <button
                                       id={`btn-delete-member-${mem.id}`}
@@ -808,7 +803,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
         )}
       </div>
 
-      {/* EDIT MEMBER MODAL (รวมถึงรหัสผ่าน, ค่าพลัง, แคลน, อาชีพ) */}
+      {/* Member profile editor */}
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="relative w-full max-w-md rounded-xl bg-gradient-to-b from-[#141c2c] via-[#0d1320] to-[#070b13] border border-[#d4af37]/40 shadow-2xl p-6 text-slate-200">
@@ -968,27 +963,10 @@ export const MembersView: React.FC<MembersViewProps> = ({
                     className="w-full px-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none"
                   >
                     <option value="member">{t.roleMember}</option>
-                    <option value="manager">{t.roleManager}</option>
                     <option value="admin">{t.roleAdmin}</option>
-                    <option value="owner">{t.roleOwner}</option>
                   </select>
                 </div>
               )}
-
-              {/* Password Edit (as requested: "รวมถึงระหัสผ่าน") */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
-                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{t.editPassword}</span>
-                </label>
-                <input
-                  type="text"
-                  value={editPassword}
-                  onChange={(e) => setEditPassword(e.target.value)}
-                  placeholder={lang === 'th' ? 'กรอกรหัสผ่านใหม่' : 'New password'}
-                  className="w-full px-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none font-mono"
-                />
-              </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button

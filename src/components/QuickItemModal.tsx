@@ -94,8 +94,7 @@ export const QuickItemModal: React.FC<QuickItemModalProps> = ({
   const t = translations[lang];
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
-    currentUser?.role === 'admin' ||
-    currentUser?.role === 'manager';
+    currentUser?.role === 'admin';
 
   // Form State
   const [editingItem, setEditingItem] = useState<QuickItem | null>(initialEditItem);

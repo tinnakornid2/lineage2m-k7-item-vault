@@ -68,8 +68,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
   const t = translations[lang];
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
-    currentUser?.role === 'admin' ||
-    currentUser?.role === 'manager';
+    currentUser?.role === 'admin';
 
   // View Mode: 'grid' (4 items per row) vs 'table' (full width horizontal table)
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');

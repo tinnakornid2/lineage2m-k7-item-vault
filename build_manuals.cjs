@@ -8,7 +8,7 @@ console.log('Writing Manuals...');
 const thMarkdown = `# คู่มือการใช้งานระบบ Lineage2M Clan Hub (v1.6.0)
 **ศูนย์กลางกิลด์ & คลังไอเทมบอส Lineage 2M**
 
-คู่มือนี้สรุปหน้าที่ของทุกหน้าและทุกปุ่มในระบบอย่างกระชับ เข้าใจง่าย เพื่อให้สมาชิกและผู้ดูแลระบบสามารถใช้งานได้อย่างถูกต้องและรวดเร็ว พร้อมระบบใหม่ **Copy-Paste (Ctrl + V)** สำหรับวางรูปภาพทันที และระบบ **กำหนดค่าพลังตอนสมัคร & ขออนุมัติอัปเดต CP**
+คู่มือนี้สรุปหน้าที่ของทุกหน้าและทุกปุ่มในระบบอย่างกระชับ เข้าใจง่าย เพื่อให้สมาชิกและผู้ดูแลระบบสามารถใช้งานได้อย่างถูกต้องและรวดเร็ว พร้อมระบบ **Copy-Paste (Ctrl + V)** สำหรับวางรูปภาพทันที และระบบขออนุมัติอัปเดต CP
 
 ---
 
@@ -30,7 +30,6 @@ const thMarkdown = `# คู่มือการใช้งานระบบ 
 | :--- | :--- |
 | 👑 **Owner (เจ้าของระบบ)** | ควบคุมระบบสูงสุด แต่งตั้ง/ปลด Admin, จัดการรีเซ็ตระบบ, ควบคุม API Key และเข้าถึงได้ทุกฟังก์ชัน |
 | 🛡️ **Admin (ผู้ดูแลระบบ)** | เพิ่ม/แก้ไข/แจกจ่ายไอเทม, สร้างและจัดการคิว, อนุมัติสมาชิกใหม่, อนุมัติคำขอ CP, ฝาก-ถอนเพชร |
-| ⚔️ **Manager (ผู้จัดการแคลน)** | ช่วยดูแลจัดการสมาชิกและบันทึกคิวไอเทม |
 | 👤 **Member (สมาชิกทั่วไป)** | ตรวจสอบคลังไอเทม, กดขอรับไอเทม (Claim), ขออัปเดตค่าพลัง CP ของตนเอง |
 
 ---
@@ -283,7 +282,7 @@ This user guide provides a clear, concise breakdown of every page, section, and 
 
 ### Section 2: Active Members Roster
 * **Search Input:** Filter members in real-time by character name, clan, or class.
-* **"Edit Profile" Button** *(Admin/Owner)*: Modify character name, CP, clan affiliation, class, and password.
+* **"Edit Profile" Button** *(Admin/Owner)*: Modify character name, CP, clan affiliation, class, and role according to the permission hierarchy.
 * **"Assign Role" Button** *(Owner Only)*: Promote or demote between Member, Admin, and Owner.
 * **"Delete Member" Button:** Removes member record from the database.
 

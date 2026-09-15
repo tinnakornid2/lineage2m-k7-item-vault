@@ -93,6 +93,25 @@ export const translations = {
     copyTextMessage: 'คัดลอกข้อความ (Discord/LINE)',
     copiedSuccess: 'คัดลอกสำเร็จแล้ว!',
 
+    // Dashboard 3 Widgets (My Status, Recent Distributions, Top Leaderboard)
+    myClanStatusTitle: 'สถานะของฉันในแคลน',
+    myClanStatusDesc: 'สรุปคิว ไอเทมที่ลงชื่อ และอันดับพลังของคุณ',
+    myRankInClan: 'อันดับพลังในแคลน',
+    myActiveClaims: 'ไอเทมที่ลงชื่อรอแจก',
+    myQueuePositions: 'คิวไอเทมที่รอรับ',
+    noActiveClaims: 'ยังไม่ได้ลงชื่อขอรับไอเทมใด',
+    noQueuesJoined: 'ยังไม่ได้อยู่ในคิวไอเทม',
+    inQueueRank: 'อันดับ #{rank} ในคิว',
+    myPowerStatusVerified: 'พลังยืนยันแล้ว',
+    myPowerStatusPending: 'รออนุมัติสเตตัส',
+    recentDistributionsTitle: 'ประวัติการแจกล่าสุด',
+    recentDistributionsDesc: 'บันทึกไอเทมบอสที่แจกให้สมาชิกในพันธมิตร',
+    noRecentDistributions: 'ยังไม่มีประวัติการแจกไอเทมในรอบนี้',
+    distributedToMember: 'แจกให้',
+    leaderboardTitle: 'อันดับพลังรบสูงสุด (Top Power)',
+    leaderboardDesc: '5 อันดับผู้เล่นพลังสูงสุดในพันธมิตร',
+    topAllClans: 'ทุกแคลน',
+
 
     // Items Vault
     itemsTitle: 'คลังไอเทม',
@@ -109,6 +128,10 @@ export const translations = {
     selectFromQuickItem: 'เลือกจากควิกไอเทม',
     itemName: 'ชื่อไอเทม',
     itemPrice: 'ราคา (เพชร)',
+    itemQuantity: 'จำนวนชิ้น',
+    itemQuantityPlaceholder: 'ระบุจำนวน เช่น 1',
+    itemQuantityUnit: 'ชิ้น',
+    itemQuantityLabel: 'จำนวน',
     itemMinPower: 'พลังขั้นต่ำ (CP)',
     itemRarity: 'ระดับความหายาก',
     itemImage: 'รูปไอเทม',
@@ -467,6 +490,25 @@ export const translations = {
     copyTextMessage: 'Copy Text (Discord/LINE)',
     copiedSuccess: 'Copied to clipboard!',
 
+    // Dashboard 3 Widgets (My Status, Recent Distributions, Top Leaderboard)
+    myClanStatusTitle: 'My Clan Status',
+    myClanStatusDesc: 'Your queues, active claims, and power ranking',
+    myRankInClan: 'Rank in Clan',
+    myActiveClaims: 'Active Item Claims',
+    myQueuePositions: 'Queues Waiting',
+    noActiveClaims: 'No active item claims yet',
+    noQueuesJoined: 'Not in any item queue yet',
+    inQueueRank: 'Rank #{rank} in queue',
+    myPowerStatusVerified: 'Verified Power',
+    myPowerStatusPending: 'Pending Approval',
+    recentDistributionsTitle: 'Recent Distributions',
+    recentDistributionsDesc: 'Latest boss items distributed to clan members',
+    noRecentDistributions: 'No items distributed yet this cycle',
+    distributedToMember: 'Given to',
+    leaderboardTitle: 'Top Power Leaderboard',
+    leaderboardDesc: 'Top 5 Power Level champions in alliance',
+    topAllClans: 'All Clans',
+
 
     // Items Vault
     itemsTitle: 'Boss Hunt Item Vault',
@@ -483,6 +525,10 @@ export const translations = {
     selectFromQuickItem: 'Pick from Quick Items',
     itemName: 'Item Name',
     itemPrice: 'Price (Diamonds)',
+    itemQuantity: 'Quantity',
+    itemQuantityPlaceholder: 'Specify quantity, e.g. 1',
+    itemQuantityUnit: 'pcs',
+    itemQuantityLabel: 'Qty',
     itemMinPower: 'Min Power Level Required to Claim',
     itemRarity: 'Rarity Tier',
     itemImage: 'Item Image',

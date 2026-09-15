@@ -1,10 +1,193 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Lineage2M Clan Hub rules
-    // Allow read and write to clan vault collections
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function currentRole() {
+      return currentProfile().data.role;
+    }
+
+    function isAdminOrOwner() {
+      return signedIn() && currentRole() in ['owner', 'admin'];
+    }
+
+    function isOwner() {
+      return signedIn() && currentRole() == 'owner';
+    }
+
+    function isActiveUser() {
+      return signedIn() && currentProfile().data.status == 'active';
+    }
+
+    function canManageUser(targetRole) {
+      return (isOwner() && targetRole != 'owner')
+        || (currentRole() == 'admin' && targetRole in ['party_leader', 'member']);
+    }
+
+    function validUser(data) {
+      return data.keys().hasOnly([
+          'id', 'username', 'inGameName', 'powerLevel', 'clan',
+          'characterClass', 'classes', 'level', 'legendClasses',
+          'legendAgathions', 'role', 'status', 'createdAt', 'lastLoginAt',
+          'pendingPowerLevel', 'pendingPowerLevelRequestedAt', 'stats',
+          'spiritEnhancements', 'pendingStats', 'pendingSpiritEnhancements',
+          'pendingClasses', 'pendingLevel', 'pendingLegendClasses',
+          'pendingLegendAgathions', 'pendingStatScreenshotUrl',
+          'statScreenshotUrl', 'statRejectionReason', 'statRejectionAt',
+          'lastStatUpdatedAt', 'verified', 'statHistory', 'screenshots',
+          'screenshotUrl', 'spirits', 'kain7Id', 'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'id', 'username', 'inGameName', 'powerLevel', 'clan',
+          'role', 'status', 'createdAt'
+        ])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.username is string
+        && data.username.matches('^[A-Za-z0-9._-]{3,40}$')
+        && data.inGameName is string && data.inGameName.size() >= 1 && data.inGameName.size() <= 60
+        && data.powerLevel is number && data.powerLevel >= 0 && data.powerLevel <= 1000000000
+        && data.clan is string && data.clan.size() <= 60
+        && data.role in ['owner', 'admin', 'party_leader', 'member']
+        && data.status in ['active', 'pending_approval']
+        && data.createdAt is number && data.createdAt > 0
+        && (!('pendingPowerLevel' in data) || data.pendingPowerLevel == null
+          || (data.pendingPowerLevel is number && data.pendingPowerLevel >= 0
+            && data.pendingPowerLevel <= 1000000000))
+        && (!('pendingPowerLevelRequestedAt' in data) || data.pendingPowerLevelRequestedAt == null
+          || (data.pendingPowerLevelRequestedAt is number && data.pendingPowerLevelRequestedAt > 0))
+        && (!('pendingStats' in data) || data.pendingStats == null
+          || (data.pendingStats is map && data.pendingStats.size() <= 100))
+        && (!('pendingSpiritEnhancements' in data) || data.pendingSpiritEnhancements == null
+          || (data.pendingSpiritEnhancements is map && data.pendingSpiritEnhancements.size() <= 50))
+        && (!('pendingClasses' in data) || data.pendingClasses == null
+          || (data.pendingClasses is list && data.pendingClasses.size() <= 20))
+        && (!('pendingLevel' in data) || data.pendingLevel == null
+          || (data.pendingLevel is number && data.pendingLevel >= 0 && data.pendingLevel <= 100))
+        && (!('pendingLegendClasses' in data) || data.pendingLegendClasses == null
+          || (data.pendingLegendClasses is number && data.pendingLegendClasses >= 0
+            && data.pendingLegendClasses <= 1000))
+        && (!('pendingLegendAgathions' in data) || data.pendingLegendAgathions == null
+          || (data.pendingLegendAgathions is number && data.pendingLegendAgathions >= 0
+            && data.pendingLegendAgathions <= 1000))
+        && (!('pendingStatScreenshotUrl' in data) || data.pendingStatScreenshotUrl == null
+          || (data.pendingStatScreenshotUrl is string
+            && data.pendingStatScreenshotUrl.size() <= 800000));
+    }
+
+    function validNewMember(userId) {
+      return request.auth.uid == userId
+        && request.resource.data.id == userId
+        && request.resource.data.role == 'member'
+        && request.resource.data.status == 'pending_approval'
+        && request.resource.data.powerLevel == 0
+        && !('password' in request.resource.data);
+    }
+
+    function validSelfUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'inGameName', 'pendingPowerLevel', 'pendingPowerLevelRequestedAt',
+          'pendingStats', 'pendingSpiritEnhancements', 'pendingClasses',
+          'pendingLevel', 'pendingLegendClasses', 'pendingLegendAgathions',
+          'pendingStatScreenshotUrl', 'statRejectionReason', 'statRejectionAt',
+          'statHistory', 'updatedAt'
+        ])
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.powerLevel == resource.data.powerLevel
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function validPrivilegedUserUpdate() {
+      return request.resource.data.id == resource.data.id
+        && request.resource.data.username == resource.data.username
+        && request.resource.data.createdAt == resource.data.createdAt
+        && canManageUser(resource.data.role)
+        && ((isOwner() && request.resource.data.role in ['admin', 'party_leader', 'member'])
+          || request.resource.data.role == resource.data.role);
+    }
+
+    match /users/{userId} {
+      allow create: if signedIn() && validUser(request.resource.data) && validNewMember(userId);
+      allow read: if signedIn()
+        && (request.auth.uid == userId || isActiveUser());
+      allow update: if validUser(request.resource.data)
+        && signedIn()
+        && ((request.auth.uid == userId && validSelfUpdate()) || validPrivilegedUserUpdate());
+      allow delete: if signedIn()
+        && request.auth.uid != userId
+        && canManageUser(resource.data.role);
+    }
+
+    match /items/{itemId} {
+      allow read: if isActiveUser();
+      allow create, update, delete: if isAdminOrOwner();
+    }
+
+    match /item_claims/{claimId} {
+      allow read: if isActiveUser();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'itemId', 'userId', 'inGameName', 'clan', 'powerLevel', 'claimedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'itemId', 'userId', 'inGameName', 'clan', 'powerLevel', 'claimedAt'
+        ])
+        && request.resource.data.userId == request.auth.uid
+        && claimId == request.resource.data.itemId + '__' + request.auth.uid
+        && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
+        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.status == 'available'
+        && currentProfile().data.status == 'active'
+        && request.resource.data.itemId is string
+        && request.resource.data.inGameName == currentProfile().data.inGameName
+        && request.resource.data.clan == currentProfile().data.clan
+        && request.resource.data.powerLevel == currentProfile().data.powerLevel
+        && request.resource.data.claimedAt is number
+        && request.resource.data.claimedAt <= request.time.toMillis()
+        && request.resource.data.claimedAt >= request.time.toMillis() - 300000;
+      allow update: if false;
+      allow delete: if signedIn()
+        && (resource.data.userId == request.auth.uid || isAdminOrOwner());
+    }
+
+    match /item_queues/{queueId} {
+      allow read: if isActiveUser();
+      allow create, update, delete: if isAdminOrOwner();
+    }
+
+    match /quick_items/{itemId} {
+      allow read: if isActiveUser();
+      allow create, update, delete: if isAdminOrOwner();
+    }
+
+    match /clans/{clanId} {
+      allow read: if isActiveUser();
+      allow create, update, delete: if isAdminOrOwner();
+    }
+
+    match /diamond_vault/{recordId} {
+      allow read: if isActiveUser();
+      allow create, update, delete: if isAdminOrOwner();
+    }
+
+    match /app_settings/{settingId} {
+      allow read: if isActiveUser() && settingId != 'gemini_ai';
+      allow create, update: if settingId != 'gemini_ai' && isAdminOrOwner();
+      allow delete: if isOwner();
+    }
+
+    match /system_meta/{metaId} {
+      allow read: if isActiveUser();
+      allow write: if isOwner();
+    }
+
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

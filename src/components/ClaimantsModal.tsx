@@ -55,10 +55,9 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
 
   if (!isOpen || !item) return null;
 
-  const isManagerOrAdmin =
+  const isAdminOrOwner =
     currentUser?.role === 'owner' ||
-    currentUser?.role === 'admin' ||
-    currentUser?.role === 'manager';
+    currentUser?.role === 'admin';
 
   const claimants = item.claimants || [];
   const userClaimant = currentUser
@@ -146,6 +145,9 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
               <h2 className="text-base sm:text-lg font-bold text-slate-100 truncate">
                 {item.name}
               </h2>
+              <span className="text-[10px] font-bold font-mono px-1.5 py-0.2 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 shrink-0">
+                x{item.quantity || 1}
+              </span>
               <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${getRarityBadge(item.rarity)}`}>
                 {item.rarity}
               </span>
@@ -300,7 +302,7 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
-                            {isManagerOrAdmin && onDistributeToClaimant && (
+                            {isAdminOrOwner && onDistributeToClaimant && (
                               <button
                                 id={`btn-distribute-claimant-${index}`}
                                 onClick={() => {
@@ -314,7 +316,7 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
                                 <span>{t.distributeToThisClaimant}</span>
                               </button>
                             )}
-                            {(isCurrentUser || isManagerOrAdmin) && (
+                            {(isCurrentUser || isAdminOrOwner) && (
                               <button
                                 id={`btn-remove-claimant-${index}`}
                                 disabled={isProcessing}

@@ -1,6 +1,13 @@
 import React from 'react';
 import {
   Gem,
+  Trophy,
+  Medal,
+  Award,
+  UserCheck,
+  Layers,
+  ExternalLink,
+  Bookmark,
   ArrowDownCircle,
   ArrowUpCircle,
   Gift,
@@ -33,6 +40,8 @@ import {
   QueueItem,
   User,
   VaultItem,
+  ClanGroup,
+  cleanClanName,
   hasUserUpdatedStats,
   isUserStatsPending
 } from '../types';
@@ -47,6 +56,9 @@ interface DashboardViewProps {
   onOpenVaultModal: () => void;
   availableItems: VaultItem[];
   queueItems: QueueItem[];
+  allMembers?: User[];
+  distributedItems?: VaultItem[];
+  clans?: ClanGroup[];
   onClaimItem: (itemId: string) => Promise<void>;
   onUnclaimItem?: (itemId: string) => Promise<void>;
   onViewClaimants?: (item: VaultItem) => void;
@@ -66,6 +78,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenVaultModal,
   availableItems,
   queueItems,
+  allMembers = [],
+  distributedItems = [],
+  clans = [],
   onClaimItem,
   onUnclaimItem,
   onViewClaimants,
@@ -84,6 +99,88 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [queueRarityFilter, setQueueRarityFilter] = React.useState<string>('all');
   const [expandedQueues, setExpandedQueues] = React.useState<Record<string, boolean>>({});
 
+  // Clan Filter for Top Power Leaderboard
+  const [leaderboardClanFilter, setLeaderboardClanFilter] = React.useState<string>('all');
+
+  // Top 5 Members for Leaderboard
+  const topMembers = React.useMemo(() => {
+    const list = (allMembers || []).filter((m) => m.status === 'active' && (m.powerLevel || 0) > 0);
+    const filtered =
+      leaderboardClanFilter === 'all'
+        ? list
+        : list.filter((m) => cleanClanName(m.clan).toLowerCase() === leaderboardClanFilter.toLowerCase());
+    return [...filtered].sort((a, b) => (b.powerLevel || 0) - (a.powerLevel || 0)).slice(0, 5);
+  }, [allMembers, leaderboardClanFilter]);
+
+  // Unique Clans list for leaderboard filter (case-insensitive deduplication)
+  const availableClansList = React.useMemo(() => {
+    const map = new Map<string, string>();
+    (allMembers || []).forEach((m) => {
+      const c = cleanClanName(m.clan);
+      if (c && !map.has(c.toLowerCase())) {
+        map.set(c.toLowerCase(), c);
+      }
+    });
+    return Array.from(map.values());
+  }, [allMembers]);
+
+  // Recent 5 Distributed Items for Feed
+  const recentDistributedList = React.useMemo(() => {
+    return [...(distributedItems || [])]
+      .sort((a, b) => {
+        const timeA = a.distributedTo?.distributedAt || a.createdAt || 0;
+        const timeB = b.distributedTo?.distributedAt || b.createdAt || 0;
+        return timeB - timeA;
+      })
+      .slice(0, 5);
+  }, [distributedItems]);
+
+  // Current User's Rank in their Clan
+  const userRankInClan = React.useMemo(() => {
+    if (!currentUser) return null;
+    const userClan = cleanClanName(currentUser.clan);
+    const clanMembers = (allMembers || [])
+      .filter((m) => m.status === 'active' && cleanClanName(m.clan) === userClan)
+      .sort((a, b) => (b.powerLevel || 0) - (a.powerLevel || 0));
+    const index = clanMembers.findIndex(
+      (m) => m.id === currentUser.id || m.inGameName?.toLowerCase() === currentUser.inGameName?.toLowerCase()
+    );
+    return index !== -1 ? { rank: index + 1, total: clanMembers.length, clanName: userClan } : null;
+  }, [currentUser, allMembers]);
+
+  // Current User's Active Item Claims
+  const userActiveClaims = React.useMemo(() => {
+    if (!currentUser) return [];
+    return (availableItems || []).filter((item) =>
+      item.claimants?.some(
+        (c) =>
+          (c.userId && c.userId === currentUser.id) ||
+          (c.inGameName &&
+            currentUser.inGameName &&
+            c.inGameName.trim().toLowerCase() === currentUser.inGameName.trim().toLowerCase())
+      )
+    );
+  }, [currentUser, availableItems]);
+
+  // Current User's Queue Positions
+  const userQueues = React.useMemo(() => {
+    if (!currentUser) return [];
+    const results: { item: QueueItem; rank: number; totalWaiting: number }[] = [];
+    (queueItems || []).forEach((q) => {
+      const pendingList = q.queueList.filter((m) => m.status !== 'received');
+      const rankIdx = pendingList.findIndex(
+        (m) =>
+          (m.userId && m.userId === currentUser.id) ||
+          (m.name && currentUser.inGameName && m.name.trim().toLowerCase() === currentUser.inGameName.trim().toLowerCase())
+      );
+      if (rankIdx !== -1) {
+        results.push({ item: q, rank: rankIdx + 1, totalWaiting: pendingList.length });
+      }
+    });
+    return results;
+  }, [currentUser, queueItems]);
+
+
   const toggleExpandQueue = (queueId: string) => {
     sounds.playClick();
     setExpandedQueues((prev) => ({
@@ -94,8 +191,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
-    currentUser?.role === 'admin' ||
-    currentUser?.role === 'manager';
+    currentUser?.role === 'admin';
 
   const displayedAvailableItems = React.useMemo(() => {
     if (!filterAvailableToMe || !currentUser) return availableItems;
@@ -170,60 +266,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
       
-      {/* 1. HERO & DIAMOND VAULT BOX */}
-      <section className="relative rounded-2xl overflow-hidden l2m-panel border border-[#d4af37]/30 p-6 sm:p-8">
+      {/* 1. HERO & DIAMOND VAULT BOX (COMPACT CLAN HUB COMMAND CENTER) */}
+      <section className="relative rounded-2xl overflow-hidden l2m-panel border border-[#d4af37]/30 p-3.5 sm:p-4 lg:p-5 space-y-3.5">
         <div className="absolute -right-16 -top-16 w-80 h-80 bg-gradient-to-bl from-[#d4af37]/15 via-[#38bdf8]/10 to-transparent rounded-full blur-3xl pointer-events-none" />
         
-        <div className="relative z-10 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6">
-          <div className="space-y-2 max-w-xl xl:max-w-md 2xl:max-w-lg">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/30 text-xs font-semibold text-[#f5d77f]">
-              <Crown className="w-3.5 h-3.5" />
+        {/* Top Row: Compact Header Branding + Diamond Vault & Timeline */}
+        <div className="relative z-10 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3.5">
+          <div className="space-y-1 max-w-xl xl:max-w-md">
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/30 text-[10px] font-semibold text-[#f5d77f]">
+              <Crown className="w-3 h-3 text-amber-400" />
               <span>LINEAGE 2M • CLAN HUB</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl 2xl:text-4xl font-extrabold font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#b8860b] leading-tight">
+            <h1 className="text-lg sm:text-xl font-extrabold font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#b8860b] leading-snug">
               {t.appTitle}
             </h1>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+            <p className="text-[11px] text-slate-400 leading-normal">
               {t.appSubtitle}
             </p>
           </div>
 
-          {/* Right Area: Resized Diamonds Box + Transaction Timeline Log Box */}
-          <div className="w-full xl:w-auto flex flex-col sm:flex-row items-stretch gap-3.5">
-            {/* 1. Resized/Compact Diamond Vault Box */}
-            <div
-              id="diamond-vault-card"
-              className="w-full sm:w-56 md:w-60 rounded-xl bg-gradient-to-b from-[#131929] to-[#080c14] border border-white/20 hover:border-white/45 p-4 shadow-2xl relative flex flex-col justify-between group transition-all"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-white/10 border border-white/25 text-white shadow-inner">
-                      <Gem className="w-4 h-4 text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.7)] group-hover:scale-110 transition-transform" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-cinzel">
-                        {t.diamondVault}
-                      </h3>
-                      <p className="text-[10px] text-slate-400">
-                        {lang === 'th' ? 'กล่องเพชรกลาง' : 'Guild Vault'}
-                      </p>
-                    </div>
-                  </div>
-                  <Sparkles className="w-3.5 h-3.5 text-white animate-pulse" />
+          {/* Right Area: Unified Diamond Vault & Activity Log Card */}
+          <div
+            id="diamond-vault-card"
+            className="w-full xl:w-auto min-w-[300px] max-w-sm rounded-xl bg-gradient-to-b from-[#131a29] via-[#0d131f] to-[#080c14] border border-white/20 hover:border-white/40 p-2.5 sm:p-3 shadow-lg relative flex flex-col justify-between group transition-all"
+          >
+            {/* Top part: Vault Balance & Deposit/Withdraw Action */}
+            <div className="flex items-center justify-between gap-3 pb-2 border-b border-slate-800/80">
+              <div className="flex items-center gap-2">
+                <div className="p-1 rounded-md bg-white/10 border border-white/25 text-white shadow-inner">
+                  <Gem className="w-3.5 h-3.5 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)]" />
                 </div>
-
-                <div className="flex items-baseline gap-1.5 my-2">
-                  <span className="text-2xl sm:text-3xl font-extrabold font-mono text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.35)]">
-                    {vaultBalance.toLocaleString()}
-                  </span>
-                  <span className="text-xs font-medium text-slate-400">
-                    {t.diamonds}
-                  </span>
+                <div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-xl sm:text-2xl font-extrabold font-mono text-white drop-shadow">
+                      {vaultBalance.toLocaleString()}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-semibold uppercase font-cinzel">
+                      {t.diamonds}
+                    </span>
+                  </div>
+                  <p className="text-[9px] text-slate-400">
+                    {lang === 'th' ? 'กองทุนเพชรกลาง' : 'Clan Reserve Vault'}
+                  </p>
                 </div>
               </div>
 
-              {/* Admin/Owner Deposit/Withdraw controls */}
               {isAdminOrOwner ? (
                 <button
                   id="btn-dash-vault-manage"
@@ -231,37 +318,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     sounds.playClick();
                     onOpenVaultModal();
                   }}
-                  className="w-full py-1.5 px-2.5 rounded-lg bg-white/15 hover:bg-white/25 border border-white/25 text-white text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
+                  className="py-1 px-2.5 rounded-lg bg-white/15 hover:bg-white/25 border border-white/25 text-white text-[10px] font-bold transition-all flex items-center gap-1 shadow cursor-pointer shrink-0"
                 >
-                  <ArrowDownCircle className="w-3.5 h-3.5 text-white" />
+                  <ArrowDownCircle className="w-3 h-3 text-white" />
                   <span>{t.deposit} / {t.withdraw}</span>
                 </button>
               ) : (
-                <div className="text-[10px] text-slate-400 italic">
+                <div className="text-[9px] text-slate-400 italic shrink-0">
                   {lang === 'th' ? 'กองทุนเพชรกลางกิลด์' : 'Clan reserve pool'}
                 </div>
               )}
             </div>
 
-            {/* 2. Transaction Log Timeline Box */}
-            <div
-              id="diamond-timeline-card"
-              className="w-full sm:w-80 md:w-96 rounded-xl bg-gradient-to-b from-[#111927] to-[#0a0f18] border border-slate-800 hover:border-[#38bdf8]/40 p-4 shadow-2xl relative flex flex-col justify-between transition-all"
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400">
-                    <History className="w-4 h-4" />
+            {/* Bottom part: Transaction Timeline log inside the same card */}
+            <div className="pt-2">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <div className="p-0.5 rounded bg-amber-500/15 text-amber-400">
+                    <History className="w-3 h-3" />
                   </div>
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 font-cinzel">
-                      {lang === 'th' ? 'ไทม์ไลน์ธุรกรรม' : 'Transaction Timeline'}
-                    </h3>
-                    <p className="text-[10px] text-slate-400">
-                      {lang === 'th' ? 'ประวัติฝาก-ถอนล่าสุด' : 'Recent vault log'}
-                    </p>
-                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 font-cinzel">
+                    {lang === 'th' ? 'ไทม์ไลน์ธุรกรรม' : 'Transaction Timeline'}
+                  </span>
                 </div>
 
                 <button
@@ -269,63 +347,48 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     sounds.playClick();
                     onOpenVaultModal();
                   }}
-                  className="text-[10px] text-[#38bdf8] hover:text-white flex items-center gap-0.5 px-2 py-0.5 rounded-md hover:bg-[#38bdf8]/10 transition-colors cursor-pointer font-medium"
+                  className="text-[9px] text-[#38bdf8] hover:text-white flex items-center gap-0.5 px-1.5 py-0.2 rounded hover:bg-[#38bdf8]/10 transition-colors cursor-pointer font-medium"
                 >
                   <span>{lang === 'th' ? 'ดูทั้งหมด' : 'View all'}</span>
-                  <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
+                  <span className="text-[8px] px-1 rounded bg-slate-800 text-slate-300 font-mono">
                     {transactions.length}
                   </span>
-                  <ChevronRight className="w-3 h-3" />
+                  <ChevronRight className="w-2.5 h-2.5" />
                 </button>
               </div>
 
-              {/* Timeline Items List */}
-              <div className="h-[96px] overflow-y-auto pr-1 relative space-y-2">
+              <div className="h-[52px] overflow-y-auto pr-1 relative space-y-1">
                 {transactions.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 text-xs py-2">
-                    <Clock className="w-4 h-4 mb-1 text-slate-600" />
+                  <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 text-[9px] py-1">
+                    <Clock className="w-3 h-3 mb-0.5 text-slate-600" />
                     <span>{lang === 'th' ? 'ยังไม่มีประวัติธุรกรรมเพชร' : 'No transactions recorded yet'}</span>
                   </div>
                 ) : (
-                  <div className="relative pl-3 space-y-2 before:absolute before:left-1 before:top-1 before:bottom-1 before:w-[2px] before:bg-slate-800">
-                    {transactions.slice(0, 10).map((tx) => {
+                  <div className="relative pl-2.5 space-y-1 before:absolute before:left-1 before:top-1 before:bottom-1 before:w-[2px] before:bg-slate-800">
+                    {transactions.slice(0, 5).map((tx) => {
                       const isDeposit = tx.type === 'deposit';
                       return (
-                        <div key={tx.id} className="relative flex items-start justify-between gap-2 text-xs">
-                          {/* Timeline Dot */}
+                        <div key={tx.id} className="relative flex items-center justify-between gap-1.5 text-[10px]">
                           <div
-                            className={`absolute -left-3 top-1 w-2 h-2 rounded-full ring-2 ${
+                            className={`absolute -left-2.5 top-1.5 w-1.5 h-1.5 rounded-full ring-1 ${
                               isDeposit
                                 ? 'bg-emerald-400 ring-emerald-500/20'
                                 : 'bg-amber-400 ring-amber-500/20'
                             }`}
                           />
-
-                          {/* Content */}
-                          <div className="min-w-0 flex-1 pl-1">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span
-                                className={`font-mono font-bold text-[11px] ${
-                                  isDeposit ? 'text-emerald-400' : 'text-amber-400'
-                                }`}
-                              >
-                                {isDeposit ? '+' : '-'}{tx.amount.toLocaleString()} 💎
-                              </span>
-                              <span className="text-[10px] text-slate-400 truncate">
-                                {isDeposit
-                                  ? (lang === 'th' ? 'ฝากโดย' : 'by')
-                                  : (lang === 'th' ? 'ถอนโดย' : 'by')} <strong className="text-slate-300 font-normal">{tx.performedBy?.name || 'Admin'}</strong>
-                              </span>
-                            </div>
-                            {tx.note && (
-                              <p className="text-[10px] text-slate-500 truncate italic">
-                                "{tx.note}"
-                              </p>
-                            )}
+                          <div className="min-w-0 flex-1 pl-1 truncate">
+                            <span
+                              className={`font-mono font-bold text-[10px] mr-1 ${
+                                isDeposit ? 'text-emerald-400' : 'text-amber-400'
+                              }`}
+                            >
+                              {isDeposit ? '+' : '-'}{tx.amount.toLocaleString()} 💎
+                            </span>
+                            <span className="text-[9px] text-slate-400 truncate">
+                              <strong className="text-slate-300 font-normal">{tx.performedBy?.name || 'Admin'}</strong>
+                            </span>
                           </div>
-
-                          {/* Time */}
-                          <span className="text-[10px] text-slate-500 shrink-0 font-mono">
+                          <span className="text-[9px] text-slate-500 shrink-0 font-mono">
                             {formatTimeAgo(tx.timestamp)}
                           </span>
                         </div>
@@ -336,6 +399,445 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
           </div>
+        </div>
+
+        {/* ─────────────────────────────────────────────────────────────
+            BOTTOM ROW: 3 COMPACT WIDGETS
+            (1. My Clan Status | 2. Top Power Leaderboard | 3. Recent Distributions Feed)
+           ───────────────────────────────────────────────────────────── */}
+        <div className="relative z-10 pt-3 border-t border-[#d4af37]/20 grid grid-cols-1 lg:grid-cols-3 gap-2.5 sm:gap-3">
+          
+          {/* WIDGET 1: MY CLAN STATUS WIDGET (COMPACT) */}
+          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#d4af37]/30 hover:border-[#d4af37]/50 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group">
+            <div className="absolute -right-8 -top-8 w-24 h-24 bg-amber-500/10 rounded-full blur-xl pointer-events-none" />
+            
+            <div>
+              {/* Header */}
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="p-1 rounded-lg bg-gradient-to-br from-amber-500/20 to-amber-950/40 border border-amber-500/40 text-amber-400 shadow-sm">
+                    <UserCheck className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold font-cinzel text-slate-100 flex items-center gap-1">
+                      <span>{t.myClanStatusTitle}</span>
+                    </h3>
+                    <p className="text-[9px] text-slate-400">
+                      {t.myClanStatusDesc}
+                    </p>
+                  </div>
+                </div>
+
+                {currentUser && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      onNavigateTab('my_stats');
+                    }}
+                    className="text-[9px] text-amber-300 hover:text-white flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all font-semibold cursor-pointer"
+                    title={t.tabMyStats}
+                  >
+                    <span>{t.tabMyStats}</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Logged in vs Guest */}
+              {currentUser ? (
+                <div className="space-y-2">
+                  {/* Profile Banner */}
+                  <div className="flex items-center justify-between p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#d4af37]/30 via-slate-800 to-slate-900 border border-[#d4af37]/50 flex items-center justify-center font-bold text-amber-300 font-cinzel shrink-0 shadow-inner text-xs">
+                        {(currentUser.inGameName || currentUser.username || 'M')[0].toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-[11px] font-bold text-slate-100 truncate">
+                            {currentUser.inGameName || currentUser.username}
+                          </span>
+                          <span className="text-[8px] px-1 py-0.2 rounded font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40 uppercase">
+                            {currentUser.role}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 text-[9px] text-slate-400">
+                          <span className="font-semibold text-slate-300">{cleanClanName(currentUser.clan)}</span>
+                          <span>•</span>
+                          <span className="truncate">{currentUser.characterClass || 'Adventurer'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Power Level Badge */}
+                    <div className="text-right shrink-0">
+                      <div className="font-mono font-bold text-[11px] text-amber-300 flex items-center gap-0.5 justify-end drop-shadow">
+                        <Zap className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                        <span>{Number(currentUser.powerLevel || 0).toLocaleString()} PL</span>
+                      </div>
+                      {userRankInClan ? (
+                        <span className="text-[8px] text-slate-400 font-medium">
+                          {lang === 'th' ? `อันดับ #${userRankInClan.rank} ใน ${userRankInClan.clanName}` : `Rank #${userRankInClan.rank} in ${userRankInClan.clanName}`}
+                        </span>
+                      ) : (
+                        <span className="text-[8px] text-slate-500">
+                          {isUserStatsPending(currentUser) ? `⏳ ${t.myPowerStatusPending}` : `✓ ${t.myPowerStatusVerified}`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Sub-block: Active Claims */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[10px] font-semibold text-slate-300">
+                      <span className="flex items-center gap-1 text-slate-200">
+                        <Bookmark className="w-2.5 h-2.5 text-sky-400" />
+                        <span>{t.myActiveClaims}</span>
+                      </span>
+                      <span className="text-[9px] font-mono px-1 rounded-full bg-slate-800 text-sky-300 border border-slate-700">
+                        {userActiveClaims.length}
+                      </span>
+                    </div>
+
+                    {userActiveClaims.length === 0 ? (
+                      <div className="p-1 rounded bg-[#070b14] border border-slate-800/60 text-[9px] text-slate-500 text-center italic">
+                        {t.noActiveClaims}
+                      </div>
+                    ) : (
+                      <div className="space-y-0.5 max-h-14 overflow-y-auto pr-0.5">
+                        {userActiveClaims.map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex items-center justify-between p-1 rounded bg-[#080d18] border border-slate-800/70 text-[10px]"
+                          >
+                            <div className="flex items-center gap-1 min-w-0 pr-1">
+                              <img
+                                src={item.imageUrl}
+                                alt={item.name}
+                                className="w-4 h-4 rounded object-cover border border-slate-700 shrink-0"
+                              />
+                              <span className="text-slate-200 font-medium truncate">{item.name}</span>
+                              <span className="text-[8px] font-bold font-mono px-0.5 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                                x{item.quantity || 1}
+                              </span>
+                            </div>
+                            <span className="text-[9px] font-mono text-amber-300 shrink-0">
+                              💎 {item.price.toLocaleString()}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Sub-block: Queues Waiting */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[10px] font-semibold text-slate-300">
+                      <span className="flex items-center gap-1 text-slate-200">
+                        <Crown className="w-2.5 h-2.5 text-purple-400" />
+                        <span>{t.myQueuePositions}</span>
+                      </span>
+                      <span className="text-[9px] font-mono px-1 rounded-full bg-slate-800 text-purple-300 border border-slate-700">
+                        {userQueues.length}
+                      </span>
+                    </div>
+
+                    {userQueues.length === 0 ? (
+                      <div className="p-1 rounded bg-[#070b14] border border-slate-800/60 text-[9px] text-slate-500 text-center italic">
+                        {t.noQueuesJoined}
+                      </div>
+                    ) : (
+                      <div className="space-y-0.5 max-h-14 overflow-y-auto pr-0.5">
+                        {userQueues.map(({ item, rank, totalWaiting }) => (
+                          <div
+                            key={item.id}
+                            className="flex items-center justify-between p-1 rounded bg-[#080d18] border border-slate-800/70 text-[10px]"
+                          >
+                            <span className="text-slate-200 font-medium truncate pr-1">
+                              {item.name}
+                            </span>
+                            <span className="text-[9px] font-bold font-mono px-1.5 py-0.2 rounded-full bg-purple-950/70 border border-purple-500/50 text-purple-300 shrink-0">
+                              #{rank} / {totalWaiting}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="py-4 text-center space-y-2">
+                  <Lock className="w-5 h-5 mx-auto text-amber-400" />
+                  <p className="text-[10px] text-slate-400">
+                    {lang === 'th' ? 'เข้าสู่ระบบเพื่อดูสถานะของคุณ' : 'Log in to view your status'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      onOpenAuth();
+                    }}
+                    className="px-3 py-1 rounded-lg bg-gradient-to-r from-[#d4af37] to-[#aa841c] text-slate-950 font-bold text-[10px] shadow cursor-pointer"
+                  >
+                    {t.loginBtn}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* WIDGET 2: TOP POWER LEADERBOARD (COMPACT) */}
+          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#a855f7]/30 hover:border-[#a855f7]/50 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group">
+            <div className="absolute -right-8 -top-8 w-24 h-24 bg-purple-500/10 rounded-full blur-xl pointer-events-none" />
+
+            <div>
+              {/* Header */}
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <div className="p-1 rounded-lg bg-gradient-to-br from-yellow-500/20 to-amber-950/40 border border-amber-500/40 text-amber-300 shadow-sm">
+                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold font-cinzel text-slate-100 flex items-center gap-1">
+                      <span>{t.leaderboardTitle}</span>
+                    </h3>
+                    <p className="text-[9px] text-slate-400">
+                      {t.leaderboardDesc}
+                    </p>
+                  </div>
+                </div>
+
+                <span className="text-[9px] font-bold text-amber-400 flex items-center gap-0.5">
+                  <Crown className="w-2.5 h-2.5" />
+                  <span>TOP 5</span>
+                </span>
+              </div>
+
+              {/* Clan Filter Pills */}
+              <div className="flex items-center gap-1 overflow-x-auto pb-1 mb-1.5 no-scrollbar text-[9px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playClick();
+                    setLeaderboardClanFilter('all');
+                  }}
+                  className={`px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all cursor-pointer shrink-0 border ${
+                    leaderboardClanFilter === 'all'
+                      ? 'bg-purple-500 text-slate-950 border-purple-400 font-bold shadow-sm'
+                      : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  {t.topAllClans}
+                </button>
+                {availableClansList.map((clanName) => (
+                  <button
+                    key={clanName}
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setLeaderboardClanFilter(clanName);
+                    }}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all cursor-pointer shrink-0 border ${
+                      leaderboardClanFilter.toLowerCase() === clanName.toLowerCase()
+                        ? 'bg-purple-500 text-slate-950 border-purple-400 font-bold shadow-sm'
+                        : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    {clanName}
+                  </button>
+                ))}
+              </div>
+
+              {/* Top 5 List */}
+              {topMembers.length === 0 ? (
+                <div className="py-6 text-center text-[10px] text-slate-500 space-y-1">
+                  <Trophy className="w-5 h-5 mx-auto text-slate-600 opacity-60" />
+                  <p>{lang === 'th' ? 'ไม่พบข้อมูลสมาชิกในแคลนนี้' : 'No verified members found'}</p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {topMembers.map((m, idx) => {
+                    const isCurrentUser =
+                      currentUser &&
+                      (m.id === currentUser.id ||
+                        m.inGameName?.toLowerCase() === currentUser.inGameName?.toLowerCase());
+                    const medalBadge =
+                      idx === 0
+                        ? '🥇'
+                        : idx === 1
+                        ? '🥈'
+                        : idx === 2
+                        ? '🥉'
+                        : `#${idx + 1}`;
+
+                    return (
+                      <div
+                        key={m.id || idx}
+                        className={`flex items-center justify-between p-1 sm:p-1.5 rounded-lg border transition-all text-[11px] ${
+                          isCurrentUser
+                            ? 'bg-purple-950/40 border-purple-500/60 shadow-sm ring-1 ring-purple-500/30'
+                            : idx === 0
+                            ? 'bg-gradient-to-r from-amber-950/30 to-[#090e18] border-amber-500/40 shadow-sm'
+                            : 'bg-[#090e18] border-slate-800/80 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0 pr-1.5">
+                          <div
+                            className={`w-5 h-5 rounded flex items-center justify-center font-bold text-[10px] shrink-0 font-mono ${
+                              idx === 0
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
+                                : idx === 1
+                                ? 'bg-slate-300/20 text-slate-200 border border-slate-400/40'
+                                : idx === 2
+                                ? 'bg-amber-700/20 text-amber-400 border border-amber-700/40'
+                                : 'bg-slate-800/80 text-slate-400 border border-slate-700/50 text-[9px]'
+                            }`}
+                          >
+                            {medalBadge}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span
+                                className={`font-bold truncate text-[11px] ${
+                                  isCurrentUser ? 'text-purple-200' : idx === 0 ? 'text-amber-200' : 'text-slate-200'
+                                }`}
+                              >
+                                {m.inGameName || m.username}
+                              </span>
+                              {isCurrentUser && (
+                                <span className="text-[7px] font-bold px-1 rounded bg-purple-500/30 text-purple-300 border border-purple-400/40">
+                                  {lang === 'th' ? 'คุณ' : 'You'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 text-[9px] text-slate-400">
+                              <span className="font-semibold text-slate-300">{cleanClanName(m.clan)}</span>
+                              <span>•</span>
+                              <span className="truncate">{m.characterClass || 'Adventurer'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Power Level */}
+                        <div className="text-right shrink-0">
+                          <div className="font-mono font-bold text-[11px] text-amber-300 flex items-center gap-0.5 justify-end drop-shadow">
+                            <Zap className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                            <span>{Number(m.powerLevel || 0).toLocaleString()}</span>
+                          </div>
+                          <span className="text-[8px] text-slate-500 font-mono">PL</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* WIDGET 3: RECENT DISTRIBUTION FEED (COMPACT) */}
+          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#38bdf8]/30 hover:border-[#38bdf8]/50 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group">
+            <div className="absolute -right-8 -top-8 w-24 h-24 bg-sky-500/10 rounded-full blur-xl pointer-events-none" />
+
+            <div>
+              {/* Header */}
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="p-1 rounded-lg bg-gradient-to-br from-sky-500/20 to-sky-950/40 border border-sky-500/40 text-sky-400 shadow-sm">
+                    <Gift className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold font-cinzel text-slate-100 flex items-center gap-1">
+                      <span>{t.recentDistributionsTitle}</span>
+                    </h3>
+                    <p className="text-[9px] text-slate-400">
+                      {t.recentDistributionsDesc}
+                    </p>
+                  </div>
+                </div>
+
+                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-sky-950/70 text-sky-300 border border-sky-500/40">
+                  {distributedItems.length} {lang === 'th' ? 'ชิ้น' : 'items'}
+                </span>
+              </div>
+
+              {/* List */}
+              {recentDistributedList.length === 0 ? (
+                <div className="py-6 text-center text-[10px] text-slate-500 space-y-1">
+                  <Gift className="w-6 h-6 mx-auto text-slate-600 opacity-60" />
+                  <p>{t.noRecentDistributions}</p>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {recentDistributedList.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80 hover:border-sky-500/30 transition-all text-xs group/item"
+                    >
+                      <div className="flex items-center gap-2 min-w-0 pr-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sounds.playClick();
+                            onViewImage?.(item.imageUrl, item.name);
+                          }}
+                          className="w-8 h-8 rounded-md overflow-hidden border border-slate-700 group-hover/item:border-sky-400 shrink-0 cursor-pointer shadow-sm relative transition-all"
+                          title={t.zoomImage}
+                        >
+                          <img
+                            src={item.imageUrl}
+                            alt={item.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className="font-bold text-slate-100 text-[11px] truncate max-w-[120px]">
+                              {item.name}
+                            </span>
+                            <span className="text-[8px] font-mono font-bold px-1 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                              x{item.quantity || 1}
+                            </span>
+                            <span
+                              className={`text-[7px] font-bold px-1 py-0.2 rounded border uppercase ${getRarityBadge(
+                                item.rarity
+                              )}`}
+                            >
+                              {item.rarity}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1 text-[9px] text-slate-400 mt-0.5">
+                            <span>{t.distributedToMember}</span>
+                            <strong className="text-amber-300 font-semibold truncate max-w-[90px]">
+                              {item.distributedTo?.name || 'Member'}
+                            </strong>
+                            {item.distributedTo?.clan && (
+                              <span className="text-slate-500 truncate">
+                                ({cleanClanName(item.distributedTo.clan)})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="text-[10px] font-mono font-bold text-white">
+                          💎 {item.price.toLocaleString()}
+                        </div>
+                        <div className="text-[8px] text-slate-500 font-mono mt-0.5">
+                          {formatTimeAgo(item.distributedTo?.distributedAt || item.createdAt)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
         </div>
       </section>
 
@@ -546,9 +1048,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         {/* 2. Name & Rarity */}
                         <td className="py-1.5 px-3">
                           <div className="flex flex-col gap-0.5 max-w-[220px]">
-                            <span className="text-xs sm:text-sm font-bold text-slate-100 group-hover:text-[#f5d77f] transition-colors truncate">
-                              {item.name}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs sm:text-sm font-bold text-slate-100 group-hover:text-[#f5d77f] transition-colors truncate">
+                                {item.name}
+                              </span>
+                              <span className="text-[10px] font-bold font-mono px-1.5 py-0.2 rounded-md bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                                x{item.quantity || 1}
+                              </span>
+                            </div>
                             <span
                               className={`self-start text-[8.5px] font-bold px-1.5 py-0.2 rounded border uppercase tracking-wider ${getRarityBadge(
                                 item.rarity
@@ -812,7 +1319,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               }}
               className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600/30 to-purple-500/20 hover:from-purple-600/40 hover:to-purple-500/30 text-[#f5d77f] hover:text-white border border-purple-500/40 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer shrink-0"
             >
-              <span>{lang === 'th' ? 'จัดการคิวทั้งหมด' : 'Full Queue Manager'}</span>
+              <span>{lang === 'th' ? 'จัดการคิวทั้งหมด' : 'Manage All Queues'}</span>
               <ChevronRight className="w-3.5 h-3.5 text-[#f5d77f]" />
             </button>
           </div>

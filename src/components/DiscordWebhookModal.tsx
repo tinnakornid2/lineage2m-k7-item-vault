@@ -31,7 +31,6 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
   currentUser,
   lang
 }) => {
-  const [webhookUrl, setWebhookUrl] = useState(settings?.webhookUrl || '');
   const [enabled, setEnabled] = useState(settings?.enabled ?? false);
   const [notifyOnNewItem, setNotifyOnNewItem] = useState(settings?.notifyOnNewItem ?? true);
   const [notifyOnDistribute, setNotifyOnDistribute] = useState(settings?.notifyOnDistribute ?? true);
@@ -44,20 +43,12 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
   if (!isOpen) return null;
 
   const handleTestWebhook = async () => {
-    if (!webhookUrl.trim()) {
-      setTestResult({
-        success: false,
-        message: lang === 'th' ? 'กรุณากรอก Discord Webhook URL ก่อนทดสอบ' : 'Please enter Discord Webhook URL first'
-      });
-      return;
-    }
-
     setIsTesting(true);
     setTestResult(null);
     sounds.playClick();
 
     const tempSettings: DiscordSettings = {
-      webhookUrl: webhookUrl.trim(),
+      webhookUrl: '',
       enabled: true,
       notifyOnNewItem,
       notifyOnDistribute,
@@ -65,7 +56,8 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
     };
 
     const res = await sendDiscordNotification(tempSettings, 'test', {
-      actorName: currentUser?.inGameName || 'Admin'
+      actorName: currentUser?.inGameName || 'Admin',
+      lang
     });
 
     setIsTesting(false);
@@ -97,8 +89,8 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
 
     try {
       const updated: DiscordSettings = {
-        webhookUrl: webhookUrl.trim(),
-        enabled: enabled && webhookUrl.trim().length > 0,
+        webhookUrl: '',
+        enabled,
         notifyOnNewItem,
         notifyOnDistribute,
         botName: botName.trim() || 'K7-Vault Alert',
@@ -185,21 +177,10 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
             </button>
           </div>
 
-          {/* Webhook URL Input */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-              <span>{lang === 'th' ? 'Discord Webhook URL:' : 'Discord Webhook URL:'}</span>
-              <span className="text-[10px] text-slate-500 font-normal">
-                https://discord.com/api/webhooks/...
-              </span>
-            </label>
-            <input
-              type="url"
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              placeholder="https://discord.com/api/webhooks/123456789/xxxxxx..."
-              className="w-full px-3.5 py-2.5 rounded-xl bg-[#080d17] border border-slate-700 focus:border-[#5865F2] text-xs font-mono text-slate-200 outline-none transition-all placeholder:text-slate-600"
-            />
+          <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-600/30 text-[11px] text-emerald-200">
+            {lang === 'th'
+              ? 'Webhook URL ถูกเก็บเป็น Environment Variable ที่ Backend และจะไม่ถูกส่งมายังเบราว์เซอร์'
+              : 'The Webhook URL is stored as a backend environment variable and is never exposed to the browser.'}
           </div>
 
           {/* Bot Display Name */}
@@ -272,7 +253,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
             <button
               type="button"
               onClick={handleTestWebhook}
-              disabled={isTesting || !webhookUrl.trim()}
+              disabled={isTesting}
               className="w-full py-2 px-3 rounded-xl bg-[#1e2746] hover:bg-[#28355e] border border-[#5865F2]/50 text-slate-200 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer transition-all"
             >
               <Send className="w-3.5 h-3.5 text-[#5865F2]" />

@@ -44,3 +44,19 @@
 ## 3. สิทธิ์และการอนุมัติค่าพลัง (Security & Permissions)
 - **Gemini AI OCR Key:** ปุ่มตั้งค่า API Key ต้องมองเห็นและแก้ไขได้เฉพาะ `Owner` เท่านั้น
 - **การอนุมัติสเตตัส (Stat Approvals):** เมื่อสมาชิกส่งการแก้ไขสเตตัส ตัวเลขจะอยู่ในสถานะ `Pending` เท่านั้น ค่าพลังจริง (`Verified Power`) จะอัปเดตต่อเมื่อ Admin หรือ Owner ตรวจสอบเทียบกับภาพสกรีนช็อตและกดยืนยันอนุมัติแล้ว
+
+---
+
+## 4. การเรียก Node บน Windows (ห้ามเกิดป๊อปอัป `Select an app to open 'npm'`)
+
+- ในเครื่องนี้ **ห้ามเรียก `npm` แบบชื่อเปล่า** เช่น `npm run build`, `npm run lint` หรือ `npm audit` เพราะ Windows อาจตีความ `npm` เป็น protocol/file และเปิดหน้าต่างถามเลือกแอป
+- ห้ามเปลี่ยนไปใช้ `pnpm` กับ `node_modules` เดิมโดยตรง เพราะ dependency ชุดนี้ติดตั้งด้วย npm และ pnpm อาจย้ายแพ็กเกจไป `node_modules/.ignored`
+- ให้ตรวจตำแหน่ง runtime จาก Codex Workspace Dependencies ก่อน แล้วเรียก Node ด้วย absolute path
+- สำหรับคำสั่งทดสอบที่มี JavaScript entrypoint ให้ใช้รูปแบบนี้:
+
+  ```powershell
+  & 'C:\Users\tinna\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' 'node_modules\typescript\bin\tsc' --noEmit
+  & 'C:\Users\tinna\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' 'node_modules\vite\bin\vite.js' build
+  ```
+
+- หากต้องใช้ npm จริง ให้ค้นหาและเรียก `npm.cmd` หรือ `npm-cli.js` ด้วย absolute path ที่ตรวจสอบแล้วเท่านั้น ห้ามเดาพาธและห้ามใช้คำว่า `npm` เดี่ยว ๆ

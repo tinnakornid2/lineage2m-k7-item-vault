@@ -334,7 +334,12 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
               {t.distributeItemBtn}
             </h2>
             <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400">
-              <span className="font-semibold text-slate-200">{item.name}</span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-semibold text-slate-200">{item.name}</span>
+                <span className="text-[10px] font-bold font-mono px-1.5 py-0.2 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                  x{item.quantity || 1}
+                </span>
+              </div>
               <span>•</span>
               <span className="text-[#f5d77f] font-mono">{item.rarity}</span>
               <span>•</span>

@@ -20,7 +20,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Dual Blades",
       "Archer"
     ],
-    "password": "KEILINEAGEX123#$",
     "powerLevel": 0,
     "pendingPowerLevelRequestedAt": null,
     "pendingStatScreenshotUrl": null,
@@ -94,7 +93,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "https://kain7.com/screenshot/41"
     ],
     "pendingSpiritEnhancements": null,
-    "password": "dage1234",
     "level": 80,
     "createdAt": 1789089908087,
     "pendingLevel": null,
@@ -123,7 +121,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "statScreenshotUrl": null,
     "inGameName": "Starfish",
     "role": "admin",
-    "password": "doge1234",
     "pendingClasses": null,
     "screenshotUrl": "https://kain7.com/screenshot/1791",
     "spirits": {
@@ -161,7 +158,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingLevel": null,
     "pendingPowerLevel": null,
     "clan": "LevelS",
-    "password": "Argun1",
     "createdAt": 1789129429870,
     "kain7Id": "6",
     "characterClass": "Priest",
@@ -254,7 +250,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "https://kain7.com/screenshot/1811",
       "https://kain7.com/screenshot/1795"
     ],
-    "password": "password1234",
     "inGameName": "NuiNui",
     "pendingStatScreenshotUrl": null,
     "pendingPowerLevelRequestedAt": null,
@@ -650,7 +645,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingPowerLevel": null,
     "legendAgathions": 0,
     "characterClass": "Dual Blades",
-    "password": "085643356908",
     "kain7Id": "128"
   },
   {
@@ -694,7 +688,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "spiritEnhancements": {},
     "pendingPowerLevel": null,
     "characterClass": "Dual Blades",
-    "password": "Bimlingl2m",
     "kain7Id": "17",
     "powerLevel": 0,
     "clan": "LevelS"
@@ -741,8 +734,7 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "kain7Id": "22",
     "characterClass": "Priest",
     "spiritEnhancements": {},
-    "pendingLegendAgathions": null,
-    "password": "ayken123"
+    "pendingLegendAgathions": null
   },
   {
     "id": "user_1789132189847_0l6t",
@@ -761,7 +753,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingPowerLevelRequestedAt": null,
     "powerLevel": 0,
     "role": "admin",
-    "password": "pocan123",
     "lastStatUpdatedAt": null,
     "createdAt": 1789132189847,
     "status": "active",
@@ -775,7 +766,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
   {
     "id": "user_1789133575406_lffm",
     "role": "member",
-    "password": "dage1234",
     "screenshots": [
       "https://kain7.com/screenshot/1802"
     ],
@@ -822,7 +812,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingSpiritEnhancements": null,
     "pendingLegendAgathions": null,
     "inGameName": "vegas",
-    "password": "Vegas",
     "pendingPowerLevel": null,
     "stats": {},
     "pendingPowerLevelRequestedAt": null,
@@ -887,8 +876,7 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "stats": {},
     "inGameName": "Candypoiison",
     "statScreenshotUrl": null,
-    "characterClass": "Orb",
-    "password": "Admin88"
+    "characterClass": "Orb"
   },
   {
     "id": "user_1789135181760_xnh6",
@@ -922,7 +910,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "screenshots": [
       "https://kain7.com/screenshot/1696"
     ],
-    "password": "madoomix159",
     "inGameName": "Simpsons",
     "pendingStatScreenshotUrl": null,
     "pendingStats": null,
@@ -952,7 +939,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingSpiritEnhancements": null,
     "role": "member",
     "spiritEnhancements": {},
-    "password": "yuzu11",
     "createdAt": 1789136731096,
     "statRejectionAt": null,
     "pendingPowerLevel": null,
@@ -973,7 +959,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "spiritEnhancements": {},
     "pendingClasses": null,
     "pendingStatScreenshotUrl": null,
-    "password": "aldy123",
     "lastStatUpdatedAt": null,
     "pendingSpiritEnhancements": null,
     "statRejectionAt": null,
@@ -1003,13 +988,11 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "inGameName": "DVD",
     "characterClass": "Orb",
     "username": "david",
-    "password": "grimgar",
     "role": "member"
   },
   {
     "id": "user_1789211606005_pz26",
     "role": "member",
-    "password": "callisto",
     "username": "callisto1386",
     "inGameName": "callisto",
     "powerLevel": 3000,
@@ -1026,7 +1009,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "inGameName": "FICOdiAMALFI",
     "clan": "LevelS",
     "powerLevel": 3000,
-    "password": "asd123",
     "username": "fico",
     "status": "active"
   },
@@ -1039,14 +1021,12 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "role": "member",
     "powerLevel": 3000,
     "inGameName": "Mr.Papoi",
-    "password": "dogedoge",
     "username": "Mr.Papoi"
   },
   {
     "id": "user_1789213601769_t4pq",
     "createdAt": 1789213601769,
     "username": "automic",
-    "password": "automic",
     "role": "member",
     "inGameName": "Atysi",
     "status": "active",
@@ -1310,7 +1290,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     },
     "clan": "LevelS",
     "statRejectionReason": null,
-    "password": "123456",
     "pendingPowerLevel": null,
     "pendingLevel": null,
     "role": "member",
@@ -1378,7 +1357,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "powerLevel": 0,
     "stats": {},
     "pendingPowerLevel": null,
-    "password": "123456",
     "characterClass": "Spear",
     "kain7Id": "103"
   },
@@ -1430,7 +1408,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     },
     "pendingPowerLevelRequestedAt": null,
     "lastStatUpdatedAt": null,
-    "password": "123456",
     "spiritEnhancements": {},
     "role": "member"
   },
@@ -1440,7 +1417,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "powerLevel": 0,
     "pendingClasses": null,
     "status": "active",
-    "password": "123456",
     "pendingPowerLevel": null,
     "pendingPowerLevelRequestedAt": null,
     "screenshotUrl": "https://kain7.com/screenshot/1584",
@@ -1521,7 +1497,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "lastStatUpdatedAt": null,
     "pendingStatScreenshotUrl": null,
     "inGameName": "xBoltz",
-    "password": "123456",
     "pendingLegendAgathions": null,
     "characterClass": "Priest",
     "level": 75
@@ -1548,7 +1523,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "createdAt": 1789157611714,
     "updatedAt": 1789157611714,
     "pendingPowerLevelRequestedAt": null,
-    "password": "123456",
     "clan": "LevelS",
     "pendingLegendClasses": null,
     "screenshotUrl": "https://kain7.com/screenshot/1695",
@@ -1584,7 +1558,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Greatsword",
       "Assassin"
     ],
-    "password": "123456",
     "role": "member",
     "pendingLegendAgathions": null,
     "status": "active",
@@ -1623,7 +1596,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
   {
     "id": "user_k7_13",
     "pendingLegendAgathions": null,
-    "password": "123456",
     "clan": "no-clan",
     "screenshotUrl": "https://kain7.com/screenshot/1776",
     "status": "active",
@@ -1678,7 +1650,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Assassin"
     ],
     "pendingClasses": null,
-    "password": "123456",
     "pendingStatScreenshotUrl": null,
     "lastStatUpdatedAt": null,
     "updatedAt": 1789157611724,
@@ -1756,7 +1727,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "createdAt": 1789157611725,
     "stats": {},
     "pendingClasses": null,
-    "password": "123456",
     "spiritEnhancements": {},
     "pendingLegendAgathions": null,
     "lastStatUpdatedAt": null
@@ -1787,7 +1757,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "screenshotUrl": "https://kain7.com/screenshot/1709",
     "role": "member",
     "createdAt": 1789157611715,
-    "password": "123456",
     "pendingLegendClasses": null,
     "pendingLegendAgathions": null,
     "stats": {},
@@ -1818,7 +1787,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Dual Blades",
       "Priest"
     ],
-    "password": "123456",
     "characterClass": "Dual Blades",
     "pendingStatScreenshotUrl": null,
     "verified": false,
@@ -1864,7 +1832,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingPowerLevelRequestedAt": null,
     "pendingPowerLevel": null,
     "pendingClasses": null,
-    "password": "123456",
     "kain7Id": "141",
     "statRejectionReason": null,
     "role": "member",
@@ -1935,7 +1902,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "guardian": 0,
       "valor": 0
     },
-    "password": "123456",
     "statRejectionReason": null,
     "statRejectionAt": null,
     "role": "member",
@@ -1949,7 +1915,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
   },
   {
     "id": "user_k7_144",
-    "password": "123456",
     "spirits": {
       "soulshot": 3,
       "valor": 0,
@@ -2001,7 +1966,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingStats": null,
     "statRejectionReason": null,
     "kain7Id": "150",
-    "password": "123456",
     "statScreenshotUrl": null,
     "status": "active",
     "level": 78,
@@ -2069,7 +2033,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "updatedAt": 1789157611713,
     "spiritEnhancements": {},
     "statRejectionAt": null,
-    "password": "123456",
     "pendingLevel": null,
     "pendingLegendAgathions": null,
     "role": "member",
@@ -2109,7 +2072,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "lastStatUpdatedAt": null,
     "pendingStats": null,
     "pendingSpiritEnhancements": null,
-    "password": "123456",
     "pendingLegendClasses": null,
     "stats": {},
     "inGameName": "WalletDamage",
@@ -2163,7 +2125,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingStats": null,
     "pendingClasses": null,
     "pendingLegendClasses": null,
-    "password": "123456",
     "kain7Id": "163",
     "inGameName": "ThaiTu",
     "pendingPowerLevel": null,
@@ -2211,7 +2172,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "level": 78,
     "pendingStatScreenshotUrl": null,
     "pendingLegendClasses": null,
-    "password": "123456",
     "updatedAt": 1789157611715,
     "inGameName": "Laika",
     "classes": [
@@ -2224,7 +2184,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
   },
   {
     "id": "user_k7_168",
-    "password": "123456",
     "pendingLegendClasses": null,
     "updatedAt": 1789157611712,
     "characterClass": "Dual Blades",
@@ -2306,7 +2265,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "screenshots": [
       "https://kain7.com/screenshot/1640"
     ],
-    "password": "123456",
     "characterClass": "Dual Blades",
     "status": "active",
     "inGameName": "Hakuji",
@@ -2364,8 +2322,7 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "kain7Id": "170",
     "clan": "LevelS",
     "spiritEnhancements": {},
-    "pendingStatScreenshotUrl": null,
-    "password": "123456"
+    "pendingStatScreenshotUrl": null
   },
   {
     "id": "user_k7_171",
@@ -2376,7 +2333,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "spiritEnhancements": {},
     "role": "member",
     "characterClass": "Priest",
-    "password": "123456",
     "pendingStats": null,
     "pendingPowerLevel": null,
     "stats": {},
@@ -2442,7 +2398,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "statRejectionAt": null,
     "status": "active",
     "kain7Id": "172",
-    "password": "123456",
     "inGameName": "bazzsumbayak",
     "pendingPowerLevelRequestedAt": null,
     "pendingPowerLevel": null,
@@ -2476,7 +2431,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "createdAt": 1789157611719,
     "statRejectionReason": null,
     "powerLevel": 0,
-    "password": "123456",
     "pendingSpiritEnhancements": null,
     "classes": [
       "Dual Blades"
@@ -2508,7 +2462,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "updatedAt": 1789157611714,
     "pendingStatScreenshotUrl": null,
     "pendingSpiritEnhancements": null,
-    "password": "123456",
     "pendingLevel": null,
     "screenshotUrl": "https://kain7.com/screenshot/1625",
     "statScreenshotUrl": null,
@@ -2581,7 +2534,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "updatedAt": 1789157611715,
     "clan": "VoltZ",
     "statRejectionReason": null,
-    "password": "123456",
     "powerLevel": 0,
     "pendingSpiritEnhancements": null,
     "pendingStatScreenshotUrl": null,
@@ -2626,7 +2578,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     ],
     "statRejectionReason": null,
     "createdAt": 1789157611726,
-    "password": "123456",
     "spiritEnhancements": {},
     "pendingLevel": null,
     "powerLevel": 0,
@@ -2670,7 +2621,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "screenshotUrl": "https://kain7.com/screenshot/1824",
     "clan": "VoltZ",
     "pendingStats": null,
-    "password": "123456",
     "status": "active",
     "spirits": {
       "guardian": 0,
@@ -2704,7 +2654,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "characterClass": "Mage",
     "kain7Id": "179",
     "role": "member",
-    "password": "123456",
     "pendingLegendAgathions": null,
     "lastStatUpdatedAt": null,
     "statRejectionReason": null,
@@ -2753,7 +2702,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     ],
     "status": "active",
     "pendingStatScreenshotUrl": null,
-    "password": "123456",
     "level": 78,
     "clan": "VoltZ",
     "createdAt": 1789157611717,
@@ -2816,7 +2764,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Spear"
     ],
     "pendingLegendAgathions": null,
-    "password": "123456",
     "updatedAt": 1789157611709,
     "status": "active",
     "createdAt": 1789157611709,
@@ -2869,7 +2816,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "https://kain7.com/screenshot/1515",
       "https://kain7.com/screenshot/1512"
     ],
-    "password": "123456",
     "screenshotUrl": "https://kain7.com/screenshot/1763",
     "updatedAt": 1789157611710,
     "createdAt": 1789157611710,
@@ -2923,7 +2869,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "createdAt": 1789157611717,
     "updatedAt": 1789157611717,
     "pendingPowerLevelRequestedAt": null,
-    "password": "123456",
     "clan": "VoltZ",
     "pendingLegendClasses": null,
     "screenshotUrl": "https://kain7.com/screenshot/1745",
@@ -2952,7 +2897,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "stats": {},
     "characterClass": "Spear",
     "pendingLegendClasses": null,
-    "password": "123456",
     "statScreenshotUrl": null,
     "pendingPowerLevelRequestedAt": null,
     "statRejectionReason": null,
@@ -3001,7 +2945,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
   {
     "id": "user_k7_184",
     "clan": "LevelS",
-    "password": "123456",
     "pendingLegendClasses": null,
     "spirits": {
       "guardian": 2,
@@ -3062,7 +3005,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "statRejectionAt": null,
     "powerLevel": 0,
     "characterClass": "Dual Blades",
-    "password": "123456",
     "screenshots": [
       "https://kain7.com/screenshot/1490"
     ],
@@ -3118,7 +3060,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "https://kain7.com/screenshot/1814"
     ],
     "pendingLevel": null,
-    "password": "123456",
     "classes": [
       "Priest",
       "Mage"
@@ -3177,7 +3118,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     },
     "powerLevel": 0,
     "lastStatUpdatedAt": null,
-    "password": "123456",
     "screenshotUrl": "https://kain7.com/screenshot/1676",
     "pendingClasses": null,
     "statRejectionAt": null,
@@ -3220,7 +3160,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     ],
     "inGameName": "Callisto",
     "createdAt": 1789157611712,
-    "password": "123456",
     "pendingStatScreenshotUrl": null,
     "statRejectionReason": null,
     "lastStatUpdatedAt": null,
@@ -3268,7 +3207,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "conquer": 0,
       "soulshot": 3
     },
-    "password": "123456",
     "pendingStats": null,
     "inGameName": "Emperors",
     "stats": {},
@@ -3323,8 +3261,7 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     },
     "pendingLegendClasses": null,
     "pendingLevel": null,
-    "statScreenshotUrl": null,
-    "password": "123456"
+    "statScreenshotUrl": null
   },
   {
     "id": "user_k7_193",
@@ -3349,7 +3286,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     ],
     "pendingLevel": null,
     "createdAt": 1789157611723,
-    "password": "123456",
     "spiritEnhancements": {},
     "screenshots": [
       "https://kain7.com/screenshot/1779"
@@ -3408,7 +3344,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "valor": 2,
       "guardian": 1
     },
-    "password": "123456",
     "pendingLegendClasses": null,
     "screenshotUrl": "https://kain7.com/screenshot/1825",
     "characterClass": "Priest",
@@ -3448,7 +3383,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "role": "member",
     "updatedAt": 1789157611718,
     "pendingLegendClasses": null,
-    "password": "123456",
     "lastStatUpdatedAt": null,
     "createdAt": 1789157611718,
     "pendingStats": null,
@@ -3498,7 +3432,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingLevel": null,
     "level": 79,
     "status": "active",
-    "password": "123456",
     "pendingPowerLevelRequestedAt": null,
     "characterClass": "Dual Blades",
     "role": "member",
@@ -3550,8 +3483,7 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "characterClass": "Dual Blades",
     "screenshotUrl": "",
     "pendingLevel": null,
-    "pendingStatScreenshotUrl": null,
-    "password": "123456"
+    "pendingStatScreenshotUrl": null
   },
   {
     "id": "user_k7_2",
@@ -3569,7 +3501,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "screenshots": [
       "https://kain7.com/screenshot/1761"
     ],
-    "password": "123456",
     "pendingLegendAgathions": null,
     "screenshotUrl": "https://kain7.com/screenshot/1761",
     "updatedAt": 1789157611717,
@@ -3612,7 +3543,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingStatScreenshotUrl": null,
     "inGameName": "FIFTYx2",
     "pendingPowerLevelRequestedAt": null,
-    "password": "123456",
     "statScreenshotUrl": null,
     "pendingClasses": null,
     "spiritEnhancements": {},
@@ -3677,7 +3607,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingClasses": null,
     "pendingPowerLevel": null,
     "powerLevel": 0,
-    "password": "123456",
     "kain7Id": "201",
     "pendingStats": null,
     "statRejectionAt": null,
@@ -3719,7 +3648,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "powerLevel": 0,
     "createdAt": 1789157611714,
     "pendingSpiritEnhancements": null,
-    "password": "123456",
     "classes": [
       "Dual Blades"
     ],
@@ -3765,7 +3693,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "characterClass": "Dual Blades",
     "pendingStatScreenshotUrl": null,
     "statScreenshotUrl": null,
-    "password": "123456",
     "screenshotUrl": "",
     "role": "member",
     "kain7Id": "203",
@@ -3784,7 +3711,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "classes": [
       "Dual Blades"
     ],
-    "password": "123456",
     "lastStatUpdatedAt": null,
     "pendingLevel": null,
     "characterClass": "Dual Blades",
@@ -3851,7 +3777,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "soulshot": 0
     },
     "updatedAt": 1789157611710,
-    "password": "123456",
     "classes": [
       "Dual Blades"
     ],
@@ -3873,7 +3798,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     ],
     "pendingPowerLevelRequestedAt": null,
     "pendingPowerLevel": null,
-    "password": "123456",
     "screenshots": [],
     "statRejectionReason": null,
     "pendingLevel": null,
@@ -3919,7 +3843,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "status": "active",
     "pendingLegendAgathions": null,
     "statRejectionAt": null,
-    "password": "123456",
     "pendingStats": null,
     "role": "member",
     "screenshots": [],
@@ -3972,7 +3895,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Dual Blades"
     ],
     "pendingPowerLevel": null,
-    "password": "123456",
     "statScreenshotUrl": null,
     "powerLevel": 0,
     "level": 1,
@@ -4028,7 +3950,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingPowerLevel": null,
     "status": "active",
     "role": "member",
-    "password": "123456",
     "pendingSpiritEnhancements": null,
     "kain7Id": "209",
     "pendingStats": null
@@ -4059,7 +3980,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "statRejectionReason": null,
     "pendingLevel": null,
     "level": 76,
-    "password": "123456",
     "classes": [
       "Priest"
     ],
@@ -4103,7 +4023,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingSpiritEnhancements": null,
     "stats": {},
     "pendingPowerLevelRequestedAt": null,
-    "password": "123456",
     "characterClass": "Dual Blades",
     "inGameName": "Mrkadorman",
     "pendingStatScreenshotUrl": null,
@@ -4157,7 +4076,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "status": "active",
     "clan": "LevelS",
     "kain7Id": "23",
-    "password": "123456",
     "characterClass": "Dual Blades",
     "level": 78,
     "pendingLevel": null,
@@ -4216,7 +4134,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "createdAt": 1789157611720,
     "pendingLevel": null,
     "pendingLegendClasses": null,
-    "password": "123456",
     "pendingStatScreenshotUrl": null
   },
   {
@@ -4240,7 +4157,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Mage"
     ],
     "updatedAt": 1789157611723,
-    "password": "123456",
     "pendingLevel": null,
     "statRejectionAt": null,
     "status": "active",
@@ -4293,7 +4209,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "statRejectionAt": null,
     "pendingStats": null,
     "pendingStatScreenshotUrl": null,
-    "password": "123456",
     "createdAt": 1789157611713,
     "pendingPowerLevel": null,
     "role": "member",
@@ -4352,7 +4267,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "updatedAt": 1789157611715,
     "clan": "LevelS",
     "pendingPowerLevelRequestedAt": null,
-    "password": "123456",
     "stats": {},
     "pendingClasses": null,
     "statScreenshotUrl": null,
@@ -4385,7 +4299,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Priest",
       "Mage"
     ],
-    "password": "123456",
     "status": "active",
     "lastStatUpdatedAt": null,
     "updatedAt": 1789157611726,
@@ -4439,7 +4352,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "spiritEnhancements": {},
     "kain7Id": "36",
     "lastStatUpdatedAt": null,
-    "password": "123456",
     "pendingClasses": null,
     "pendingSpiritEnhancements": null,
     "pendingLevel": null,
@@ -4472,7 +4384,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     ],
     "pendingLegendAgathions": null,
     "updatedAt": 1789157611725,
-    "password": "123456",
     "statScreenshotUrl": null,
     "pendingStats": null,
     "pendingSpiritEnhancements": null,
@@ -4506,7 +4417,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "verified": false,
     "lastStatUpdatedAt": null,
     "status": "active",
-    "password": "123456",
     "pendingLevel": null,
     "statRejectionAt": null,
     "screenshots": [
@@ -4583,7 +4493,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "kain7Id": "48",
     "pendingPowerLevelRequestedAt": null,
     "pendingPowerLevel": null,
-    "password": "123456",
     "pendingStatScreenshotUrl": null,
     "createdAt": 1789157611727,
     "pendingLevel": null,
@@ -4635,7 +4544,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "clan": "LevelS",
     "inGameName": "unl",
     "pendingPowerLevelRequestedAt": null,
-    "password": "123456",
     "pendingStatScreenshotUrl": null,
     "statScreenshotUrl": null
   },
@@ -4680,7 +4588,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingClasses": null,
     "clan": "VoltZ",
     "pendingLevel": null,
-    "password": "123456",
     "lastStatUpdatedAt": null,
     "stats": {},
     "pendingLegendClasses": null,
@@ -4708,7 +4615,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     ],
     "createdAt": 1789157611713,
     "spiritEnhancements": {},
-    "password": "123456",
     "pendingLegendAgathions": null,
     "pendingClasses": null,
     "powerLevel": 0,
@@ -4748,7 +4654,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
   {
     "id": "user_k7_57",
     "kain7Id": "57",
-    "password": "123456",
     "lastStatUpdatedAt": null,
     "status": "active",
     "pendingLegendClasses": null,
@@ -4811,7 +4716,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingLegendClasses": null,
     "legendAgathions": 0,
     "createdAt": 1789157611712,
-    "password": "123456",
     "pendingLegendAgathions": null,
     "pendingLevel": null,
     "screenshots": [
@@ -4894,7 +4798,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     ],
     "characterClass": "Dual Blades",
     "level": 78,
-    "password": "123456",
     "status": "active",
     "statRejectionAt": null,
     "pendingSpiritEnhancements": null,
@@ -4913,7 +4816,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "level": 78,
     "role": "member",
     "pendingLegendClasses": null,
-    "password": "123456",
     "characterClass": "Dual Blades",
     "pendingLevel": null,
     "clan": "LevelS",
@@ -4987,7 +4889,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     ],
     "statRejectionReason": null,
     "spiritEnhancements": {},
-    "password": "123456",
     "screenshots": [
       "https://kain7.com/screenshot/1373",
       "https://kain7.com/screenshot/1106",
@@ -5017,7 +4918,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "lastStatUpdatedAt": null,
     "pendingSpiritEnhancements": null,
     "stats": {},
-    "password": "123456",
     "pendingLevel": null,
     "pendingLegendClasses": null,
     "characterClass": "Dual Blades",
@@ -5096,7 +4996,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "inGameName": "SNPX",
     "createdAt": 1789157611720,
     "lastStatUpdatedAt": null,
-    "password": "123456",
     "classes": [
       "Dual Blades",
       "Priest",
@@ -5135,7 +5034,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     },
     "pendingSpiritEnhancements": null,
     "pendingLegendClasses": null,
-    "password": "123456",
     "stats": {},
     "statRejectionReason": null,
     "pendingPowerLevel": null,
@@ -5194,7 +5092,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "duel": 1,
       "valor": 1
     },
-    "password": "123456",
     "lastStatUpdatedAt": null,
     "pendingLevel": null,
     "level": 76,
@@ -5235,7 +5132,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "updatedAt": 1789157611714,
     "characterClass": "Dual Blades",
     "clan": "VoltZ",
-    "password": "123456",
     "classes": [
       "Dual Blades",
       "Priest",
@@ -5262,7 +5158,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
   },
   {
     "id": "user_k7_73",
-    "password": "123456",
     "spirits": {
       "duel": 3,
       "soulshot": 3,
@@ -5346,7 +5241,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "inGameName": "Gibs",
     "createdAt": 1789157611714,
     "lastStatUpdatedAt": null,
-    "password": "123456",
     "legendClasses": 0,
     "clan": "VoltZ",
     "classes": [
@@ -5369,7 +5263,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "lastStatUpdatedAt": null,
     "pendingClasses": null,
     "screenshotUrl": "https://kain7.com/screenshot/1656",
-    "password": "123456",
     "stats": {},
     "pendingPowerLevel": null,
     "statRejectionReason": null,
@@ -5441,7 +5334,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "statRejectionReason": null,
     "pendingStats": null,
     "pendingLegendClasses": null,
-    "password": "123456",
     "createdAt": 1789157611719,
     "status": "active",
     "lastStatUpdatedAt": null,
@@ -5497,7 +5389,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "lastStatUpdatedAt": null,
     "pendingClasses": null,
     "level": 78,
-    "password": "123456",
     "pendingLegendClasses": null,
     "statRejectionAt": null,
     "pendingStatScreenshotUrl": null,
@@ -5551,7 +5442,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     ],
     "statScreenshotUrl": null,
     "spiritEnhancements": {},
-    "password": "123456",
     "stats": {},
     "powerLevel": 0,
     "legendAgathions": 0,
@@ -5581,7 +5471,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingStatScreenshotUrl": null,
     "pendingLevel": null,
     "pendingPowerLevelRequestedAt": null,
-    "password": "123456",
     "statScreenshotUrl": null,
     "pendingClasses": null,
     "spiritEnhancements": {},
@@ -5658,7 +5547,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "statRejectionAt": null,
     "pendingLegendClasses": null,
     "pendingSpiritEnhancements": null,
-    "password": "123456",
     "level": 80,
     "characterClass": "Dual Blades",
     "screenshotUrl": "https://kain7.com/screenshot/1782",
@@ -5716,7 +5604,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "stats": {},
     "spiritEnhancements": {},
     "kain7Id": "81",
-    "password": "123456",
     "characterClass": "Dual Blades",
     "pendingPowerLevel": null
   },
@@ -5743,7 +5630,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "lastStatUpdatedAt": null,
     "pendingLegendClasses": null,
     "pendingClasses": null,
-    "password": "123456",
     "powerLevel": 0,
     "clan": "VoltZ",
     "classes": [
@@ -5807,7 +5693,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "kain7Id": "83",
     "statRejectionAt": null,
     "status": "active",
-    "password": "123456",
     "characterClass": "Spear",
     "inGameName": "Seraphblade",
     "clan": "VoltZ",
@@ -5820,7 +5705,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "clan": "VoltZ",
     "inGameName": "Incheon",
     "level": 78,
-    "password": "123456",
     "statRejectionReason": null,
     "pendingStats": null,
     "lastStatUpdatedAt": null,
@@ -5894,7 +5778,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Assassin",
       "One-Handed Sword"
     ],
-    "password": "123456",
     "statRejectionReason": null,
     "pendingStats": null,
     "createdAt": 1789157611713,
@@ -5939,7 +5822,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Priest",
       "Mage"
     ],
-    "password": "123456",
     "characterClass": "Priest",
     "stats": {},
     "updatedAt": 1789157611723,
@@ -5982,7 +5864,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Mage"
     ],
     "pendingPowerLevel": null,
-    "password": "123456",
     "screenshots": [
       "https://kain7.com/screenshot/1612"
     ],
@@ -6059,7 +5940,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "spiritEnhancements": {},
     "createdAt": 1789157611715,
     "statScreenshotUrl": null,
-    "password": "123456",
     "statRejectionAt": null,
     "pendingSpiritEnhancements": null,
     "level": 79,
@@ -6084,7 +5964,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingLegendAgathions": null,
     "createdAt": 1789157611723,
     "pendingSpiritEnhancements": null,
-    "password": "123456",
     "classes": [
       "Dual Blades",
       "Priest",
@@ -6132,7 +6011,6 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "pendingStatScreenshotUrl": null,
     "level": 79,
     "pendingClasses": null,
-    "password": "123456",
     "screenshots": [
       "https://kain7.com/screenshot/1828"
     ],
@@ -6556,8 +6434,7 @@ export const REAL_BACKUP_MEMBERS: User[] = [
     "role": "owner",
     "inGameName": "Eloni",
     "kain7Id": "121",
-    "pendingLegendAgathions": null,
-    "password": "0386231334"
+    "pendingLegendAgathions": null
   }
 ];
 

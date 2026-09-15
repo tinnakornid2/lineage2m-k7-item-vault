@@ -8,7 +8,9 @@ if (!fs.existsSync(snapPath)) {
 }
 
 const snap = JSON.parse(fs.readFileSync(snapPath, 'utf8'));
-const users = snap.collections?.users || [];
+// Offline data is compiled into the public browser bundle. Keep only fields
+// that are safe to publish; authentication secrets must never be embedded.
+const users = (snap.collections?.users || []).map(({ password, ...profile }) => profile);
 const clans = snap.collections?.clans || [];
 const queues = snap.collections?.item_queues || [];
 

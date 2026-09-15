@@ -1,5 +1,5 @@
 # 📋 PROJECT HANDOVER & WORK CONTINUATION GUIDE
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.8.0)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.9.0)**  
 > **Last Updated:** 2026-09-12  
 > **Repository:** `tinnakornid2/lineage2m-k7-item-vault`  
 > **Live Web App:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)  
@@ -15,14 +15,13 @@
 ## 🔑 ข้อมูลบัญชีและสิทธิ์สำคัญ (Credentials & Permissions)
 1. **บัญชีเจ้าของระบบ (Owner Account):**
    - **Username:** `eloni` (หรือ `Eloni`)
-   - **Password:** `0386231334`
-   - **ID ในระบบ:** `user_owner_eloni`
+   - **Authentication:** จัดการผ่าน Firebase Authentication; ห้ามบันทึกรหัสผ่านใน repository / Managed by Firebase Authentication; never store passwords in the repository.
+   - **ID ในระบบ:** ต้องตรงกับ Firebase Auth UID / Must match the Firebase Auth UID.
    - **Role:** `owner` (มีระบบคุ้มครอง Immutable Protection ห้ามลดขั้นเป็น member)
    - **สิทธิ์:** เข้าถึงทุกฟังก์ชัน, ตั้งค่า Gemini AI Key, อนุมัติสเตตัส/สมาชิก, สลับบทบาทสมาชิก, ศูนย์รีเซ็ตระบบ
 2. **ระดับสิทธิ์ผู้ใช้ (User Roles):**
    - `'owner'` : เจ้าของระบบ / หัวหน้ากิลด์สูงสุด
    - `'admin'` : ผู้ดูแลระบบ
-   - `'manager'` : ผู้จัดการแคลน
    - `'party_leader'` : หัวหน้าปาร์ตี้ / 👑 Leader
    - `'member'` : สมาชิกทั่วไป
 
@@ -124,10 +123,10 @@ npm run dev
 ## 💬 ข้อความตัวอย่างสำหรับ Copy ไปเริ่มในห้องแชทใหม่:
 ```
 โปรดอ่านไฟล์ SYSTEM_ARCHITECTURE.md, AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
-ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.8.0)
-- บัญชี Owner: Eloni (รหัสผ่าน 0386231334)
+ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.9.0)
+- บัญชี Owner: Eloni (รหัสผ่านจัดการผ่าน Firebase Authentication และไม่บันทึกใน repository / Password managed by Firebase Authentication and not stored in the repository)
 - Live URL: https://lineage2m-k7-item-vault.vercel.app/
-- สถานะล่าสุด (v1.8.0):
+- สถานะล่าสุด (v1.9.0):
   1. แก้ไขบั๊กการลบแคลน (Clan Deletion) ถาวร ไม่ฟื้นคืนชีพจากการ hardcode official clans
   2. เพิ่มระบบตรวจสอบสเตตัสก่อนเคลมไอเทม (Stat Requirement Before Claim) สมาชิกต้องอัปเดตสเตตัส Kain7 และผ่านการอนุมัติก่อน
   3. แบนเนอร์และโมดอลแจ้งเตือนผู้เล่นที่ยังไม่อัปเดตสเตตัส พร้อมปุ่มนำทางไปหน้า "สเตตัสของฉัน" ทันที

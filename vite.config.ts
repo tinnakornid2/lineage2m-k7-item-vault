@@ -72,12 +72,36 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalizedId = id.replace(/\\/g, '/');
+            if (!normalizedId.includes('/node_modules/')) return undefined;
+            if (normalizedId.includes('/firebase/') || normalizedId.includes('/@firebase/')) {
+              return 'firebase';
+            }
+            if (
+              normalizedId.includes('/react/') ||
+              normalizedId.includes('/react-dom/') ||
+              normalizedId.includes('/lucide-react/') ||
+              normalizedId.includes('/motion/')
+            ) {
+              return 'ui-vendor';
+            }
+            return 'vendor';
+          },
+        },
+      },
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // Do not modifyâ€”file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      watch: process.env.DISABLE_HMR === 'true' ? null : {
+        ignored: ['**/scratch/**', '**/tests/**', '**/.git/**', '**/backups/**']
+      },
     },
   };
 });

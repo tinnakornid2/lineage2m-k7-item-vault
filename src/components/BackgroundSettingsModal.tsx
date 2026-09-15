@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Language } from '../types';
 import { sounds } from '../utils/sound';
+import { getCurrentUserIdToken } from '../services/firebase';
 
 export interface BackgroundConfig {
   imageUrl: string;
@@ -129,28 +130,20 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
     try {
       const compressedDataUrl = await compressImage(file);
 
-      // 1. Update UI and sync globally to Firestore if Admin/Owner
-      const updatedConfig = {
-        ...config,
-        imageUrl: compressedDataUrl
-      };
-      onChangeConfig(updatedConfig, isAdminOrOwner);
-
-      // 2. Also try writing to local server cache
-      try {
-        const res = await fetch('/api/save-background', {
+      const token = await getCurrentUserIdToken();
+      const res = await fetch('/api/save-background', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
           body: JSON.stringify({ imageBase64: compressedDataUrl })
-        });
-        const data = await res.json();
-        if (data.url) {
-          const serverConfig = { ...updatedConfig, imageUrl: data.url };
-          onChangeConfig(serverConfig, isAdminOrOwner);
-        }
-      } catch {
-        // base64 in Firestore works seamlessly across all clients
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        throw new Error(data.message || 'Upload failed');
       }
+      onChangeConfig({ ...config, imageUrl: data.url }, isAdminOrOwner);
 
       sounds.playClaim();
       setIsUploading(false);
@@ -158,7 +151,7 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
       setTimeout(() => setUploadSuccess(false), 3500);
     } catch {
       setIsUploading(false);
-      setErrorMessage(lang === 'th' ? 'เกิดข้อผิดพลาดในการประมวลผลรูปภาพ' : 'Image processing failed');
+      setErrorMessage(lang === 'th' ? 'อัปโหลดรูปพื้นหลังไม่สำเร็จ กรุณาตรวจการเชื่อมต่อและสิทธิ์' : 'Background upload failed. Check your connection and permissions.');
     }
   };
 
@@ -555,4 +548,3 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
     </div>
   );
 };
-

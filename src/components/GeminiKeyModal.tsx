@@ -15,13 +15,13 @@ import {
 import { Language } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
-import { saveGeminiAiSettingsDoc } from '../services/firebase';
+import { getCurrentUserIdToken } from '../services/firebase';
 
 interface GeminiKeyModalProps {
   isOpen: boolean;
   onClose: () => void;
   lang: Language;
-  onKeySaved?: (key: string) => void;
+  onKeySaved?: () => void;
   isOwner?: boolean;
 }
 
@@ -47,22 +47,18 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
     maskedKey: string | null;
   }>({ configured: false, maskedKey: null });
 
-  // Load status and local key on modal open
+  // Load backend status on modal open. API keys are never stored in browser storage.
   useEffect(() => {
     if (!isOpen) return;
-
-    // Load from localStorage if present
-    const localKey = localStorage.getItem('k7_gemini_api_key') || '';
-    if (localKey && !apiKey) {
-      setApiKey(localKey);
-    }
 
     // Check server or local status
     const isLocalhost = typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
     if (isLocalhost) {
-      fetch('/api/gemini-status')
+      getCurrentUserIdToken().then((token) => fetch('/api/gemini-status', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      }))
         .then((res) => res.text())
         .then((text) => {
           if (text && !text.trim().startsWith('<')) {
@@ -89,18 +85,12 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
           console.warn('Could not fetch gemini-status:', err);
         });
     } else {
-      if (localKey && localKey.length > 10) {
-        setServerStatus({
-          configured: true,
-          maskedKey: `${localKey.slice(0, 6)}...${localKey.slice(-4)}`
-        });
-        setStatus({
-          type: 'success',
-          message: lang === 'th'
-            ? `ระบบเชื่อมต่อ Gemini AI เรียบร้อยแล้ว (${localKey.slice(0, 6)}...${localKey.slice(-4)})`
-            : `Gemini AI is connected and active (${localKey.slice(0, 6)}...${localKey.slice(-4)})`
-        });
-      }
+      setStatus({
+        type: 'error',
+        message: lang === 'th'
+          ? 'การตั้งค่า API Key ต้องดำเนินการผ่าน Backend ที่ปลอดภัย'
+          : 'API keys must be configured through a secure backend.'
+      });
     }
   }, [isOpen, lang]);
 
@@ -134,9 +124,13 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
       if (isLocalhost) {
         // Try local Express backend first
         try {
+          const token = await getCurrentUserIdToken();
           const res = await fetch('/api/save-gemini-key', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
             body: JSON.stringify({ apiKey: cleanKey })
           });
 
@@ -151,35 +145,20 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
             }
           }
         } catch {
-          // Fall through to direct verification below
+          errorMessage = lang === 'th'
+            ? 'ไม่สามารถเชื่อมต่อ Backend ที่ปลอดภัยได้'
+            : 'Unable to connect to the secure backend.';
         }
       }
 
-      // If on deployed site (Vercel) or server returned HTML, test directly with Google Gemini API
-      if (!isKeyValid && !errorMessage) {
-        try {
-          const testRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`
-          );
-          const testData = await testRes.json();
-          if (testRes.ok && testData.models) {
-            isKeyValid = true;
-          } else {
-            const googleMsg = testData?.error?.message || '';
-            errorMessage = googleMsg || (lang === 'th' ? 'API Key ไม่ถูกต้อง หรือถูกจำกัดการเข้าถึง' : 'Invalid API Key or access restricted');
-          }
-        } catch (apiErr: any) {
-          errorMessage = apiErr?.message || (lang === 'th' ? 'ไม่สามารถเชื่อมต่อกับ Google Gemini API ได้' : 'Failed to connect to Google Gemini API');
-        }
+      if (!isLocalhost && !errorMessage) {
+        errorMessage = lang === 'th'
+          ? 'ไม่อนุญาตให้ตรวจสอบ API Key โดยตรงจาก Browser'
+          : 'Direct API-key verification from the browser is disabled.';
       }
 
       if (isKeyValid) {
-        // Save to localStorage as backup
-        localStorage.setItem('k7_gemini_api_key', cleanKey);
-        // Sync to Firestore for all admins & users
-        await saveGeminiAiSettingsDoc(cleanKey, 'Owner').catch((e) => console.warn('Firestore sync notice:', e));
-        
-        const masked = serverMaskedKey || `${cleanKey.slice(0, 6)}...${cleanKey.slice(-4)}`;
+        const masked = serverMaskedKey;
         setServerStatus({
           configured: true,
           maskedKey: masked
@@ -191,7 +170,7 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
             : '✅ Gemini API Key verified & connected successfully!'
         });
         sounds.playClaim();
-        if (onKeySaved) onKeySaved(cleanKey);
+        if (onKeySaved) onKeySaved();
       } else {
         setStatus({
           type: 'error',
@@ -211,8 +190,6 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
   };
 
   const handleClearKey = async () => {
-    localStorage.removeItem('k7_gemini_api_key');
-    saveGeminiAiSettingsDoc('', 'Owner').catch(() => {});
     setApiKey('');
     setServerStatus({ configured: false, maskedKey: null });
     setStatus({

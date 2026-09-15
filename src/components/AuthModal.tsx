@@ -9,15 +9,16 @@ import {
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
-import { CharacterClass, Language, User as UserType, CHARACTER_CLASSES, cleanClanName, DEFAULT_CLAN } from '../types';
+import { Language, User as UserType } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { registrationErrorMessage, validateRegistration } from '../utils/registration';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   lang: Language;
-  onLogin: (user: UserType) => void;
+  onLogin: (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
   onRegister: (newUser: Partial<UserType>) => Promise<{ success: boolean; message?: string }>;
   users: UserType[];
 }
@@ -42,40 +43,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [regUsername, setRegUsername] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regInGameName, setRegInGameName] = useState('');
-  const [regPowerLevel, setRegPowerLevel] = useState('');
-  const [regClan, setRegClan] = useState('VoltZ');
-  const [regClass, setRegClass] = useState<CharacterClass>('Orb');
   const [regSuccessMessage, setRegSuccessMessage] = useState('');
   const [regError, setRegError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleLoginSubmit = (e?: React.FormEvent | React.KeyboardEvent) => {
+  const handleLoginSubmit = async (e?: React.FormEvent | React.KeyboardEvent) => {
     if (e) {
       e.preventDefault();
     }
     setLoginError('');
 
-    const found = users.find(
-      (u) =>
-        u.username.toLowerCase() === loginUser.trim().toLowerCase() &&
-        u.password === loginPass
-    );
-
-    if (!found) {
-      setLoginError(t.invalidCredentials);
-      return;
+    setIsSubmitting(true);
+    try {
+      const result = await onLogin(loginUser.trim(), loginPass);
+      if (!result.success) {
+        setLoginError(result.message || t.invalidCredentials);
+        return;
+      }
+      sounds.playClaim();
+      onClose();
+    } finally {
+      setIsSubmitting(false);
     }
-
-    if (found.status === 'pending_approval') {
-      setLoginError(t.pendingApprovalDesc);
-      return;
-    }
-
-    sounds.playClaim();
-    onLogin(found);
-    onClose();
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -83,8 +74,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setRegError('');
     setRegSuccessMessage('');
 
-    if (!regUsername.trim() || !regPassword.trim() || !regInGameName.trim()) {
-      setRegError(lang === 'th' ? 'กรุณากรอกข้อมูลสำคัญให้ครบถ้วน' : 'Please fill all required fields');
+    const invalidField = validateRegistration(regUsername, regPassword, regInGameName);
+    if (invalidField) {
+      setRegError(registrationErrorMessage(invalidField, lang));
       return;
     }
 
@@ -103,12 +95,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         username: regUsername.trim(),
         password: regPassword,
         inGameName: regInGameName.trim(),
-        powerLevel: 0,
-        clan: 'no-clan',
-        characterClass: '',
-        classes: [],
-        role: 'member',
-        status: 'pending_approval',
       });
 
       if (result.success) {
@@ -118,7 +104,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setRegUsername('');
         setRegPassword('');
         setRegInGameName('');
-        setRegPowerLevel('');
       } else {
         setRegError(result.message || t.error);
       }
@@ -300,6 +285,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 id="input-reg-username"
                 type="text"
                 required
+                minLength={3}
+                maxLength={40}
                 value={regUsername}
                 onChange={(e) => setRegUsername(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-[#0a0e17] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none"
@@ -315,6 +302,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 id="input-reg-password"
                 type="password"
                 required
+                minLength={6}
+                maxLength={128}
                 value={regPassword}
                 onChange={(e) => setRegPassword(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-[#0a0e17] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none"
@@ -330,6 +319,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 id="input-reg-ingamename"
                 type="text"
                 required
+                maxLength={60}
                 value={regInGameName}
                 onChange={(e) => setRegInGameName(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-[#0a0e17] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none"

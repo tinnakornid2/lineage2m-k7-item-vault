@@ -39,8 +39,7 @@ export const ClanRosterView: React.FC<ClanRosterViewProps> = ({
   const t = translations[lang];
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
-    currentUser?.role === 'admin' ||
-    currentUser?.role === 'manager';
+    currentUser?.role === 'admin';
 
   const [searchQuery, setSearchQuery] = useState('');
 

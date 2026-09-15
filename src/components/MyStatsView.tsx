@@ -19,13 +19,11 @@ import {
   UserCheck,
   HelpCircle,
   Check,
-  ChevronDown,
-  Lock,
   Eye,
   Maximize2,
   ExternalLink
 } from 'lucide-react';
-import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint, ClanGroup, UserRole, UserStatus, cleanClanName, OFFICIAL_CLANS } from '../types';
+import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint } from '../types';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
@@ -35,7 +33,6 @@ import { GrowthTimelineChart } from './GrowthTimelineChart';
 interface MyStatsViewProps {
   currentUser: User | null;
   lang: 'th' | 'en';
-  clans?: ClanGroup[];
   onUpdateMember?: (userId: string, updates: Partial<User>) => Promise<void>;
   onRequestStatUpdate: (
     userId: string,
@@ -49,9 +46,6 @@ interface MyStatsViewProps {
       legendClasses?: number;
       legendAgathions?: number;
       inGameName?: string;
-      role?: UserRole;
-      status?: UserStatus;
-      clan?: string;
     }
   ) => Promise<void>;
   onCancelPendingRequest?: (userId: string) => Promise<void>;
@@ -64,7 +58,6 @@ interface MyStatsViewProps {
 export const MyStatsView: React.FC<MyStatsViewProps> = ({
   currentUser,
   lang,
-  clans,
   onUpdateMember,
   onRequestStatUpdate,
   onCancelPendingRequest,
@@ -96,42 +89,13 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const [charLegendClasses, setCharLegendClasses] = useState<number>(0);
   const [charLegendAgathions, setCharLegendAgathions] = useState<number>(0);
 
-  // Security & Permissions: Only Owner and Admin can edit Role, Status, and Clan
-  const isOwner = currentUser?.role === 'owner' || currentUser?.id === 'user_owner_eloni' || currentUser?.username?.toLowerCase() === 'eloni' || currentUser?.inGameName?.toLowerCase() === 'eloni';
-  const isAdmin = currentUser?.role === 'admin';
-  const canEditAdminFields = isOwner || isAdmin;
-
-  // Profile Identity & Placement State (matching user image)
+  // Profile identity. Authority and clan placement are managed elsewhere.
   const [inGameName, setInGameName] = useState<string>(currentUser?.inGameName || '');
-  const [selectedRole, setSelectedRole] = useState<UserRole>(isOwner ? 'owner' : (currentUser?.role || 'member'));
-  const [isActiveStatus, setIsActiveStatus] = useState<boolean>(currentUser?.status === 'active');
-  const [selectedClan, setSelectedClan] = useState<string>(currentUser?.clan || 'VoltZ');
 
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-
-  // Available Clan Options
-  const clanOptions = useMemo(() => {
-    const list: string[] = [];
-    if (clans && clans.length > 0) {
-      clans.forEach((c) => {
-        const name = cleanClanName(c.name);
-        if (name && !list.includes(name)) list.push(name);
-      });
-    } else {
-      OFFICIAL_CLANS.forEach((c) => {
-        const name = cleanClanName(c.name);
-        if (name && !list.includes(name)) list.push(name);
-      });
-    }
-    if (currentUser?.clan) {
-      const cur = cleanClanName(currentUser.clan);
-      if (cur && !list.includes(cur)) list.push(cur);
-    }
-    return list;
-  }, [clans, currentUser?.clan]);
 
   // Synchronize stats and profile from currentUser
   useEffect(() => {
@@ -157,11 +121,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
       setScreenshotUrl(currentUser.pendingStatScreenshotUrl || currentUser.statScreenshotUrl || '');
 
       // Profile fields
-      const isOwnerAcc = currentUser.role === 'owner' || currentUser.id === 'user_owner_eloni' || currentUser.username?.toLowerCase() === 'eloni' || currentUser.inGameName?.toLowerCase() === 'eloni';
       setInGameName(currentUser.inGameName || '');
-      setSelectedRole(isOwnerAcc ? 'owner' : (currentUser.role || 'member'));
-      setIsActiveStatus(currentUser.status === 'active');
-      setSelectedClan(currentUser.clan || 'VoltZ');
 
       // Character Profile (classes, level, legends)
       const initialClasses = currentUser.pendingClasses !== undefined && currentUser.pendingClasses !== null
@@ -312,121 +272,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     );
   };
 
-  const isLeader = isOwner || selectedRole === 'party_leader' || selectedRole === 'manager' || selectedRole === 'admin' || selectedRole === 'owner';
-
-  const handleRoleChange = async (type: 'member' | 'leader') => {
-    sounds.playClick();
-    if (!canEditAdminFields) {
-      if (showToast) {
-        showToast(
-          lang === 'th'
-            ? '🔒 สิทธิ์นี้เฉพาะ Owner และ Admin เท่านั้น'
-            : '🔒 Only Owner and Admin can change roles',
-          'warning'
-        );
-      }
-      return;
-    }
-
-    if (isOwner) {
-      if (type === 'member') {
-        if (showToast) {
-          showToast(
-            lang === 'th'
-              ? '👑 บัญชี Owner เป็นหัวหน้ากิลด์สูงสุด ไม่สามารถเปลี่ยนเป็น Member ได้'
-              : '👑 Owner is the supreme leader and cannot be changed to Member',
-            'warning'
-          );
-        }
-        return;
-      }
-      setSelectedRole('owner');
-      return;
-    }
-
-    let newRole: UserRole = 'member';
-    if (type === 'leader') {
-      newRole = (currentUser.role === 'admin' || currentUser.role === 'manager')
-        ? currentUser.role
-        : 'party_leader';
-    }
-    setSelectedRole(newRole);
-    if (onUpdateMember) {
-      try {
-        await onUpdateMember(currentUser.id, { role: newRole });
-        if (showToast) {
-          showToast(
-            type === 'leader'
-              ? (lang === 'th' ? 'เปลี่ยนบทบาทเป็น 👑 Leader เรียบร้อยแล้ว' : 'Role set to 👑 Leader')
-              : (lang === 'th' ? 'เปลี่ยนบทบาทเป็น Member เรียบร้อยแล้ว' : 'Role set to Member'),
-            'info'
-          );
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    }
-  };
-
-  const handleToggleStatus = async () => {
-    sounds.playClick();
-    if (!canEditAdminFields) {
-      if (showToast) {
-        showToast(
-          lang === 'th'
-            ? '🔒 สิทธิ์นี้เฉพาะ Owner และ Admin เท่านั้น'
-            : '🔒 Only Owner and Admin can change status',
-          'warning'
-        );
-      }
-      return;
-    }
-    const nextStatus = !isActiveStatus;
-    setIsActiveStatus(nextStatus);
-    if (onUpdateMember) {
-      try {
-        await onUpdateMember(currentUser.id, { status: nextStatus ? 'active' : 'pending_approval' });
-        if (showToast) {
-          showToast(
-            nextStatus
-              ? (lang === 'th' ? 'สถานะ: Active (เปิดใช้งาน)' : 'Status: Active')
-              : (lang === 'th' ? 'สถานะ: Inactive (ระงับชั่วคราว)' : 'Status: Inactive'),
-            'info'
-          );
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    }
-  };
-
-  const handleClanChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    sounds.playClick();
-    if (!canEditAdminFields) {
-      if (showToast) {
-        showToast(
-          lang === 'th'
-            ? '🔒 สิทธิ์นี้เฉพาะ Owner และ Admin เท่านั้น'
-            : '🔒 Only Owner and Admin can change clan',
-          'warning'
-        );
-      }
-      return;
-    }
-    const newClan = e.target.value;
-    setSelectedClan(newClan);
-    if (onUpdateMember) {
-      try {
-        await onUpdateMember(currentUser.id, { clan: newClan });
-        if (showToast) {
-          showToast(lang === 'th' ? `เปลี่ยนสังกัดแคลนเป็น ${newClan} แล้ว` : `Clan set to ${newClan}`, 'success');
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    }
-  };
-
   const handleIgnBlur = async () => {
     const trimmed = inGameName.trim();
     if (!trimmed || trimmed === currentUser.inGameName) return;
@@ -479,9 +324,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
         screenshotUrl || undefined,
         {
           inGameName: inGameName.trim() || currentUser.inGameName,
-          role: isOwner ? 'owner' : (canEditAdminFields ? selectedRole : currentUser.role),
-          status: canEditAdminFields ? (isActiveStatus ? 'active' : 'pending_approval') : currentUser.status,
-          clan: canEditAdminFields ? selectedClan : currentUser.clan,
           classes: selectedClasses,
           level: charLevel,
           legendClasses: charLegendClasses,
@@ -743,8 +585,8 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                   </h2>
                   <p className="text-xs text-zinc-400 mt-0.5 leading-relaxed">
                     {lang === 'th'
-                      ? 'ตัวตน บทบาท สังกัดแคลน และสถานะของตัวละคร'
-                      : 'Identity, role, clan placement, and profile-level settings.'}
+                      ? 'ชื่อประจำตัวละครที่ใช้ในเกม'
+                      : 'Your character identity used in game.'}
                   </p>
                 </div>
               </div>
@@ -763,146 +605,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                     placeholder={currentUser?.inGameName || 'IGN'}
                     className="w-full px-4 py-2.5 rounded-xl bg-zinc-750/70 border border-zinc-700 text-white font-bold text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all placeholder:text-zinc-500 shadow-inner"
                   />
-                </div>
-
-                {/* 2. Role Selector (Member vs 👑 Leader) */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="font-semibold text-zinc-200 text-xs sm:text-sm">
-                      {lang === 'th' ? 'บทบาท' : 'Role'} <span className="text-rose-500 font-bold">*</span>
-                    </label>
-                    <span className={`text-[10px] flex items-center gap-1 font-medium ${canEditAdminFields ? 'text-amber-400/90' : 'text-zinc-400'}`}>
-                      <Lock className="size-2.5" />
-                      {lang === 'th' ? 'เฉพาะ Owner / Admin' : 'Owner / Admin only'}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <button
-                      type="button"
-                      disabled={!canEditAdminFields || isOwner}
-                      onClick={() => handleRoleChange('member')}
-                      title={
-                        !canEditAdminFields
-                          ? (lang === 'th' ? 'เฉพาะ Owner และ Admin เท่านั้นที่สามารถเปลี่ยนบทบาทได้' : 'Only Owner and Admin can change roles')
-                          : (isOwner ? (lang === 'th' ? 'บัญชี Owner เป็นหัวหน้ากิลด์สูงสุด ไม่สามารถเปลี่ยนเป็น Member ได้' : 'Owner cannot be Member') : undefined)
-                      }
-                      className={`py-2.5 px-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center shadow-sm ${
-                        !canEditAdminFields || isOwner
-                          ? 'cursor-not-allowed opacity-60'
-                          : 'cursor-pointer'
-                      } ${
-                        !isLeader
-                          ? 'border-2 border-zinc-300 bg-zinc-750 text-white'
-                          : 'border border-zinc-700 bg-zinc-800/80 text-zinc-400 hover:bg-zinc-750 hover:text-white'
-                      }`}
-                    >
-                      Member
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!canEditAdminFields}
-                      onClick={() => handleRoleChange('leader')}
-                      title={
-                        !canEditAdminFields
-                          ? (lang === 'th' ? 'เฉพาะ Owner และ Admin เท่านั้นที่สามารถเปลี่ยนบทบาทได้' : 'Only Owner and Admin can change roles')
-                          : undefined
-                      }
-                      className={`py-2.5 px-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-1.5 shadow-sm ${
-                        !canEditAdminFields
-                          ? 'cursor-not-allowed opacity-60'
-                          : 'cursor-pointer'
-                      } ${
-                        isLeader
-                          ? 'border-2 border-[#eab308] bg-zinc-800/90 text-white shadow-[0_0_12px_rgba(234,179,8,0.25)]'
-                          : 'border border-zinc-700 bg-zinc-800/80 text-zinc-400 hover:bg-zinc-750 hover:text-amber-300'
-                      }`}
-                    >
-                      <span>👑</span> Leader
-                    </button>
-                  </div>
-                </div>
-
-                {/* 3. Status Switch */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="font-semibold text-zinc-200 text-xs sm:text-sm">
-                      {lang === 'th' ? 'สถานะ' : 'Status'}
-                    </label>
-                    <span className={`text-[10px] flex items-center gap-1 font-medium ${canEditAdminFields ? 'text-amber-400/90' : 'text-zinc-400'}`}>
-                      <Lock className="size-2.5" />
-                      {lang === 'th' ? 'เฉพาะ Owner / Admin' : 'Owner / Admin only'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 pt-0.5">
-                    <button
-                      type="button"
-                      role="switch"
-                      disabled={!canEditAdminFields}
-                      aria-checked={isActiveStatus}
-                      onClick={handleToggleStatus}
-                      title={
-                        !canEditAdminFields
-                          ? (lang === 'th' ? 'เฉพาะ Owner และ Admin เท่านั้นที่สามารถเปลี่ยนสถานะได้' : 'Only Owner and Admin can change status')
-                          : undefined
-                      }
-                      className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        !canEditAdminFields ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-                      } ${
-                        isActiveStatus ? 'bg-emerald-500' : 'bg-zinc-650'
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block size-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                          isActiveStatus ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                    <span
-                      onClick={canEditAdminFields ? handleToggleStatus : undefined}
-                      className={`text-sm font-bold text-white select-none ${
-                        canEditAdminFields ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'
-                      }`}
-                    >
-                      {isActiveStatus
-                        ? (lang === 'th' ? 'Active' : 'Active')
-                        : (lang === 'th' ? 'Inactive' : 'Inactive')}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 4. Clan Selector */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="font-semibold text-zinc-200 text-xs sm:text-sm">
-                      {lang === 'th' ? 'สังกัดแคลน' : 'Clan'}
-                    </label>
-                    <span className={`text-[10px] flex items-center gap-1 font-medium ${canEditAdminFields ? 'text-amber-400/90' : 'text-zinc-400'}`}>
-                      <Lock className="size-2.5" />
-                      {lang === 'th' ? 'เฉพาะ Owner / Admin' : 'Owner / Admin only'}
-                    </span>
-                  </div>
-                  <div className="relative">
-                    <select
-                      value={selectedClan}
-                      disabled={!canEditAdminFields}
-                      onChange={handleClanChange}
-                      title={
-                        !canEditAdminFields
-                          ? (lang === 'th' ? 'เฉพาะ Owner และ Admin เท่านั้นที่สามารถเปลี่ยนสังกัดแคลนได้' : 'Only Owner and Admin can change clan')
-                          : undefined
-                      }
-                      className={`w-full appearance-none rounded-xl bg-zinc-750/70 border border-zinc-700 px-4 py-2.5 text-sm font-medium text-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all pr-10 shadow-inner ${
-                        !canEditAdminFields ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-                      }`}
-                    >
-                      {clanOptions.map((cName) => (
-                        <option key={cName} value={cName} className="bg-zinc-800 text-white font-medium">
-                          {cName}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 size-4 text-zinc-400" />
-                  </div>
                 </div>
               </div>
             </div>

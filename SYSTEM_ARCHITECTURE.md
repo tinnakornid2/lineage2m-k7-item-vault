@@ -1,5 +1,5 @@
 # 🏛️ SYSTEM_ARCHITECTURE.md — สถาปัตยกรรมระบบและคู่มือป้องกันโค้ดเสียหาย
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.8.0)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v1.9.0)**  
 > **Last Updated:** 2026-09-12  
 > **Live Production:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)  
 > **Repository:** `tinnakornid2/lineage2m-k7-item-vault`
@@ -38,7 +38,7 @@
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   ```
   *⚠️ บน Vercel ไม่มี Express backend รันอยู่ (`!isLocalhost`) ระบบต้องเรียก `runDirectGeminiClientOcr` จากฝั่ง Client โดยตรง ห้ามพยายามส่ง POST ไปยัง `/api/scan-hunters` บน Vercel เพราะจะได้ผลตอบกลับเป็นหน้าเว็บ HTML (`index.html`)*
-- **การดึงคีย์กลาง (Cloud Sync):** ดึงคีย์อัตโนมัติจาก Firestore `app_settings/gemini_ai` ผ่าน `listenToGeminiAiSettings` พร้อมสำรองใน `DEFAULT_GEMINI_API_KEY` ห้ามลบตัวแปรสำรองนี้
+- **การดึงคีย์กลาง (Server-only Sync):** Backend อ่านคีย์จาก Firestore `app_settings/gemini_ai`; Security Rules ปิดกั้น Browser และมีเฉพาะ Owner ที่เปลี่ยนคีย์ผ่าน API ได้
 
 ### 1.2 กฎเหล็กระบบสองภาษา 100% (Rule 1: Bilingual Compliance)
 - **ห้าม Hardcode ภาษาเดียวในทุกจุดของ UI:**
@@ -128,8 +128,8 @@ graph TD
     A --> D[DashboardView.tsx - Overview & Quick Stats]
     A --> E[VaultView.tsx - Boss Loot & AI OCR Scanner]
     A --> F[QueueView.tsx - Item Priority Queue]
-    A --> G[MembersView.tsx - Roster & Role Manager]
-    A --> H[ClanView.tsx - Drag & Drop Clan Manager]
+    A --> G[MembersView.tsx - Roster & Role Administration]
+    A --> H[ClanView.tsx - Drag & Drop Clan Administration]
     A --> I[MyStatsView.tsx - Growth & Proof Inspector]
 
     %% Modals
@@ -172,6 +172,6 @@ graph TD
 ---
 
 ## 💾 5. ข้อมูลการสำรองระบบ (System Backups Registry)
-- **ไฟล์ Source Code Backup:** `backup-v1.8.0-stable.zip` (ขนาด ~4.0 MB ครอบคลุม Source Code, สคริปต์, คอนฟิก และเอกสารทั้งหมด)
-- **ไฟล์ Database Snapshot:** `backups/firestore_snapshot_v1.8.0.json` และ `backups/firestore_snapshot_latest.json` (สำรองข้อมูล Users, Clans, Item Queues, และ Settings จาก Cloud Firestore ทั้งหมด 100%)
+- **ไฟล์ Source Code Backup:** `backup-v1.9.0-stable.zip` (ขนาด ~4.0 MB ครอบคลุม Source Code, สคริปต์, คอนฟิก และเอกสารทั้งหมด)
+- **ไฟล์ Database Snapshot:** `backups/firestore_snapshot_v1.9.0.json` และ `backups/firestore_snapshot_latest.json` (สำรองข้อมูล Users, Clans, Item Queues, และ Settings จาก Cloud Firestore ทั้งหมด 100%)
 - **การกู้คืนข้อมูล (Restore):** ใช้สคริปต์ในโฟลเดอร์ `scripts/` เพื่อกู้คืนฐานข้อมูลหากเกิดเหตุฉุกเฉิน

@@ -51,9 +51,8 @@ import { compressImageFile } from '../utils/imageCompressor';
 import { DistributionStatsModal } from './DistributionStatsModal';
 import { GeminiKeyModal } from './GeminiKeyModal';
 import {
-  listenToGeminiAiSettings,
-  saveGeminiAiSettingsDoc,
-  DEFAULT_GEMINI_API_KEY
+  getCurrentUserIdToken,
+  listenToGeminiAiSettings
 } from '../services/firebase';
 
 interface VaultViewProps {
@@ -91,8 +90,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const isOwner = currentUser?.role === 'owner';
   const isAdminOrOwner =
     isOwner ||
-    currentUser?.role === 'admin' ||
-    currentUser?.role === 'manager';
+    currentUser?.role === 'admin';
+  const canUseOcr = isOwner || currentUser?.role === 'admin';
 
   // State for in-app deletion confirmation
   const [itemToDelete, setItemToDelete] = useState<VaultItem | null>(null);
@@ -100,6 +99,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   // Form State
   const [name, setName] = useState('');
   const [price, setPrice] = useState<number | ''>('');
+  const [quantity, setQuantity] = useState<number | ''>(1);
   const [minPowerLevel, setMinPowerLevel] = useState<number | ''>('');
   const [rarity, setRarity] = useState<ItemRarity>('LAGEND');
   const [itemImageUrl, setItemImageUrl] = useState('');
@@ -115,11 +115,10 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [ocrStatusText, setOcrStatusText] = useState('');
   const [ocrErrorType, setOcrErrorType] = useState<string | null>(null);
   const [ocrScanSummary, setOcrScanSummary] = useState<{
-    type: 'scanning' | 'direct_fallback' | 'success' | 'empty' | 'duplicates_filtered' | 'no_duplicates' | 'pasted_ready' | 'missing_key' | 'error';
+    type: 'scanning' | 'success' | 'empty' | 'duplicates_filtered' | 'no_duplicates' | 'pasted_ready' | 'missing_key' | 'error';
     sourceCount?: number;
     newCount?: number;
     duplicates?: number;
-    usedDirectFallback?: boolean;
     errorReason?: 'ai_server_connect' | 'high_demand' | 'glitch' | 'missing_key' | 'custom';
     rawMsg?: string;
     errorMsg?: string;
@@ -127,7 +126,6 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [showGeminiModal, setShowGeminiModal] = useState(false);
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
   const [geminiMaskedKey, setGeminiMaskedKey] = useState<string | null>(null);
-  const [activeGeminiKey, setActiveGeminiKey] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
@@ -151,54 +149,29 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
   // Check Gemini API status and sync from Firestore in real-time
   useEffect(() => {
-    // 1. Real-time Firestore sync for shared Gemini API Key across all admins
+    // Browser clients never receive or persist Gemini API keys.
     const unsubscribe = listenToGeminiAiSettings((settings) => {
-      const key = settings?.apiKey || DEFAULT_GEMINI_API_KEY;
-      if (key && key.trim().length > 10) {
-        const clean = key.trim();
-        setActiveGeminiKey(clean);
-        setGeminiConfigured(true);
-        setGeminiMaskedKey(`${clean.slice(0, 6)}...${clean.slice(-4)}`);
-        localStorage.setItem('k7_gemini_api_key', clean);
-
-        // Auto-seed to Firestore if owner and document was empty
-        if (isOwner && !settings?.apiKey) {
-          saveGeminiAiSettingsDoc(clean, currentUser?.username || 'Owner').catch(() => {});
-        }
-      }
+      void settings;
     });
 
     // 2. Also check local backend /api/gemini-status if available
     const checkServerStatus = async () => {
-      const isLocalhost = typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-      if (isLocalhost) {
-        try {
-          const res = await fetch('/api/gemini-status');
+      try {
+          const token = await getCurrentUserIdToken();
+          const res = await fetch('/api/gemini-status', {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          });
           const text = await res.text();
           if (text && !text.trim().startsWith('<')) {
             const data = JSON.parse(text);
-            if (data?.clientKey && data.clientKey.trim().length > 10) {
-              const clean = data.clientKey.trim();
-              setActiveGeminiKey(clean);
+            if (data?.configured) {
               setGeminiConfigured(true);
-              setGeminiMaskedKey(data.maskedKey || `${clean.slice(0, 6)}...${clean.slice(-4)}`);
-              localStorage.setItem('k7_gemini_api_key', clean);
+              setGeminiMaskedKey(data.maskedKey || null);
               return;
             }
           }
-        } catch {
+      } catch {
           // Ignore and fallback below
-        }
-      }
-
-      // Fallback to localStorage or DEFAULT_GEMINI_API_KEY
-      const localKey = localStorage.getItem('k7_gemini_api_key') || DEFAULT_GEMINI_API_KEY;
-      if (localKey && localKey.length > 10) {
-        setActiveGeminiKey(localKey);
-        setGeminiConfigured(true);
-        setGeminiMaskedKey(`${localKey.slice(0, 6)}...${localKey.slice(-4)}`);
       }
     };
     checkServerStatus();
@@ -372,8 +345,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
           : 'Connecting directly to Google Gemini REST API...';
       case 'success':
         return lang === 'th'
-          ? `สแกนสำเร็จจาก ${ocrScanSummary.sourceCount || 1} รูปภาพ: พบผู้ล่าใหม่ ${ocrScanSummary.newCount || 0} คน (กรองชื่อซ้ำออก ${ocrScanSummary.duplicates || 0} คน)${ocrScanSummary.usedDirectFallback ? ' ⚡[Direct]' : ''}`
-          : `Scan successful from ${ocrScanSummary.sourceCount || 1} image(s): ${ocrScanSummary.newCount || 0} new hunters added (${ocrScanSummary.duplicates || 0} duplicates filtered)${ocrScanSummary.usedDirectFallback ? ' ⚡[Direct]' : ''}`;
+            ? `สแกนสำเร็จจาก ${ocrScanSummary.sourceCount || 1} รูปภาพ: พบผู้ล่าใหม่ ${ocrScanSummary.newCount || 0} คน (กรองชื่อซ้ำออก ${ocrScanSummary.duplicates || 0} คน)`
+            : `Scan successful from ${ocrScanSummary.sourceCount || 1} image(s): ${ocrScanSummary.newCount || 0} new hunters added (${ocrScanSummary.duplicates || 0} duplicates filtered)`;
       case 'empty':
         return lang === 'th'
           ? `สแกน ${ocrScanSummary.sourceCount || 1} รูปภาพแล้ว แต่ไม่พบรายชื่อผู้ล่าที่ตรงกับกิลด์ในระบบ สามารถเลือกจากรายการเช็คลิสต์ด้านล่างได้`
@@ -605,138 +578,14 @@ export const VaultView: React.FC<VaultViewProps> = ({
     }
   };
 
-  // Direct client-side Google Gemini REST API fallback
-  const runDirectGeminiClientOcr = async (
-    base64Images: string[],
-    knownList: any[],
-    apiKey: string
-  ): Promise<{ success: boolean; data?: any; error?: string }> => {
-    const candidateModels = [
-      "gemini-flash-latest",
-      "gemini-3.5-flash",
-      "gemini-3.1-flash-lite",
-      "gemini-flash-lite-latest",
-      "gemini-3-flash-preview",
-      "gemini-3.6-flash"
-    ];
-
-    const imageParts = base64Images.slice(0, 8).map((img) => {
-      const cleanBase64 = img.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
-      const mimeType = img.match(/^data:(image\/[a-zA-Z]+);base64,/)?.[1] || 'image/jpeg';
-      return {
-        inlineData: {
-          mimeType,
-          data: cleanBase64
-        }
-      };
-    });
-
-    const promptText = `You are an expert OCR and game text analyzer for Lineage 2M (Lineage2M).
-Examine the attached screenshot(s) (${imageParts.length} screenshot(s) provided).
-These screenshots show boss raids, party member panels, combat damage meters, loot drops, member rosters, or chat logs.
-
-Task:
-1. Extract all unique player/character names and their Clan names visible across ALL provided screenshots. IMPORTANT: Clan names must NOT include the prefix 'Clan:', use only the pure clan name (e.g. 'VoltZ', 'LevelS').
-2. CRITICAL DEDUPLICATION RULE: Filter out duplicate player names! Each player must only appear ONCE in the final output, even if they appear in multiple screenshots or parties.
-3. Compare extracted names against the database list of known clan members below. If an OCR name closely matches a known member (accounting for minor OCR typos or font stylings), use their official inGameName and their registered clan.
-
-Database list of known guild/alliance members:
-${JSON.stringify(knownList || [], null, 2)}
-
-Output strictly a JSON object with this exact structure:
-{
-  "detectedClanGroups": [
-    {
-      "clanName": "VoltZ",
-      "members": ["Zenkaii", "Eloni"]
-    },
-    {
-      "clanName": "LevelS",
-      "members": ["DVD"]
-    }
-  ],
-  "rawNames": ["Zenkaii", "Eloni", "DVD"],
-  "duplicatesFilteredCount": 0,
-  "notes": "Recognized players across screenshots"
-}
-Do not include markdown or explanations. Return pure JSON only.`;
-
-    let lastErrorMsg = '';
-
-    for (const model of candidateModels) {
-      const maxAttempts = 2;
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [
-                {
-                  role: 'user',
-                  parts: [
-                    ...imageParts,
-                    { text: promptText }
-                  ]
-                }
-              ]
-            })
-          });
-
-          const rawText = await res.text();
-          let jsonBody: any = null;
-          try {
-            jsonBody = JSON.parse(rawText);
-          } catch {
-            throw new Error(`Invalid response format from Gemini (${res.status})`);
-          }
-
-          if (!res.ok) {
-            const apiMsg = jsonBody?.error?.message || `HTTP ${res.status}`;
-            const isBusy = res.status === 503 || res.status === 429 || apiMsg.toLowerCase().includes('high demand') || apiMsg.toLowerCase().includes('unavailable') || apiMsg.toLowerCase().includes('quota') || apiMsg.toLowerCase().includes('rate');
-            if (isBusy && attempt < maxAttempts) {
-              await new Promise((r) => setTimeout(r, 1200));
-              continue;
-            }
-            if (res.status === 404 || isBusy) {
-              lastErrorMsg = apiMsg;
-              break; // Try next candidate model
-            }
-            throw new Error(apiMsg);
-          }
-
-          const parts = jsonBody?.candidates?.[0]?.content?.parts || [];
-          const generatedText = parts.map((p: any) => p.text || '').filter(Boolean).join('\n');
-          if (!generatedText) {
-            console.warn(`Empty text returned from model ${model}, trying next...`);
-            break;
-          }
-
-          // Strip markdown code fences if present (e.g. ```json ... ```)
-          let cleanJson = generatedText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-          const match = cleanJson.match(/\{[\s\S]*\}/);
-          if (match) {
-            try {
-              const parsed = JSON.parse(match[0]);
-              return { success: true, data: parsed };
-            } catch (jsonErr) {
-              console.warn(`JSON parse error on model ${model}:`, jsonErr);
-            }
-          }
-          return { success: true, data: { detectedClanGroups: [], rawNames: [] } };
-        } catch (err: any) {
-          lastErrorMsg = err.message || 'Error contacting Gemini API';
-        }
-      }
-    }
-
-    return { success: false, error: lastErrorMsg };
-  };
-
   // Core OCR Scanner Runner
   const executeHunterOcr = async (base64Images: string[], sourceCount: number, isPaste = false) => {
     if (!base64Images || base64Images.length === 0) return;
+    if (!canUseOcr) {
+      setOcrErrorType('FORBIDDEN');
+      setOcrStatusText(lang === 'th' ? 'เฉพาะ Admin และ Owner เท่านั้นที่ใช้ OCR ได้' : 'OCR is available to Admin and Owner roles only.');
+      return;
+    }
     setIsScanningOCR(true);
     setOcrErrorType(null);
     setOcrStatusText(
@@ -746,9 +595,6 @@ Do not include markdown or explanations. Return pure JSON only.`;
     );
 
     try {
-      const localKey = localStorage.getItem('k7_gemini_api_key') || undefined;
-      const effectiveApiKey = localKey || activeGeminiKey || DEFAULT_GEMINI_API_KEY;
-
       const knownMemberList = allMembers.map((m) => ({
         inGameName: m.inGameName,
         clan: cleanClanName(m.clan) || 'VoltZ',
@@ -756,23 +602,20 @@ Do not include markdown or explanations. Return pure JSON only.`;
       }));
 
       let data: any = null;
-      let usedDirectFallback = false;
-
-      // Detect if running on localhost or on a deployed domain (Vercel)
-      const isLocalhost = typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-      if (isLocalhost) {
-        // 1. On localhost, try local Express backend server first
+      // Use the authenticated backend on localhost and deployed environments.
         try {
+          const token = await getCurrentUserIdToken();
           const response = await fetch('/api/scan-hunters', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
             body: JSON.stringify({
               imagesBase64: base64Images,
               imageBase64: base64Images[0],
-              customApiKey: effectiveApiKey,
-              knownMembers: knownMemberList
+              knownMembers: knownMemberList,
+              lang
             })
           });
 
@@ -785,46 +628,11 @@ Do not include markdown or explanations. Return pure JSON only.`;
             }
           }
         } catch (fetchErr) {
-          console.warn('Backend /api/scan-hunters fetch failed, will try direct Gemini fallback:', fetchErr);
+          console.warn('Backend /api/scan-hunters fetch failed:', fetchErr);
           data = null;
         }
-      }
 
-      // 2. If not localhost (deployed on Vercel), or local backend failed/high demand, run Direct Client-Side Gemini
-      const shouldFallbackDirect =
-        !isLocalhost ||
-        !data ||
-        (data.error === 'GEMINI_ERROR' &&
-          (data.message?.includes('หนาแน่น') ||
-            data.message?.includes('high demand') ||
-            data.message?.includes('503'))) ||
-        !data.success;
-
-      if (shouldFallbackDirect && effectiveApiKey) {
-        setOcrStatusText(
-          lang === 'th'
-            ? '🔄 กำลังประมวลผลผ่าน Google Gemini AI Direct...'
-            : '🔄 Processing via Direct Google Gemini AI...'
-        );
-        const directResult = await runDirectGeminiClientOcr(base64Images, knownMemberList, effectiveApiKey);
-        if (directResult.success && directResult.data) {
-          data = {
-            success: true,
-            detectedClanGroups: directResult.data.detectedClanGroups || [],
-            rawNames: directResult.data.rawNames || [],
-            duplicatesFilteredCount: directResult.data.duplicatesFilteredCount || 0
-          };
-          usedDirectFallback = true;
-        } else if (!data) {
-          data = {
-            success: false,
-            error: 'DIRECT_FAILED',
-            message: directResult.error || 'Direct OCR failed'
-          };
-        }
-      }
-
-      // 3. Process resulting data safely
+      // Process resulting data safely. Gemini credentials remain backend-only.
       if (!data) {
         throw new Error('AI_SERVER_CONNECT_ERROR');
       }
@@ -915,14 +723,13 @@ Do not include markdown or explanations. Return pure JSON only.`;
           type: 'success',
           sourceCount,
           newCount: incomingUnique.length,
-          duplicates: totalDuplicatesFiltered,
-          usedDirectFallback
+          duplicates: totalDuplicatesFiltered
         });
 
         setOcrStatusText(
           lang === 'th'
-            ? `สแกนสำเร็จจาก ${sourceCount} รูปภาพ: พบผู้ล่าใหม่ ${incomingUnique.length} คน (กรองชื่อซ้ำออก ${totalDuplicatesFiltered} คน)${usedDirectFallback ? ' ⚡[Direct]' : ''}`
-            : `Scan successful from ${sourceCount} image(s): ${incomingUnique.length} new hunters added (${totalDuplicatesFiltered} duplicates filtered)${usedDirectFallback ? ' ⚡[Direct]' : ''}`
+            ? `สแกนสำเร็จจาก ${sourceCount} รูปภาพ: พบผู้ล่าใหม่ ${incomingUnique.length} คน (กรองชื่อซ้ำออก ${totalDuplicatesFiltered} คน)`
+            : `Scan successful from ${sourceCount} image(s): ${incomingUnique.length} new hunters added (${totalDuplicatesFiltered} duplicates filtered)`
         );
       } else {
         setOcrScanSummary({
@@ -1123,6 +930,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
     setRarity(item.rarity);
     setItemImageUrl(item.imageUrl);
     setItemImagePreview(item.imageUrl);
+    setQuantity(item.quantity && item.quantity > 0 ? item.quantity : 1);
   };
 
   // Form Submit
@@ -1145,6 +953,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
       await onCreateVaultItem({
         name: name.trim(),
         price: Number(price) || 0,
+        quantity: Math.max(1, Number(quantity) || 1),
         minPowerLevel: Number(minPowerLevel) || 0,
         rarity,
         imageUrl:
@@ -1163,6 +972,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
       // Reset form
       setName('');
       setPrice('');
+      setQuantity(1);
       setMinPowerLevel('');
       setItemImageUrl('');
       setItemImagePreview('');
@@ -1490,7 +1300,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   {/* 3. Price (Diamonds) */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -1514,10 +1324,33 @@ Do not include markdown or explanations. Return pure JSON only.`;
                     </div>
                   </div>
 
-                  {/* 4. Min Power Level */}
+                  {/* 4. Quantity (จำนวนชิ้น) */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      4. {t.itemMinPower} *
+                      4. {t.itemQuantity} *
+                    </label>
+                    <div className="relative">
+                      <Layers className="w-4 h-4 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="input-vault-quantity"
+                        type="number"
+                        min="1"
+                        required
+                        placeholder={t.itemQuantityPlaceholder}
+                        value={quantity}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setQuantity(val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
+                        }}
+                        className="w-full pl-9 pr-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm font-mono focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 5. Min Power Level */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      5. {t.itemMinPower} *
                     </label>
                     <div className="relative">
                       <Zap className="w-4 h-4 text-amber-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1537,10 +1370,10 @@ Do not include markdown or explanations. Return pure JSON only.`;
                     </div>
                   </div>
 
-                  {/* 5. Rarity: RARE (blue), Epic (red), LAGEND (purple), MYTHIC (gold) */}
+                  {/* 6. Rarity: RARE (blue), Epic (red), LAGEND (purple), MYTHIC (gold) */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      5. {t.itemRarity} *
+                      6. {t.itemRarity} *
                     </label>
                     <select
                       id="select-vault-rarity"
@@ -1554,8 +1387,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                       <option value="MYTHIC">{t.rarityMythic}</option>
                     </select>
                   </div>
-                </div>
-              </div>
+                </div></div>
 
             </div>
 
@@ -1565,7 +1397,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                 <div>
                   <h3 className="text-xs sm:text-sm font-bold text-slate-200 flex items-center gap-2">
                     <Scan className="w-4 h-4 text-[#38bdf8]" />
-                    <span>6. {t.huntersOcr}</span>
+                    <span>7. {t.huntersOcr}</span>
                   </h3>
                   <p className="text-[11px] text-slate-400">
                     {t.uploadHunterOcrDesc}
@@ -1600,7 +1432,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                     tabIndex={0}
                     onPaste={handlePasteOcrZone}
                     htmlFor="file-ocr-upload"
-                    className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold cursor-pointer transition-all shrink-0 shadow-sm border border-sky-400/50 hover:border-sky-300 outline-none"
+                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-white text-xs font-bold transition-all shrink-0 shadow-sm border outline-none ${canUseOcr ? 'bg-[#0284c7] hover:bg-[#0369a1] cursor-pointer border-sky-400/50 hover:border-sky-300' : 'bg-slate-700 cursor-not-allowed border-slate-600 opacity-60'}`}
                     title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางภาพให้ AI สแกน' : 'Click to choose or Ctrl + V to paste & scan'}
                   >
                     <Camera className="w-3.5 h-3.5" />
@@ -1613,7 +1445,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                       type="file"
                       accept="image/*"
                       multiple
-                      disabled={isScanningOCR}
+                      disabled={isScanningOCR || !canUseOcr}
                       onChange={handleOcrScreenshotUpload}
                       className="hidden"
                     />
@@ -2305,7 +2137,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                     <button
                       type="button"
                       id="btn-scan-attached-screenshots"
-                      disabled={isScanningOCR}
+                      disabled={isScanningOCR || !canUseOcr}
                       onClick={scanExistingScreenshots}
                       className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-sky-600 to-cyan-600 hover:from-sky-500 hover:to-cyan-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
                       title={lang === 'th' ? 'สั่งให้ AI OCR สแกนชื่อคนล่าจากภาพที่แนบไว้เหล่านี้ทันที' : 'Scan hunters from these attached images'}
@@ -2410,6 +2242,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
                   <tr>
                     <th className="py-3 px-4">{t.itemImage}</th>
                     <th className="py-3 px-4">{t.itemName}</th>
+                    <th className="py-3 px-4 text-center">{t.itemQuantityLabel || t.itemQuantity}</th>
                     <th className="py-3 px-4">{t.itemRarity}</th>
                     <th className="py-3 px-4">{t.itemPrice}</th>
                     <th className="py-3 px-4">{t.distributedTo}</th>
@@ -2447,6 +2280,13 @@ Do not include markdown or explanations. Return pure JSON only.`;
                       {/* 2. Item Name */}
                       <td className="py-3 px-4 font-bold text-slate-100">
                         {item.name}
+                      </td>
+
+                      {/* Quantity */}
+                      <td className="py-3 px-4 text-center">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold font-mono bg-emerald-950/60 border border-emerald-600/40 text-emerald-300">
+                          x{item.quantity || 1}
+                        </span>
                       </td>
 
                       {/* 3. Rarity */}
@@ -2964,10 +2804,9 @@ Do not include markdown or explanations. Return pure JSON only.`;
         onClose={() => setShowGeminiModal(false)}
         lang={lang}
         isOwner={isOwner}
-        onKeySaved={(newKey) => {
-          setActiveGeminiKey(newKey);
+        onKeySaved={() => {
           setGeminiConfigured(true);
-          setGeminiMaskedKey(`${newKey.slice(0, 6)}...${newKey.slice(-4)}`);
+          setGeminiMaskedKey(null);
           setOcrErrorType(null);
         }}
       />

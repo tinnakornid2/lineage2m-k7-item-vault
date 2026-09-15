@@ -111,7 +111,7 @@ This user guide provides a clear, concise breakdown of every page, section, and 
 
 ### Section 2: Active Members Roster
 * **Search Input:** Filter members in real-time by character name, clan, or class.
-* **"Edit Profile" Button** *(Admin/Owner)*: Modify character name, CP, clan affiliation, class, and password.
+* **"Edit Profile" Button** *(Admin/Owner)*: Modify character name, CP, clan affiliation, class, and role according to the permission hierarchy.
 * **"Assign Role" Button** *(Owner Only)*: Promote or demote between Member, Admin, and Owner.
 * **"Delete Member" Button:** Removes member record from the database.
 
