@@ -21,7 +21,12 @@ export function getAdminApp() {
   if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
     return initializeApp({ projectId: PROJECT_ID });
   }
-  return initializeApp({ projectId: PROJECT_ID });
+  try {
+    return initializeApp({ projectId: PROJECT_ID });
+  } catch (e) {
+    console.warn('Failed to initializeApp without credentials:', e);
+    return getApps()[0] || ({} as any);
+  }
 }
 
 function getAdminDatabase() {

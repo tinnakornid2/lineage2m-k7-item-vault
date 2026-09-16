@@ -3,7 +3,6 @@ import path from "path";
 import fs from "fs";
 import { EventEmitter } from "events";
 import { fileURLToPath } from "url";
-import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import {
@@ -221,7 +220,9 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   });
 
   // Disk persistence helpers for live relay and backup config
-  const DATA_DIR = path.join(currentDirname, 'data');
+  const DATA_DIR = process.env.VERCEL
+    ? path.join('/tmp', 'l2m-data')
+    : path.join(currentDirname, 'data');
   if (!fs.existsSync(DATA_DIR)) {
     try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
   }
@@ -880,6 +881,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
 
   // Vite middleware in dev, static files in production
   if (options.serveFrontend !== false && process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
