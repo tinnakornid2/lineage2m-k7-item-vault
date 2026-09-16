@@ -915,6 +915,16 @@ Do not include markdown or explanations. Return pure JSON only.`;
     app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
+  } else {
+    app.use((req, res) => {
+      if (!res.headersSent) {
+        res.status(404).json({
+          success: false,
+          error: 'NOT_FOUND',
+          message: `API endpoint not found: ${req.method} ${req.url}`
+        });
+      }
+    });
   }
 
   return app;
