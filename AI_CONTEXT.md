@@ -1,5 +1,5 @@
 # 🤖 AI_CONTEXT.md — สรุปบริบทและสถาปัตยกรรมระบบ Lineage2M Clan Hub
-> **สำหรับ AI ในการทำความเข้าใจโปรเจกต์อย่างรวดเร็วและครบถ้วน 100% (เวอร์ชันปัจจุบัน: v1.9.0)**
+> **สำหรับ AI ในการทำความเข้าใจโปรเจกต์อย่างรวดเร็วและครบถ้วน 100% (เวอร์ชันปัจจุบัน: v2.0.0 — เวอร์ชั่นสมบูรณ์)**
 
 เมื่อเปิดห้องแชทใหม่ ให้สั่ง AI อ่านไฟล์นี้ทันที เพื่อให้เข้าใจโครงสร้าง สถาปัตยกรรม โค้ด และกฎทางธุรกิจทั้งหมดโดยไม่ต้องอธิบายใหม่
 
@@ -8,15 +8,15 @@
 ## 1. ข้อมูลภาพรวมโปรเจกต์ (Project Overview)
 - **ชื่อโปรเจกต์:** Lineage2M Clan Hub & Boss Item Vault System
 - **วัตถุประสงค์:** เว็บแอปพลิเคชันสำหรับบริหารจัดการแคลน/กิลด์ในเกม Lineage 2M ประกอบด้วย:
-  1. คลังไอเทมดรอปจากบอส (Boss Drop Item Vault) พร้อมระบบลงชื่อขอรับ (Claim) และแจกจ่ายของ (Distribute)
-  2. ระบบคิวไอเทม (Item Queue Management) จัดลำดับการรับของล่วงหน้า (Admin/Owner จัดการ)
-  3. ระบบสแกนรายชื่อผู้ล่าจากภาพสกรีนช็อตปาร์ตี้บอสด้วย AI (Google Gemini 2.5 Flash OCR)
-  4. ระบบคลังเพชรกลาง (Diamond Vault) บันทึกประวัติฝาก-ถอนเพชร
-  5. ระบบจัดการแคลนและสมาชิก (Clan & Alliance Management) รองรับการลากย้ายแคลน (Drag & Drop)
-  6. ระบบแจ้งเตือนอัตโนมัติเข้า Discord ผ่าน Webhook
-  7. ระบบกำหนดค่าพลังตอนสมัคร และระบบขออนุมัติเมื่อมีการอัปเดตค่าพลัง (CP Approval Workflow)
+  1. คลังไอเทมดรอปจากบอส (Boss Drop Item Vault) พร้อมระบบลงชื่อขอรับ (Claim), แจกจ่ายของ (Distribute), แก้ไขไอเทมเปิดรับ (Edit Item), และระบบจำชื่อไอเทมอัตโนมัติ (Autocomplete)
+  2. ระบบแนบรูปบิล/ใบเสร็จได้หลายใบต่อ 1 ไอเทม สำหรับไอเทมที่แจกแล้ว พร้อมแกลเลอรีซูมและจัดการรูปบิล
+  3. ระบบคิวไอเทม (Item Queue Management) จัดลำดับการรับของล่วงหน้า พร้อมระบบตรวจสอบสเตตัสก่อนเคลม
+  4. ระบบสแกนรายชื่อผู้ล่าจากภาพสกรีนช็อตปาร์ตี้บอสด้วย AI (Google Gemini AI OCR) ปลดล็อกสิทธิ์เต็มรูปแบบให้ Admin ทุกคนและ Owner
+  5. ระบบคลังเพชรกลาง/กองทุนแคลน (Clan Fund) ฝาก-ถอนแบบ 1:1 ตรงตามจริง พร้อมปุ่ม "รีเซ็ตยอด" (Reset Balance) เฉพาะ Owner
+  6. ระบบจัดการแคลนและสมาชิก (Clan & Alliance Management) รองรับการลากย้ายแคลน (Drag & Drop และ Bulk Swap)
+  7. ระบบแจ้งเตือนอัตโนมัติเข้า Discord ผ่าน Webhook
   8. รองรับการวางรูปภาพจากคลิปบอร์ดโดยตรง (**Ctrl + V / Copy-Paste**) ทุกจุดที่มีการอัปโหลดรูป
-  9. รองรับ 2 ภาษา ทั้ง **ไทย (TH)** และ **อังกฤษ (EN)**
+  9. รองรับ 2 ภาษา ทั้ง **ไทย (TH)** และ **อังกฤษ (EN)** 100% ครอบคลุมทุกจุด
   10. ธีม Dark Fantasy ปราสาท Lineage 2M พร้อมเสียงเอฟเฟกต์ Sound FX
 
 ---
@@ -25,7 +25,7 @@
 - **Frontend:** React 19, TypeScript, Tailwind CSS v4, Lucide React (Icons), Motion
 - **Backend / Dev Server:** Node.js, Express 4 (`server.ts`), ESBuild, tsx
 - **Database & Sync:** Google Firebase Cloud Firestore (`firebase.ts`) — Real-time snapshots (`onSnapshot`)
-- **AI OCR:** Google GenAI SDK (`@google/genai` - Gemini 2.5 Flash) สำหรับสแกนรายชื่อผู้ล่าจากสกรีนช็อต
+- **AI OCR:** Google GenAI SDK (`@google/genai` - Gemini Flash Models) สำหรับสแกนรายชื่อผู้ล่าจากสกรีนช็อต
 - **Fonts & Styling:** Cinzel (หัวข้อภาษาอังกฤษ), Prompt (ภาษาไทย), Monospace สำหรับตัวเลข CP/เพชร
 
 ---
@@ -36,36 +36,39 @@
 d:/K7 item webapp/lineage2m-k7-item-vault (1)/
 ├── .env                         # ตัวแปรระบบ: GEMINI_API_KEY, PORT=3000
 ├── firebase-applet-config.json  # ค่าคอนฟิกเชื่อมต่อ Firebase Firestore
-├── server.ts                    # Express backend: เสิร์ฟ Vite และ API endpoint /api/gemini/ocr
+├── server.ts                    # Express backend: เสิร์ฟ Vite และ API endpoint /api/scan-hunters, /api/gemini-status
 ├── src/
 │   ├── main.tsx                 # Entry point ของ React
 │   ├── App.tsx                  # คอมโพเนนต์หลัก: จัดการ Global State, Real-time Listeners, Modal triggers
 │   ├── types.ts                 # Type definitions ทั้งหมดของระบบ (User, VaultItem, QueueItem, Clan, ฯลฯ)
-│   ├── translations.ts          # พจนานุกรมแปล 2 ภาษา (th, en)
+│   ├── translations.ts          # พจนานุกรมแปล 2 ภาษา (th, en) 100%
 │   ├── services/
 │   │   ├── firebase.ts          # Firestore operations, real-time listeners, sanitizeForFirestore
 │   │   └── gemini.ts            # ฟังก์ชันเรียก Gemini AI สแกน OCR ผู้ล่า
 │   ├── utils/
 │   │   ├── sound.ts             # Web Audio API สร้างเสียงเอฟเฟกต์ (คลิก, เคลม, แจ้งเตือน, แตรแจกของ)
-│   │   └── clipboard.ts         # Utility ช่วยดักจับ event Ctrl+V เพื่ออ่านรูปภาพจาก Clipboard
+│   │   ├── clipboard.ts         # Utility ช่วยดักจับ event Ctrl+V เพื่ออ่านรูปภาพจาก Clipboard
+│   │   ├── diamondHelper.ts     # คำนวณยอดเพชรและ Net Change รายการธุรกรรม
+│   │   └── discord.ts           # ส่งแจ้งเตือน Webhook เข้า Discord
 │   └── components/
 │       ├── LoginScreen.tsx      # หน้าล็อกอิน/สมัครสมาชิกแบบเต็มหน้า (มีกรอกค่าพลังเริ่มต้น + พรีวิวตัวเลข)
 │       ├── AuthModal.tsx        # หน้าต่าง Popup เข้าสู่ระบบ/สมัครสมาชิก (กรณีเปิดจากด้านใน)
-│       ├── Navbar.tsx           # แถบเมนูด้านบน (สำหรับจอใหญ่/ทางเลือก) มีปุ่มขออัปเดต CP
-│       ├── Sidebar.tsx          # แถบเมนูซ้าย + เมนูมือถือหลักของระบบ (มีปุ่มขออัปเดต CP และปุ่มตั้งค่า Gemini Key)
-│       ├── GeminiKeyModal.tsx   # หน้าต่างตั้งค่า/ทดสอบ Gemini API Key (พร้อมลิงก์ Google AI Studio ฟรี)
-│       ├── DashboardView.tsx    # หน้าแดชบอร์ด: ยอดเพชร, ไอเทมเปิดเคลม, คิวไอเทม, ไทม์ไลน์เพชร
-│       ├── VaultView.tsx        # หน้าคลังไอเทมบอส: เพิ่มไอเทม, ควิกไอเทม, สแกน OCR (รองรับ Ctrl+V + สแกนจากรูปที่แนบ)
+│       ├── Navbar.tsx           # แถบเมนูด้านบน มีปุ่มสลับภาษาและวิดเจ็ตเพชรขาว
+│       ├── Sidebar.tsx          # แถบเมนูซ้าย + เมนูมือถือหลักของระบบ
+│       ├── GeminiKeyModal.tsx   # หน้าต่างตั้งค่า/ทดสอบ Gemini API Key (เฉพาะ Owner)
+│       ├── DashboardView.tsx    # หน้าแดชบอร์ด: ยอดเพชร, ไอเทมเปิดเคลม, คิวไอเทม, วิดเจ็ตภาพรวม
+│       ├── VaultView.tsx        # หน้าคลังไอเทมบอส: เพิ่มไอเทม, ควิกไอเทม, สแกน OCR, ตารางของแจกแล้ว
+│       ├── EditVaultItemModal.tsx # หน้าต่างแก้ไขไอเทมเปิดรับ (ชื่อ, จำนวน, ราคา, รูป, ผู้ล่า)
+│       ├── DistributeItemModal.tsx # หน้าต่างแจกจ่ายไอเทมให้สมาชิก (แนบรูปบิลได้หลายใบ)
 │       ├── QueueView.tsx        # หน้าคิวไอเทม: สร้างคิว, จัดลำดับ, ติ๊กรับของ (รองรับ Ctrl+V)
 │       ├── MembersView.tsx      # หน้าทำเนียบสมาชิก: จัดกลุ่มตามแคลน, กล่องอนุมัติสมาชิก, กล่องอนุมัติ CP
 │       ├── ClanView.tsx         # หน้าจัดการแคลน: ลากย้ายสมาชิกข้ามแคลน, ลบแคลน, ลบสมาชิกแบบกลุ่ม
 │       ├── RequestPowerLevelModal.tsx # หน้าต่างสมาชิกขออัปเดต CP (คำนวณส่วนต่าง +/- เรียลไทม์)
-│       ├── DistributeItemModal.tsx    # หน้าต่างแจกจ่ายไอเทมให้สมาชิก (ตัดของ + ส่ง Discord)
 │       ├── QuickItemModal.tsx   # หน้าต่างจัดการแม่แบบไอเทมด่วน (รองรับ Ctrl+V)
-│       ├── DiamondVaultModal.tsx# หน้าต่างฝาก-ถอนเพชรส่วนกลาง
-│       ├── DiscordWebhookModal.tsx    # ตั้งค่า Webhook URL แจ้งเตือน Discord
-│       ├── BackgroundSettingsModal.tsx# ปรับแต่งภาพพื้นหลังปราสาท ความเบลอ ความสว่าง
-│       ├── ClassSettingsModal.tsx     # จัดการรายชื่อสายอาชีพตามแพตช์เกม
+│       ├── DiamondVaultModal.tsx# หน้าต่างฝาก-ถอนเพชรส่วนกลาง 1:1 และระบบรีเซ็ตยอดของ Owner
+│       ├── DiscordWebhookModal.tsx # ตั้งค่า Webhook URL แจ้งเตือน Discord
+│       ├── BackgroundSettingsModal.tsx # ปรับแต่งภาพพื้นหลังปราสาท ความเบลอ ความสว่าง
+│       ├── ClassSettingsModal.tsx # จัดการรายชื่อสายอาชีพตามแพตช์เกม
 │       ├── OwnerResetModal.tsx  # ศูนย์รีเซ็ตระบบสำหรับ Owner (ต้องพิมพ์ RESET)
 │       └── ImageViewerModal.tsx # ดูรูปภาพขนาดเต็มแบบซูมได้
 ```
@@ -76,157 +79,32 @@ d:/K7 item webapp/lineage2m-k7-item-vault (1)/
 
 ### 4.1 ระบบสิทธิ์ผู้ใช้งาน (Roles & Permissions)
 - **Owner (เจ้าของ):**
-  - ใช้ Firebase Authentication และไม่มีรหัสผ่านฝังในโค้ดหรือเอกสาร / Uses Firebase Authentication; no password is embedded in source code or documentation.
-  - มีสิทธิ์สูงสุด ควบคุมระบบทั้งหมด แต่งตั้ง Admin ได้ผู้เดียว และใช้ Owner Reset Center ได้ผู้เดียว
-- **Admin (ผู้ดูแล):** เพิ่มไอเทม, จัดการคิว, แจกของ, อนุมัติสมาชิกใหม่, อนุมัติการปรับ CP, จัดการเพชร
-- **Member (สมาชิกทั่วไป):** ดูคลัง, ลงชื่อเคลมไอเทม, ขอปรับค่าพลัง CP ของตนเอง
+  - ใช้ Firebase Authentication และไม่มีรหัสผ่านฝังในโค้ดหรือเอกสาร
+  - มีสิทธิ์สูงสุด ควบคุมระบบทั้งหมด แต่งตั้ง Admin ได้ผู้เดียว, ตั้งค่า Gemini Key ได้ผู้เดียว, และใช้ฟังก์ชันรีเซ็ตยอดเพชรและศูนย์รีเซ็ตระบบได้ผู้เดียว
+- **Admin / Manager (ผู้ดูแล / ผู้จัดการ):** เพิ่ม/แก้ไขไอเทม, จัดการคิว, แจกของแนบบิล, ใช้งานระบบ AI OCR ได้เต็มรูปแบบ, อนุมัติสมาชิกใหม่, อนุมัติสเตตัส, จัดการเพิ่ม/ถอนเพชร
+- **Member (สมาชิกทั่วไป):** ดูคลัง, ลงชื่อเคลมไอเทม (เมื่อผ่านเกณฑ์สเตตัส), ขอปรับค่าพลังสเตตัสของตนเอง
 
-### 4.2 ระบบค่าพลัง (Power Level / CP)
-- **ตอนสมัคร (Registration):**
-  - ฟอร์มสมัครใน `LoginScreen.tsx` และ `AuthModal.tsx` มีช่องกรอก `powerLevel`
-  - มีตัวแสดงผลพรีวิวแบบเรียลไทม์ (พิมพ์ `540000` ➔ ขึ้นป้าย `⚡ 540,000 CP`)
-  - บันทึกลง Firestore พร้อมสถานะ `pending_approval`
-- **การขออัปเดตค่าพลัง (CP Update Request):**
-  - สมาชิกกดปุ่ม **[⚡ ขออัปเดต CP]** ในแถบโปรไฟล์ (Sidebar/Navbar) หรือในตารางสมาชิก
-  - เปิด `RequestPowerLevelModal.tsx` แสดงค่าพลังปัจจุบัน และช่องกรอกค่าพลังใหม่ พร้อมส่วนต่าง (`+40,000 CP`)
-  - เมื่อกดยืนยัน จะบันทึกฟิลด์ `pendingPowerLevel` และ `pendingPowerLevelRequestedAt` ลงใน User document (ค่าพลังจริง `powerLevel` ยังไม่เปลี่ยน)
-  - โปรไฟล์ของผู้ใช้จะขึ้นป้าย `⏳ รออนุมัติ: xxx,xxx CP`
-- **การอนุมัติ (Approval by Admin/Owner):**
-  - ใน `MembersView.tsx` มีกล่อง **"คำขออัปเดตค่าพลังรออนุมัติ (Pending CP Update Requests)"**
-  - แสดงการเปรียบเทียบเดิม ➔ ใหม่ พร้อมปุ่ม **[✓ อนุมัติ CP]** (ปรับ `powerLevel` เป็นค่าใหม่และล้าง `pendingPowerLevel: null`) และ **[✕ ปฏิเสธ]** (ล้าง `pendingPowerLevel: null`)
-  - *หาก Admin/Owner เข้าไปกดแก้ไขโปรไฟล์สมาชิกโดยตรง จะปรับค่าพลังทันทีโดยไม่ต้องรออนุมัติ*
+### 4.2 ระบบกองทุนเพชรแคลนและการคำนวณยอด (`diamondHelper.ts`)
+- ยอดคงเหลือกองทุนเริ่มต้นจาก 0 เสมอ คำนวณจากประวัติการทำรายการจริงใน Firestore
+- ไม่มีส่วนลดหย่อนภาษีตลาดในหน้าเพิ่ม/ถอนกองทุน เพิ่มถอนแบบ 1:1 ตรงไปตรงมา
+- ปุ่ม "รีเซ็ตยอด" เฉพาะ Owner มี 2 โหมด: `wipe` ล้างประวัติเริ่ม 0 หรือ `adjust` บันทึกรายการปรับยอดอัตโนมัติ
 
-### 4.3 ระบบ Copy-Paste (Ctrl + V) อัปโหลดรูป
-- ทุกจุดในเว็บที่รับรูปภาพ รองรับการกด **Ctrl + V** เพื่อวางรูปจากคลิปบอร์ดทันที:
-  1. รูปไอเทมในคลังบอส (`VaultView.tsx`)
-  2. รูปสกรีนช็อตปาร์ตี้บอส / OCR Scanner (`VaultView.tsx`)
-  3. รูปคิวไอเทม (`QueueView.tsx`)
-  4. รูปควิกไอเทมแม่แบบด่วน (`QuickItemModal.tsx`)
+### 4.3 ระบบสแกน AI OCR สำหรับแอดมินทุกคน
+- แอดมินทุกคนมีสิทธิ์เข้าถึงและใช้งานระบบ AI OCR ในการสแกนสลิปผู้ล่า
+- บนเครื่อง Localhost ระบบประมวลผลผ่าน Express Backend พร้อมโมเดลล่าสุด (`gemini-3.6-flash`, `gemini-flash-latest`)
+- บนลิงก์ Deploy (Vercel) ระบบประมวลผลผ่าน Direct Client OCR อัตโนมัติ
 
-### 4.5 กฎเหล็กเรื่องภาษา (Mandatory Bilingual Rule: TH & EN)
-- **ทุกหน้าจอ ทุกปุ่ม และทุกข้อความแจ้งเตือน (100%) ต้องรองรับ 2 ภาษาเสมอ (ไทย 'th' และ อังกฤษ 'en'):**
-  - ห้ามเขียน Hardcode ภาษาไทยหรืออังกฤษโดดๆ โดยเด็ดขาด
-  - ต้องผูกผ่าน `t.keyName` จาก `src/translations.ts` หรือเงื่อนไข `lang === 'th' ? '...' : '...'`
-  - เมื่อเพิ่มฟีเจอร์หรือข้อความใหม่ ต้องเพิ่มคู่คำแปลลงใน `src/translations.ts` ทั้งฝั่ง `th` และ `en` พร้อมกันเสมอ
-  - ดูรายละเอียดเพิ่มเติมในกฎ `.agents/rules/i18n-bilingual.md`
-
-### 4.6 กฎระบบ AI OCR และสิทธิ์ Owner (Gemini AI Key & Owner-Only Rules)
-- **ปุ่ม Gemini AI จำกัดเฉพาะ Owner:**
-  - ปุ่มตั้งค่า Gemini AI OCR ใน `VaultView.tsx`, `Sidebar.tsx` และ `GeminiKeyModal.tsx` **จำกัดให้มองเห็นและใช้งานได้เฉพาะผู้ใช้ที่มีสถานะ Owner เท่านั้น** (`currentUser?.role === 'owner'` หรือ `isOwner === true`)
-  - สมาชิกทั่วไปและแอดมินจะไม่เห็นปุ่มหรือสิทธิ์ในการเข้าถึงการจัดการ API Key
-- **ระบบสแกนผู้ล่าและการคัดลอก (Scan Results & Copyable Text):**
-  - ส่วนแสดงผลการสแกน (หัวข้อ 7 ใน `VaultView.tsx`) รองรับทั้งมุมมองแบบ **การ์ดตามแคลน (Cards View)** และแบบ **ข้อความสำหรับคัดลอก (Text View)**
-  - รองรับการจัดกลุ่มแยกตามแคลน พร้อมแท็บกรองแยกรายแคลน และปุ่ม **[📋 คัดลอกรายชื่อทั้งหมด]** ทั้งแบบแยกแคลน, แบบเฉพาะชื่อ, แบบชื่อพร้อมแคลน, และแบบคั่นด้วยจุลภาค (Comma-separated)
-  - **ข้อความแจ้งเตือนผลสแกนต้องเป็น Reactive i18n (`dynamicOcrStatusMessage`):** ห้ามเซ็ตข้อความภาษาไทยหรืออังกฤษค้างไว้ใน state ต้องเก็บเป็น metadata `{ type, sourceCount, newCount, duplicates }` เพื่อให้คำนวณข้อความเปลี่ยนภาษาตามปุ่ม TH/EN ได้ทันทีแบบ Real-time โดยไม่ต้องสแกนใหม่
-
-### 4.7 ระบบเลือกคนล่าแบบ Checklist 2 ช่องแยกแคลน (2-Column Clan Checklist)
-- **นำกล่อง Dropdown เดี่ยวออกถาวร:** ให้ใช้เฉพาะระบบเช็คลิสต์ช่องติ๊ก `[x]` เท่านั้น
-- **การ์ดสมาชิกขนาดกะทัดรัด (Compact Cards):** ปรับขนาดการ์ดให้กระชับ เพื่อรองรับจำนวนสมาชิกหลัก 50-100+ คนโดยไม่เปลืองพื้นที่
-- **แสดงพร้อมกัน 2 ช่องคู่ขนานแยกตามกิลด์/แคลน:** จัด Layout แบบ `grid grid-cols-1 lg:grid-cols-2 gap-3.5` แยกกล่องของแต่ละแคลนชัดเจน
-- **ปุ่มลัดรายแคลน:** แต่ละช่องแคลนมีปุ่ม **[✓ ทั้งแคลน (Select Entire Clan)]** และ **[✕ ล้างแคลนนี้ (Clear Entire Clan)]** ให้คลิกได้ทันที
-- **ช่องค้นหาชื่อ:** กรองสมาชิกแบบ Real-time ข้ามทั้ง 2 ช่องแคลนพร้อมกัน
-
-### 4.8 ระบบดูรายชื่อผู้ล่าในหน้าไอเทมที่แจกแล้ว (Distributed Hunters Modal)
-- ในตาราง **"ไอเทมที่แจกแล้ว"** มีปุ่มคลิกดูรายชื่อผู้ล่า ทั้งในคอลัมน์รูปหลักฐาน (`[👥 X ผู้ล่า (ดูชื่อ)]`) และในคอลัมน์การจัดการ (`[📄 ดูรายชื่อผู้ล่า]`)
-- เปิดหน้าต่าง Modal `<DistributedHuntersModal>` ให้เลือกดูได้ 2 มุมมอง:
-  1. **แบบการ์ดแคลน (Clan Cards View):** แยกกล่องตามแคลน สวยงาม ชัดเจน
-  2. **แบบข้อความสำหรับ Copy (Text View):** จัดหมวดหมู่ตามแคลน พร้อมปุ่มกดคัดลอกลงคลิปบอร์ดในคลิกเดียว
-
-### 4.9 แบรนดิ้งท้ายแถบเมนู (Sidebar Footer Branding & Version)
-- ด้านล่างสุดของ `Sidebar.tsx` แสดงข้อความ:
-  - **`Lineage2M Clan Hub Made By Elon`** — ฟอนต์สีเขียวมรกตพร้อมแอนิเมชันกระพริบเบาๆ (`text-emerald-400 animate-pulse font-medium drop-shadow-[0_0_8px_rgba(52,211,153,0.35)]`)
-  - ป้ายแสดงเวอร์ชันระบบ: **`v1.6.0`** (พร้อมจุดไฟสีเขียวกระพริบ)
-- จุดแสดงเวอร์ชันทั้งหมดในระบบ (`Sidebar.tsx`, `Navbar.tsx`, `LoginScreen.tsx`, `package.json`) ต้องตรงกันเสมอ (ปัจจุบันคือ `v1.6.0`)
-
-### 4.10 ระบบ Item Queue Management รองรับ 4 ไอเทมต่อแถว (Compact 4-Item Grid)
-- **หน้าคิวไอเทม (`QueueView.tsx`):**
-  - แสดงผลเริ่มต้นด้วยมุมมอง **`[⊞ 4 ไอเทม / แถว]`** (`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4`)
-  - แต่ละการ์ดคิวมีขนาดกะทัดรัด แสดงรูปไอเทม (คลิกดูภาพขยายได้), ระดับ Rarity, จำนวนสมาชิกในคิว, ปุ่มเพิ่มคนลงคิว และปุ่มลบคิว
-  - รายชื่อสมาชิกในคิวแสดงแบบคอมแพค พร้อมอันดับ `#1, #2...`, ชื่อ, แคลน, ค่าพลัง CP, ปุ่มสลับสถานะรับของ (เขียว/ส้ม), ปุ่มเลื่อนขึ้น-ลง และลบ
-  - มีแถบ Progress Bar แสดงเปอร์เซ็นต์คนที่ได้รับของแล้ว
-  - มีปุ่มสลับมุมมอง **`[☰ ตารางเต็มจอ]`** ให้เลือกกลับไปดูตารางแนวนอนแบบเดิมได้ตลอดเวลา
-- **หน้าแดชบอร์ด (`DashboardView.tsx`):**
-  - ส่วน Item Queue Preview ปรับเป็น 4 ช่องต่อแถวบนจอใหญ่ (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5`) สอดคล้องกันทั้งหมด
-
-### 4.11 ระบบจัดการ 4 แคลน ปรับลำดับและแสดงเฉพาะอาชีพหลักแรก
-- หน้า **จัดการแคลน (`ClanView.tsx`)**:
-  - รองรับการเรียงลำดับกล่องแคลน 4 กล่อง (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4`)
-  - มีปุ่มสลับตำแหน่งแคลนซ้าย-ขวา (`◀` และ `▶`), ปุ่มแก้ไขชื่อและสีแคลน (`✏️`), และปุ่มลบแคลน (`🗑️`)
-  - ลำดับแคลนบันทึกลง Firestore (`order` field) และส่งผลต่อลำดับการแสดงผลทั่วทั้งระบบ
-- หน้า **รายชื่อสมาชิก (`MembersView.tsx`)**:
-  - จัดเรียงตามลำดับแคลนอัตโนมัติ
-  - คอลัมน์ Class แสดง **เฉพาะอาชีพหลักแรก (Single Primary Class)** พร้อมไอคอนอาวุธ เพื่อความสะอาดตาและเป็นระเบียบ
-
-### 4.12 กราฟไทม์ไลน์พัฒนาการและการเติบโต (Growth & Timeline Progression Chart)
-- **หน้าสเตตัสของฉัน (`MyStatsView.tsx` & `GrowthTimelineChart.tsx`):**
-  - แสดงกราฟพื้นที่และเส้นแบบเวกเตอร์ SVG (Smooth Bezier Area/Line Curve) ปรับโทนสีนีออนตามสเตตัสที่เลือกอย่างสวยงาม
-  - รองรับการสลับตัวชี้วัด (Metrics):
-    1. ⚡ **ค่าพลัง (Power Level - PL)** — สีเหลืองทอง / อำพัน
-    2. 👑 **เลเวล (Level)** — สีม่วงนีออน
-    3. ⚔️ **พลังโจมตี (Damage)** — สีแดงกุหลาบ
-    4. ✨ **ความแม่นยำ (Accuracy)** — สีฟ้าสดใส
-    5. 🛡️ **พลังป้องกัน (Defense)** — สีเขียวมรกต
-    6. 🔰 **ลดทอนดาเมจ (Damage Reduction)** — สีส้มสด
-  - รองรับการกรองช่วงเวลา: **30 วัน (30D)**, **90 วัน (90D)**, **6 เดือน (6M)**, และ **ทั้งหมด (ALL)**
-  - การ์ดสรุป KPI สถิติการเติบโต 4 ช่อง:
-    - 🚀 **การเติบโตสะสม (Total Growth)** พร้อมส่วนต่างและ % การเปลี่ยนแปลง
-    - 🏆 **สถิติสูงสุด (Peak Record)** พร้อมวันที่
-    - ⏱️ **การเติบโตล่าสุด (Recent Growth)** เทียบจากหมุดก่อนหน้า
-    - 🎯 **เป้าหมายถัดไป (Next Milestone)** พร้อมแถบเปอร์เซ็นต์ความก้าวหน้า
-  - มีประวัติหมุดการเติบโต (Milestones Ledger) แสดงรายละเอียดเหตุการณ์ ยอดพลังที่เพิ่มขึ้น และตราประทับ VERIFIED
-  - ปุ่ม **`+ บันทึกหมุดเติบโต (Log Milestone)`** ให้สมาชิกสามารถบันทึกประวัติความก้าวหน้าลงโปรไฟล์และบันทึกสู่ Firestore ได้โดยตรง
-  - ระบบตรวจสอบและบันทึกประวัติอัตโนมัติเมื่อแอดมินอนุมัติสเตตัส (`handleApproveStatUpdate`)
-
-
-### 4.11 ระบบแชร์ Gemini API Key ข้ามแอดมินและการแจ้งเตือนข้อผิดพลาด 2 ภาษา 100% (Shared OCR Key & 100% Bilingual Error Handling)
-- **การแชร์ Key ระหว่างแอดมิน (Shared Key across Admins):**
-  - แม้จะมีเฉพาะ Owner ที่สามารถกดเปิดดูหรือแก้ไข Gemini API Key ได้ แต่**แอดมินคนอื่นๆ ทุกคนสามารถใช้งานสแกน OCR ได้ 100%**
-  - ตัวระบบทำการซิงค์ค่า Key ผ่าน Firestore ในคอลเลกชัน `app_settings/gemini_ai` แบบ Real-time (`listenToGeminiAiSettings`)
-  - คีย์ถูกเก็บในเอกสาร Backend ที่ปิดกั้นการอ่านจาก Browser ทำให้แอดมินทุกเครื่องใช้ OCR ร่วมกันได้ โดยมีเฉพาะ Owner ที่เปลี่ยนคีย์ได้
-  - รองรับการเรียกตรงไปยัง Google Gemini REST API (`gemini-3.6-flash`, `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`) จากเบราว์เซอร์ของแอดมินทันทีหาก Backend Express ไม่ได้รัน (เช่น บน Static Hosting)
-- **ข้อความแจ้งเตือนข้อผิดพลาด OCR 2 ภาษา 100% (Pure Bilingual OCR Error Messaging):**
-  - ข้อความ error ทุกชนิดจะถูกจำแนกเป็น structured code เช่น `'ai_server_connect'`, `'high_demand'`, `'glitch'`, `'missing_key'`
-  - แปลงเป็นข้อความแสดงผลผ่าน `translations[lang]` เสมอ (`t.ocrServerConnectError`, `t.ocrConnectionErrorPrefix`, `t.ocrHighDemandGlitch`, `t.ocrConnectionGlitch`, `t.ocrGeneralError`)
-  - หากผู้ใช้เลือกภาษาอังกฤษ (EN) จะไม่ปรากฏข้อความภาษาไทยปะปนเด็ดขาด (เช่น `Connection error: Unable to connect to AI server. Please try again.`)
-
-### 4.12 การตัดคำนำหน้า 'Clan:' ออกทั้งหมด (Strip 'Clan:' Prefix Globally)
-- เพื่อประหยัดพื้นที่ UI และทำให้ชื่อแคลนกระชับ สวยงาม ทั่วทั้งระบบจะตัดคำว่า `Clan:` หรือ `clan:` ออกทั้งหมด เหลือเพียงชื่อแคลนเพียวๆ (เช่น `VoltZ`, `LevelS`, `DVD`)
-- มีฟังก์ชันสากล `cleanClanName(clan?: string | null): string` ใน `src/types.ts`
-- ทำการล้างข้อมูลทั้งระดับ Database Reader/Writer ใน `firebase.ts`, Form Inputs, Dropdown Filters, การ์ดผู้ล่า, ตารางรายชื่อ, หน้าคิว, หน้าทำเนียบสมาชิก, หน้าสถิติ, OCR Prompts ทั้งบน Server และ Client, และ Discord Webhook notifications
-
-### 4.13 ระบบสเตตัสและการเติบโตสไตล์ Kain7 (Authentic Kain7 Stats & Progression Dashboard)
-- **หน้าสเตตัสของฉัน (`src/components/MyStatsView.tsx`):**
-  - ดีไซน์ถอดแบบจากระบบของ Kain7 จัด Layout แบบ 2-Column Responsive Dashboard ที่พอดีจอ ไม่ยาวจนเกินไป
-  - **แถบซ้าย (Sidebar 4 Cols):**
-    1. **การ์ดข้อมูลสมาชิก (Member Information):** แสดง IGN (แก้ไขได้), Role (Member vs 👑 Leader), Status (Active/Inactive toggle switch), และ Clan (Dropdown)
-    2. **การ์ดแนบภาพสกรีนช็อต (Screenshots Card):** รองรับลากวาง / อัปโหลด / กด `Ctrl+V` วางรูปจากคลิปบอร์ด พร้อมปุ่มดูคู่มือการแคปรูป
-    3. **การ์ด Live Power Level (เรียลไทม์):** แสดงผลคำนวณค่าพลัง PL ตามเวลาจริง พร้อมป้ายแสดงส่วนต่าง (`+50 PL` สีเขียว / `-120 PL` สีชมพู)
-    4. **การ์ดกราฟไทม์ไลน์การเติบโต (Growth Timeline Chart):** แสดงเส้นกราฟพัฒนาการย้อนหลัง กรองได้ 30D / 90D / 6M / ALL พร้อมบันทึก Milestone
-  - **แถบขวา (Main Content 8 Cols):**
-    1. **ข้อมูลตัวละคร (Character Stats):** เลือก Class หลัก/รอง (Multi-select), เลเวลตัวละคร (Level), คลาสตำนาน (Legend Classes), และอากาธีออนตำนาน (Legend Agathions)
-    2. **ศูนย์กรอกสเตตัสแบบแท็บ (Tabbed Attribute Center):**
-       - แบ่งแท็บชัดเจน: **`[⚔️ โจมตี (Offense)]`**, **`[🛡️ ป้องกัน (Defense)]`**, และ **`[⭐ พิเศษ (Special)]`**
-       - ลดความยาวหน้าเว็บ กรอกง่าย พร้อมตัวคูณกำกับแต่ละสเตตัส (`x1`, `x2`, `x3`) ตามสูตร Kain7
-    3. **ปุ่มยืนยันส่งคำขอ (Submit Verification):** แพ็คข้อมูลทั้งหมดขึ้นระบบรออนุมัติ พร้อมส่งแจ้งเตือนเข้า Discord Webhook อัตโนมัติ
-
-### 4.15 ระบบ AI OCR และโมเดลที่ใช้งานได้จริง (Working AI Models & Vercel Direct Fallback)
-- **โมเดลที่ใช้งานได้:** ต้องเป็นชุดโมเดลที่ Google เปิดให้บริการในปัจจุบันเท่านั้น ได้แก่: `gemini-flash-latest`, `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-flash-lite-latest`, `gemini-3-flash-preview`, `gemini-3.6-flash` (ห้ามใช้ 1.5/2.0/2.5 เพราะ Google คืนค่า 404)
-- **Direct Client OCR บน Vercel:** หากโฮสต์ไม่ใช่ Localhost (`!isLocalhost`) ระบบจะข้ามการเรียก `/api/scan-hunters` (ซึ่งไม่มี Backend บน Vercel) และประมวลผลผ่าน `runDirectGeminiClientOcr` โดยตรง
-- **Cloud Key Sync:** คีย์ Gemini ถูกซิงค์ผ่าน Firestore `app_settings/gemini_ai` เพื่อให้แอดมินทุกคนบนทุกอุปกรณ์ใช้งานได้ทันที
-
-### 4.16 มาตรฐานการป้องกันโค้ดเสียหาย (Code Protection Blueprint)
-- โปรดอ่านและยึดถือเอกสาร [SYSTEM_ARCHITECTURE.md](file:///d:/K7%20item%20webapp/lineage2m-k7-item-vault%20%281%29/SYSTEM_ARCHITECTURE.md) อย่างเคร่งครัด
-- **ห้ามแก้ไขส่วนที่ไม่จำเป็น:** เพื่อป้องกันการเกิด Regression บักที่ไม่ตั้งใจในฟังก์ชันที่ทำงานสมบูรณ์แล้ว
-- **มาตรฐานเพชรขาว:** ไอคอนและตัวเลขยอดเพชรทั้งหมดแสดงผลเป็นสีขาวสว่าง (`text-white font-mono font-bold`)
+### 4.4 กฎเหล็กเรื่องภาษา (Mandatory Bilingual Rule: TH & EN 100%)
+- ทุกหน้าจอ ทุกปุ่ม ทุกกล่องข้อความ และทุกข้อความแจ้งเตือน (100%) ต้องรองรับ 2 ภาษาเสมอ (ไทย 'th' และ อังกฤษ 'en')
+- ห้ามเขียน Hardcode ภาษาใดภาษาหนึ่งเด็ดขาด
 
 ---
 
 ## 5. คำสั่งการทำงานและทดสอบ (Commands)
 - **รันเซิร์ฟเวอร์พัฒนา:** `npm run dev` (เปิดที่ `http://localhost:3000`)
-- **ตรวจสอบ Type TypeScript:** `npx tsc --noEmit`
-- **Build สำหรับ Production:** `npm run build`
+- **ตรวจสอบ Type TypeScript:** `& 'C:\Users\tinna\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' 'node_modules\typescript\bin\tsc' --noEmit`
+- **Build สำหรับ Production:** `& 'C:\Users\tinna\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' 'node_modules\vite\bin\vite.js' build`
 - **URL ระบบที่ Deploy สด:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)
-- *หมายเหตุสำหรับ Windows PowerShell:* ห้ามใช้ `&&` ในการต่อคำสั่ง ให้ใช้เครื่องหมายเซมิโคลอน `;` แทน
 
 ---
 
@@ -234,16 +112,17 @@ d:/K7 item webapp/lineage2m-k7-item-vault (1)/
 คัดลอกข้อความด้านล่างนี้ไปวางเมื่อเปิดห้องแชทใหม่ เพื่อให้ AI สานต่องานได้ทันที 100%:
 ```
 โปรดอ่านไฟล์ SYSTEM_ARCHITECTURE.md, AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
-ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v1.9.0)
-- บัญชี Owner: Eloni (รหัสผ่านจัดการผ่าน Firebase Authentication และไม่บันทึกใน repository / Password managed by Firebase Authentication and not stored in the repository)
+ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v2.0.0 — เวอร์ชั่นสมบูรณ์)
+- บัญชี Owner: Eloni (รหัสผ่านจัดการผ่าน Firebase Authentication)
 - Live URL: https://lineage2m-k7-item-vault.vercel.app/
-- สถานะล่าสุด (v1.9.0):
-  1. แก้ไขบั๊กการลบแคลน (Clan Deletion) ถาวร ไม่ฟื้นคืนชีพจากการ hardcode official clans
-  2. เพิ่มระบบตรวจสอบสเตตัสก่อนเคลมไอเทม (Stat Requirement Before Claim) สมาชิกต้องอัปเดตสเตตัส Kain7 และผ่านการอนุมัติก่อน
-  3. แบนเนอร์และโมดอลแจ้งเตือนผู้เล่นที่ยังไม่อัปเดตสเตตัส พร้อมปุ่มนำทางไปหน้า "สเตตัสของฉัน" ทันที
-  4. ระบบอนุมัติสเตตัสและสมาชิกใหม่ทำงานแบบทีละคน (1-by-1) 100% พร้อม Loading Spinner และ Toast ระบุชื่อ
-  5. ระบบ AI OCR รองรับ Direct Client บน Vercel พร้อมชุดโมเดลล่าสุด
-  6. มีเอกสาร SYSTEM_ARCHITECTURE.md กำกับโซนห้ามแก้ไขโดยไม่จำเป็นและแนวทางต่อยอดฟังก์ชัน
-  7. รองรับ 2 ภาษา (TH/EN) 100% และมีกฎ Local-First ก่อน Deploy
+- สถานะล่าสุด (v2.0.0):
+  1. ระบบแก้ไขไอเทมเปิดรับ (EditVaultItemModal) ครบทุกฟิลด์
+  2. ระบบจดจำชื่อไอเทมที่เคยกรอก (Autocomplete & Memory)
+  3. ระบบแนบรูปบิล/ใบเสร็จได้หลายใบต่อ 1 ไอเทม พร้อมแกลเลอรี
+  4. กองทุนเพชรแคลนแบบ 1:1 เพิ่ม/ถอนตรงตามจริง ไม่หักภาษี
+  5. รวมสูตรคำนวณยอดเพชรกลาง (diamondHelper.ts) ตรงกันทุกจุด
+  6. ปุ่มรีเซ็ตยอดเพชรเฉพาะ Owner (Wipe & Adjust)
+  7. ปลดล็อกระบบ Gemini AI OCR ให้แอดมินและผู้จัดการทุกคนใช้งานได้เต็มรูปแบบ
+  8. รองรับ 2 ภาษา (TH/EN) 100% และปฏิบัติตาม Local-First Rule
 โปรดยืนยันว่าเข้าใจสถาปัตยกรรมและกฎการป้องกันโค้ดเสียหายแล้ว พร้อมรับคำสั่งงานต่อไปครับ
 ```

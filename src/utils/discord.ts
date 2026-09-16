@@ -103,7 +103,7 @@ export async function sendDiscordNotification(
             },
             {
               name: th ? '💎 มูลค่าคลัง' : '💎 Vault value',
-              value: `**${item.price.toLocaleString()} Diamonds**`,
+              value: item.price > 0 ? `**${item.price.toLocaleString()} Diamonds**` : '**🎁 FREE (ฟรี 0 เพชร)**',
               inline: true
             },
             {
@@ -150,7 +150,7 @@ export async function sendDiscordNotification(
             },
             {
               name: th ? '💎 มูลค่าไอเทม' : '💎 Item value',
-              value: `**${item.price.toLocaleString()} Diamonds**`,
+              value: item.price > 0 ? `**${item.price.toLocaleString()} Diamonds**` : '**🎁 FREE (ฟรี 0 เพชร)**',
               inline: true
             },
             {

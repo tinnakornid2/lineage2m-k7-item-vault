@@ -116,6 +116,7 @@ export interface DistributedInfo {
   clan?: string;
   distributedAt: number;
   distributedBy: string;
+  receiptImages?: string[];
 }
 
 export interface VaultItem {
@@ -131,6 +132,7 @@ export interface VaultItem {
   status: 'available' | 'distributed';
   claimants: Claimant[];
   distributedTo?: DistributedInfo;
+  receiptImages?: string[];
   createdAt: number;
 }
 

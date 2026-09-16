@@ -30,7 +30,8 @@ import {
   History,
   Clock,
   AlertTriangle,
-  AlertCircle
+  AlertCircle,
+  Edit2
 } from 'lucide-react';
 import {
   ActiveTab,
@@ -68,6 +69,7 @@ interface DashboardViewProps {
   onViewImage?: (url: string, title?: string) => void;
   onOpenOwnerResetModal?: () => void;
   onDeleteItem?: (itemId: string) => void;
+  onEditItem?: (item: VaultItem) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -89,7 +91,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenAuth,
   onViewImage,
   onOpenOwnerResetModal,
-  onDeleteItem
+  onDeleteItem,
+  onEditItem
 }) => {
   const t = translations[lang];
   const [itemToDelete, setItemToDelete] = React.useState<VaultItem | null>(null);
@@ -1232,6 +1235,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               >
                                 <Gift className="w-3 h-3" />
                                 <span className="hidden sm:inline">{t.distributeItemBtn}</span>
+                              </button>
+                            )}
+
+                            {/* Admin / Owner Edit Button */}
+                            {isAdminOrOwner && onEditItem && (
+                              <button
+                                id={`btn-edit-active-item-${item.id}`}
+                                onClick={() => {
+                                  sounds.playClick();
+                                  onEditItem(item);
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm cursor-pointer shrink-0"
+                                title={t.editItem}
+                              >
+                                <Edit2 className="w-3 h-3" />
+                                <span className="hidden sm:inline">{t.editItem}</span>
                               </button>
                             )}
 

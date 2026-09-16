@@ -51,47 +51,38 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    // Check server or local status
-    const isLocalhost = typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-    if (isLocalhost) {
-      getCurrentUserIdToken().then((token) => fetch('/api/gemini-status', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      }))
-        .then((res) => res.text())
-        .then((text) => {
-          if (text && !text.trim().startsWith('<')) {
-            try {
-              const data = JSON.parse(text);
-              setServerStatus({
-                configured: Boolean(data.configured),
-                maskedKey: data.maskedKey || null
-              });
-              if (data.configured && !status.message) {
-                setStatus({
-                  type: 'success',
-                  message: lang === 'th'
+    getCurrentUserIdToken()
+      .then((token) =>
+        fetch('/api/gemini-status', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        })
+      )
+      .then((res) => res.text())
+      .then((text) => {
+        if (text && !text.trim().startsWith('<')) {
+          try {
+            const data = JSON.parse(text);
+            setServerStatus({
+              configured: Boolean(data.configured),
+              maskedKey: data.maskedKey || null
+            });
+            if (data.configured && !status.message) {
+              setStatus({
+                type: 'success',
+                message:
+                  lang === 'th'
                     ? `ระบบเชื่อมต่อ Gemini AI เรียบร้อยแล้ว (${data.maskedKey})`
                     : `Gemini AI is connected and active (${data.maskedKey})`
-                });
-              }
-            } catch {
-              // ignore
+              });
             }
+          } catch {
+            // ignore
           }
-        })
-        .catch((err) => {
-          console.warn('Could not fetch gemini-status:', err);
-        });
-    } else {
-      setStatus({
-        type: 'error',
-        message: lang === 'th'
-          ? 'การตั้งค่า API Key ต้องดำเนินการผ่าน Backend ที่ปลอดภัย'
-          : 'API keys must be configured through a secure backend.'
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch gemini-status:', err);
       });
-    }
   }, [isOpen, lang]);
 
   if (!isOpen) return null;
@@ -114,51 +105,30 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
     });
 
     try {
-      const isLocalhost = typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      // Direct verification from browser is disabled for security.
+      // All verification and key persistence is securely handled by the backend server.
+      const token = await getCurrentUserIdToken();
+      const res = await fetch('/api/save-gemini-key', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ apiKey: cleanKey })
+      });
 
-      let isKeyValid = false;
-      let serverMaskedKey: string | null = null;
-      let errorMessage = '';
-
-      if (isLocalhost) {
-        // Try local Express backend first
-        try {
-          const token = await getCurrentUserIdToken();
-          const res = await fetch('/api/save-gemini-key', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {})
-            },
-            body: JSON.stringify({ apiKey: cleanKey })
-          });
-
-          const resText = await res.text();
-          if (resText && !resText.trim().startsWith('<')) {
-            const data = JSON.parse(resText);
-            if (data.success) {
-              isKeyValid = true;
-              serverMaskedKey = data.maskedKey;
-            } else {
-              errorMessage = data.error || (lang === 'th' ? 'API Key ไม่ถูกต้อง' : 'Invalid API Key');
-            }
-          }
-        } catch {
-          errorMessage = lang === 'th'
-            ? 'ไม่สามารถเชื่อมต่อ Backend ที่ปลอดภัยได้'
-            : 'Unable to connect to the secure backend.';
+      const resText = await res.text();
+      let data: any = {};
+      try {
+        if (resText && !resText.trim().startsWith('<')) {
+          data = JSON.parse(resText);
         }
+      } catch {
+        data = {};
       }
 
-      if (!isLocalhost && !errorMessage) {
-        errorMessage = lang === 'th'
-          ? 'ไม่อนุญาตให้ตรวจสอบ API Key โดยตรงจาก Browser'
-          : 'Direct API-key verification from the browser is disabled.';
-      }
-
-      if (isKeyValid) {
-        const masked = serverMaskedKey;
+      if (res.ok && data.success) {
+        const masked = data.maskedKey || `${cleanKey.slice(0, 6)}...${cleanKey.slice(-4)}`;
         setServerStatus({
           configured: true,
           maskedKey: masked
@@ -166,22 +136,31 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
         setStatus({
           type: 'success',
           message: lang === 'th'
-            ? '✅ ยืนยัน API Key สำเร็จ! ระบบ AI OCR พร้อมใช้งานแล้ว'
-            : '✅ Gemini API Key verified & connected successfully!'
+            ? '✅ ยืนยัน API Key ผ่าน Backend สำเร็จ! ระบบ AI OCR พร้อมใช้งานแล้ว'
+            : '✅ Gemini API Key verified & connected successfully via backend!'
         });
         sounds.playClaim();
         if (onKeySaved) onKeySaved();
       } else {
+        const errorMsg = data.error || data.message || (
+          res.status === 403
+            ? (lang === 'th' ? 'เฉพาะบัญชี Owner เท่านั้นที่มีสิทธิ์ตั้งค่า API Key' : 'Only Owner accounts have permission to configure API Key')
+            : res.status === 404
+            ? (lang === 'th' ? 'ไม่พบบริการ Backend สำหรับบันทึก Key' : 'Secure backend endpoint not found')
+            : (lang === 'th' ? 'การตรวจสอบ API Key ผ่าน Backend ล้มเหลว' : 'API Key verification failed via backend')
+        );
         setStatus({
           type: 'error',
-          message: errorMessage || (lang === 'th' ? 'API Key ไม่ถูกต้อง' : 'Invalid API Key')
+          message: errorMsg
         });
         sounds.playError();
       }
     } catch (err: any) {
       setStatus({
         type: 'error',
-        message: err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการตรวจสอบ Key' : 'Error testing API Key')
+        message: lang === 'th'
+          ? `ไม่สามารถเชื่อมต่อ Backend ได้: ${err?.message || 'ข้อผิดพลาดเครือข่าย'}`
+          : `Failed to connect to backend: ${err?.message || 'Network error'}`
       });
       sounds.playError();
     } finally {

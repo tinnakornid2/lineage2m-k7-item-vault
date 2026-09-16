@@ -19,11 +19,16 @@ import {
   Coins,
   Clock,
   ArrowRight,
-  Maximize2
+  Maximize2,
+  Crown,
+  RotateCcw,
+  AlertTriangle
 } from 'lucide-react';
 import { Language, User, DiamondVaultRecord, ClanFundTxType, ClanGroup } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { clearDiamondTransactionsDoc } from '../services/firebase';
+import { calculateDiamondNetChange } from '../utils/diamondHelper';
 
 interface DiamondVaultModalProps {
   isOpen: boolean;
@@ -46,11 +51,13 @@ interface DiamondVaultModalProps {
       recipientName?: string;
       recipientClan?: string;
       proofImageUrl?: string;
+      balanceAfter?: number;
     }
   ) => Promise<void>;
   clans?: ClanGroup[];
   allMembers?: User[];
   onUpdateNote?: (recordId: string, note: string) => Promise<void>;
+  onResetVaultBalance?: (mode: 'wipe' | 'adjust', targetBalance: number, note?: string) => Promise<void>;
 }
 
 export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
@@ -63,13 +70,14 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
   onPerformTransaction,
   clans = [],
   allMembers = [],
-  onUpdateNote
+  onUpdateNote,
+  onResetVaultBalance
 }) => {
   const t = translations[lang];
 
   // ── State ────────────────────────────────────────────────────────────────
   const [selectedScope, setSelectedScope] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'view' | 'credit' | 'deduct' | 'adjust' | 'fulfill'>('view');
+  const [activeTab, setActiveTab] = useState<'view' | 'credit' | 'deduct'>('view');
 
   // Transaction Inputs
   const [grossAmount, setGrossAmount] = useState<number | ''>('');
@@ -107,9 +115,18 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
   // File input ref for dropzone
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Owner Reset State
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetMode, setResetMode] = useState<'wipe' | 'adjust'>('wipe');
+  const [resetTargetBalance, setResetTargetBalance] = useState<number | ''>(0);
+  const [resetNote, setResetNote] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
+  const isOwner = currentUser?.role === 'owner';
   const isAdminOrOwner =
-    currentUser?.role === 'owner' ||
-    currentUser?.role === 'admin';
+    isOwner ||
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'manager';
 
   // ── Scopes & Clans ───────────────────────────────────────────────────────
   const availableClans = useMemo(() => {
@@ -127,14 +144,7 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
     const sorted = [...transactions].sort((a, b) => a.timestamp - b.timestamp);
 
     sorted.forEach((tx) => {
-      const netChange =
-        tx.type === 'credit' || tx.type === 'deposit'
-          ? (tx.netAmount ?? tx.amount)
-          : tx.type === 'deduction' || tx.type === 'expenditure' || tx.type === 'withdraw'
-          ? -Math.abs(tx.amount)
-          : tx.type === 'adjust'
-          ? tx.amount // delta
-          : 0;
+      const netChange = calculateDiamondNetChange(tx);
 
       // Update Global Total
       map['all'] = (map['all'] || 0) + netChange;
@@ -240,22 +250,23 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
       setLoading(true);
 
       if (activeTab === 'credit') {
-        if (!grossNum || grossNum <= 0) {
-          setError(lang === 'th' ? 'กรุณาระบุจำนวนเพชรที่มากกว่า 0' : 'Gross amount must be greater than 0');
+        const amt = typeof grossAmount === 'number' ? grossAmount : 0;
+        if (!amt || amt <= 0) {
+          setError(lang === 'th' ? 'กรุณาระบุจำนวนเพชรที่มากกว่า 0' : 'Amount must be greater than 0');
           return;
         }
 
-        await onPerformTransaction('credit', netCredited, note || (lang === 'th' ? 'เพิ่มเพชรเข้ากองทุน' : 'Fund credit'), {
-          grossAmount: grossNum,
-          taxPct,
-          taxAmount,
-          netAmount: netCredited,
+        await onPerformTransaction('credit', amt, note || (lang === 'th' ? 'เพิ่มกองทุนเพชร' : 'Fund deposit'), {
+          grossAmount: amt,
+          taxPct: 0,
+          taxAmount: 0,
+          netAmount: amt,
           clanScope: selectedScope,
           proofImageUrl: proofImage || undefined
         });
 
         sounds.playClaim();
-        setSuccessToast(lang === 'th' ? `เพิ่ม ${netCredited.toLocaleString()} 💎 เข้ากองทุนเรียบร้อย` : `Credited ${netCredited.toLocaleString()} diamonds`);
+        setSuccessToast(lang === 'th' ? `เพิ่ม ${amt.toLocaleString()} 💎 เข้ากองทุนเรียบร้อย` : `Credited ${amt.toLocaleString()} diamonds to clan fund`);
       } else if (activeTab === 'deduct') {
         const amt = typeof deductAmount === 'number' ? deductAmount : 0;
         if (amt <= 0) {
@@ -263,51 +274,14 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
           return;
         }
 
-        await onPerformTransaction('deduction', amt, note || (lang === 'th' ? 'หักเพชรออกจากกองทุน' : 'Fund deduction'), {
+        await onPerformTransaction('deduction', amt, note || (lang === 'th' ? 'ถอนกองทุนเพชร' : 'Fund withdrawal'), {
           clanScope: selectedScope,
           proofImageUrl: proofImage || undefined
         });
 
         sounds.playClick();
-        setSuccessToast(lang === 'th' ? `หัก ${amt.toLocaleString()} 💎 เรียบร้อยแล้ว` : `Deducted ${amt.toLocaleString()} diamonds`);
-      } else if (activeTab === 'adjust') {
-        if (typeof newTargetBalance !== 'number') {
-          setError(lang === 'th' ? 'กรุณาระบุยอดเป้าหมาย' : 'Please enter target balance');
-          return;
-        }
-
-        await onPerformTransaction('adjust', deltaAmount, note || (lang === 'th' ? `ปรับยอดสมดุลเป็น ${newTargetBalance.toLocaleString()}` : `Balance adjustment to ${newTargetBalance.toLocaleString()}`), {
-          clanScope: selectedScope,
-          balanceAfter: newTargetBalance
-        });
-
-        sounds.playClick();
-        setSuccessToast(lang === 'th' ? `ปรับยอดคงเหลือเป็น ${newTargetBalance.toLocaleString()} 💎 เรียบร้อย` : `Adjusted balance to ${newTargetBalance.toLocaleString()}`);
-      } else if (activeTab === 'fulfill') {
-        const amt = typeof fulfillAmount === 'number' ? fulfillAmount : 0;
-        if (amt <= 0) {
-          setError(lang === 'th' ? 'กรุณาระบุจำนวนเพชร' : 'Amount must be greater than 0');
-          return;
-        }
-        if (!recipientUserId) {
-          setError(lang === 'th' ? 'กรุณาเลือกสมาชิกผู้รับเพชร' : 'Please select recipient member');
-          return;
-        }
-
-        const member = allMembers.find((m) => m.id === recipientUserId);
-
-        await onPerformTransaction('expenditure', amt, note || (lang === 'th' ? `จ่ายเพชรให้ ${member?.inGameName || 'สมาชิก'}` : `Member payout to ${member?.inGameName || 'member'}`), {
-          clanScope: selectedScope,
-          recipientUserId,
-          recipientName: member?.inGameName,
-          recipientClan: member?.clan,
-          proofImageUrl: proofImage || undefined
-        });
-
-        sounds.playClaim();
-        setSuccessToast(lang === 'th' ? `จ่าย ${amt.toLocaleString()} 💎 ให้ ${member?.inGameName} เรียบร้อย` : `Paid ${amt.toLocaleString()} diamonds to ${member?.inGameName}`);
+        setSuccessToast(lang === 'th' ? `ถอน ${amt.toLocaleString()} 💎 เรียบร้อยแล้ว` : `Withdrawn ${amt.toLocaleString()} diamonds from clan fund`);
       }
-
       // Reset form fields
       setGrossAmount('');
       setDeductAmount('');
@@ -625,6 +599,34 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
     }
   };
 
+  // Owner Reset Fund Handler
+  const handleExecuteReset = async () => {
+    if (!isOwner || isResetting) return;
+    const target = typeof resetTargetBalance === 'number' ? resetTargetBalance : 0;
+
+    setIsResetting(true);
+    setError('');
+    try {
+      if (onResetVaultBalance) {
+        await onResetVaultBalance(resetMode, target, resetNote.trim() || undefined);
+      } else if (resetMode === 'wipe') {
+        await clearDiamondTransactionsDoc();
+      }
+      sounds.playSuccess();
+      setSuccessToast(t.resetVaultSuccess || (lang === 'th' ? 'รีเซ็ตยอดกองทุนเพชรเรียบร้อยแล้ว!' : 'Vault balance reset successfully!'));
+      setShowResetModal(false);
+      setResetNote('');
+      setResetTargetBalance(0);
+      setTimeout(() => setSuccessToast(''), 3500);
+    } catch (err: any) {
+      console.error('Failed to reset vault:', err);
+      setError(err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการรีเซ็ตยอด' : 'Failed to reset vault balance'));
+      sounds.playError();
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -804,27 +806,10 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
               </div>
             </div>
 
-            {/* Admin Action Buttons Switcher */}
+            {/* Admin Action Buttons Switcher (มีแค่ปุ่ม เพิ่มกองทุน / ถอนกองทุน) */}
             {isAdminOrOwner && (
-              <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-slate-900/90 border border-slate-800 self-stretch sm:self-auto justify-end">
-                {/* Tab: View */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    setActiveTab('view');
-                    setError('');
-                  }}
-                  className={`px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeTab === 'view'
-                      ? 'bg-slate-700 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <History className="w-4 h-4" />
-                </button>
-
-                {/* Tab: Credit (+ Add) */}
+              <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-xl bg-slate-900/90 border border-slate-800 self-stretch sm:self-auto justify-end">
+                {/* Button: เพิ่มกองทุน (Add Fund) */}
                 <button
                   id="btn-clan-fund-credit"
                   type="button"
@@ -833,17 +818,17 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                     setActiveTab(activeTab === 'credit' ? 'view' : 'credit');
                     setError('');
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     activeTab === 'credit'
-                      ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30'
+                      ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30 font-extrabold'
                       : 'bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-700/50'
                   }`}
                 >
                   <ArrowDownCircle className="w-4 h-4" />
-                  <span>{t.tabCredit}</span>
+                  <span>{t.tabAddFund}</span>
                 </button>
 
-                {/* Tab: Deduct (-) */}
+                {/* Button: ถอนกองทุน (Withdraw Fund) */}
                 <button
                   id="btn-clan-fund-deduct"
                   type="button"
@@ -852,52 +837,36 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                     setActiveTab(activeTab === 'deduct' ? 'view' : 'deduct');
                     setError('');
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     activeTab === 'deduct'
-                      ? 'bg-rose-500 text-slate-950 shadow-md shadow-rose-500/30'
+                      ? 'bg-rose-500 text-slate-950 shadow-md shadow-rose-500/30 font-extrabold'
                       : 'bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-700/50'
                   }`}
                 >
                   <ArrowUpCircle className="w-4 h-4" />
-                  <span>{t.tabDeduct}</span>
+                  <span>{t.tabWithdrawFund}</span>
                 </button>
 
-                {/* Tab: Adjust (⚖️) */}
-                <button
-                  id="btn-clan-fund-adjust"
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    setActiveTab(activeTab === 'adjust' ? 'view' : 'adjust');
-                    setError('');
-                    setNewTargetBalance(currentDisplayBalance);
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeTab === 'adjust'
-                      ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30'
-                      : 'bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-700/50'
-                  }`}
-                >
-                  <span>{t.tabAdjust}</span>
-                </button>
-
-                {/* Tab: Fulfill (🎁) */}
-                <button
-                  id="btn-clan-fund-fulfill"
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    setActiveTab(activeTab === 'fulfill' ? 'view' : 'fulfill');
-                    setError('');
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeTab === 'fulfill'
-                      ? 'bg-violet-500 text-slate-950 shadow-md shadow-violet-500/30'
-                      : 'bg-violet-950/40 hover:bg-violet-900/60 text-violet-300 border border-violet-700/50'
-                  }`}
-                >
-                  <span>{t.tabFulfill}</span>
-                </button>
+                {/* Owner Only: Reset Balance Button */}
+                {isOwner && (
+                  <button
+                    id="btn-clan-fund-reset"
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setShowResetModal(true);
+                      setError('');
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:border-amber-400"
+                    title={t.resetVaultBalanceTitle}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{t.resetVaultBalance}</span>
+                    <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                      Owner
+                    </span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -912,14 +881,10 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                 <div className="flex items-center gap-2">
                   {activeTab === 'credit' && <ArrowDownCircle className="w-5 h-5 text-emerald-400" />}
                   {activeTab === 'deduct' && <ArrowUpCircle className="w-5 h-5 text-rose-400" />}
-                  {activeTab === 'adjust' && <span className="text-lg">⚖️</span>}
-                  {activeTab === 'fulfill' && <span className="text-lg">🎁</span>}
                   <div>
                     <h3 className="text-sm font-bold text-white">
-                      {activeTab === 'credit' && (lang === 'th' ? 'เพิ่มเพชรเข้ากองทุน (Credit / Add Funds)' : 'Add Funds (Credit)')}
-                      {activeTab === 'deduct' && (lang === 'th' ? 'หักเพชรออกจากกองทุน (Deduction)' : 'Record Deduction')}
-                      {activeTab === 'adjust' && (lang === 'th' ? 'ปรับยอดสมดุลกองทุน (Balance Adjustment)' : 'Adjust Balance')}
-                      {activeTab === 'fulfill' && (lang === 'th' ? 'จ่ายเพชรให้สมาชิก / คำขอ (Fulfill Payout)' : 'Fulfill Member Payout')}
+                      {activeTab === 'credit' && t.addFundTitle}
+                      {activeTab === 'deduct' && t.withdrawFundTitle}
                     </h3>
                     <p className="text-[11px] text-slate-400">
                       Scope: <strong className="text-sky-300">{selectedScope === 'all' ? 'All Clans (Alliance)' : selectedScope}</strong>
@@ -930,89 +895,42 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveTab('view')}
-                  className="text-xs text-slate-400 hover:text-white"
+                  className="text-xs text-slate-400 hover:text-white cursor-pointer"
                 >
                   {t.cancel}
                 </button>
               </div>
 
-              {/* TAB 1: CREDIT (Add Funds with Live Tax Breakdown) */}
+              {/* TAB 1: CREDIT (เพิ่มกองทุน - ตรงๆ ตามจำนวน ไม่คิดภาษี) */}
               {activeTab === 'credit' && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Gross Amount Input */}
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        {t.grossAmount} <span className="text-rose-400">*</span>
-                      </label>
-                      <div className="relative">
-                        <input
-                          id="input-clan-fund-gross"
-                          type="number"
-                          min="1"
-                          required
-                          value={grossAmount}
-                          onChange={(e) => setGrossAmount(e.target.value ? Number(e.target.value) : '')}
-                          placeholder="e.g. 10000"
-                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-white font-mono text-sm focus:outline-none"
-                        />
-                        <span className="absolute right-3 top-2.5 text-xs text-slate-400">💎</span>
-                      </div>
-                    </div>
-
-                    {/* Tax % Input */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-semibold text-slate-300">
-                          {t.marketTax}
-                        </label>
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          Kain7 Default: 8.00%
-                        </span>
-                      </div>
-                      <div className="relative">
-                        <input
-                          id="input-clan-fund-tax-pct"
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.1"
-                          value={taxPct}
-                          onChange={(e) => setTaxPct(Number(e.target.value))}
-                          placeholder="8.0"
-                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 focus:border-emerald-500 text-white font-mono text-sm focus:outline-none"
-                        />
-                        <span className="absolute right-3 top-2.5 text-xs text-slate-400">%</span>
-                      </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      {t.amountDiamonds} <span className="text-emerald-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        id="input-clan-fund-gross"
+                        type="number"
+                        min="1"
+                        required
+                        value={grossAmount}
+                        onChange={(e) => setGrossAmount(e.target.value ? Number(e.target.value) : '')}
+                        placeholder="e.g. 10000"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-white font-mono text-sm focus:outline-none"
+                      />
+                      <span className="absolute right-3 top-2.5 text-xs text-slate-400">💎</span>
                     </div>
                   </div>
-
-                  {/* Live Tax & Net Amount Calculation Card (Just like Kain7) */}
-                  {grossNum > 0 && (
-                    <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 grid grid-cols-3 gap-2 text-center animate-in fade-in">
-                      <div>
-                        <span className="text-[10px] text-slate-400 block uppercase font-medium">{t.grossAmount}</span>
-                        <span className="text-sm font-bold font-mono text-slate-200">{grossNum.toLocaleString()} 💎</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-rose-400 block uppercase font-medium">-{taxPct}% {t.taxDeducted}</span>
-                        <span className="text-sm font-bold font-mono text-rose-400">-{taxAmount.toLocaleString()} 💎</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-emerald-400 block uppercase font-bold">{t.netCredited}</span>
-                        <span className="text-base font-extrabold font-mono text-emerald-300">+{netCredited.toLocaleString()} 💎</span>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
-              {/* TAB 2: DEDUCTION */}
+              {/* TAB 2: DEDUCTION (ถอนกองทุน - ตรงๆ ตามจำนวน) */}
               {activeTab === 'deduct' && (
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      {t.amount} <span className="text-rose-400">*</span>
+                      {t.amountDiamonds} <span className="text-rose-400">*</span>
                     </label>
                     <div className="relative">
                       <input
@@ -1026,97 +944,6 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                         className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 text-white font-mono text-sm focus:outline-none"
                       />
                       <span className="absolute right-3 top-2.5 text-xs text-slate-400">💎</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 3: ADJUSTMENT (Direct New Balance + Delta preview) */}
-              {activeTab === 'adjust' && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      {t.targetBalance} <span className="text-amber-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        id="input-clan-fund-new-balance"
-                        type="number"
-                        step="1"
-                        required
-                        value={newTargetBalance}
-                        onChange={(e) => setNewTargetBalance(e.target.value ? Number(e.target.value) : '')}
-                        placeholder="Target Balance e.g. 160000"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 focus:border-amber-500 text-white font-mono text-sm focus:outline-none"
-                      />
-                      <span className="absolute right-3 top-2.5 text-xs text-slate-400">💎</span>
-                    </div>
-                  </div>
-
-                  {/* Delta Preview Box (Kain7 replica) */}
-                  <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/30 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="text-slate-400 block">{t.currentBalance}</span>
-                      <span className="font-mono font-bold text-white text-sm">{currentDisplayBalance.toLocaleString()} 💎</span>
-                    </div>
-                    <ArrowRight className="w-4 h-4 text-amber-400" />
-                    <div>
-                      <span className="text-slate-400 block">{t.targetBalance}</span>
-                      <span className="font-mono font-bold text-white text-sm">{targetNum.toLocaleString()} 💎</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-amber-400 block font-semibold">{t.balanceDelta}</span>
-                      <span className={`font-mono font-extrabold text-sm ${deltaAmount >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {deltaAmount >= 0 ? `+${deltaAmount.toLocaleString()}` : deltaAmount.toLocaleString()} 💎
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 4: FULFILL / MEMBER EXPENDITURE */}
-              {activeTab === 'fulfill' && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Recipient Member Picker */}
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        {t.recipientMember} <span className="text-violet-400">*</span>
-                      </label>
-                      <select
-                        id="select-clan-fund-recipient"
-                        required
-                        value={recipientUserId}
-                        onChange={(e) => setRecipientUserId(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 focus:border-violet-500 text-white text-sm focus:outline-none"
-                      >
-                        <option value="">-- {lang === 'th' ? 'เลือกสมาชิก' : 'Select Member'} --</option>
-                        {allMembers.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.inGameName} [{m.clan || 'Clan'}] - ⚡ PL: {(m.powerLevel || 0).toLocaleString()}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Amount */}
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        {t.amount} <span className="text-violet-400">*</span>
-                      </label>
-                      <div className="relative">
-                        <input
-                          id="input-clan-fund-fulfill-amount"
-                          type="number"
-                          min="1"
-                          required
-                          value={fulfillAmount}
-                          onChange={(e) => setFulfillAmount(e.target.value ? Number(e.target.value) : '')}
-                          placeholder="e.g. 15000"
-                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 focus:border-violet-500 text-white font-mono text-sm focus:outline-none"
-                        />
-                        <span className="absolute right-3 top-2.5 text-xs text-slate-400">💎</span>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -1248,12 +1075,8 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                     {loading
                       ? (lang === 'th' ? 'กำลังบันทึก...' : 'Saving...')
                       : activeTab === 'credit'
-                      ? (lang === 'th' ? `เพิ่มเพชรเข้ากองทุน (+${netCredited.toLocaleString()} 💎)` : `Add Funds (+${netCredited.toLocaleString()})`)
-                      : activeTab === 'deduct'
-                      ? (lang === 'th' ? `บันทึกการหักเพชร` : 'Record Deduction')
-                      : activeTab === 'adjust'
-                      ? (lang === 'th' ? `ปรับยอดสมดุล` : 'Confirm Adjustment')
-                      : (lang === 'th' ? `ยืนยันการจ่ายเพชร` : 'Confirm Payout')}
+                      ? (lang === 'th' ? `ยืนยันเพิ่มกองทุน (+${(typeof grossAmount === 'number' ? grossAmount : 0).toLocaleString()} 💎)` : `Confirm Add Fund (+${(typeof grossAmount === 'number' ? grossAmount : 0).toLocaleString()} 💎)`)
+                      : (lang === 'th' ? `ยืนยันถอนกองทุน (-${(typeof deductAmount === 'number' ? deductAmount : 0).toLocaleString()} 💎)` : `Confirm Withdraw Fund (-${(typeof deductAmount === 'number' ? deductAmount : 0).toLocaleString()} 💎)`)}
                   </span>
                 </button>
               </div>
@@ -1645,6 +1468,201 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
               className="max-w-full max-h-[85vh] rounded-xl object-contain border border-slate-700 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ── 7. OWNER RESET MODAL ── */}
+      {showResetModal && isOwner && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg rounded-2xl bg-gradient-to-b from-[#181824] via-[#0f111a] to-[#0a0c13] border border-amber-500/40 shadow-[0_0_50px_rgba(245,158,11,0.2)] text-slate-200 overflow-hidden">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-800 bg-amber-500/5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400">
+                  <Crown className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                    {t.resetVaultBalanceTitle}
+                  </h3>
+                  <p className="text-xs text-slate-400">{t.resetVaultBalanceDesc}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowResetModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-5 space-y-4 text-xs sm:text-sm">
+              {/* Current balance indicator */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                <span className="text-slate-400">{t.currentBalance} (Global):</span>
+                <span className="text-base font-extrabold font-mono text-white">
+                  {currentDisplayBalance.toLocaleString()} 💎
+                </span>
+              </div>
+
+              {/* Mode Selection */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-300">
+                  {lang === 'th' ? 'เลือกรูปแบบการรีเซ็ต' : 'Select Reset Mode'}
+                </label>
+                <div className="grid grid-cols-1 gap-2.5">
+                  {/* Option 1: Wipe & Reset to 0 */}
+                  <div
+                    onClick={() => setResetMode('wipe')}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      resetMode === 'wipe'
+                        ? 'bg-rose-950/30 border-rose-500/60 shadow-sm shadow-rose-500/10'
+                        : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="radio"
+                        id="reset-mode-wipe"
+                        name="resetMode"
+                        checked={resetMode === 'wipe'}
+                        onChange={() => setResetMode('wipe')}
+                        className="mt-0.5 text-rose-500 focus:ring-rose-500 cursor-pointer"
+                      />
+                      <div className="space-y-0.5">
+                        <label htmlFor="reset-mode-wipe" className="font-bold text-white cursor-pointer block">
+                          {t.resetModeWipe}
+                        </label>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          {t.resetModeWipeDesc}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Option 2: Adjust Balance */}
+                  <div
+                    onClick={() => setResetMode('adjust')}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      resetMode === 'adjust'
+                        ? 'bg-amber-950/30 border-amber-500/60 shadow-sm shadow-amber-500/10'
+                        : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="radio"
+                        id="reset-mode-adjust"
+                        name="resetMode"
+                        checked={resetMode === 'adjust'}
+                        onChange={() => setResetMode('adjust')}
+                        className="mt-0.5 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                      />
+                      <div className="space-y-0.5">
+                        <label htmlFor="reset-mode-adjust" className="font-bold text-white cursor-pointer block">
+                          {t.resetModeAdjust}
+                        </label>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          {t.resetModeAdjustDesc}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Target Balance Input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  {resetMode === 'wipe' ? t.newStartingBalance : t.targetBalanceDiamonds}
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={resetTargetBalance}
+                    onChange={(e) => setResetTargetBalance(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="0"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700 text-white font-mono text-sm focus:outline-none focus:border-amber-400"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-400">💎</span>
+                </div>
+                {resetMode === 'adjust' && (
+                  <p className="text-[11px] text-slate-400">
+                    {t.adjustmentDelta}{' '}
+                    <strong
+                      className={
+                        (Number(resetTargetBalance || 0) - currentDisplayBalance) >= 0
+                          ? 'text-emerald-400 font-mono'
+                          : 'text-rose-400 font-mono'
+                      }
+                    >
+                      {(Number(resetTargetBalance || 0) - currentDisplayBalance) >= 0 ? '+' : ''}
+                      {(Number(resetTargetBalance || 0) - currentDisplayBalance).toLocaleString()} 💎
+                    </strong>
+                  </p>
+                )}
+              </div>
+
+              {/* Note Input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">{t.fundNote}</label>
+                <input
+                  type="text"
+                  value={resetNote}
+                  onChange={(e) => setResetNote(e.target.value)}
+                  placeholder={
+                    resetMode === 'wipe'
+                      ? (lang === 'th' ? 'เช่น ล้างยอดเริ่มต้นซีซันใหม่' : 'e.g. New season start reset')
+                      : (lang === 'th' ? 'เช่น ปรับสมดุลยอดตรงกับในเกม' : 'e.g. Sync balance to in-game total')
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700 text-white text-xs focus:outline-none focus:border-amber-400 placeholder:text-slate-500"
+                />
+              </div>
+
+              {/* Warning box if wipe */}
+              {resetMode === 'wipe' && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-2.5 text-rose-300 text-xs">
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <span>
+                    {lang === 'th'
+                      ? 'คำเตือน: การล้างประวัติธุรกรรมทั้งหมดจะไม่สามารถกู้คืนได้ ประวัติการฝาก/ถอนเดิมจะถูกลบทั้งหมด'
+                      : 'Warning: Wiping all transaction records is irreversible. All past deposit and withdrawal logs will be deleted.'}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 sm:p-5 border-t border-slate-800 bg-slate-900/50 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setShowResetModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={handleExecuteReset}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition shadow-lg cursor-pointer disabled:opacity-50 ${
+                  resetMode === 'wipe'
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30'
+                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/30'
+                }`}
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
+                <span>
+                  {isResetting
+                    ? (lang === 'th' ? 'กำลังดำเนินการ...' : 'Processing...')
+                    : (resetMode === 'wipe' ? t.confirmWipeReset : t.confirmApplyAdjustment)}
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       )}

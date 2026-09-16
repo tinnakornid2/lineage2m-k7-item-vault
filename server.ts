@@ -18,15 +18,11 @@ dotenv.config();
 const currentFilename = typeof import.meta !== "undefined" && import.meta.url ? fileURLToPath(import.meta.url) : (typeof __filename !== "undefined" ? __filename : "");
 const currentDirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(currentFilename);
 
-// Helper to generate content with modern Gemini model fallback (flash-latest -> 3.5-flash -> 3.1-flash-lite -> flash-lite-latest -> 3-flash-preview -> 3.6-flash) and auto-retry for 503 high demand
+// Helper to generate content with Gemini 3.6 Flash and fallback to flash-latest
 async function generateWithModelFallback(ai: GoogleGenAI, request: { contents: any; systemInstruction?: any }) {
   const candidateModels = [
-    "gemini-flash-latest",
-    "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-flash-lite-latest",
-    "gemini-3-flash-preview",
-    "gemini-3.6-flash"
+    "gemini-3.6-flash",
+    "gemini-flash-latest"
   ];
   let lastError: any = null;
   for (const model of candidateModels) {
@@ -123,13 +119,14 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+
   // Health check
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: Date.now() });
   });
 
   // Check Gemini API Key status
-  app.get("/api/gemini-status", requireRoles(['owner', 'admin']), async (_req, res) => {
+  app.get("/api/gemini-status", requireRoles(['owner', 'admin', 'manager']), async (_req, res) => {
     try {
       const key = await getGeminiApiKey();
       const isConfigured = Boolean(key && key.length > 10);
@@ -188,6 +185,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         contents: "ping"
       });
 
+
       await saveStoredGeminiApiKey(cleanKey, res.locals.actor.uid);
 
       // Keep the current instance in sync. Cold starts load the protected
@@ -217,12 +215,11 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   });
 
   // OCR Hunter scanner endpoint using Gemini 2.5 Flash with Multi-Image & Deduplication support
-  app.post("/api/scan-hunters", requireRoles(['owner', 'admin']), async (req, res) => {
+  app.post("/api/scan-hunters", requireRoles(['owner', 'admin', 'manager']), async (req, res) => {
     try {
       const { imageBase64, imagesBase64 } = req.body;
       const requestLang = req.body?.lang === 'en' ? 'en' : 'th';
       const message = (th: string, en: string) => requestLang === 'th' ? th : en;
-
       // Collect images (support single image or multiple images array)
       const rawImages: string[] = [];
       if (Array.isArray(imagesBase64) && imagesBase64.length > 0) {
@@ -588,7 +585,16 @@ async function startServer() {
   });
 }
 
+process.on("unhandledRejection", (reason, promise) => {
+  console.warn("Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+});
+
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(currentFilename);
 if (isDirectRun) {
   startServer().catch((err) => console.error("Failed to start server:", err));
 }
+

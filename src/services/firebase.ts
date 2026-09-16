@@ -376,16 +376,19 @@ export async function deleteUserDoc(userId: string) {
 }
 
 const SESSION_KEY = 'k7_active_session_user';
+const LEGACY_LOGGED_KEY = 'k7_logged_user';
 
 export function saveLocalSessionUser(user: User) {
   try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+    const raw = JSON.stringify(user);
+    localStorage.setItem(SESSION_KEY, raw);
+    localStorage.setItem(LEGACY_LOGGED_KEY, raw);
   } catch {}
 }
 
 export function getLocalSessionUser(): User | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(SESSION_KEY) || localStorage.getItem(LEGACY_LOGGED_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as User;
   } catch {
@@ -396,6 +399,7 @@ export function getLocalSessionUser(): User | null {
 export function clearLocalSessionUser() {
   try {
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(LEGACY_LOGGED_KEY);
   } catch {}
 }
 

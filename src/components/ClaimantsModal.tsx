@@ -155,7 +155,7 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
 
             <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
               <span className="text-amber-400 font-mono font-medium">
-                💎 {item.price.toLocaleString()} {t.diamonds}
+                {item.price > 0 ? `💎 ${item.price.toLocaleString()} ${t.diamonds}` : (lang === 'th' ? '🎁 ฟรี (0 เพชร)' : '🎁 FREE (0 Diamonds)')}
               </span>
               <span>•</span>
               <span>

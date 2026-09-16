@@ -52,7 +52,8 @@ import { DistributionStatsModal } from './DistributionStatsModal';
 import { GeminiKeyModal } from './GeminiKeyModal';
 import {
   getCurrentUserIdToken,
-  listenToGeminiAiSettings
+  listenToGeminiAiSettings,
+  updateVaultItemDoc
 } from '../services/firebase';
 
 interface VaultViewProps {
@@ -90,8 +91,9 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const isOwner = currentUser?.role === 'owner';
   const isAdminOrOwner =
     isOwner ||
-    currentUser?.role === 'admin';
-  const canUseOcr = isOwner || currentUser?.role === 'admin';
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'manager';
+  const canUseOcr = isAdminOrOwner;
 
   // State for in-app deletion confirmation
   const [itemToDelete, setItemToDelete] = useState<VaultItem | null>(null);
@@ -104,6 +106,41 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [rarity, setRarity] = useState<ItemRarity>('LAGEND');
   const [itemImageUrl, setItemImageUrl] = useState('');
   const [itemImagePreview, setItemImagePreview] = useState('');
+
+  // Remembered item names state & aggregator
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+
+  const rememberedNames = useMemo(() => {
+    const namesSet = new Set<string>();
+    vaultItems.forEach((i) => {
+      if (i.name && i.name.trim()) namesSet.add(i.name.trim());
+    });
+    quickItems.forEach((q) => {
+      if (q.name && q.name.trim()) namesSet.add(q.name.trim());
+    });
+    try {
+      const stored = localStorage.getItem('l2m_recent_item_names');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((n) => {
+            if (typeof n === 'string' && n.trim()) namesSet.add(n.trim());
+          });
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return Array.from(namesSet);
+  }, [vaultItems, quickItems]);
+
+  const filteredNameSuggestions = useMemo(() => {
+    const q = name.trim().toLowerCase();
+    if (!q) return rememberedNames.slice(0, 10);
+    return rememberedNames
+      .filter((n) => n.toLowerCase().includes(q) && n.toLowerCase() !== q)
+      .slice(0, 8);
+  }, [name, rememberedNames]);
   
   // OCR & Hunters State
   const [hunters, setHunters] = useState<HunterRecord[]>([]);
@@ -124,7 +161,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
     errorMsg?: string;
   } | null>(null);
   const [showGeminiModal, setShowGeminiModal] = useState(false);
-  const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
+  const [geminiConfigured, setGeminiConfigured] = useState<boolean>(true);
   const [geminiMaskedKey, setGeminiMaskedKey] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [formError, setFormError] = useState('');
@@ -157,21 +194,21 @@ export const VaultView: React.FC<VaultViewProps> = ({
     // 2. Also check local backend /api/gemini-status if available
     const checkServerStatus = async () => {
       try {
-          const token = await getCurrentUserIdToken();
-          const res = await fetch('/api/gemini-status', {
-            headers: token ? { Authorization: `Bearer ${token}` } : {}
-          });
-          const text = await res.text();
-          if (text && !text.trim().startsWith('<')) {
-            const data = JSON.parse(text);
-            if (data?.configured) {
-              setGeminiConfigured(true);
-              setGeminiMaskedKey(data.maskedKey || null);
-              return;
-            }
+        const token = await getCurrentUserIdToken();
+        const res = await fetch('/api/gemini-status', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        const text = await res.text();
+        if (text && !text.trim().startsWith('<')) {
+          const data = JSON.parse(text);
+          if (typeof data?.configured === 'boolean') {
+            setGeminiConfigured(data.configured);
+            setGeminiMaskedKey(data.maskedKey || null);
+            return;
           }
+        }
       } catch {
-          // Ignore and fallback below
+        // Ignore and fallback below
       }
     };
     checkServerStatus();
@@ -963,6 +1000,19 @@ export const VaultView: React.FC<VaultViewProps> = ({
         hunterScreenshots
       });
 
+      // Save item name to localStorage
+      try {
+        const stored = localStorage.getItem('l2m_recent_item_names');
+        const parsed = stored ? JSON.parse(stored) : [];
+        const updated = [
+          name.trim(),
+          ...(Array.isArray(parsed) ? parsed.filter((n: string) => n.toLowerCase() !== name.trim().toLowerCase()) : [])
+        ].slice(0, 40);
+        localStorage.setItem('l2m_recent_item_names', JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
+
       setFormSuccess(
         lang === 'th'
           ? 'เพิ่มไอเทมสำเร็จ!'
@@ -1285,19 +1335,59 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
               {/* 2. Name */}
               <div className="lg:col-span-3 space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    2. {t.itemName} *
-                  </label>
+                <div className="relative">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      2. {t.itemName} *
+                    </label>
+                    {rememberedNames.length > 0 && (
+                      <span className="text-[10px] text-amber-300/80 font-mono">
+                        ✨ {t.recentNamesHint}
+                      </span>
+                    )}
+                  </div>
                   <input
                     id="input-vault-name"
                     type="text"
                     required
                     placeholder="e.g. Imperial Crusader Armor"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      setShowNameSuggestions(true);
+                    }}
+                    onFocus={() => setShowNameSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowNameSuggestions(false), 200)}
                     className="w-full px-3.5 py-2.5 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none"
                   />
+
+                  {/* Autocomplete Suggestions Dropdown */}
+                  {showNameSuggestions && filteredNameSuggestions.length > 0 && (
+                    <div className="absolute z-30 left-0 right-0 top-full mt-1 bg-slate-900 border border-[#d4af37]/40 rounded-xl shadow-2xl p-1.5 max-h-48 overflow-y-auto space-y-1">
+                      <div className="text-[10px] text-slate-400 font-semibold px-2 py-1 uppercase tracking-wider flex items-center gap-1 border-b border-slate-800">
+                        <Sparkles className="w-3 h-3 text-[#f5d77f]" />
+                        <span>{t.rememberedItemNames}</span>
+                      </div>
+                      {filteredNameSuggestions.map((suggestionName, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setName(suggestionName);
+                            setShowNameSuggestions(false);
+                            sounds.playClick();
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-slate-200 hover:text-white hover:bg-[#1f2b42] flex items-center justify-between transition cursor-pointer"
+                        >
+                          <span className="font-semibold truncate">{suggestionName}</span>
+                          <span className="text-[9px] text-[#f5d77f] font-mono shrink-0 ml-2">
+                            {lang === 'th' ? 'เลือก' : 'Use'} ↵
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1405,7 +1495,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {isOwner && (
+                  {isOwner ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -1426,6 +1516,22 @@ export const VaultView: React.FC<VaultViewProps> = ({
                           : lang === 'th' ? '⚠️ ตั้งค่า Gemini Key' : '⚠️ Set Gemini Key'}
                       </span>
                     </button>
+                  ) : (
+                    <div
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold shadow-sm ${
+                        geminiConfigured
+                          ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-400'
+                          : 'bg-amber-950/30 border-amber-500/30 text-amber-400'
+                      }`}
+                      title={lang === 'th' ? 'สถานะการเชื่อมต่อ AI OCR พร้อมใช้งานสำหรับแอดมินทุกคน' : 'AI OCR status ready for all Admins'}
+                    >
+                      <Cpu className="w-3.5 h-3.5 text-[#38bdf8]" />
+                      <span>
+                        {geminiConfigured
+                          ? lang === 'th' ? 'Gemini AI: พร้อมใช้งาน' : 'Gemini AI: Ready'
+                          : lang === 'th' ? 'Gemini AI: ยังไม่เชื่อมต่อ' : 'Gemini AI: Not Connected'}
+                      </span>
+                    </div>
                   )}
 
                   <label
@@ -2248,6 +2354,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     <th className="py-3 px-4">{t.distributedTo}</th>
                     <th className="py-3 px-4">{t.distributedDate}</th>
                     <th className="py-3 px-4 min-w-[170px]">{lang === 'th' ? 'รูปรายชื่อผู้ล่า' : 'Hunter Proofs'}</th>
+                    <th className="py-3 px-4 min-w-[160px]">{t.receiptBills}</th>
                     <th className="py-3 px-4 text-right">{t.actions}</th>
                   </tr>
                 </thead>
@@ -2404,6 +2511,116 @@ export const VaultView: React.FC<VaultViewProps> = ({
                             {lang === 'th' ? 'ไม่มีรูปผู้ล่า' : 'No proof attached'}
                           </span>
                         )}
+                      </td>
+
+                      {/* 7.5. Receipt Bills (รูปบิล / ใบเสร็จ - แนบได้หลายใบ) */}
+                      <td className="py-3 px-4">
+                        <div className="space-y-1.5">
+                          {item.receiptImages && item.receiptImages.length > 0 ? (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {item.receiptImages.map((receiptUrl, rIdx) => (
+                                <div key={rIdx} className="relative group/receipt shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      sounds.playClick();
+                                      onViewImageZoom(
+                                        receiptUrl,
+                                        `${item.name} - ${lang === 'th' ? `บิล/ใบเสร็จ #${rIdx + 1}` : `Receipt #${rIdx + 1}`}`,
+                                        item.receiptImages,
+                                        rIdx
+                                      );
+                                    }}
+                                    className="w-11 h-11 rounded-lg overflow-hidden border border-emerald-500/40 hover:border-emerald-400 bg-slate-900 transition-all hover:scale-110 shadow-md cursor-pointer block"
+                                    title={lang === 'th' ? `คลิกดูรูปบิล #${rIdx + 1}` : `View receipt #${rIdx + 1}`}
+                                  >
+                                    <img
+                                      src={receiptUrl}
+                                      alt={`Receipt ${rIdx + 1}`}
+                                      className="w-full h-full object-cover"
+                                    />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/receipt:opacity-100 flex items-center justify-center transition-opacity">
+                                      <ZoomIn className="w-3.5 h-3.5 text-emerald-300 drop-shadow" />
+                                    </div>
+                                    <span className="absolute bottom-0 right-0 px-1 py-0.2 bg-black/80 text-[8.5px] font-mono text-emerald-300 font-bold rounded-tl border-t border-l border-emerald-700/60">
+                                      #{rIdx + 1}
+                                    </span>
+                                  </button>
+
+                                  {isAdminOrOwner && (
+                                    <button
+                                      type="button"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (window.confirm(t.deleteReceiptConfirm)) {
+                                          sounds.playClick();
+                                          const updatedReceipts = (item.receiptImages || []).filter((_, i) => i !== rIdx);
+                                          await updateVaultItemDoc(item.id, { receiptImages: updatedReceipts });
+                                        }
+                                      }}
+                                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow text-[9px] opacity-0 group-hover/receipt:opacity-100 transition-opacity cursor-pointer z-10"
+                                      title={lang === 'th' ? 'ลบรูปบิลนี้' : 'Delete receipt'}
+                                    >
+                                      ×
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {/* Attach receipt button for Admin/Owner */}
+                          {isAdminOrOwner && (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <label
+                                htmlFor={`file-receipt-${item.id}`}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-600/40 text-emerald-300 text-[11px] font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
+                                title={t.receiptBillsDesc}
+                              >
+                                <Upload className="w-3 h-3 text-emerald-400" />
+                                <span>+ {t.attachReceipt}</span>
+                              </label>
+                              <input
+                                id={`file-receipt-${item.id}`}
+                                type="file"
+                                multiple
+                                accept="image/*"
+                                onChange={async (e) => {
+                                  const files = e.target.files;
+                                  if (!files || files.length === 0) return;
+                                  try {
+                                    sounds.playClick();
+                                    const compressedList = await Promise.all(
+                                      (Array.from(files) as File[]).map((f) => compressImageFile(f, { maxWidth: 1600, maxHeight: 1600, quality: 0.8 })
+                                      )
+                                    );
+                                    const existing = item.receiptImages || [];
+                                    await updateVaultItemDoc(item.id, {
+                                      receiptImages: [...existing, ...compressedList]
+                                    });
+                                    sounds.playClaim();
+                                  } catch (err) {
+                                    console.error('Error uploading receipts:', err);
+                                  } finally {
+                                    e.target.value = '';
+                                  }
+                                }}
+                                className="hidden"
+                              />
+                              {item.receiptImages && item.receiptImages.length > 0 && (
+                                <span className="text-[10px] font-mono text-emerald-400/80">
+                                  ({item.receiptImages.length} {lang === 'th' ? 'บิล' : 'bills'})
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {(!item.receiptImages || item.receiptImages.length === 0) && !isAdminOrOwner && (
+                            <span className="text-slate-600 text-[11px] italic">
+                              {t.noReceipts}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* 8. Actions */}

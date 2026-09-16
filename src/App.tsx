@@ -57,12 +57,17 @@ import {
   deleteUserDoc,
   addDiamondTransactionDoc,
   updateDiamondTransactionNoteDoc,
+  clearDiamondTransactionsDoc,
   registerUserDoc,
   loginUserQuery,
   listenToFormulaSettings,
+  saveLocalSessionUser,
+  clearLocalSessionUser,
+  getLocalSessionUser,
   INITIAL_QUICK_ITEMS,
   INITIAL_CLANS
 } from './services/firebase';
+import { computeTotalVaultBalance } from './utils/diamondHelper';
 import { setInMemoryFormulaSettings } from './services/powerFormulaService';
 
 import { Sidebar } from './components/Sidebar';
@@ -73,6 +78,7 @@ import { AuthModal } from './components/AuthModal';
 import { DiamondVaultModal } from './components/DiamondVaultModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
 import { DistributeItemModal } from './components/DistributeItemModal';
+import { EditVaultItemModal } from './components/EditVaultItemModal';
 import { ClaimantsModal } from './components/ClaimantsModal';
 import { QuickItemModal } from './components/QuickItemModal';
 import { OwnerResetModal } from './components/OwnerResetModal';
@@ -122,18 +128,13 @@ export const App: React.FC = () => {
 
   // 3. Current User / Authentication
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('k7_logged_user');
-    if (saved) {
-      try {
-        const u = JSON.parse(saved);
-        if (u && (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni')) {
-          u.role = 'owner';
-          u.status = 'active';
-        }
-        return u;
-      } catch {
-        return null;
+    const u = getLocalSessionUser();
+    if (u) {
+      if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') {
+        u.role = 'owner';
+        u.status = 'active';
       }
+      return u;
     }
     return null;
   });
@@ -159,6 +160,7 @@ export const App: React.FC = () => {
   const [distributeTargetItem, setDistributeTargetItem] = useState<VaultItem | null>(null);
   const [distributeClaimantId, setDistributeClaimantId] = useState<string | undefined>(undefined);
   const [claimantsTargetItem, setClaimantsTargetItem] = useState<VaultItem | null>(null);
+  const [editingVaultItem, setEditingVaultItem] = useState<VaultItem | null>(null);
   const [imageViewerData, setImageViewerData] = useState<{
     url: string;
     title?: string;
@@ -261,7 +263,7 @@ export const App: React.FC = () => {
             ? { ...found, role: 'owner' as UserRole, status: 'active' as UserStatus }
             : found;
           setCurrentUser(safeUser);
-          localStorage.setItem('k7_logged_user', JSON.stringify(safeUser));
+          saveLocalSessionUser(safeUser);
         }
       }
     });
@@ -312,18 +314,9 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Calculate Diamond Vault / Clan Fund Balance (Memoized)
+  // Calculate Diamond Vault / Clan Fund Balance (Memoized directly from real transaction records)
   const vaultBalance = useMemo(() => {
-    return diamondLogs.reduce((acc, log) => {
-      if (log.type === 'credit' || log.type === 'deposit') {
-        return acc + (log.netAmount ?? log.amount);
-      } else if (log.type === 'deduction' || log.type === 'expenditure' || log.type === 'withdraw') {
-        return acc - Math.abs(log.amount);
-      } else if (log.type === 'adjust') {
-        return acc + log.amount; // delta can be positive or negative
-      }
-      return acc + log.amount;
-    }, 150000); // 150,000 initial starting seed balance
+    return computeTotalVaultBalance(diamondLogs);
   }, [diamondLogs]);
 
   // Auth Handlers
@@ -346,7 +339,7 @@ export const App: React.FC = () => {
     }
 
     setCurrentUser(user);
-    localStorage.setItem('k7_logged_user', JSON.stringify(user));
+    saveLocalSessionUser(user);
     setShowAuthModal(false);
     return { success: true };
   };
@@ -387,7 +380,7 @@ export const App: React.FC = () => {
   const handleLogout = () => {
     sounds.playClick();
     setCurrentUser(null);
-    localStorage.removeItem('k7_logged_user');
+    clearLocalSessionUser();
   };
 
   // Diamond Vault / Clan Fund Transaction
@@ -433,6 +426,52 @@ export const App: React.FC = () => {
 
   const handleUpdateVaultNote = async (recordId: string, newNote: string) => {
     await updateDiamondTransactionNoteDoc(recordId, newNote);
+  };
+
+  const handleResetVaultBalance = async (
+    mode: 'wipe' | 'adjust',
+    targetBalance: number,
+    note?: string
+  ) => {
+    if (!currentUser || currentUser.role !== 'owner') return;
+    if (mode === 'wipe') {
+      await clearDiamondTransactionsDoc();
+      if (targetBalance > 0) {
+        await addDiamondTransactionDoc({
+          type: 'deposit',
+          amount: targetBalance,
+          grossAmount: targetBalance,
+          netAmount: targetBalance,
+          note: note || (lang === 'th' ? 'ยอดเริ่มต้นกองทุน (รีเซ็ตโดย Owner)' : 'Initial Starting Fund (Owner Reset)'),
+          clanScope: 'all',
+          balanceAfter: targetBalance,
+          performedBy: {
+            userId: currentUser.id,
+            name: currentUser.inGameName,
+            role: currentUser.role
+          }
+        });
+      }
+    } else {
+      const current = vaultBalance;
+      const delta = targetBalance - current;
+      if (delta !== 0) {
+        await addDiamondTransactionDoc({
+          type: 'adjust',
+          amount: delta,
+          grossAmount: Math.abs(delta),
+          netAmount: delta,
+          note: note || (lang === 'th' ? `ปรับยอดโดย Owner (เป้าหมาย: ${targetBalance.toLocaleString()} เพชร)` : `Owner Balance Adjustment (Target: ${targetBalance.toLocaleString()})`),
+          clanScope: 'all',
+          balanceAfter: targetBalance,
+          performedBy: {
+            userId: currentUser.id,
+            name: currentUser.inGameName,
+            role: currentUser.role
+          }
+        });
+      }
+    }
   };
 
   // Announcement & Discord Settings Handlers
@@ -650,10 +689,31 @@ export const App: React.FC = () => {
     }
   };
 
+  // Update/Edit Vault Item Handler
+  const handleUpdateVaultItem = async (
+    itemId: string,
+    updates: Partial<VaultItem>
+  ) => {
+    try {
+      await updateVaultItemDoc(itemId, updates);
+      showToast(
+        lang === 'th' ? 'อัปเดตข้อมูลไอเทมเรียบร้อยแล้ว' : 'Item updated successfully',
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Error updating vault item:', err);
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการอัปเดตไอเทม' : 'Error updating item',
+        'error'
+      );
+      throw err;
+    }
+  };
+
   // Distribute Item Handler (Admin awards item, removes from Dashboard, stores in distributed archive)
   const handleDistributeItem = async (
     itemId: string,
-    recipient: { name: string; clan: string; userId?: string }
+    recipient: { name: string; clan: string; userId?: string; receiptImages?: string[] }
   ) => {
     try {
       const distributedPayload: any = {
@@ -665,10 +725,14 @@ export const App: React.FC = () => {
       if (recipient.userId) {
         distributedPayload.userId = recipient.userId;
       }
+      if (recipient.receiptImages && recipient.receiptImages.length > 0) {
+        distributedPayload.receiptImages = recipient.receiptImages;
+      }
 
       await updateVaultItemDoc(itemId, {
         status: 'distributed',
-        distributedTo: distributedPayload
+        distributedTo: distributedPayload,
+        receiptImages: recipient.receiptImages || []
       });
 
       // Send Discord notification if enabled
@@ -1762,6 +1826,7 @@ export const App: React.FC = () => {
             onViewImage={(url, title) => setImageViewerData({ url, title })}
             onOpenOwnerResetModal={() => setShowOwnerResetModal(true)}
             onDeleteItem={handleDeleteVaultItem}
+            onEditItem={(item) => setEditingVaultItem(item)}
             allMembers={users}
             distributedItems={vaultItems.filter((i) => i.status === 'distributed')}
             clans={clans}
@@ -1937,6 +2002,7 @@ export const App: React.FC = () => {
         clans={clans}
         allMembers={users}
         onUpdateNote={handleUpdateVaultNote}
+        onResetVaultBalance={handleResetVaultBalance}
       />
 
       {distributeTargetItem && canAccessAdminFeatures && (
@@ -1952,6 +2018,21 @@ export const App: React.FC = () => {
           allMembers={users}
           initialClaimantUserId={distributeClaimantId}
           onDistribute={handleDistributeItem}
+        />
+      )}
+
+      {editingVaultItem && canAccessAdminFeatures && (
+        <EditVaultItemModal
+          isOpen={Boolean(editingVaultItem)}
+          onClose={() => setEditingVaultItem(null)}
+          item={editingVaultItem}
+          lang={lang}
+          currentUser={currentUser}
+          allMembers={users}
+          quickItems={quickItems}
+          vaultItems={vaultItems}
+          onUpdateItem={handleUpdateVaultItem}
+          onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
         />
       )}
 
