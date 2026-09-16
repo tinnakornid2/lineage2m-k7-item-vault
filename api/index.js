@@ -25,29 +25,29 @@ async function getAdminSdk() {
     const { getAuth } = await import("firebase-admin/auth");
     const { getFirestore } = await import("firebase-admin/firestore");
     const { getStorage } = await import("firebase-admin/storage");
-    let app2 = getApps().length ? getApps()[0] : null;
-    if (!app2) {
+    let app = getApps().length ? getApps()[0] : null;
+    if (!app) {
       const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
       if (rawServiceAccount) {
         try {
           const serviceAccount = JSON.parse(rawServiceAccount);
-          app2 = initializeApp({ credential: cert(serviceAccount), projectId: PROJECT_ID });
+          app = initializeApp({ credential: cert(serviceAccount), projectId: PROJECT_ID });
         } catch (e) {
           console.warn("Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:", e);
         }
       } else if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
-        app2 = initializeApp({ projectId: PROJECT_ID });
+        app = initializeApp({ projectId: PROJECT_ID });
       } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        app2 = initializeApp({ projectId: PROJECT_ID });
+        app = initializeApp({ projectId: PROJECT_ID });
       }
     }
-    if (!app2) return null;
-    const db = process.env.FIRESTORE_EMULATOR_HOST ? getFirestore(app2) : getFirestore(app2, DATABASE_ID);
+    if (!app) return null;
+    const db = process.env.FIRESTORE_EMULATOR_HOST ? getFirestore(app) : getFirestore(app, DATABASE_ID);
     cachedAdmin = {
-      app: app2,
-      auth: getAuth(app2),
+      app,
+      auth: getAuth(app),
       db,
-      storage: getStorage(app2)
+      storage: getStorage(app)
     };
     return cachedAdmin;
   } catch (err) {
@@ -263,7 +263,7 @@ async function generateWithModelFallback(ai, request) {
   throw lastError;
 }
 async function createApp(options = {}) {
-  const app2 = express();
+  const app = express();
   const getGeminiApiKey = async () => {
     const environmentKey = process.env.GEMINI_API_KEY?.trim();
     if (environmentKey) return environmentKey;
@@ -302,9 +302,9 @@ async function createApp(options = {}) {
       });
     }
   };
-  app2.use(express.json({ limit: "50mb" }));
-  app2.use(express.urlencoded({ limit: "50mb", extended: true }));
-  app2.use((req, _res, next) => {
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use((req, _res, next) => {
     const rawPath = req.headers["x-matched-path"] || req.headers["x-invoke-path"] || req.url;
     if (rawPath && rawPath !== "/api/index" && rawPath !== "/api") {
       if (!req.url.startsWith("/api") && rawPath.startsWith("/api")) {
@@ -313,10 +313,10 @@ async function createApp(options = {}) {
     }
     next();
   });
-  app2.get(["/api/health", "/health", "/api", "/api/index"], (_req, res) => {
+  app.get(["/api/health", "/health", "/api", "/api/index"], (_req, res) => {
     res.json({ status: "ok", timestamp: Date.now() });
   });
-  app2.get("/api/gemini-status", requireRoles(["owner", "admin", "manager"]), async (_req, res) => {
+  app.get("/api/gemini-status", requireRoles(["owner", "admin", "manager"]), async (_req, res) => {
     try {
       const key = await getGeminiApiKey();
       const isConfigured = Boolean(key && key.length > 10);
@@ -331,7 +331,7 @@ async function createApp(options = {}) {
       });
     }
   });
-  app2.delete("/api/users/:userId", requireRoles(["owner", "admin"]), async (req, res) => {
+  app.delete("/api/users/:userId", requireRoles(["owner", "admin"]), async (req, res) => {
     try {
       const result = await deleteManagedUser(res.locals.actor, req.params.userId);
       if (!result.allowed) {
@@ -352,7 +352,7 @@ async function createApp(options = {}) {
       });
     }
   });
-  app2.post("/api/save-gemini-key", requireRoles(["owner"]), async (req, res) => {
+  app.post("/api/save-gemini-key", requireRoles(["owner"]), async (req, res) => {
     try {
       const { apiKey } = req.body;
       if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 10) {
@@ -411,13 +411,13 @@ async function createApp(options = {}) {
     }
   } catch {
   }
-  app2.get("/api/google-backup-config", (_req, res) => {
+  app.get("/api/google-backup-config", (_req, res) => {
     res.json({
       webAppUrl: sharedGoogleBackupUrl,
       sheetUrl: sharedGoogleSheetUrl
     });
   });
-  app2.post("/api/google-backup-config", async (req, res) => {
+  app.post("/api/google-backup-config", async (req, res) => {
     try {
       const { webAppUrl, sheetUrl } = req.body;
       let hasChanged = false;
@@ -459,7 +459,7 @@ async function createApp(options = {}) {
     }
   } catch {
   }
-  app2.get("/api/live-state", (req, res) => {
+  app.get("/api/live-state", (req, res) => {
     const clientVersion = Number(req.query.v) || 0;
     const shouldWait = req.query.wait === "true" || req.query.wait === "1";
     if (clientVersion !== liveHubState.version || liveHubState.version === 0) {
@@ -500,7 +500,7 @@ async function createApp(options = {}) {
       }
     });
   });
-  app2.post("/api/live-state", (req, res) => {
+  app.post("/api/live-state", (req, res) => {
     try {
       const { data } = req.body;
       if (data && typeof data === "object") {
@@ -520,7 +520,7 @@ async function createApp(options = {}) {
       res.status(500).json({ success: false, error: err?.message });
     }
   });
-  app2.post("/api/scan-hunters", requireRoles(["owner", "admin", "manager"]), async (req, res) => {
+  app.post("/api/scan-hunters", requireRoles(["owner", "admin", "manager"]), async (req, res) => {
     try {
       const { imageBase64, imagesBase64 } = req.body;
       const requestLang = req.body?.lang === "en" ? "en" : "th";
@@ -721,8 +721,8 @@ Do not include markdown or explanations. Return pure JSON only.`;
       });
     }
   });
-  app2.use(express.static(path.join(process.cwd(), "public")));
-  app2.post("/api/save-background", requireRoles(["owner"]), async (req, res) => {
+  app.use(express.static(path.join(process.cwd(), "public")));
+  app.post("/api/save-background", requireRoles(["owner"]), async (req, res) => {
     try {
       const { imageBase64 } = req.body;
       if (!imageBase64 || typeof imageBase64 !== "string") {
@@ -770,7 +770,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
     }
     return getStoredDiscordWebhookUrl();
   };
-  app2.get("/api/discord-status", requireRoles(["owner", "admin"]), async (_req, res) => {
+  app.get("/api/discord-status", requireRoles(["owner", "admin"]), async (_req, res) => {
     try {
       const url = await getDiscordWebhookUrl();
       if (!url) {
@@ -783,7 +783,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
       return res.status(500).json({ error: "CONFIG_READ_FAILED", message: "Failed to read Discord configuration." });
     }
   });
-  app2.post("/api/save-discord-webhook", requireRoles(["owner", "admin"]), async (req, res) => {
+  app.post("/api/save-discord-webhook", requireRoles(["owner", "admin"]), async (req, res) => {
     try {
       const { webhookUrl } = req.body;
       const cleanUrl = typeof webhookUrl === "string" ? webhookUrl.trim() : "";
@@ -818,7 +818,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
       return res.status(500).json({ error: "SAVE_FAILED", message: "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 Discord Webhook \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
     }
   });
-  app2.post("/api/discord-webhook", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
+  app.post("/api/discord-webhook", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
     try {
       const { payload } = req.body;
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -946,7 +946,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
       });
     }
   });
-  app2.use((err, _req, res, next) => {
+  app.use((err, _req, res, next) => {
     if (res.headersSent) {
       return next(err);
     }
@@ -975,20 +975,20 @@ Do not include markdown or explanations. Return pure JSON only.`;
       },
       appType: "spa"
     });
-    app2.use(vite.middlewares);
+    app.use(vite.middlewares);
   } else if (options.serveFrontend !== false) {
     const distPath = path.join(process.cwd(), "dist");
-    app2.use(express.static(distPath));
-    app2.get("*", (_req, res) => {
+    app.use(express.static(distPath));
+    app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
-  return app2;
+  return app;
 }
 async function startServer() {
-  const app2 = await createApp();
+  const app = await createApp();
   const port = Number(process.env.PORT) || 3e3;
-  app2.listen(port, "0.0.0.0", () => {
+  app.listen(port, "0.0.0.0", () => {
     console.log(`Lineage2M Clan Hub server running on http://0.0.0.0:${port}`);
   });
 }
@@ -1003,9 +1003,61 @@ if (isDirectRun) {
   startServer().catch((err) => console.error("Failed to start server:", err));
 }
 
-// api/index.ts
-var app = await createApp({ serveFrontend: false });
-var index_default = app;
+// api/_entry.ts
+var appInstance = null;
+var initError = null;
+async function getApp() {
+  if (appInstance) return appInstance;
+  if (initError) throw initError;
+  try {
+    appInstance = await createApp({ serveFrontend: false });
+    return appInstance;
+  } catch (err) {
+    initError = err;
+    throw err;
+  }
+}
+async function handler(req, res) {
+  const rawPath = req.headers && (req.headers["x-matched-path"] || req.headers["x-invoke-path"]) || req.url;
+  if (rawPath && rawPath !== "/api/index" && rawPath !== "/api") {
+    if (typeof rawPath === "string" && rawPath.startsWith("/api")) {
+      req.url = rawPath;
+    }
+  }
+  if (req.url === "/api/health" || req.url === "/health" || req.url === "/api") {
+    return res.status(200).json({ status: "ok", serverless: true, timestamp: Date.now() });
+  }
+  try {
+    const app = await getApp();
+    return new Promise((resolve) => {
+      res.on("finish", resolve);
+      res.on("close", resolve);
+      app(req, res, (err) => {
+        if (err) {
+          console.error("Express Unhandled Error in serverless handler:", err);
+          if (!res.headersSent) {
+            res.status(500).json({
+              success: false,
+              error: "EXPRESS_UNHANDLED_ERROR",
+              message: String(err?.message || err)
+            });
+          }
+        }
+        resolve(null);
+      });
+    });
+  } catch (err) {
+    console.error("Vercel Serverless Function Handler Error:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        error: "SERVERLESS_FUNCTION_ERROR",
+        message: String(err?.message || err),
+        stack: String(err?.stack || "")
+      });
+    }
+  }
+}
 export {
-  index_default as default
+  handler as default
 };

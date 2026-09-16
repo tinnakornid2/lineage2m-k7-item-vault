@@ -11,7 +11,7 @@
     "migrate:auth:dry-run": "node scripts/migrate-firebase-auth.mjs",
     "backup:firestore": "node scripts/backup-firestore-encrypted.mjs",
     "restore:firestore": "node scripts/restore-firestore-encrypted.mjs",
-    "build": "vite build && esbuild api/index.ts --bundle --platform=node --format=esm --packages=external --outfile=api/index.js && esbuild server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/server.js",
+    "build": "vite build && esbuild api/_entry.ts --bundle --platform=node --format=esm --packages=external --outfile=api/index.js && esbuild server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/server.js",
     "start": "node dist/server.js",
     "preview": "vite preview",
     "clean": "rm -rf dist server.cjs",
