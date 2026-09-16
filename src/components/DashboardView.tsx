@@ -1135,7 +1135,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         ) : (
           <div className="max-h-[640px] overflow-y-auto pr-1 custom-scrollbar">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
               {displayedAvailableItems.map((item) => {
                 const hasClaimed = Boolean(
                   currentUser &&
@@ -1157,7 +1157,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 return (
                   <div
                     key={item.id}
-                    className={`p-2 sm:p-2.5 rounded-xl bg-gradient-to-b from-[#101726] via-[#0c121e] to-[#070b14] border border-[#23314f] hover:border-[#d4af37]/60 transition-all duration-200 flex items-center gap-2.5 shadow-md group relative ${getRarityBorder(
+                    className={`p-2 sm:p-2.5 rounded-xl bg-gradient-to-b from-[#101726] via-[#0c121e] to-[#070b14] border border-[#23314f] hover:border-[#d4af37]/60 transition-all duration-200 flex items-center gap-2 sm:gap-2.5 shadow-md group relative overflow-hidden min-w-0 ${getRarityBorder(
                       item.rarity
                     )}`}
                   >
@@ -1184,7 +1184,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </button>
 
                     {/* Right: Exactly 2 Lines per item */}
-                    <div className="flex-1 min-w-0 flex flex-col justify-between gap-1.5">
+                    <div className="flex-1 min-w-0 flex flex-col justify-between gap-1 sm:gap-1.5">
                       {/* Line 1: [Rarity] Item Name xQty + Price */}
                       <div className="flex items-center justify-between gap-1.5 min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0 truncate">
@@ -1224,11 +1224,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </div>
 
                       {/* Line 2: Min PL + Claimants + Action Buttons */}
-                      <div className="flex items-center justify-between gap-1 min-w-0">
+                      <div className="flex flex-wrap items-center justify-between gap-x-1.5 gap-y-1 min-w-0">
                         {/* Left: Min Power (PL) & Claimants Count */}
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 min-w-0">
                           <div
-                            className="flex items-center gap-0.5 text-[10px] font-mono"
+                            className="flex items-center gap-0.5 text-[9.5px] sm:text-[10px] font-mono shrink-0"
                             title={`Min Power: ${item.minPowerLevel.toLocaleString()} PL`}
                           >
                             <Zap className="w-2.5 h-2.5 text-amber-400 shrink-0" />
@@ -1262,36 +1262,36 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               sounds.playClick();
                               if (onViewClaimants) onViewClaimants(item);
                             }}
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[#0d1524] hover:bg-[#16243d] border border-slate-700/60 hover:border-sky-500/60 text-slate-300 hover:text-white transition-all cursor-pointer shadow-sm text-[10px] group/btn"
+                            className="inline-flex items-center gap-0.5 px-1 sm:px-1.5 py-0.5 rounded bg-[#0d1524] hover:bg-[#16243d] border border-slate-700/60 hover:border-sky-500/60 text-slate-300 hover:text-white transition-all cursor-pointer shadow-sm text-[9.5px] sm:text-[10px] group/btn shrink-0"
                             title={lang === 'th' ? 'คลิกดูรายชื่อผู้ลงชื่อเครม' : 'Click to view claimants list'}
                           >
-                            <Users className="w-2.5 h-2.5 text-sky-400 group-hover/btn:scale-110 transition-transform" />
+                            <Users className="w-2.5 h-2.5 text-sky-400 group-hover/btn:scale-110 transition-transform shrink-0" />
                             <span className="font-bold text-sky-300 font-mono">
                               {item.claimants?.length || 0}
                             </span>
-                            <span className="text-[8.5px] text-slate-400">
+                            <span className="text-[8.5px] text-slate-400 hidden xs:inline">
                               {lang === 'th' ? 'คน' : 'p'}
                             </span>
                           </button>
                         </div>
 
                         {/* Right: Action Buttons */}
-                        <div className="flex items-center gap-1 shrink-0 justify-end">
+                        <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
                           {!currentUser ? (
                             <button
                               onClick={() => {
                                 sounds.playClick();
                                 onOpenAuth();
                               }}
-                              className="px-2 py-0.5 rounded bg-[#1a2538] hover:bg-[#233149] text-[10px] font-bold text-[#f5d77f] border border-[#d4af37]/30 transition-all cursor-pointer"
+                              className="px-1.5 sm:px-2 py-0.5 rounded bg-[#1a2538] hover:bg-[#233149] text-[9.5px] sm:text-[10px] font-bold text-[#f5d77f] border border-[#d4af37]/30 transition-all cursor-pointer whitespace-nowrap"
                             >
                               {t.login}
                             </button>
                           ) : hasClaimed ? (
-                            <div className="flex items-center gap-1">
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-700/50 text-emerald-300 text-[10px] font-bold">
-                                <CheckCircle className="w-2.5 h-2.5 text-emerald-400" />
-                                <span>{t.alreadyClaimed}</span>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-700/50 text-emerald-300 text-[9px] sm:text-[10px] font-bold whitespace-nowrap">
+                                <CheckCircle className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                                <span>{lang === 'th' ? 'ขอรับแล้ว' : 'Claimed'}</span>
                               </span>
                               {onUnclaimItem && (
                                 <button
@@ -1302,7 +1302,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                     sounds.playClick();
                                     onUnclaimItem(item.id);
                                   }}
-                                  className="p-1 rounded bg-red-950/70 hover:bg-red-900 border border-red-800/70 text-red-300 hover:text-white text-[10px] font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
+                                  className="p-1 rounded bg-red-950/70 hover:bg-red-900 border border-red-800/70 text-red-300 hover:text-white text-[10px] font-semibold transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
                                   title={t.cancelClaimBtn}
                                 >
                                   <X className="w-2.5 h-2.5 text-red-400" />
@@ -1316,18 +1316,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 sounds.playClick();
                                 setStatWarningModalItem(item);
                               }}
-                              className="px-2 py-0.5 rounded text-[10px] font-semibold transition-all flex items-center gap-0.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-sm cursor-pointer active:scale-95"
+                              className="px-1.5 sm:px-2 py-0.5 rounded text-[9px] sm:text-[10px] font-semibold transition-all flex items-center gap-0.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-sm cursor-pointer active:scale-95 whitespace-nowrap shrink-0"
                               title={isStatsPendingState ? t.statsPendingBadge : t.updateStatsFirst}
                             >
                               {isStatsPendingState ? (
                                 <>
-                                  <Clock className="w-2.5 h-2.5 text-amber-400 animate-pulse" />
-                                  <span className="hidden sm:inline">{t.statsPendingBadge}</span>
+                                  <Clock className="w-2.5 h-2.5 text-amber-400 animate-pulse shrink-0" />
+                                  <span>{lang === 'th' ? 'รออนุมัติ' : 'Pending'}</span>
                                 </>
                               ) : (
                                 <>
-                                  <AlertCircle className="w-2.5 h-2.5 text-amber-400" />
-                                  <span className="hidden sm:inline">{t.updateStatsFirst}</span>
+                                  <AlertCircle className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                  <span>{lang === 'th' ? 'สเตตัสก่อน' : 'Need Stats'}</span>
                                 </>
                               )}
                             </button>
@@ -1339,7 +1339,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 sounds.playClaim();
                                 onClaimItem(item.id);
                               }}
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all flex items-center gap-0.5 ${
+                              className={`px-1.5 sm:px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-bold transition-all flex items-center gap-0.5 whitespace-nowrap shrink-0 ${
                                 hasEnoughPower
                                   ? 'btn-l2m-gold text-slate-950 font-bold shadow-sm cursor-pointer active:scale-95'
                                   : 'bg-slate-800/60 text-slate-500 border border-slate-700/40 cursor-not-allowed'
@@ -1347,82 +1347,85 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             >
                               {hasEnoughPower ? (
                                 <>
-                                  <Sparkles className="w-2.5 h-2.5" />
-                                  <span>{t.claimItemBtn}</span>
+                                  <Sparkles className="w-2.5 h-2.5 shrink-0" />
+                                  <span>{lang === 'th' ? 'ขอรับ' : 'Claim'}</span>
                                 </>
                               ) : (
                                 <>
-                                  <Lock className="w-2.5 h-2.5" />
-                                  <span>{t.insufficientPower}</span>
+                                  <Lock className="w-2.5 h-2.5 shrink-0" />
+                                  <span>{lang === 'th' ? 'พลังไม่ถึง' : 'Low PL'}</span>
                                 </>
                               )}
                             </button>
                           )}
 
-                          {/* Admin / Owner Distribute Button */}
+                          {/* Admin / Owner Mini Action Toolbar */}
                           {isAdminOrOwner && (
-                            <button
-                              id={`btn-distribute-${item.id}`}
-                              onClick={() => {
-                                sounds.playClick();
-                                onOpenDistributeModal(item);
-                              }}
-                              className="p-1 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white transition-all shadow-sm cursor-pointer shrink-0"
-                              title={t.distributeItemBtn}
-                            >
-                              <Gift className="w-3 h-3" />
-                            </button>
-                          )}
+                            <div className="inline-flex items-center gap-0.5 p-0.5 rounded-md bg-slate-900/90 border border-slate-700/60 shrink-0 shadow-inner">
+                              {/* Distribute Button */}
+                              <button
+                                id={`btn-distribute-${item.id}`}
+                                onClick={() => {
+                                  sounds.playClick();
+                                  onOpenDistributeModal(item);
+                                }}
+                                className="p-1 rounded hover:bg-sky-600/30 text-sky-400 hover:text-sky-200 transition-all cursor-pointer shrink-0"
+                                title={t.distributeItemBtn}
+                              >
+                                <Gift className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                              </button>
 
-                          {/* Admin / Owner Edit Button */}
-                          {isAdminOrOwner && onEditItem && (
-                            <button
-                              id={`btn-edit-active-item-${item.id}`}
-                              onClick={() => {
-                                sounds.playClick();
-                                onEditItem(item);
-                              }}
-                              className="p-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-all shadow-sm cursor-pointer shrink-0"
-                              title={t.editItem}
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </button>
-                          )}
+                              {/* Edit Button */}
+                              {onEditItem && (
+                                <button
+                                  id={`btn-edit-active-item-${item.id}`}
+                                  onClick={() => {
+                                    sounds.playClick();
+                                    onEditItem(item);
+                                  }}
+                                  className="p-1 rounded hover:bg-amber-500/30 text-amber-400 hover:text-amber-200 transition-all cursor-pointer shrink-0"
+                                  title={t.editItem}
+                                >
+                                  <Edit2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                </button>
+                              )}
 
-                          {/* Owner Broadcast to Discord Button */}
-                          {isOwner && onBroadcastToDiscord && (
-                            <button
-                              id={`btn-discord-broadcast-${item.id}`}
-                              disabled={broadcastingItemId === item.id}
-                              onClick={async () => {
-                                sounds.playClick();
-                                setBroadcastingItemId(item.id);
-                                try {
-                                  await onBroadcastToDiscord(item);
-                                } finally {
-                                  setBroadcastingItemId(null);
-                                }
-                              }}
-                              className="p-1 rounded bg-[#5865F2]/20 hover:bg-[#5865F2]/35 text-[#8ea1e1] hover:text-white border border-[#5865F2]/50 transition-all shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
-                              title={t.sendToDiscord || 'ส่งไป Discord'}
-                            >
-                              <MessageSquare className="w-3 h-3 text-[#5865F2]" />
-                            </button>
-                          )}
+                              {/* Owner Discord Broadcast Button */}
+                              {isOwner && onBroadcastToDiscord && (
+                                <button
+                                  id={`btn-discord-broadcast-${item.id}`}
+                                  disabled={broadcastingItemId === item.id}
+                                  onClick={async () => {
+                                    sounds.playClick();
+                                    setBroadcastingItemId(item.id);
+                                    try {
+                                      await onBroadcastToDiscord(item);
+                                    } finally {
+                                      setBroadcastingItemId(null);
+                                    }
+                                  }}
+                                  className="p-1 rounded hover:bg-[#5865F2]/35 text-[#8ea1e1] hover:text-white transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                                  title={t.sendToDiscord || (lang === 'th' ? 'ส่งไป Discord' : 'Send to Discord')}
+                                >
+                                  <MessageSquare className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                </button>
+                              )}
 
-                          {/* Admin / Owner Delete Active Item Button */}
-                          {isAdminOrOwner && onDeleteItem && (
-                            <button
-                              id={`btn-delete-active-item-${item.id}`}
-                              onClick={() => {
-                                sounds.playClick();
-                                setItemToDelete(item);
-                              }}
-                              className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95 shrink-0"
-                              title={lang === 'th' ? 'ลบไอเทมนี้' : 'Delete item'}
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
+                              {/* Delete Active Item Button */}
+                              {onDeleteItem && (
+                                <button
+                                  id={`btn-delete-active-item-${item.id}`}
+                                  onClick={() => {
+                                    sounds.playClick();
+                                    setItemToDelete(item);
+                                  }}
+                                  className="p-1 rounded hover:bg-red-900/50 text-red-400 hover:text-red-200 transition-all cursor-pointer shrink-0"
+                                  title={lang === 'th' ? 'ลบไอเทมนี้' : 'Delete item'}
+                                >
+                                  <Trash2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
