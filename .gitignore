@@ -9,7 +9,8 @@ coverage/
 !.env.example
 *.zip
 scratch/
-backups/
+backups/*
+!backups/complete_snapshot_v2.1.0.json
 secrets/
 data/
 
