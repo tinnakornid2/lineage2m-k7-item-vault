@@ -1,4 +1,4 @@
-// server.ts
+// api/_server.ts
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -201,7 +201,7 @@ async function deleteManagedUser(actor, targetUid) {
   return { allowed: true };
 }
 
-// server.ts
+// api/_server.ts
 dotenv.config();
 var currentFilename = typeof import.meta !== "undefined" && import.meta.url ? fileURLToPath(import.meta.url) : typeof __filename !== "undefined" ? __filename : "";
 var currentDirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(currentFilename);
@@ -977,7 +977,14 @@ var isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === path.reso
 if (isDirectRun) {
   startServer().catch((err) => console.error("Failed to start server:", err));
 }
+
+// server.ts
+if (isDirectRun) {
+  startServer().catch((err) => console.error("Failed to start server:", err));
+}
 export {
-  createApp
+  createApp,
+  isDirectRun,
+  startServer
 };
 //# sourceMappingURL=server.js.map
