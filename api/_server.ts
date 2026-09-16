@@ -783,6 +783,29 @@ Do not include markdown or explanations. Return pure JSON only.`;
         });
       }
 
+      // HARD FILTER per Rule 5: Discord notifications must be strictly item-only (new_item, distribute, test).
+      // Drop ANY stat request, stat approval, or power level notifications immediately to prevent stale clients or scripts from posting to Discord.
+      const rawBodyString = (JSON.stringify(req.body) || '').toLowerCase();
+      const isStatRelated =
+        rawBodyString.includes('stat_request') ||
+        rawBodyString.includes('stat_approval') ||
+        rawBodyString.includes('stat verification') ||
+        rawBodyString.includes('power level update request') ||
+        rawBodyString.includes('new stats and power level') ||
+        rawBodyString.includes('stats update approved') ||
+        rawBodyString.includes('waiting for admin review and approval') ||
+        rawBodyString.includes('verified power level') ||
+        rawBodyString.includes('submitted updated stats');
+
+      if (isStatRelated) {
+        console.warn('[Rule 5 Discord Guard] Dropped non-item/stat notification from reaching Discord.');
+        return res.json({
+          success: true,
+          dropped: true,
+          message: 'Stat notifications are strictly disabled per Rule 5. Dropped by server guard.'
+        });
+      }
+
       const actorId = String(res.locals.actor?.uid || "unknown");
       if (!consumeRateLimit(discordRateLimits, actorId, 15, 60_000)) {
         return res.status(429).json({
@@ -951,6 +974,9 @@ Do not include markdown or explanations. Return pure JSON only.`;
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
       res.sendFile(path.join(distPath, "index.html"));
     });
   } else {

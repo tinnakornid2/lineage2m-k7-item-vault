@@ -1,5 +1,5 @@
 # 📋 PROJECT HANDOVER & WORK CONTINUATION GUIDE
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.5.0 — อัปเดตล่าสุด)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.5.1 — อัปเดตล่าสุด)**  
 > **Last Updated:** 2026-09-16  
 > **Repository:** `tinnakornid2/lineage2m-k7-item-vault`  
 > **Live Web App:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)  

@@ -924,6 +924,16 @@ Do not include markdown or explanations. Return pure JSON only.`;
           message: "\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21 Discord \u0E21\u0E35\u0E02\u0E19\u0E32\u0E14\u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 / Discord payload size or shape is invalid."
         });
       }
+      const rawBodyString = (JSON.stringify(req.body) || "").toLowerCase();
+      const isStatRelated = rawBodyString.includes("stat_request") || rawBodyString.includes("stat_approval") || rawBodyString.includes("stat verification") || rawBodyString.includes("power level update request") || rawBodyString.includes("new stats and power level") || rawBodyString.includes("stats update approved") || rawBodyString.includes("waiting for admin review and approval") || rawBodyString.includes("verified power level") || rawBodyString.includes("submitted updated stats");
+      if (isStatRelated) {
+        console.warn("[Rule 5 Discord Guard] Dropped non-item/stat notification from reaching Discord.");
+        return res.json({
+          success: true,
+          dropped: true,
+          message: "Stat notifications are strictly disabled per Rule 5. Dropped by server guard."
+        });
+      }
       const actorId = String(res.locals.actor?.uid || "unknown");
       if (!consumeRateLimit(discordRateLimits, actorId, 15, 6e4)) {
         return res.status(429).json({
@@ -1070,6 +1080,9 @@ Do not include markdown or explanations. Return pure JSON only.`;
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
       res.sendFile(path.join(distPath, "index.html"));
     });
   } else {

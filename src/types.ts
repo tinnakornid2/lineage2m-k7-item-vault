@@ -325,7 +325,6 @@ export interface DiscordSettings {
   enabled: boolean;
   notifyOnNewItem: boolean;
   notifyOnDistribute: boolean;
-  notifyOnStatRequest?: boolean;
   mentionType?: DiscordMentionType;
   mentionRoleId?: string;
   mentionEveryone?: boolean;

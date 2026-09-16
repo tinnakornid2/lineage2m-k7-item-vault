@@ -188,17 +188,11 @@ function getAttachmentExt(dataUrl?: string): string {
  */
 export async function sendDiscordNotification(
   settings: DiscordSettings,
-  event: 'new_item' | 'distribute' | 'test' | 'stat_request' | 'stat_approval',
+  event: 'new_item' | 'distribute' | 'test',
   data?: {
     item?: VaultItem;
     distributeInfo?: DistributedInfo;
     actorName?: string;
-    memberName?: string;
-    memberClan?: string;
-    oldPowerLevel?: number;
-    newPowerLevel?: number;
-    screenshotUrl?: string;
-    statsSummary?: string;
     lang?: Language;
     webhookUrl?: string;
     template?: DiscordMessageTemplate;
@@ -414,11 +408,11 @@ export async function sendDiscordNotification(
         }
       ]
     };
-  } else if (event === 'stat_request' || event === 'stat_approval') {
+  } else {
     // Non-item Discord notifications are strictly disabled per Rule 5
     return {
       success: true,
-      message: th ? 'ปิดการแจ้งเตือนสเตตัส (แจ้งเตือนเฉพาะไอเทมเท่านั้น)' : 'Non-item Discord notifications are disabled'
+      message: th ? 'ปิดการแจ้งเตือนนอกเหนือจากไอเทม (ตามกฎ Rule 5)' : 'Non-item Discord notifications are disabled per Rule 5'
     };
   }
 
@@ -451,6 +445,7 @@ export async function sendDiscordNotification(
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
       body: JSON.stringify({
+        event,
         payload,
         imageBase64: attachedImageBase64 || undefined,
         attachTo: attachedImageBase64 ? attachTo : undefined,
