@@ -108,7 +108,6 @@ function getAnsiRarityCode(rarity: ItemRarity): string {
 function buildTemplateDescription(
   template: DiscordMessageTemplate,
   item: VaultItem,
-  _th: boolean,
   claimLink: string,
   customNote?: string
 ): string {
@@ -122,83 +121,34 @@ function buildTemplateDescription(
   const noteLine = customNote?.trim() ? `\n💬 *Note: ${customNote.trim()}*` : '';
   const actionLine = claimLink
     ? `👉 [**Open Vault to Claim Item**](${claimLink})`
-    : '👉 **Log in to Clan Hub to Claim**';
+    : `👉 **Log in to Clan Hub to Claim**`;
 
+  let header = '';
   switch (template) {
-    case 'neon_glow': {
-      const ansiLine = [
-        '```ansi',
-        `${ansiColor}[${displayRarity}] ${item.name}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m`,
-        `\u001b[1;37m💎 Price: ${priceLabel}\u001b[0m`,
-        '```'
-      ].join('\n');
-      return `${ansiLine}${noteLine}\n${actionLine}`;
-    }
-
-    case 'war_horn': {
-      const ansiLine = [
-        '```ansi',
-        `\u001b[1;31m⚔️ [WAR VAULT]\u001b[0m ${ansiColor}[${displayRarity}] ${item.name}\u001b[0m`,
-        `\u001b[1;37m💎 ${priceLabel}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m • \u001b[1;33mClaim Ready\u001b[0m`,
-        '```'
-      ].join('\n');
-      return `${ansiLine}${noteLine}\n${actionLine}`;
-    }
-
-    case 'clan_market': {
-      const ansiLine = [
-        '```ansi',
-        `\u001b[1;36m🏛️ [MARKET]\u001b[0m ${ansiColor}[${displayRarity}] ${item.name}\u001b[0m`,
-        `\u001b[1;37m💎 Value: ${priceLabel}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m`,
-        '```'
-      ].join('\n');
-      return `${ansiLine}${noteLine}\n${actionLine}`;
-    }
-
+    case 'war_horn':
+      header = `\u001b[1;31m⚔️ [WAR VAULT]\u001b[0m ${ansiColor}[${displayRarity}] ${item.name}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m`;
+      break;
+    case 'clan_market':
+      header = `\u001b[1;36m🏛️ [MARKET]\u001b[0m ${ansiColor}[${displayRarity}] ${item.name}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m`;
+      break;
     case 'crystal_minimal':
-    default: {
-      const ansiLine = [
-        '```ansi',
-        `${ansiColor}⚔️ [${displayRarity}] ${item.name}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m`,
-        `\u001b[1;37m💎 Price: ${priceLabel}\u001b[0m`,
-        '```'
-      ].join('\n');
-      return `${ansiLine}${noteLine}\n${actionLine}`;
-    }
+      header = `${ansiColor}⚔️ [${displayRarity}] ${item.name}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m`;
+      break;
+    case 'neon_glow':
+    default:
+      header = `${ansiColor}[${displayRarity}] ${item.name}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m`;
+      break;
   }
+
+  const ansiBlock = [
+    '```ansi',
+    header,
+    `\u001b[1;37m💎 Price: ${priceLabel}\u001b[0m`,
+    '```'
+  ].join('\n');
+
+  return `${ansiBlock}${noteLine}\n${actionLine}`;
 }
-
-/**
- * Send rich discord notification through backend proxy
- */
-export async function sendDiscordNotification(
-  settings: DiscordSettings,
-  event: 'new_item' | 'distribute' | 'test' | 'stat_request' | 'stat_approval',
-  data?: {
-    item?: VaultItem;
-    distributeInfo?: DistributedInfo;
-    actorName?: string;
-    memberName?: string;
-    memberClan?: string;
-    oldPowerLevel?: number;
-    newPowerLevel?: number;
-    screenshotUrl?: string;
-    statsSummary?: string;
-    lang?: Language;
-    webhookUrl?: string;
-    template?: DiscordMessageTemplate;
-    customNote?: string;
-  }
-): Promise<{ success: boolean; message?: string }> {
-  const lang = data?.lang || 'th';
-  const th = lang === 'th';
-  const template = data?.template || settings.messageTemplate || 'neon_glow';
-
-  if (!settings.enabled) {
-    return { success: false, message: th ? 'ปิดการใช้งาน Discord Webhook อยู่' : 'Discord Webhook is disabled' };
-  }
-
-  let payload: any = null;
 
 function getValidDiscordImageUrl(url: string | undefined, rarity?: ItemRarity): string {
   if (url && (url.startsWith('http://') || url.startsWith('https://')) && !url.startsWith('data:')) {
@@ -233,6 +183,38 @@ function getAttachmentExt(dataUrl?: string): string {
   return 'jpg';
 }
 
+/**
+ * Send rich discord notification through backend proxy
+ */
+export async function sendDiscordNotification(
+  settings: DiscordSettings,
+  event: 'new_item' | 'distribute' | 'test' | 'stat_request' | 'stat_approval',
+  data?: {
+    item?: VaultItem;
+    distributeInfo?: DistributedInfo;
+    actorName?: string;
+    memberName?: string;
+    memberClan?: string;
+    oldPowerLevel?: number;
+    newPowerLevel?: number;
+    screenshotUrl?: string;
+    statsSummary?: string;
+    lang?: Language;
+    webhookUrl?: string;
+    template?: DiscordMessageTemplate;
+    customNote?: string;
+  }
+): Promise<{ success: boolean; message?: string }> {
+  const lang = data?.lang || 'th';
+  const th = lang === 'th';
+  const template = data?.template || settings.messageTemplate || 'neon_glow';
+
+  if (!settings.enabled) {
+    return { success: false, message: th ? 'ปิดการใช้งาน Discord Webhook อยู่' : 'Discord Webhook is disabled' };
+  }
+
+  let payload: any = null;
+
   if (event === 'test') {
     const rawRoleId = settings.mentionRoleId ? settings.mentionRoleId.trim().replace(/\D/g, '') : '';
     const mentionType = settings.mentionType || (rawRoleId ? 'role' : settings.mentionEveryone !== false ? 'everyone' : 'none');
@@ -249,7 +231,10 @@ function getAttachmentExt(dataUrl?: string): string {
       price: 0,
       quantity: 1,
       minPowerLevel: 0,
-      hunters: [],
+      hunters: [
+        { name: 'Zenkaii', clan: 'VoltZ' },
+        { name: 'DVD', clan: 'LevelS' }
+      ],
       hunterScreenshots: [],
       imageUrl: DEFAULT_ITEM_ICON_BASE64,
       status: 'available',
@@ -262,9 +247,8 @@ function getAttachmentExt(dataUrl?: string): string {
     const sampleDesc = buildTemplateDescription(
       template,
       testItem,
-      false,
       baseWebUrl,
-      `Testing Template: ${templateMeta.name.en}`
+      `Testing Connection (${templateMeta.name.en})`
     );
 
     payload = {
@@ -294,7 +278,7 @@ function getAttachmentExt(dataUrl?: string): string {
             }
           ],
           footer: {
-            text: 'Lineage 2M Clan Hub • Template Test'
+            text: 'Lineage 2M Clan Hub • Connection Test'
           },
           timestamp: new Date().toISOString()
         }
@@ -315,11 +299,21 @@ function getAttachmentExt(dataUrl?: string): string {
     const baseWebUrl = (settings.appBaseUrl || origin || '').replace(/\/$/, '');
     const claimLink = baseWebUrl ? `${baseWebUrl}/?tab=dashboard&item=${encodeURIComponent(item.id)}` : '';
 
-    const effectiveImage = getItemImageBase64(item.imageUrl);
-    const itemExt = getAttachmentExt(effectiveImage);
-    const thumbnailObj = { url: `attachment://item.${itemExt}` };
+    // Option 1 Real Item Image Thumbnail logic:
+    // 1. If valid web URL, use directly (clean, crisp, no sample overwrite)
+    // 2. If data URI, attach binary
+    // 3. If empty, use high-resolution rarity artwork
+    let thumbnailObj: { url: string };
+    if (item.imageUrl && (item.imageUrl.startsWith('http://') || item.imageUrl.startsWith('https://')) && !item.imageUrl.startsWith('data:')) {
+      thumbnailObj = { url: item.imageUrl };
+    } else if (item.imageUrl && item.imageUrl.startsWith('data:image/')) {
+      const itemExt = getAttachmentExt(item.imageUrl);
+      thumbnailObj = { url: `attachment://item.${itemExt}` };
+    } else {
+      thumbnailObj = { url: getValidDiscordImageUrl(item.imageUrl, item.rarity) };
+    }
 
-    const description = buildTemplateDescription(template, item, false, claimLink, data?.customNote);
+    const description = buildTemplateDescription(template, item, claimLink, data?.customNote);
 
     // Determine mention strategy: 'everyone', specific 'role', or 'none'
     const rawRoleId = settings.mentionRoleId ? settings.mentionRoleId.trim().replace(/\D/g, '') : '';
@@ -343,7 +337,6 @@ function getAttachmentExt(dataUrl?: string): string {
       allowed_mentions: allowedMentions,
       embeds: [
         {
-          title: `⚔️ [${displayRarity}] ${item.name}${qtyText}`,
           color: color,
           description: description,
           thumbnail: thumbnailObj,
@@ -363,13 +356,20 @@ function getAttachmentExt(dataUrl?: string): string {
     const dist = data.distributeInfo;
     const color = getRarityColor(item.rarity);
     const displayRarity = item.rarity === 'LAGEND' ? 'LEGEND' : item.rarity;
-    const effectiveDistImage = getItemImageBase64(item.imageUrl);
-    const distExt = getAttachmentExt(effectiveDistImage);
-    const thumbnailObj = { url: `attachment://item.${distExt}` };
+
+    let thumbnailObj: { url: string };
+    if (item.imageUrl && (item.imageUrl.startsWith('http://') || item.imageUrl.startsWith('https://')) && !item.imageUrl.startsWith('data:')) {
+      thumbnailObj = { url: item.imageUrl };
+    } else if (item.imageUrl && item.imageUrl.startsWith('data:image/')) {
+      const distExt = getAttachmentExt(item.imageUrl);
+      thumbnailObj = { url: `attachment://item.${distExt}` };
+    } else {
+      thumbnailObj = { url: getValidDiscordImageUrl(item.imageUrl, item.rarity) };
+    }
 
     const rarityBadge = {
       MYTHIC: '🟨 **MYTHIC**',
-      LAGEND: '🟪 **LEGEND**',
+      LAGEND: '🪻 **LEGEND**',
       EPIC: '🟥 **EPIC**',
       RARE: '🟦 **RARE**'
     }[item.rarity] || `🟦 **${displayRarity}**`;
@@ -396,7 +396,9 @@ function getAttachmentExt(dataUrl?: string): string {
             },
             {
               name: '💎 Item Value',
-              value: item.price > 0 ? `**${item.price.toLocaleString()} Diamonds**` : '**🎁 FREE (0 Diamonds)**',
+              value: item.price > 0
+                ? `**${item.price.toLocaleString()} Diamonds**`
+                : '**🎁 FREE (0 Diamonds)**',
               inline: true
             },
             {
@@ -412,83 +414,11 @@ function getAttachmentExt(dataUrl?: string): string {
         }
       ]
     };
-  } else if (event === 'stat_request') {
-    const prev = data?.oldPowerLevel || 0;
-    const next = data?.newPowerLevel || 0;
-    const diff = next - prev;
-
-    const hasBase64Screenshot = Boolean(data?.screenshotUrl && data.screenshotUrl.startsWith('data:image/'));
-    const imageObj = hasBase64Screenshot
-      ? { url: 'attachment://screenshot.png' }
-      : (data?.screenshotUrl && !data.screenshotUrl.startsWith('data:') ? { url: data.screenshotUrl } : undefined);
-
-    payload = {
-      username: settings.botName || 'Lineage 2M Clan Hub',
-      avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
-      embeds: [
-        {
-          title: '⚡ New Stats and Power Level Update Request!',
-          description: `**${data?.memberName}** of **${cleanClanName(data?.memberClan) || 'Alliance'}** submitted updated stats for a new Power Level calculation.`,
-          color: 0xf59e0b, // Amber
-          image: imageObj,
-          fields: [
-            {
-              name: '👤 Member',
-              value: `**${data?.memberName}** (${cleanClanName(data?.memberClan) || 'VoltZ'})`,
-              inline: true
-            },
-            {
-              name: '⚡ New Power Level',
-              value: `**${next.toLocaleString()} PL** (${diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString()})`,
-              inline: true
-            },
-            {
-              name: '📊 Review Status',
-              value: '⏳ Waiting for admin review and approval',
-              inline: true
-            }
-          ],
-          footer: {
-            text: 'Lineage 2M Clan Hub • Stat Verification'
-          },
-          timestamp: new Date().toISOString()
-        }
-      ]
-    };
-  } else if (event === 'stat_approval') {
-    const next = data?.newPowerLevel || 0;
-
-    payload = {
-      username: settings.botName || 'Lineage 2M Clan Hub',
-      avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
-      embeds: [
-        {
-          title: '✅ Stats Update Approved!',
-          description: `**${data?.memberName}**'s stats were approved and the verified Power Level has been updated.`,
-          color: 0x10b981, // Emerald
-          fields: [
-            {
-              name: '👤 Member',
-              value: `**${data?.memberName}** (${cleanClanName(data?.memberClan) || 'VoltZ'})`,
-              inline: true
-            },
-            {
-              name: '⚡ Verified Power Level',
-              value: `**${next.toLocaleString()} PL**`,
-              inline: true
-            },
-            {
-              name: '👑 Approved by',
-              value: data?.actorName || 'Admin/Owner',
-              inline: true
-            }
-          ],
-          footer: {
-            text: 'Lineage 2M Clan Hub • Stat Verification'
-          },
-          timestamp: new Date().toISOString()
-        }
-      ]
+  } else if (event === 'stat_request' || event === 'stat_approval') {
+    // Non-item Discord notifications are strictly disabled per Rule 5
+    return {
+      success: true,
+      message: th ? 'ปิดการแจ้งเตือนสเตตัส (แจ้งเตือนเฉพาะไอเทมเท่านั้น)' : 'Non-item Discord notifications are disabled'
     };
   }
 
@@ -498,17 +428,14 @@ function getAttachmentExt(dataUrl?: string): string {
 
   // Determine binary image attachment if available
   let attachedImageBase64: string | undefined;
-  let attachTo: 'thumbnail' | 'image' = 'thumbnail';
+  const attachTo = 'thumbnail' as const;
 
   if (event === 'test') {
     attachedImageBase64 = DEFAULT_ITEM_ICON_BASE64;
-    attachTo = 'thumbnail';
   } else if ((event === 'new_item' || event === 'distribute') && data?.item) {
-    attachedImageBase64 = getItemImageBase64(data.item.imageUrl);
-    attachTo = 'thumbnail';
-  } else if (event === 'stat_request' && data?.screenshotUrl?.startsWith('data:image/')) {
-    attachedImageBase64 = data.screenshotUrl;
-    attachTo = 'image';
+    if (data.item.imageUrl && data.item.imageUrl.startsWith('data:image/')) {
+      attachedImageBase64 = data.item.imageUrl;
+    }
   }
 
   const candidateWebhookUrl = data?.webhookUrl?.trim() || settings.webhookUrl?.trim() || '';
@@ -541,13 +468,9 @@ function getAttachmentExt(dataUrl?: string): string {
       return { success: true };
     }
 
-    if (result?.message) {
-      serverErrorMessage = result.message;
-    } else if (resText) {
-      serverErrorMessage = resText;
-    }
-  } catch (err: any) {
-    console.warn('Backend discord proxy request failed:', err);
+    serverErrorMessage = result?.message || (th ? `เซิร์ฟเวอร์ตอบกลับรหัส ${res.status}` : `Server returned HTTP ${res.status}`);
+  } catch (backendErr: any) {
+    serverErrorMessage = backendErr?.message || (th ? 'ไม่สามารถเรียกใช้งาน Backend Proxy ได้' : 'Cannot reach backend proxy');
   }
 
   // Helper to convert base64 data URL to Blob for direct client upload
@@ -562,7 +485,7 @@ function getAttachmentExt(dataUrl?: string): string {
       for (let i = 0; i < binary.length; i++) {
         array[i] = binary.charCodeAt(i);
       }
-      return { blob: new Blob([array], { type: mime }), fileName: (attachTo === 'image' ? 'screenshot' : 'item') + '.' + ext };
+      return { blob: new Blob([array], { type: mime }), fileName: 'item.' + ext };
     } catch {
       return null;
     }
@@ -578,11 +501,7 @@ function getAttachmentExt(dataUrl?: string): string {
         const parsed = dataUrlToBlob(attachedImageBase64);
         if (parsed) {
           if (Array.isArray(payload.embeds) && payload.embeds.length > 0) {
-            if (attachTo === 'image') {
-              payload.embeds[0].image = { url: `attachment://${parsed.fileName}` };
-            } else {
-              payload.embeds[0].thumbnail = { url: `attachment://${parsed.fileName}` };
-            }
+            payload.embeds[0].thumbnail = { url: `attachment://${parsed.fileName}` };
           }
           const formData = new FormData();
           formData.append('payload_json', JSON.stringify({

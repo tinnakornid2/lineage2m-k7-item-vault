@@ -97,7 +97,11 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
 
   const displayRarity = item.rarity === 'LAGEND' ? 'LEGEND' : item.rarity;
   const priceLabel = item.price > 0 ? `${item.price.toLocaleString()} Diamonds` : (th ? 'ฟรี (0 เพชร)' : 'FREE (0 Diamonds)');
-  const discordPriceLabel = item.price > 0 ? `${item.price.toLocaleString()} Diamonds` : 'FREE (0 Diamonds)';
+  const discordPriceLabel = item.price > 0
+    ? `${item.price.toLocaleString()} Diamonds`
+    : 'FREE (0 Diamonds)';
+
+
   const rarityThai = {
     MYTHIC: 'ตำนานสูงสุด',
     LAGEND: 'ตำนาน',
@@ -279,11 +283,11 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
                     <span className="text-red-400 font-bold">⚔️ [WAR VAULT]</span>{' '}
                     <span className={`font-bold ${getRarityTextColor(item.rarity)}`}>
                       [{displayRarity}] {item.name}
-                    </span>
+                    </span>{' '}
+                    <span className="text-slate-300 font-bold">(x{item.quantity || 1})</span>
                   </div>
                   <div className="text-slate-300">
-                    <span className="text-white font-bold">💎 {discordPriceLabel}</span>{' '}
-                    <span className="text-slate-300 font-bold">(x{item.quantity || 1})</span> • <span className="text-amber-400 font-bold">Claim Ready</span>
+                    <span className="text-white font-bold">💎 Price: {discordPriceLabel}</span>
                   </div>
                 </div>
               )}
@@ -294,11 +298,11 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
                     <span className="text-cyan-400 font-bold">🏛️ [MARKET]</span>{' '}
                     <span className={`font-bold ${getRarityTextColor(item.rarity)}`}>
                       [{displayRarity}] {item.name}
-                    </span>
+                    </span>{' '}
+                    <span className="text-slate-300 font-bold">(x{item.quantity || 1})</span>
                   </div>
                   <div className="text-slate-300">
-                    <span className="text-white font-bold">💎 Value: {discordPriceLabel}</span>{' '}
-                    <span className="text-slate-300 font-bold">(x{item.quantity || 1})</span>
+                    <span className="text-white font-bold">💎 Price: {discordPriceLabel}</span>
                   </div>
                 </div>
               )}

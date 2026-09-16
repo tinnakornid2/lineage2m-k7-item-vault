@@ -1,5 +1,5 @@
 # 🤖 AI_CONTEXT.md — สรุปบริบทและสถาปัตยกรรมระบบ Lineage2M Clan Hub
-> **สำหรับ AI ในการทำความเข้าใจโปรเจกต์อย่างรวดเร็วและครบถ้วน 100% (เวอร์ชันปัจจุบัน: v2.4.0 — อัปเดตล่าสุด)**
+> **สำหรับ AI ในการทำความเข้าใจโปรเจกต์อย่างรวดเร็วและครบถ้วน 100% (เวอร์ชันปัจจุบัน: v2.5.0 — อัปเดตล่าสุด)**
 
 เมื่อเปิดห้องแชทใหม่ ให้สั่ง AI อ่านไฟล์นี้ทันที เพื่อให้เข้าใจโครงสร้าง สถาปัตยกรรม โค้ด และกฎทางธุรกิจทั้งหมดโดยไม่ต้องอธิบายใหม่
 
@@ -7,12 +7,13 @@
 
 ## 1. ข้อมูลภาพรวมโปรเจกต์ (Project Overview)
 - **ชื่อโปรเจกต์:** Lineage2M Clan Hub & Boss Item Vault System
-- **เวอร์ชันปัจจุบัน:** `v2.4.0-role-passwords-payment-tracking-stable`
+- **เวอร์ชันปัจจุบัน:** `v2.5.0-discord-webhook-standard-item-only`
 - **วัตถุประสงค์:** เว็บแอปพลิเคชันสำหรับบริหารจัดการแคลน/กิลด์ในเกม Lineage 2M ประกอบด้วย:
-  1. **ระบบเปลี่ยนรหัสผ่านตามลำดับสิทธิ์ (Role-Based Password Management - NEW v2.4.0):** ทุกคนเปลี่ยนของตนเองได้, Owner เปลี่ยนให้ทุกคนได้, Admin เปลี่ยนให้ตนเองและ Member/Leader ได้ พร้อม Modal ยืนยันรหัสผ่านปลอดภัย
-  2. **ระบบจัดการและล้างการแจ้งเตือน (Notification Deletion & Auto-Cleanup - NEW v2.4.0):** ปุ่มลบรายข้อความ, ปุ่มล้างทั้งหมดจำค่าใน LocalStorage, และตัดการแจ้งเตือนเคลมของที่แจกไปแล้วอัตโนมัติ
-  3. **ระบบติดตามสถานะชำระเงินของไอเทมแจกจ่าย (Payment Tracking & Confirmation - NEW v2.4.0):** สถานะ `รอชำระ` / `ชำระแล้ว` / `ฟรี`, ปุ่มยืนยันชำระในหน้า Vault (ของที่แจกแล้ว) และแสดงเฉพาะป้ายสถานะสะอาดตาในแดชบอร์ด
-  4. **ปรับแต่งหน้าจอ My Stats (Thai Subtitles & Clean Input UX - NEW v2.4.0):** เพิ่มคำแปลภาษาไทยกำกับต่อท้ายชื่อสเตตัสในวงเล็บจางๆ พร้อมเคลียร์ค่า placeholder พื้นหลังออกทั้งหมด
+  1. **กฎมาตรฐานการแจ้งเตือน Discord Webhook (Rule 5: Discord Webhook Option 1 Only & English 100% - NEW v2.5.0):** แจ้งเตือนเฉพาะไอเทมเท่านั้น (`new_item`, `distribute`, `test`), ข้อความ Discord และ Live Preview เป็นภาษาอังกฤษ 100%, ตัด Embed Title สีขาวที่ซ้ำซ้อนออก, ตัดบรรทัดคนล่า (`⚔️ Hunters:`) ออกถาวร 100%, กรอบข้อความ ANSI 2 บรรทัดคมชัดกระชับ (ชื่อไอเทมมีสีตามระดับความหายาก + ราคาเพชรสีขาวสว่าง), และแสดงรูปไอเทมจริงที่มุมขวาบนเสมอ (ไม่ใช้ไอคอนตัวอย่างทับ)
+  2. **ระบบเปลี่ยนรหัสผ่านตามลำดับสิทธิ์ (Role-Based Password Management):** ทุกคนเปลี่ยนของตนเองได้, Owner เปลี่ยนให้ทุกคนได้, Admin เปลี่ยนให้ตนเองและ Member/Leader ได้ พร้อม Modal ยืนยันรหัสผ่านปลอดภัย
+  3. **ระบบจัดการและล้างการแจ้งเตือน (Notification Deletion & Auto-Cleanup):** ปุ่มลบรายข้อความ, ปุ่มล้างทั้งหมดจำค่าใน LocalStorage, และตัดการแจ้งเตือนเคลมของที่แจกไปแล้วอัตโนมัติ
+  4. **ระบบติดตามสถานะชำระเงินของไอเทมแจกจ่าย (Payment Tracking & Confirmation):** สถานะ `รอชำระ` / `ชำระแล้ว` / `ฟรี`, ปุ่มยืนยันชำระในหน้า Vault (ของที่แจกแล้ว) และแสดงเฉพาะป้ายสถานะสะอาดตาในแดชบอร์ด
+  5. **ปรับแต่งหน้าจอ My Stats (Thai Subtitles & Clean Input UX):** เพิ่มคำแปลภาษาไทยกำกับต่อท้ายชื่อสเตตัสในวงเล็บจางๆ พร้อมเคลียร์ค่า placeholder พื้นหลังออกทั้งหมด
   5. **คลังไอเทมดรอปจากบอส (Boss Drop Item Vault):** แสดงผล 4 คอลัมน์ต่อแถวบน Desktop, การ์ดไอเทมกระชับ 2 บรรทัดติดรูปภาพ, ลงชื่อขอรับ (Claim), แจกจ่ายของ (Distribute), แก้ไขไอเทมเปิดรับ (Edit Item), และระบบจำชื่อไอเทมอัตโนมัติ (Autocomplete)
   6. **ระบบแจ้งเตือน Discord 4 รูปแบบ พร้อมฟอนต์สีขาวสำหรับราคาเพชร:** Discord ANSI Glowing Colors (MYTHIC ทอง, LEGEND ม่วง, EPIC แดง, RARE ฟ้า, และราคาเพชรเป็นสีขาว `\u001b[1;37m` เช่น `Price: FREE (0 Diamonds)`), ส่งรูปภาพ Thumbnail อัตโนมัติแบบ Multipart
   7. **ระบบบันทึกการตั้งค่าข้ามแอดมิน (Shared Persistence):** Discord Webhook (`app_settings/discord`) และ Gemini AI OCR Key (`app_settings/gemini_ai`) ซิงค์ผ่าน Firestore เรียลไทม์ รีเฟรชไม่หาย แอดมินทุกคนใช้ร่วมกันได้ทันที
@@ -53,14 +54,15 @@ d:/Anti webapp/
 │   ├── _server.ts               # Express Router สำหรับ Serverless พร้อม endpoint เปลี่ยนรหัสผ่าน
 │   ├── _firebaseAdmin.ts        # Lazy Dynamic Firebase Admin สำหรับจัดการรหัสผ่าน
 │   └── index.js                 # Output bundle สำหรับ Vercel
-├── PROJECT_HANDOVER.md          # คู่มือส่งมอบงานและข้อมูลอัปเดต v2.4.0 แบบสมบูรณ์
-├── SYSTEM_MANUAL_v2.4.0.md      # คู่มือระบบและสถาปัตยกรรมฉบับสมบูรณ์ v2.4.0
+├── PROJECT_HANDOVER.md          # คู่มือส่งมอบงานและข้อมูลอัปเดต v2.5.0 แบบสมบูรณ์
+├── SYSTEM_MANUAL_v2.5.0.md      # คู่มือระบบและสถาปัตยกรรมฉบับสมบูรณ์ v2.5.0
+├── SYSTEM_MANUAL_v2.4.0.md      # คู่มือระบบเวอร์ชันเดิม v2.4.0
 ├── SYSTEM_ARCHITECTURE.md       # แผนผังวิศวกรรมสถาปัตยกรรมระบบแม่บท
 ├── backups/
-│   ├── complete_snapshot_v2.4.0.json # สแนปช็อตข้อมูลครบถ้วน v2.4.0
+│   ├── complete_snapshot_v2.5.0.json # สแนปช็อตข้อมูลครบถ้วน v2.5.0
 │   └── complete_snapshot_latest.json # สแนปช็อตล่าสุด
 ├── scripts/
-│   ├── export_complete_v2.4.0_backup.mjs # สคริปต์ส่งออกข้อมูลสำรอง v2.4.0
+│   ├── export_complete_v2.5.0_backup.mjs # สคริปต์ส่งออกข้อมูลสำรอง v2.5.0
 │   └── backup-firestore-encrypted.mjs    # สำรอง Firestore เข้ารหัส
 ├── src/
 │   ├── main.tsx                 # Entry point ของ React
@@ -120,6 +122,14 @@ d:/Anti webapp/
 - ทุกหน้าจอ ทุกปุ่ม ทุกกล่องข้อความ และทุกข้อความแจ้งเตือน (100%) ต้องรองรับ 2 ภาษาเสมอ (ไทย 'th' และ อังกฤษ 'en')
 - ห้ามเขียน Hardcode ภาษาใดภาษาหนึ่งเด็ดขาด
 
+### 4.3 กฎมาตรฐานการแจ้งเตือน Discord (Rule 5: Discord Webhook Option 1 Only & English 100%)
+- **แจ้งเตือนเฉพาะไอเทมเท่านั้น (Item-Only Scope):** แจ้งเตือนเฉพาะ `new_item` และ `distribute` เท่านั้น ห้ามส่งการแจ้งเตือนสำหรับสเตตัส (`stat_request`, `stat_approval`) เด็ดขาด
+- **ข้อความ Discord ต้องเป็นภาษาอังกฤษ 100% (Mandatory English 100% for Discord):** ข้อความทั้งหมดที่ส่งเข้าห้อง Discord (Headers, Titles, ANSI Code Blocks, Fields, Footers, Links) **ต้องเป็นภาษาอังกฤษ 100% เสมอ** (ห้ามส่งข้อความภาษาไทยเข้าช่อง Discord)
+- **บังคับใช้แบบที่ 1 เท่านั้น (Option 1 Standard):**
+  - **ห้ามใส่ Title ซ้ำซ้อน:** ไม่ใส่ฟิลด์ `title` ซ้ำใน Embed เพราะในกรอบ ANSI บรรทัดแรกมีชื่อไอเทมพร้อมสีประจำระดับอยู่แล้ว
+  - **ตัดบรรทัดคนล่าออกถาวร (Completely Remove Hunters Line):** ไม่ต้องแสดงรายชื่อคนล่าใน Discord ตัดออก 100% เพื่อความสั้นกระชับที่สุด
+  - ข้อความไอเทมใหม่เป็นกรอบ ANSI สั้นกระชับเพียง 2 บรรทัด (บรรทัด 1: ชื่อไอเทมสีตามระดับ, บรรทัด 2: Price Diamonds/Free สีขาวสว่าง) พร้อมลิงก์เปิดคลังเคลมไอเทม และแสดงรูปไอเทมจริงที่มุมขวาบนเสมอ (ห้ามนำรูปไอคอนตัวอย่างมาทับ)
+
 ---
 
 ## 5. คำสั่งการทำงานและทดสอบ (Commands)
@@ -128,7 +138,7 @@ d:/Anti webapp/
 - **Build สำหรับ Production:** `& 'C:\Program Files\nodejs\node.exe' 'node_modules\vite\bin\vite.js' build`
 - **Build Serverless Endpoint:** `& 'C:\Program Files\nodejs\node.exe' 'node_modules\esbuild\bin\esbuild' api/_entry.ts --bundle --platform=node --format=esm --packages=external --outfile=api/index.js`
 - **Build Local Server:** `& 'C:\Program Files\nodejs\node.exe' 'node_modules\esbuild\bin\esbuild' server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/server.js`
-- **ส่งออกข้อมูลสำรอง v2.4.0:** `& 'C:\Program Files\nodejs\node.exe' 'scripts\export_complete_v2.4.0_backup.mjs'`
+- **ส่งออกข้อมูลสำรอง v2.5.0:** `& 'C:\Program Files\nodejs\node.exe' 'scripts\export_complete_v2.5.0_backup.mjs'`
 - **URL ระบบที่ Deploy สด:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)
 
 ---
@@ -136,19 +146,20 @@ d:/Anti webapp/
 ## 6. ข้อความพร้อมใช้สำหรับเปิดแชทใหม่ (New Chat Prompt Template)
 คัดลอกข้อความด้านล่างนี้ไปวางเมื่อเปิดห้องแชทใหม่ เพื่อให้ AI สานต่องานได้ทันที 100%:
 ```text
-โปรดอ่านไฟล์ SYSTEM_MANUAL_v2.4.0.md, AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
-ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v2.4.0 — อัปเดตล่าสุด)
+โปรดอ่านไฟล์ SYSTEM_MANUAL_v2.5.0.md, AI_CONTEXT.md, AGENTS.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
+ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v2.5.0 — อัปเดตล่าสุด)
 - บัญชี Owner: Eloni (สิทธิ์ Owner สูงสุด)
 - Live Production: https://lineage2m-k7-item-vault.vercel.app/
-- สถานะระบบล่าสุด (v2.4.0):
-  1. ระบบเปลี่ยนรหัสผ่านตามลำดับสิทธิ์: ทุกคนเปลี่ยนของตนเองได้, Owner เปลี่ยนให้ทุกคนได้, Admin เปลี่ยนให้ Member/Leader ได้
-  2. ระบบลบการแจ้งเตือนรายข้อความ + ปุ่มล้างทั้งหมด + ลบการแจ้งเตือนขอรับของอัตโนมัติเมื่อไอเทมแจกจ่ายแล้ว
-  3. ระบบติดตามสถานะการชำระเงินของไอเทมแจกแล้ว (รอชำระ / ชำระแล้ว / ฟรี) พร้อมปุ่มยืนยันในหน้า Vault และแสดงสถานะสะอาดตาใน Dashboard
-  4. หน้า My Stats มีวงเล็บภาษาไทยกำกับชื่อสเตตัสจางๆ อ่านง่าย พร้อมลบ placeholder ตัวเลขหลอกตาออกทั้งหมด
-  5. บันทึก Discord Webhook และ Gemini OCR Key ถาวรข้ามแอดมินทุกคนผ่าน Firestore
-  6. อัปเดตเวอร์ชัน v2.4.0 ครบทุกจุด (package.json, Navbar, Sidebar, LoginScreen)
-  7. มีสแนปช็อตข้อมูลสำรองครบถ้วนที่ backups/complete_snapshot_v2.4.0.json (23 users, 23 vault items, 23,521 diamonds)
-  8. ระบบ 2 ภาษา TH/EN 100% ทุกจุด
-  9. Typecheck และ Vite Build ผ่าน 0 errors
+- สถานะระบบล่าสุด (v2.5.0):
+  1. กฎมาตรฐาน Discord Webhook (Rule 5): แจ้งเตือนเฉพาะไอเทมเท่านั้น, ข้อความ Discord เป็นภาษาอังกฤษ 100%, ห้ามใส่ title ซ้ำกับข้อความสี, ตัดบรรทัดคนล่าออกถาวร, และใช้แบบที่ 1 (Option 1 ANSI 2 บรรทัดกระชับ + รูปจริงมุมขวาบน) เท่านั้น
+  2. ระบบเปลี่ยนรหัสผ่านตามลำดับสิทธิ์: ทุกคนเปลี่ยนของตนเองได้, Owner เปลี่ยนให้ทุกคนได้, Admin เปลี่ยนให้ Member/Leader ได้
+  3. ระบบลบการแจ้งเตือนรายข้อความ + ปุ่มล้างทั้งหมด + ลบการแจ้งเตือนขอรับของอัตโนมัติเมื่อไอเทมแจกจ่ายแล้ว
+  4. ระบบติดตามสถานะการชำระเงินของไอเทมแจกแล้ว (รอชำระ / ชำระแล้ว / ฟรี) พร้อมปุ่มยืนยันในหน้า Vault และแสดงสถานะสะอาดตาใน Dashboard
+  5. หน้า My Stats มีวงเล็บภาษาไทยกำกับชื่อสเตตัสจางๆ อ่านง่าย พร้อมลบ placeholder ตัวเลขหลอกตาออกทั้งหมด
+  6. บันทึก Discord Webhook และ Gemini OCR Key ถาวรข้ามแอดมินทุกคนผ่าน Firestore
+  7. อัปเดตเวอร์ชัน v2.5.0 ครบทุกจุด (package.json, Navbar, Sidebar, LoginScreen)
+  8. มีสแนปช็อตข้อมูลสำรองครบถ้วนที่ backups/complete_snapshot_v2.5.0.json (23 users, 23 vault items, 23,521 diamonds)
+  9. ระบบ 2 ภาษา TH/EN 100% ทุกจุด
+  10. Typecheck และ Vite Build ผ่าน 0 errors
 โปรดยืนยันว่าเข้าใจสถาปัตยกรรมและกฎการป้องกันโค้ดเสียหายแล้ว พร้อมรับคำสั่งงานต่อไปครับ
 ```

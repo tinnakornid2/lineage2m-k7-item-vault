@@ -629,7 +629,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
                   <span>{lang === 'th' ? 'ตัวอย่างการแสดงผลจริงใน Discord (English 100%)' : 'Discord Live Color Preview (100% English)'}</span>
                 </span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
-                  Embed Card Preview
+                  Embed Card Preview (English 100%)
                 </span>
               </div>
 
@@ -649,11 +649,11 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
                 <div className="space-y-0.5 pt-1 bg-[#141517] p-2.5 rounded-lg border border-slate-800">
                   <div className="text-slate-200">
                     <span className="text-red-400 font-bold">⚔️ [WAR VAULT]</span>{' '}
-                    <span className="text-rose-400 font-bold">[EPIC] Breka&apos;s Soul</span>
+                    <span className="text-rose-400 font-bold">[EPIC] Breka&apos;s Soul</span>{' '}
+                    <span className="text-slate-300 font-bold">(x1)</span>
                   </div>
                   <div className="text-slate-300">
-                    <span className="text-white font-bold">💎 FREE (0 Diamonds)</span>{' '}
-                    <span className="text-slate-300 font-bold">(x1)</span> • <span className="text-amber-400 font-bold">Claim Ready</span>
+                    <span className="text-white font-bold">💎 Price: FREE (0 Diamonds)</span>
                   </div>
                 </div>
               )}
@@ -662,11 +662,11 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
                 <div className="space-y-0.5 pt-1 bg-[#141517] p-2.5 rounded-lg border border-slate-800">
                   <div className="text-slate-200">
                     <span className="text-cyan-400 font-bold">🏛️ [MARKET]</span>{' '}
-                    <span className="text-rose-400 font-bold">[EPIC] Breka&apos;s Soul</span>
+                    <span className="text-rose-400 font-bold">[EPIC] Breka&apos;s Soul</span>{' '}
+                    <span className="text-slate-300 font-bold">(x1)</span>
                   </div>
                   <div className="text-slate-300">
-                    <span className="text-white font-bold">💎 Value: FREE (0 Diamonds)</span>{' '}
-                    <span className="text-slate-300 font-bold">(x1)</span>
+                    <span className="text-white font-bold">💎 Price: FREE (0 Diamonds)</span>
                   </div>
                 </div>
               )}
@@ -678,7 +678,8 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
                     <span className="text-slate-300 font-bold font-mono">(x1)</span>
                   </div>
                   <div>
-                    💎 <span className="font-bold text-white">Price:</span> <span className="text-white font-bold font-mono">FREE (0 Diamonds)</span>
+                    💎 <span className="font-bold text-white">Price:</span>{' '}
+                    <span className="text-white font-bold font-mono">FREE (0 Diamonds)</span>
                   </div>
                 </div>
               )}

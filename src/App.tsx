@@ -1210,7 +1210,9 @@ export const App: React.FC = () => {
     if (discordSettings?.enabled && discordSettings.notifyOnNewItem) {
       sendDiscordNotification(discordSettings, 'new_item', {
         item: createdItem,
-        actorName: currentUser?.inGameName || currentUser?.username || 'Admin'
+        actorName: currentUser?.inGameName || currentUser?.username || 'Admin',
+        lang,
+        template: discordSettings?.messageTemplate || 'neon_glow'
       }).then((res) => {
         if (res.success) {
           showToast(
@@ -2063,20 +2065,6 @@ export const App: React.FC = () => {
 
       await updateUserDoc(userId, docUpdates);
 
-      // Discord webhook notification
-      if (discordSettings?.enabled) {
-        const targetUser = users.find((u) => u.id === userId) || currentUser;
-        if (targetUser) {
-          sendDiscordNotification(discordSettings, 'stat_request', {
-            memberName: targetUser.inGameName,
-            memberClan: targetUser.clan,
-            oldPowerLevel: targetUser.powerLevel,
-            newPowerLevel,
-            screenshotUrl
-          });
-        }
-      }
-
       showToast(
         lang === 'th'
           ? 'ส่งคำขออัปเดตสเตตัสและค่าพลังเรียบร้อยแล้ว รอการอนุมัติ'
@@ -2221,17 +2209,6 @@ export const App: React.FC = () => {
         statRejectionReason: null,
         statRejectionAt: null
       });
-
-      // Discord webhook notification
-      if (discordSettings?.enabled) {
-        sendDiscordNotification(discordSettings, 'stat_approval', {
-          memberName: target.inGameName,
-          memberClan: target.clan,
-          oldPowerLevel: target.powerLevel,
-          newPowerLevel: approvedPower,
-          actorName: currentUser?.inGameName || 'Admin'
-        });
-      }
 
       showToast(
         lang === 'th'
