@@ -512,43 +512,76 @@ export async function changeUserPassword(targetUserId: string, newPassword: stri
     throw new Error('Password must be between 6 and 128 characters');
   }
 
+  let clientAuthUpdated = false;
   // 1. If changing own password and signed in via Firebase client auth, update client auth directly
   if (auth.currentUser && auth.currentUser.uid === targetUserId) {
     try {
       await updatePassword(auth.currentUser, newPassword);
+      clientAuthUpdated = true;
     } catch (authErr: any) {
       console.warn('Firebase client updatePassword notice:', authErr?.code || authErr?.message);
     }
   }
 
-  // 2. Call backend server API
-  const token = await getCurrentUserIdToken();
-  const response = await fetch(`/api/users/${encodeURIComponent(targetUserId)}/change-password`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    },
-    body: JSON.stringify({ newPassword })
-  });
+  const local = getLocalSessionUser();
+  const isOwnerTarget = targetUserId === 'user_owner_eloni' || local?.username?.toLowerCase() === 'eloni';
 
-  if (!response.ok) {
-    const result = await response.json().catch(() => null);
-    throw new Error(result?.message || `Change password failed (${response.status})`);
+  // 2. Special owner custom pass backup in localStorage & Firestore app_settings/owner_auth
+  if (isOwnerTarget) {
+    try {
+      localStorage.setItem('k7_owner_custom_pass', newPassword);
+      await setDoc(doc(db, 'app_settings', 'owner_auth'), {
+        password: newPassword,
+        updatedAt: Date.now()
+      }, { merge: true });
+    } catch (e) {
+      console.warn('Owner auth settings sync notice:', e);
+    }
   }
 
-  // 3. Keep local fallback / session in sync
-  const local = getLocalSessionUser();
+  // 3. Call backend server API
+  let backendSuccess = false;
+  let backendError: string | null = null;
+  try {
+    const token = await getCurrentUserIdToken();
+    const response = await fetch(`/api/users/${encodeURIComponent(targetUserId)}/change-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ newPassword })
+    });
+
+    if (response.ok) {
+      backendSuccess = true;
+    } else {
+      const result = await response.json().catch(() => null);
+      backendError = result?.message || `Change password failed (${response.status})`;
+    }
+  } catch (err: any) {
+    backendError = err?.message || 'Network error calling change-password API';
+  }
+
+  // If backend call failed, but client auth or owner custom pass already succeeded, do not throw
+  if (!backendSuccess && !clientAuthUpdated && !isOwnerTarget) {
+    throw new Error(backendError || 'Change password failed');
+  }
+
+  // 4. Keep local fallback / session in sync
   if (local && local.id === targetUserId) {
     saveLocalSessionUser({ ...local, password: newPassword });
   }
 
-  // 4. Special owner custom pass backup in localStorage
-  if (targetUserId === 'user_owner_eloni' || local?.username?.toLowerCase() === 'eloni') {
-    try {
-      localStorage.setItem('k7_owner_custom_pass', newPassword);
-    } catch {}
-  }
+  // 5. Also update cached users list so next offline/local login uses the new password
+  try {
+    const cached = getCachedUsers();
+    const idx = cached.findIndex(u => u.id === targetUserId);
+    if (idx !== -1) {
+      cached[idx] = { ...cached[idx], password: newPassword } as any;
+      setCachedData(CACHE_KEYS.USERS, cached);
+    }
+  } catch {}
 }
 
 const SESSION_KEY = 'k7_active_session_user';
@@ -653,6 +686,11 @@ export async function loginUserQuery(username: string, pass: string): Promise<Us
       const ownerDoc = await getDoc(doc(db, USERS_COLLECTION, 'user_owner_eloni'));
       if (ownerDoc.exists() && ownerDoc.data()?.password) {
         ownerPass = ownerDoc.data()!.password;
+      }
+
+      const ownerAuthDoc = await getDoc(doc(db, 'app_settings', 'owner_auth'));
+      if (ownerAuthDoc.exists() && ownerAuthDoc.data()?.password) {
+        ownerPass = ownerAuthDoc.data()!.password;
       }
     } catch (e) {}
 

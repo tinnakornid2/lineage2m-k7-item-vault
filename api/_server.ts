@@ -984,10 +984,5 @@ process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
 });
 
-const isDirectRun = !process.env.VERCEL && Boolean(process.argv[1]) && path.resolve(process.argv[1]) === path.resolve(currentFilename);
-if (isDirectRun) {
-  startServer().catch((err) => console.error("Failed to start server:", err));
-}
-
-export { startServer, isDirectRun };
+export { startServer };
 

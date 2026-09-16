@@ -1085,23 +1085,12 @@ Do not include markdown or explanations. Return pure JSON only.`;
   }
   return app;
 }
-async function startServer() {
-  const app = await createApp();
-  const port = Number(process.env.PORT) || 3e3;
-  app.listen(port, "0.0.0.0", () => {
-    console.log(`Lineage2M Clan Hub server running on http://0.0.0.0:${port}`);
-  });
-}
 process.on("unhandledRejection", (reason, promise) => {
   console.warn("Unhandled Rejection at:", promise, "reason:", reason);
 });
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
 });
-var isDirectRun = !process.env.VERCEL && Boolean(process.argv[1]) && path.resolve(process.argv[1]) === path.resolve(currentFilename);
-if (isDirectRun) {
-  startServer().catch((err) => console.error("Failed to start server:", err));
-}
 
 // api/_entry.ts
 var appInstance = null;

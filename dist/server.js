@@ -1098,18 +1098,13 @@ process.on("unhandledRejection", (reason, promise) => {
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
 });
-var isDirectRun = !process.env.VERCEL && Boolean(process.argv[1]) && path.resolve(process.argv[1]) === path.resolve(currentFilename);
-if (isDirectRun) {
-  startServer().catch((err) => console.error("Failed to start server:", err));
-}
 
 // server.ts
-if (isDirectRun) {
+if (!process.env.VERCEL) {
   startServer().catch((err) => console.error("Failed to start server:", err));
 }
 export {
   createApp,
-  isDirectRun,
   startServer
 };
 //# sourceMappingURL=server.js.map
