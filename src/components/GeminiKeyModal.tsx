@@ -15,7 +15,7 @@ import {
 import { Language } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
-import { getCurrentUserIdToken } from '../services/firebase';
+import { getCurrentUserIdToken, listenToGeminiAiSettings, saveGeminiAiSettingsDoc } from '../services/firebase';
 
 interface GeminiKeyModalProps {
   isOpen: boolean;
@@ -47,10 +47,31 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
     maskedKey: string | null;
   }>({ configured: false, maskedKey: null });
 
-  // Load backend status on modal open. API keys are never stored in browser storage.
+  // Load backend status and Firestore persistence on modal open
   useEffect(() => {
     if (!isOpen) return;
 
+    // 1. Listen to Firestore gemini_ai settings
+    const unsubscribe = listenToGeminiAiSettings((geminiSettings) => {
+      if (geminiSettings?.apiKey && geminiSettings.apiKey.length > 10) {
+        const masked = `${geminiSettings.apiKey.slice(0, 6)}...${geminiSettings.apiKey.slice(-4)}`;
+        setServerStatus({
+          configured: true,
+          maskedKey: masked
+        });
+        if (!status.message) {
+          setStatus({
+            type: 'success',
+            message:
+              lang === 'th'
+                ? `ระบบเชื่อมต่อ Gemini AI เรียบร้อยแล้ว (${masked})`
+                : `Gemini AI is connected and active (${masked})`
+          });
+        }
+      }
+    });
+
+    // 2. Also check backend status
     getCurrentUserIdToken()
       .then((token) =>
         fetch('/api/gemini-status', {
@@ -62,18 +83,20 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
         if (text && !text.trim().startsWith('<')) {
           try {
             const data = JSON.parse(text);
-            setServerStatus({
-              configured: Boolean(data.configured),
-              maskedKey: data.maskedKey || null
-            });
-            if (data.configured && !status.message) {
-              setStatus({
-                type: 'success',
-                message:
-                  lang === 'th'
-                    ? `ระบบเชื่อมต่อ Gemini AI เรียบร้อยแล้ว (${data.maskedKey})`
-                    : `Gemini AI is connected and active (${data.maskedKey})`
+            if (data.configured) {
+              setServerStatus({
+                configured: true,
+                maskedKey: data.maskedKey || null
               });
+              if (!status.message) {
+                setStatus({
+                  type: 'success',
+                  message:
+                    lang === 'th'
+                      ? `ระบบเชื่อมต่อ Gemini AI เรียบร้อยแล้ว (${data.maskedKey})`
+                      : `Gemini AI is connected and active (${data.maskedKey})`
+                });
+              }
             }
           } catch {
             // ignore
@@ -83,6 +106,10 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
       .catch((err) => {
         console.warn('Could not fetch gemini-status:', err);
       });
+
+    return () => {
+      unsubscribe();
+    };
   }, [isOpen, lang]);
 
   if (!isOpen) return null;
@@ -128,6 +155,13 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
       }
 
       if (res.ok && data.success) {
+        // Persist to Firestore so all admins can use it and key survives refreshes!
+        try {
+          await saveGeminiAiSettingsDoc(cleanKey);
+        } catch (saveErr) {
+          console.warn('Failed to save to Firestore app_settings/gemini_ai:', saveErr);
+        }
+
         const masked = data.maskedKey || `${cleanKey.slice(0, 6)}...${cleanKey.slice(-4)}`;
         setServerStatus({
           configured: true,
@@ -136,8 +170,8 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
         setStatus({
           type: 'success',
           message: lang === 'th'
-            ? '✅ ยืนยัน API Key ผ่าน Backend สำเร็จ! ระบบ AI OCR พร้อมใช้งานแล้ว'
-            : '✅ Gemini API Key verified & connected successfully via backend!'
+            ? '✅ ยืนยันและบันทึก Gemini API Key สำเร็จ! ระบบ AI OCR พร้อมใช้งานสำหรับแอดมินทุกคนแล้ว'
+            : '✅ Gemini API Key verified & saved successfully! AI OCR is now active for all admins.'
         });
         sounds.playClaim();
         if (onKeySaved) onKeySaved();

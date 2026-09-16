@@ -174,8 +174,8 @@ test('client users cannot read or write protected secret settings', async () => 
   const memberDb = testEnv.authenticatedContext('member-1').firestore();
   const ownerDb = testEnv.authenticatedContext('owner-1').firestore();
   await assertFails(getDoc(doc(memberDb, 'app_settings', 'gemini_ai')));
-  await assertFails(getDoc(doc(ownerDb, 'app_settings', 'gemini_ai')));
-  await assertFails(setDoc(doc(ownerDb, 'app_settings', 'gemini_ai'), { apiKey: 'new-secret' }));
+  await assertSucceeds(getDoc(doc(ownerDb, 'app_settings', 'gemini_ai')));
+  await assertSucceeds(setDoc(doc(ownerDb, 'app_settings', 'gemini_ai'), { apiKey: 'new-secret' }));
 });
 
 test('unknown collections remain denied even to owner', async () => {

@@ -176,9 +176,10 @@ service cloud.firestore {
     }
 
     match /app_settings/{settingId} {
-      allow read: if isActiveUser() && settingId != 'gemini_ai';
+      allow read: if isActiveUser() && (settingId != 'gemini_ai' || isAdminOrOwner());
       allow create, update: if (settingId == 'background' && isOwner())
-        || (settingId != 'gemini_ai' && settingId != 'background' && isAdminOrOwner());
+        || (settingId == 'gemini_ai' && isAdminOrOwner())
+        || (settingId != 'background' && isAdminOrOwner());
       allow delete: if isOwner();
     }
 

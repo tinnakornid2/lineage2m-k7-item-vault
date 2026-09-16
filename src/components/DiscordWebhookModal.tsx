@@ -90,6 +90,14 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
       setAppBaseUrl(settings?.appBaseUrl || (typeof window !== 'undefined' ? window.location.origin : ''));
       setTestResult(null);
 
+      const existingUrl = settings?.webhookUrl || (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '');
+      if (existingUrl) {
+        setServerStatus({
+          configured: true,
+          maskedUrl: existingUrl.length > 35 ? `${existingUrl.slice(0, 33)}...${existingUrl.slice(-4)}` : existingUrl
+        });
+      }
+
       // Fetch Discord Webhook status from secure backend
       getCurrentUserIdToken()
         .then((token) =>
@@ -107,7 +115,10 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
         })
         .then((data) => {
           if (data && typeof data.configured === 'boolean') {
-            setServerStatus(data);
+            setServerStatus((prev) => ({
+              configured: data.configured || prev.configured,
+              maskedUrl: data.maskedUrl || prev.maskedUrl
+            }));
           }
         })
         .catch((err) => console.warn('Cannot fetch discord status:', err));

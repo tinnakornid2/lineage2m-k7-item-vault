@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Plus,
   Sparkles,
@@ -192,6 +192,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [showGeminiModal, setShowGeminiModal] = useState(false);
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(true);
   const [geminiMaskedKey, setGeminiMaskedKey] = useState<string | null>(null);
+  const geminiApiKeyRef = useRef<string>('');
   const [isCreating, setIsCreating] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
@@ -215,9 +216,15 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
   // Check Gemini API status and sync from Firestore in real-time
   useEffect(() => {
-    // Browser clients never receive or persist Gemini API keys.
+    // 1. Sync from Firestore app_settings/gemini_ai (so all admins share the key and it persists on refresh)
     const unsubscribe = listenToGeminiAiSettings((settings) => {
-      void settings;
+      if (settings?.apiKey && settings.apiKey.trim().length > 10) {
+        geminiApiKeyRef.current = settings.apiKey.trim();
+        setGeminiConfigured(true);
+        setGeminiMaskedKey(`${settings.apiKey.slice(0, 6)}...${settings.apiKey.slice(-4)}`);
+      } else {
+        geminiApiKeyRef.current = '';
+      }
     });
 
     // 2. Also check local backend /api/gemini-status if available
@@ -231,8 +238,10 @@ export const VaultView: React.FC<VaultViewProps> = ({
         if (text && !text.trim().startsWith('<')) {
           const data = JSON.parse(text);
           if (typeof data?.configured === 'boolean') {
-            setGeminiConfigured(data.configured);
-            setGeminiMaskedKey(data.maskedKey || null);
+            setGeminiConfigured(data.configured || Boolean(geminiApiKeyRef.current));
+            if (data.maskedKey) {
+              setGeminiMaskedKey(data.maskedKey);
+            }
             return;
           }
         }
@@ -681,6 +690,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
               imagesBase64: base64Images,
               imageBase64: base64Images[0],
               knownMembers: knownMemberList,
+              apiKey: geminiApiKeyRef.current || undefined,
               lang
             })
           });

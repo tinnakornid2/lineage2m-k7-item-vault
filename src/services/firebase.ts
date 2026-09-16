@@ -1440,28 +1440,64 @@ export function listenToDiscordSettings(
   return onSnapshot(
     ref,
     (docSnap) => {
+      let localWebhook = '';
+      if (typeof window !== 'undefined') {
+        try {
+          localWebhook = localStorage.getItem('vault_discord_webhook_url') || '';
+        } catch {}
+      }
+
       if (docSnap.exists()) {
-        callback(docSnap.data() as DiscordSettings);
+        const data = docSnap.data() as DiscordSettings;
+        const effectiveWebhook = (data.webhookUrl && data.webhookUrl.trim()) || localWebhook;
+        if (effectiveWebhook && typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('vault_discord_webhook_url', effectiveWebhook);
+          } catch {}
+        }
+        callback({
+          ...DEFAULT_DISCORD_SETTINGS,
+          ...data,
+          webhookUrl: effectiveWebhook
+        });
       } else {
-        callback(DEFAULT_DISCORD_SETTINGS);
+        callback({
+          ...DEFAULT_DISCORD_SETTINGS,
+          webhookUrl: localWebhook
+        });
       }
     },
     (err) => {
       console.warn('Firestore discord settings sync notice:', err);
-      callback(DEFAULT_DISCORD_SETTINGS);
+      let localWebhook = '';
+      if (typeof window !== 'undefined') {
+        try {
+          localWebhook = localStorage.getItem('vault_discord_webhook_url') || '';
+        } catch {}
+      }
+      callback({
+        ...DEFAULT_DISCORD_SETTINGS,
+        webhookUrl: localWebhook
+      });
     }
   );
 }
 
 export async function saveDiscordSettingsDoc(settings: DiscordSettings) {
+  const targetWebhook = typeof settings.webhookUrl === 'string' ? settings.webhookUrl.trim() : '';
   const cleanData = sanitizeForFirestore({
     ...settings,
-    webhookUrl: '',
+    webhookUrl: targetWebhook,
     updatedAt: Date.now()
   });
   try {
     const ref = doc(db, APP_SETTINGS_COLLECTION, 'discord');
     await setDoc(ref, cleanData, { merge: true });
+    if (typeof window !== 'undefined' && targetWebhook) {
+      try {
+        localStorage.setItem('vault_discord_webhook_url', targetWebhook);
+      } catch {}
+    }
   } catch (err) {
     console.error('Failed to save discord settings to Firestore:', err);
     throw err;
@@ -1538,15 +1574,61 @@ export interface GeminiAiSettings {
 export function listenToGeminiAiSettings(
   callback: (settings: GeminiAiSettings | null) => void
 ) {
-  callback(null);
-  return () => undefined;
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'gemini_ai');
+  return onSnapshot(
+    ref,
+    (docSnap) => {
+      let localKey = '';
+      if (typeof window !== 'undefined') {
+        try {
+          localKey = localStorage.getItem('k7_gemini_api_key') || '';
+        } catch {}
+      }
+
+      if (docSnap.exists()) {
+        const data = docSnap.data() as GeminiAiSettings;
+        const effectiveKey = (data?.apiKey && data.apiKey.trim()) || localKey;
+        if (effectiveKey && typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('k7_gemini_api_key', effectiveKey);
+          } catch {}
+        }
+        callback({
+          apiKey: effectiveKey,
+          updatedAt: data?.updatedAt,
+          updatedBy: data?.updatedBy
+        });
+      } else {
+        callback(localKey ? { apiKey: localKey } : null);
+      }
+    },
+    (err) => {
+      console.warn('Firestore gemini_ai sync notice:', err);
+      let localKey = '';
+      if (typeof window !== 'undefined') {
+        try {
+          localKey = localStorage.getItem('k7_gemini_api_key') || '';
+        } catch {}
+      }
+      callback(localKey ? { apiKey: localKey } : null);
+    }
+  );
 }
 
 export async function saveGeminiAiSettingsDoc(apiKey: string, updatedBy?: string) {
-  // Kept temporarily for API compatibility. Secret persistence now belongs to
-  // the local/backend environment, never to client-readable Firestore data.
-  void apiKey;
-  void updatedBy;
+  const cleanKey = apiKey.trim();
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'gemini_ai');
+  await setDoc(ref, {
+    apiKey: cleanKey,
+    updatedAt: Date.now(),
+    updatedBy: updatedBy || 'owner'
+  }, { merge: true });
+
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('k7_gemini_api_key', cleanKey);
+    } catch {}
+  }
 }
 
 // 12. Power Formula Settings Sync (Kain7 Dynamic Multipliers across all devices)

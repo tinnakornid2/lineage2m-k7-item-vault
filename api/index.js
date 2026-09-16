@@ -316,9 +316,10 @@ async function createApp(options = {}) {
   app.get(["/api/health", "/health", "/api", "/api/index"], (_req, res) => {
     res.json({ status: "ok", timestamp: Date.now() });
   });
-  app.get("/api/gemini-status", requireRoles(["owner", "admin", "manager"]), async (_req, res) => {
+  app.get("/api/gemini-status", requireRoles(["owner", "admin", "manager"]), async (req, res) => {
     try {
-      const key = await getGeminiApiKey();
+      const clientKey = typeof req.query.apiKey === "string" ? req.query.apiKey.trim() : "";
+      const key = clientKey || await getGeminiApiKey();
       const isConfigured = Boolean(key && key.length > 10);
       const maskedKey = isConfigured ? `${key.slice(0, 6)}...${key.slice(-4)}` : null;
       res.json({ configured: isConfigured, maskedKey });
@@ -566,7 +567,11 @@ async function createApp(options = {}) {
           )
         });
       }
-      const apiKey = await getGeminiApiKey();
+      const clientApiKey = typeof req.body.apiKey === "string" ? req.body.apiKey.trim() : "";
+      const apiKey = clientApiKey || await getGeminiApiKey();
+      if (clientApiKey && !process.env.GEMINI_API_KEY) {
+        process.env.GEMINI_API_KEY = clientApiKey;
+      }
       if (!apiKey) {
         return res.json({
           success: false,
