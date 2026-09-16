@@ -37,6 +37,30 @@ function doGet(e) {
     }
 
     if (action === "fetch_all") {
+      // 1. Try reading the full-fidelity snapshot from Google Drive first
+      try {
+        const folder = getOrCreateFolder(FOLDER_BACKUPS);
+        const latestFile = getLatestBackupFile(folder);
+        if (latestFile) {
+          const content = latestFile.getBlob().getDataAsString();
+          const parsed = JSON.parse(content);
+          let balance = 0;
+          if (parsed.diamondLogs && parsed.diamondLogs.length > 0) {
+            balance = Number(parsed.diamondLogs[0].balanceAfter || 0);
+          }
+          return jsonResponse({
+            status: "success",
+            source: "drive_json",
+            data: parsed,
+            vaultBalance: balance,
+            timestamp: latestFile.getLastUpdated().toISOString()
+          });
+        }
+      } catch (driveErr) {
+        console.warn("Drive snapshot read warning: " + driveErr);
+      }
+
+      // 2. Fallback to reading from Google Sheets tables
       const data = {
         users: readSheetData(ss, "Members"),
         vaultItems: readSheetData(ss, "VaultItems"),
@@ -54,6 +78,7 @@ function doGet(e) {
 
       return jsonResponse({
         status: "success",
+        source: "sheets",
         data: data,
         vaultBalance: balance,
         timestamp: new Date().toISOString()
@@ -81,7 +106,7 @@ function doPost(e) {
     if (action === "backup_all") {
       const data = payload.data || {};
 
-      // 1. Write to Sheets
+      // 1. Write to Sheets with safe cell limits (under 50,000 characters per cell)
       if (Array.isArray(data.users)) writeSheetData(ss, "Members", data.users);
       if (Array.isArray(data.vaultItems)) writeSheetData(ss, "VaultItems", data.vaultItems);
       if (Array.isArray(data.queueItems)) writeSheetData(ss, "Queues", data.queueItems);
@@ -98,7 +123,7 @@ function doPost(e) {
       }];
       appendSheetLog(ss, "BackupLog", logEntry);
 
-      // 3. Save JSON Snapshot to Google Drive Folder
+      // 3. Save FULL 100% UNTRUNCATED JSON Snapshot to Google Drive Folder
       try {
         const folder = getOrCreateFolder(FOLDER_BACKUPS);
         const dateStr = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd_HH-mm-ss");
@@ -167,6 +192,23 @@ function getOrCreateFolder(folderName) {
   return DriveApp.createFolder(folderName);
 }
 
+function getLatestBackupFile(folder) {
+  const files = folder.getFiles();
+  let latestFile = null;
+  let latestDate = 0;
+  while (files.hasNext()) {
+    const file = files.next();
+    const updated = file.getLastUpdated().getTime();
+    if (!latestFile || updated > latestDate) {
+      latestFile = file;
+      latestDate = updated;
+    }
+  }
+  return latestFile;
+}
+
+const MAX_CELL_CHARS = 45000;
+
 function writeSheetData(ss, sheetName, items) {
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
@@ -184,20 +226,31 @@ function writeSheetData(ss, sheetName, items) {
     const row = [];
     for (let j = 0; j < keys.length; j++) {
       const val = item[keys[j]];
+      let strVal = "";
       if (val === null || val === undefined) {
-        row.push("");
+        strVal = "";
       } else if (typeof val === "object") {
-        row.push(JSON.stringify(val));
+        strVal = JSON.stringify(val);
       } else {
-        row.push(val);
+        strVal = String(val);
       }
+
+      // ป้องกัน Google Sheets ข้อผิดพลาด "อินพุตเกินจำนวนอักขระสูงสุด 50000 ตัวที่อนุญาตในเซลล์เดียว"
+      if (strVal.length > MAX_CELL_CHARS) {
+        if (strVal.startsWith("data:image/") || strVal.includes(";base64,")) {
+          strVal = "[Image Data Stored in Google Drive Backup JSON]";
+        } else {
+          strVal = strVal.substring(0, MAX_CELL_CHARS - 50) + "... [TRUNCATED FOR SHEETS]";
+        }
+      }
+      row.push(strVal);
     }
     rows.push(row);
   }
 
   sheet.getRange(1, 1, rows.length, keys.length).setValues(rows);
   sheet.getRange(1, 1, 1, keys.length).setFontWeight("bold").setBackground("#1e293b").setFontColor("#f5d77f");
-  sheet.autoResizeColumns(1, keys.length);
+  sheet.autoResizeColumns(1, Math.min(keys.length, 25));
 }
 
 function readSheetData(ss, sheetName) {

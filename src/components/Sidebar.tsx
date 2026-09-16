@@ -67,6 +67,8 @@ export interface SidebarProps {
   setIsMobileOpen: (open: boolean) => void;
   unreadNotificationCount?: number;
   onOpenNotifications?: () => void;
+  isQuotaExceeded?: boolean;
+  onCheckFirebaseHealth?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -104,7 +106,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen,
   setIsMobileOpen,
   unreadNotificationCount,
-  onOpenNotifications
+  onOpenNotifications,
+  isQuotaExceeded = false,
+  onCheckFirebaseHealth
 }) => {
   const t = translations[lang];
   const effectiveCurrentTab = currentTab || activeTab || 'dashboard';
@@ -235,7 +239,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Right Mobile Actions: Notifications, Discord & Wallpaper */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Mobile Data Source & Quota Status Badge */}
+          {isQuotaExceeded ? (
+            <div
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-[9px] font-bold text-amber-300 shadow-sm"
+              title={lang === 'th' ? 'แหล่งข้อมูล: Google Sheets (โควต้า Firebase เต็ม)' : 'Source: Google Sheets (Firebase Quota Exceeded)'}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+              <span>{lang === 'th' ? 'Google Sheets' : 'Google Sheets'}</span>
+            </div>
+          ) : (
+            <div
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[9px] font-bold text-emerald-300 shadow-sm"
+              title={lang === 'th' ? 'แหล่งข้อมูล: Firebase Cloud (โควต้าปกติ)' : 'Source: Firebase Cloud (Quota Normal)'}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span>{lang === 'th' ? 'Firebase' : 'Firebase'}</span>
+            </div>
+          )}
 
           {/* In-App Notifications Bell (Admin & Owner) */}
           {canAccessVault && onOpenNotifications && (
@@ -481,6 +503,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
         </div>
+
 
         {/* DIAMOND VAULT QUICK CARD IN SIDEBAR */}
         <div className="p-3 sm:p-4">
@@ -767,11 +790,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   sounds.playClick();
                   onOpenBgModal();
                 }}
-                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#0b1220]/80 border border-[#1e2e4b] hover:border-[#d4af37]/60 text-slate-300 hover:text-[#f5d77f] text-[11px] font-medium transition-all shadow-sm cursor-pointer"
+                className="relative p-1.5 rounded-lg border border-[#d4af37]/40 bg-[#d4af37]/15 hover:bg-[#d4af37]/30 text-[#f5d77f] hover:text-white transition-all cursor-pointer shrink-0"
                 title={lang === 'th' ? 'ตั้งค่าภาพพื้นหลังปราสาท (Owner)' : 'Wallpaper Settings (Owner)'}
+                aria-label={lang === 'th' ? 'ตั้งค่าภาพพื้นหลังปราสาท' : 'Wallpaper Settings'}
               >
-                <Sparkles className="w-3.5 h-3.5 text-[#d4af37]" />
-                <span>{lang === 'th' ? 'พื้นหลัง' : 'Theme'}</span>
+                <Sparkles className="w-4 h-4 text-[#d4af37]" />
               </button>
             )}
 

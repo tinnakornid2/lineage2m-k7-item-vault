@@ -32,7 +32,8 @@ import {
   AlertTriangle,
   AlertCircle,
   Edit2,
-  MessageSquare
+  MessageSquare,
+  Database
 } from 'lucide-react';
 import {
   ActiveTab,
@@ -73,6 +74,9 @@ interface DashboardViewProps {
   onDeleteItem?: (itemId: string) => void;
   onEditItem?: (item: VaultItem) => void;
   onBroadcastToDiscord?: (item: VaultItem) => Promise<void>;
+  isQuotaExceeded?: boolean;
+  onOpenGoogleBackupModal?: () => void;
+  onCheckFirebaseHealth?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -96,7 +100,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenOwnerResetModal,
   onDeleteItem,
   onEditItem,
-  onBroadcastToDiscord
+  onBroadcastToDiscord,
+  isQuotaExceeded = false,
+  onOpenGoogleBackupModal,
+  onCheckFirebaseHealth
 }) => {
   const t = translations[lang];
   const isOwner = currentUser?.role === 'owner';
@@ -456,9 +463,57 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <span>LINEAGE 2M • CLAN HUB</span>
                 </div>
 
-                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-950/40 border border-emerald-500/30 text-[10px] text-emerald-300 font-medium">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>{lang === 'th' ? 'ระบบออนไลน์' : 'Online'}</span>
+                <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                  {/* Database / Server Status Badge */}
+                  {isOwner && onOpenGoogleBackupModal ? (
+                    <button
+                      type="button"
+                      id="btn-dashboard-db-status"
+                      onClick={() => {
+                        sounds.playClick();
+                        onOpenGoogleBackupModal();
+                      }}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-all cursor-pointer shadow-sm ${
+                        isQuotaExceeded
+                          ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 animate-pulse'
+                          : 'bg-sky-500/15 border-sky-500/40 text-sky-300 hover:bg-sky-500/25'
+                      }`}
+                      title={
+                        lang === 'th'
+                          ? (isQuotaExceeded ? 'ฐานข้อมูล: Google Sheets (โควต้า Firebase เต็ม) • คลิกเพื่อจัดการ' : 'ฐานข้อมูล: Firebase Cloud (ปกติ) • คลิกเพื่อจัดการ')
+                          : (isQuotaExceeded ? 'DB: Google Sheets (Quota Exceeded) • Click to manage' : 'DB: Firebase Cloud (Normal) • Click to manage')
+                      }
+                      aria-label={lang === 'th' ? 'สถานะเซิร์ฟเวอร์' : 'Server Status'}
+                    >
+                      <Database className={`w-3 h-3 ${isQuotaExceeded ? 'text-amber-400' : 'text-sky-400'}`} />
+                      <span>{isQuotaExceeded ? 'Google Sheets' : 'Firebase'}</span>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isQuotaExceeded ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                    </button>
+                  ) : (
+                    <div
+                      id="dashboard-db-status-readonly"
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border select-none cursor-default ${
+                        isQuotaExceeded
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                          : 'bg-sky-500/10 border-sky-500/30 text-sky-300'
+                      }`}
+                      title={
+                        lang === 'th'
+                          ? (isQuotaExceeded ? 'ฐานข้อมูล: Google Sheets (โควต้า Firebase เต็ม)' : 'ฐานข้อมูล: Firebase Cloud (ปกติ)')
+                          : (isQuotaExceeded ? 'DB: Google Sheets (Quota Exceeded)' : 'DB: Firebase Cloud (Normal)')
+                      }
+                    >
+                      <Database className={`w-3 h-3 ${isQuotaExceeded ? 'text-amber-400' : 'text-sky-400'}`} />
+                      <span>{isQuotaExceeded ? 'Google Sheets' : 'Firebase'}</span>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isQuotaExceeded ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                    </div>
+                  )}
+
+                  {/* Online Status */}
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-950/40 border border-emerald-500/30 text-[10px] text-emerald-300 font-medium">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>{lang === 'th' ? 'ระบบออนไลน์' : 'Online'}</span>
+                  </div>
                 </div>
               </div>
 

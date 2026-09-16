@@ -465,8 +465,13 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
     }
     const cleanUpdates = sanitizeForFirestore(sanitizedUpdates);
     await updateDoc(ref, cleanUpdates);
-  } catch (err) {
+  } catch (err: any) {
     console.error('Failed to update user:', err);
+    notifyQuotaExceeded(err);
+    const msg = (err?.message || '').toLowerCase();
+    if (msg.includes('quota') || msg.includes('resource-exhausted') || err?.code === 'resource-exhausted') {
+      return;
+    }
     throw err;
   }
 }
@@ -892,8 +897,13 @@ export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>)
   const cleanItem = sanitizeForFirestore(fullItem);
   try {
     await setDoc(doc(db, ITEMS_COLLECTION, newId), cleanItem);
-  } catch (err) {
+  } catch (err: any) {
     console.error('Failed to setDoc in addVaultItemDoc:', err);
+    notifyQuotaExceeded(err);
+    const msg = (err?.message || '').toLowerCase();
+    if (msg.includes('quota') || msg.includes('resource-exhausted') || err?.code === 'resource-exhausted') {
+      return fullItem;
+    }
     throw err;
   }
   return fullItem;
@@ -904,8 +914,13 @@ export async function updateVaultItemDoc(itemId: string, updates: Partial<VaultI
     const ref = doc(db, ITEMS_COLLECTION, itemId);
     const cleanUpdates = sanitizeForFirestore(updates);
     await updateDoc(ref, cleanUpdates);
-  } catch (err) {
+  } catch (err: any) {
     console.error('Failed to update vault item doc in Firestore:', err);
+    notifyQuotaExceeded(err);
+    const msg = (err?.message || '').toLowerCase();
+    if (msg.includes('quota') || msg.includes('resource-exhausted') || err?.code === 'resource-exhausted') {
+      return;
+    }
     throw err;
   }
 }
@@ -915,8 +930,13 @@ export async function deleteVaultItemDoc(itemId: string) {
     await deleteClaimsForItem(itemId);
     const ref = doc(db, ITEMS_COLLECTION, itemId);
     await deleteDoc(ref);
-  } catch (err) {
+  } catch (err: any) {
     console.error('Failed to delete vault item doc in Firestore:', err);
+    notifyQuotaExceeded(err);
+    const msg = (err?.message || '').toLowerCase();
+    if (msg.includes('quota') || msg.includes('resource-exhausted') || err?.code === 'resource-exhausted') {
+      return;
+    }
     throw err;
   }
 }
@@ -1281,8 +1301,13 @@ export async function addDiamondTransactionDoc(record: Omit<DiamondVaultRecord, 
   const cleanRecord = sanitizeForFirestore(fullRecord);
   try {
     await setDoc(doc(db, VAULT_COLLECTION, newId), cleanRecord);
-  } catch (err) {
+  } catch (err: any) {
     console.error('Failed to setDoc in addDiamondTransactionDoc:', err);
+    notifyQuotaExceeded(err);
+    const msg = (err?.message || '').toLowerCase();
+    if (msg.includes('quota') || msg.includes('resource-exhausted') || err?.code === 'resource-exhausted') {
+      return fullRecord;
+    }
     throw err;
   }
   return fullRecord;
@@ -1593,3 +1618,147 @@ export async function resetAllUserStatsDoc(): Promise<number> {
   }
   return count;
 }
+
+/**
+ * 2-Way Sync: Write all data from backup / Google Sheets into Firebase Firestore Cloud
+ */
+export async function syncBackupToFirestore(payload: {
+  users?: User[];
+  vaultItems?: VaultItem[];
+  queueItems?: QueueItem[];
+  clans?: ClanGroup[];
+  diamondLogs?: DiamondVaultRecord[];
+}): Promise<{ success: boolean; message: string; writtenCount: number }> {
+  try {
+    let writtenCount = 0;
+    const writeInBatches = async (items: Array<{ id: string; [key: string]: any }>, collectionName: string) => {
+      const CHUNK_SIZE = 400;
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        for (const item of chunk) {
+          const cleanItem = sanitizeForFirestore(item);
+          batch.set(doc(db, collectionName, item.id), cleanItem, { merge: true });
+        }
+        await batch.commit();
+        writtenCount += chunk.length;
+      }
+    };
+
+    if (payload.users && payload.users.length > 0) {
+      await writeInBatches(payload.users, USERS_COLLECTION);
+    }
+    if (payload.vaultItems && payload.vaultItems.length > 0) {
+      await writeInBatches(payload.vaultItems, ITEMS_COLLECTION);
+    }
+    if (payload.queueItems && payload.queueItems.length > 0) {
+      await writeInBatches(payload.queueItems, QUEUES_COLLECTION);
+    }
+    if (payload.clans && payload.clans.length > 0) {
+      await writeInBatches(payload.clans, CLANS_COLLECTION);
+    }
+    if (payload.diamondLogs && payload.diamondLogs.length > 0) {
+      await writeInBatches(payload.diamondLogs, VAULT_COLLECTION);
+    }
+
+    return {
+      success: true,
+      writtenCount,
+      message: `Successfully synced ${writtenCount} records to Firebase Firestore Cloud!`
+    };
+  } catch (err: any) {
+    console.error('syncBackupToFirestore failed:', err);
+    notifyQuotaExceeded(err);
+    return {
+      success: false,
+      writtenCount: 0,
+      message: err?.message || 'Failed to sync to Firestore'
+    };
+  }
+}
+
+/**
+ * Check connectivity and force-fetch the authentic cloud data from Firestore
+ */
+export async function forceCheckAndFetchFirestore(): Promise<{
+  success: boolean;
+  data?: {
+    users: User[];
+    vaultItems: VaultItem[];
+    queueItems: QueueItem[];
+    clans: ClanGroup[];
+    diamondLogs: DiamondVaultRecord[];
+  };
+  message: string;
+}> {
+  try {
+    const [usersSnap, itemsSnap, queuesSnap, clansSnap, vaultSnap] = await Promise.all([
+      getDocs(collection(db, USERS_COLLECTION)),
+      getDocs(collection(db, ITEMS_COLLECTION)),
+      getDocs(collection(db, QUEUES_COLLECTION)),
+      getDocs(collection(db, CLANS_COLLECTION)),
+      getDocs(collection(db, VAULT_COLLECTION))
+    ]);
+
+    const users: User[] = [];
+    usersSnap.forEach((d) => {
+      const u = { ...d.data(), id: d.id } as User;
+      if (u.clan) u.clan = cleanClanName(u.clan);
+      users.push(u);
+    });
+
+    const vaultItems: VaultItem[] = [];
+    itemsSnap.forEach((d) => vaultItems.push({ ...d.data(), id: d.id } as VaultItem));
+
+    const queueItems: QueueItem[] = [];
+    queuesSnap.forEach((d) => queueItems.push({ ...d.data(), id: d.id } as QueueItem));
+
+    const clans: ClanGroup[] = [];
+    clansSnap.forEach((d) => clans.push({ ...d.data(), id: d.id } as ClanGroup));
+
+    const diamondLogs: DiamondVaultRecord[] = [];
+    vaultSnap.forEach((d) => diamondLogs.push({ ...d.data(), id: d.id } as DiamondVaultRecord));
+
+    if (onQuotaExceededCallback) {
+      onQuotaExceededCallback(false);
+    }
+
+    return {
+      success: true,
+      data: { users, vaultItems, queueItems, clans, diamondLogs },
+      message: 'Firebase Firestore is back online and all cloud data was retrieved successfully!'
+    };
+  } catch (err: any) {
+    console.warn('forceCheckAndFetchFirestore failed:', err);
+    notifyQuotaExceeded(err);
+    return {
+      success: false,
+      message: err?.message || 'Firestore is still exhausted or offline'
+    };
+  }
+}
+
+/**
+ * Lightweight health-probe to detect when Firebase recovers from daily quota limits
+ */
+export async function testFirestoreHealth(): Promise<boolean> {
+  try {
+    const testDocRef = doc(db, APP_SETTINGS_COLLECTION, 'announcement');
+    await getDoc(testDocRef);
+    if (onQuotaExceededCallback) {
+      onQuotaExceededCallback(false);
+    }
+    return true;
+  } catch (err: any) {
+    const msg = (err?.message || '').toLowerCase();
+    if (msg.includes('quota') || msg.includes('limit exceeded') || err?.code === 'resource-exhausted') {
+      return false;
+    }
+    // If not quota error, it's alive
+    if (onQuotaExceededCallback) {
+      onQuotaExceededCallback(false);
+    }
+    return true;
+  }
+}
+

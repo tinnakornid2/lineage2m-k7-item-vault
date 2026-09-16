@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { AlertCircle, CheckCircle, Sparkles, X, FileSpreadsheet } from 'lucide-react';
+import { AlertCircle, CheckCircle, Sparkles, X, FileSpreadsheet, Database, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
 import {
   ActiveTab,
   ClanGroup,
@@ -73,7 +73,10 @@ import {
   getCachedClans,
   getCachedQueues,
   getCachedDiamondTransactions,
-  setOnQuotaExceededListener
+  setOnQuotaExceededListener,
+  syncBackupToFirestore,
+  forceCheckAndFetchFirestore,
+  testFirestoreHealth
 } from './services/firebase';
 import { calculateDiamondNetChange, computeTotalVaultBalance } from './utils/diamondHelper';
 import { setInMemoryFormulaSettings } from './services/powerFormulaService';
@@ -97,7 +100,16 @@ import { GoogleDriveBackupModal } from './components/GoogleDriveBackupModal';
 import {
   triggerDebouncedAutoBackup,
   fetchDataFromGoogleSheets,
-  getGoogleBackupConfig
+  getGoogleBackupConfig,
+  setPendingFirebaseSync,
+  isPendingFirebaseSync,
+  initSharedGoogleBackupConfig,
+  startGoogleRealtimeSync,
+  stopGoogleRealtimeSync,
+  broadcastLiveState,
+  getIsApplyingRemoteUpdate,
+  setLastBroadcastPayload,
+  BackupDataPayload
 } from './services/googleSheetsBackupService';
 import {
   BackgroundSettingsModal,
@@ -221,6 +233,24 @@ export const App: React.FC = () => {
   const [showGoogleBackupModal, setShowGoogleBackupModal] = useState(false);
 
   useEffect(() => {
+    // Automatically load the Owner's shared Google Sheets database URL for all members
+    initSharedGoogleBackupConfig();
+
+    // Proactively load active live relay state from server if available
+    fetch(`/api/live-state?v=0&_t=${Date.now()}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.modified && json.data) {
+          setLastBroadcastPayload(json.data);
+          if (Array.isArray(json.data.users) && json.data.users.length > 0) setUsers(json.data.users);
+          if (Array.isArray(json.data.vaultItems)) setVaultItems(json.data.vaultItems);
+          if (Array.isArray(json.data.queueItems)) setQueueItems(json.data.queueItems);
+          if (Array.isArray(json.data.clans) && json.data.clans.length > 0) setClans(json.data.clans);
+          if (Array.isArray(json.data.diamondLogs)) setDiamondLogs(json.data.diamondLogs);
+        }
+      })
+      .catch(() => {});
+
     setOnQuotaExceededListener((exceeded) => {
       setIsQuotaExceeded(exceeded);
       if (exceeded) {
@@ -292,6 +322,49 @@ export const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [toast]);
+
+  // Firebase Quota Manual Status Check
+  const [isCheckingFirebase, setIsCheckingFirebase] = useState(false);
+
+  const handleManualCheckFirebase = async () => {
+    sounds.playClick();
+    setIsCheckingFirebase(true);
+    showToast(
+      lang === 'th'
+        ? '🔍 กำลังตรวจสอบสถานะการเชื่อมต่อและโควต้า Firebase Cloud...'
+        : '🔍 Checking Firebase Cloud connection and quota status...',
+      'info'
+    );
+    try {
+      const isHealthy = await testFirestoreHealth();
+      if (isHealthy) {
+        setIsQuotaExceeded(false);
+        showToast(
+          lang === 'th'
+            ? '✅ Firebase Cloud ออนไลน์ปกติ! โควต้าอ่านรายวันยังไม่เกินลิมิต'
+            : '✅ Firebase Cloud is online! Quota is within daily limits.',
+          'success'
+        );
+      } else {
+        setIsQuotaExceeded(true);
+        showToast(
+          lang === 'th'
+            ? '⚠️ ตรวจพบ Firebase ยังติดโควต้าอ่านรายวัน — ระบบกำลังทำงานผ่าน Google Sheets & Drive สำรอง'
+            : '⚠️ Firebase daily read quota is still exceeded — running via Google Sheets & Drive failover.',
+          'warning'
+        );
+      }
+    } catch (e: any) {
+      showToast(
+        lang === 'th'
+          ? '⚠️ ไม่สามารถตรวจสอบสถานะได้ กรุณาลองใหม่อีกครั้ง'
+          : '⚠️ Could not verify Firebase status, please retry.',
+        'error'
+      );
+    } finally {
+      setIsCheckingFirebase(false);
+    }
+  };
 
   // RBAC Guard for Owner, Admin, and Manager
   const isOwner = currentUser?.role === 'owner';
@@ -599,6 +672,9 @@ export const App: React.FC = () => {
   // Automatic debounced sync to Google Sheets & Drive when data updates
   useEffect(() => {
     if (users.length > 0 || vaultItems.length > 0) {
+      if (isQuotaExceeded) {
+        setPendingFirebaseSync(true);
+      }
       triggerDebouncedAutoBackup({
         users,
         vaultItems,
@@ -608,7 +684,143 @@ export const App: React.FC = () => {
         vaultBalance
       });
     }
+  }, [users, vaultItems, queueItems, clans, diamondLogs, vaultBalance, isQuotaExceeded]);
+
+  // Real-time live relay broadcast: whenever state changes locally, immediately notify all other clan members (debounced 300ms)
+  useEffect(() => {
+    if (users.length === 0 && vaultItems.length === 0) return;
+    if (getIsApplyingRemoteUpdate()) return;
+
+    const timer = setTimeout(() => {
+      broadcastLiveState(
+        {
+          users,
+          vaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance
+        },
+        currentUser?.inGameName || currentUser?.username || 'Member'
+      );
+    }, 300);
+
+    return () => clearTimeout(timer);
   }, [users, vaultItems, queueItems, clans, diamondLogs, vaultBalance]);
+
+  // Real-time live synchronization engine when in failover mode (or Quota Exceeded)
+  useEffect(() => {
+    if (isQuotaExceeded) {
+      startGoogleRealtimeSync((incomingData: BackupDataPayload) => {
+        if (!incomingData) return;
+        if (Array.isArray(incomingData.users) && incomingData.users.length > 0) {
+          setUsers(incomingData.users);
+          const cur = currentUserRef.current;
+          if (cur) {
+            const found = incomingData.users.find((u) => u.id === cur.id);
+            if (found) {
+              setCurrentUser(found);
+              saveLocalSessionUser(found);
+            }
+          }
+        }
+        if (Array.isArray(incomingData.vaultItems)) {
+          setVaultItems(incomingData.vaultItems);
+        }
+        if (Array.isArray(incomingData.queueItems)) {
+          setQueueItems(incomingData.queueItems);
+        }
+        if (Array.isArray(incomingData.clans) && incomingData.clans.length > 0) {
+          setClans(incomingData.clans);
+        }
+        if (Array.isArray(incomingData.diamondLogs)) {
+          setDiamondLogs(incomingData.diamondLogs);
+        }
+      });
+    } else {
+      stopGoogleRealtimeSync();
+    }
+
+    return () => {
+      stopGoogleRealtimeSync();
+    };
+  }, [isQuotaExceeded]);
+
+  // Automated Heartbeat: Detects when Firebase recovers from quota limit, and auto-syncs newest data to Cloud!
+  useEffect(() => {
+    if (!isQuotaExceeded) return;
+
+    let isChecking = false;
+    const checkRecoveryAndAutoSync = async () => {
+      if (isChecking) return;
+      isChecking = true;
+      try {
+        const isHealthy = await testFirestoreHealth();
+        if (isHealthy) {
+          setIsQuotaExceeded(false);
+
+          if (isPendingFirebaseSync()) {
+            showToast(
+              lang === 'th'
+                ? '🔄 ตรวจพบ Firebase กลับมาออนไลน์แล้ว! กำลังซิงค์ข้อมูลล่าสุดจาก Google Sheets ขึ้น Cloud อัตโนมัติ...'
+                : '🔄 Firebase is back online! Automatically syncing latest changes to Cloud...',
+              'info'
+            );
+            const syncRes = await syncBackupToFirestore({
+              users,
+              vaultItems,
+              queueItems,
+              clans,
+              diamondLogs
+            });
+            if (syncRes.success) {
+              setPendingFirebaseSync(false);
+              showToast(
+                lang === 'th'
+                  ? `✅ ซิงค์ข้อมูลขึ้น Firebase Cloud สำเร็จ (${syncRes.writtenCount} รายการ)! ข้อมูลทั้งสองระบบตรงกัน 100%`
+                  : `✅ Synced to Firebase Cloud successfully (${syncRes.writtenCount} records)! Both databases are in sync`,
+                'success'
+              );
+            }
+          } else {
+            // No offline edits made: fetch authentic cloud records from Firebase
+            const cloudRes = await forceCheckAndFetchFirestore();
+            if (cloudRes.success && cloudRes.data) {
+              if (cloudRes.data.users && cloudRes.data.users.length > 0) setUsers(cloudRes.data.users);
+              if (cloudRes.data.vaultItems && cloudRes.data.vaultItems.length > 0) setVaultItems(cloudRes.data.vaultItems);
+              if (cloudRes.data.queueItems) setQueueItems(cloudRes.data.queueItems);
+              if (cloudRes.data.clans && cloudRes.data.clans.length > 0) setClans(cloudRes.data.clans);
+              if (cloudRes.data.diamondLogs) setDiamondLogs(cloudRes.data.diamondLogs);
+            }
+            showToast(
+              lang === 'th'
+                ? '✅ ระบบหลัก Firebase กลับมาออนไลน์แล้ว! ข้อมูลเชื่อมต่อเป็นปัจจุบัน 100%'
+                : '✅ Firebase Cloud is back online and fully synchronized!',
+              'success'
+            );
+          }
+        }
+      } catch (err) {
+        console.warn('Probe check warning:', err);
+      } finally {
+        isChecking = false;
+      }
+    };
+
+    // 1. Probe every 60 seconds
+    const interval = setInterval(checkRecoveryAndAutoSync, 60000);
+
+    // 2. Also probe immediately on window focus
+    const handleFocus = () => {
+      checkRecoveryAndAutoSync();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [isQuotaExceeded, users, vaultItems, queueItems, clans, diamondLogs, lang]);
 
   // Auth Handlers
   const handleLogin = async (username: string, pass: string): Promise<{ success: boolean; message?: string }> => {
@@ -2198,6 +2410,8 @@ export const App: React.FC = () => {
         setIsMobileOpen={setIsMobileOpen}
         unreadNotificationCount={unreadNotificationCount}
         onOpenNotifications={() => setShowNotificationModal(true)}
+        isQuotaExceeded={isQuotaExceeded}
+        onCheckFirebaseHealth={handleManualCheckFirebase}
       />
 
       {/* 2. MAIN CONTENT AREA (Padded on left for desktop sidebar: lg:pl-64 xl:pl-72) */}
@@ -2211,36 +2425,7 @@ export const App: React.FC = () => {
         />
 
         <main className="flex-1 w-full max-w-full 2xl:max-w-[1920px] mx-auto px-2.5 sm:px-4 md:px-6 lg:px-7 py-3 sm:py-5 min-w-0 transition-all">
-        {isQuotaExceeded && (
-          <div className="mb-4 p-3 sm:p-4 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 flex items-start gap-3 backdrop-blur-md shadow-lg transition-all animate-fade-in">
-            <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-            <div className="text-xs sm:text-sm leading-relaxed flex-1">
-              <div className="font-bold text-amber-200">
-                {lang === 'th' ? '⚡ ฐานข้อมูล Firestore ถึงขีดจำกัดอ่านฟรีรายวันของ Google Cloud (50,000 ครั้ง/วัน)' : '⚡ Google Cloud Firestore Free Daily Read Quota Reached (50,000 reads/day)'}
-              </div>
-              <div className="text-amber-300/80 mt-0.5">
-                {lang === 'th'
-                  ? 'ข้อมูลจริงในระบบปลอดภัย 100% ไม่สูญหาย ขณะนี้ระบบเปิดโหมดข้อมูลสำรองและแคชออฟไลน์อัตโนมัติ โควตาจะรีเซ็ตอัตโนมัติในรอบวันถัดไป หรือสามารถอัปเกรดเป็น Blaze Plan บน Firebase Console ได้ครับ'
-                  : 'All real data remains 100% safe in the database. Running in offline/cached backup mode. Quota resets daily or upgrade to Blaze Plan in Firebase Console.'}
-              </div>
-              {isOwner && (
-                <div className="mt-2 flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      sounds.playClick();
-                      setShowGoogleBackupModal(true);
-                    }}
-                    className="px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs font-semibold inline-flex items-center gap-1.5 transition-all cursor-pointer"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>{lang === 'th' ? 'เปิดฐานข้อมูลสำรอง Google Sheets' : 'Open Google Sheets Backup'}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-        {activeTab === 'dashboard' && (
+          {activeTab === 'dashboard' && (
           <DashboardView
             lang={lang}
             currentUser={currentUser}
@@ -2266,6 +2451,9 @@ export const App: React.FC = () => {
             distributedItems={vaultItems.filter((i) => i.status === 'distributed')}
             clans={clans}
             onBroadcastToDiscord={handleBroadcastItemToDiscord}
+            isQuotaExceeded={isQuotaExceeded}
+            onOpenGoogleBackupModal={isOwner ? () => setShowGoogleBackupModal(true) : undefined}
+            onCheckFirebaseHealth={handleManualCheckFirebase}
           />
         )}
 

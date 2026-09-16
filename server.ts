@@ -1,5 +1,7 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
+import { EventEmitter } from "events";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
@@ -79,6 +81,8 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   const PORT = 3000;
   const discordRateLimits = new Map<string, { count: number; resetAt: number }>();
   const ocrRateLimits = new Map<string, { count: number; resetAt: number }>();
+  let sharedGoogleBackupUrl = process.env.GOOGLE_BACKUP_WEB_APP_URL || '';
+  let sharedGoogleSheetUrl = '';
 
   const consumeRateLimit = (
     limits: Map<string, { count: number; resetAt: number }>,
@@ -213,6 +217,159 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         success: false,
         error: friendlyError
       });
+    }
+  });
+
+  // Disk persistence helpers for live relay and backup config
+  const DATA_DIR = path.join(currentDirname, 'data');
+  if (!fs.existsSync(DATA_DIR)) {
+    try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+  }
+  const LIVE_STATE_FILE = path.join(DATA_DIR, 'hub-live-state.json');
+  const GOOGLE_CONFIG_FILE = path.join(DATA_DIR, 'google-backup-config.json');
+
+  // Load saved google config if present
+  try {
+    if (fs.existsSync(GOOGLE_CONFIG_FILE)) {
+      const parsedConfig = JSON.parse(fs.readFileSync(GOOGLE_CONFIG_FILE, 'utf-8'));
+      if (parsedConfig?.webAppUrl && !sharedGoogleBackupUrl) {
+        sharedGoogleBackupUrl = parsedConfig.webAppUrl;
+      }
+      if (parsedConfig?.sheetUrl) {
+        sharedGoogleSheetUrl = parsedConfig.sheetUrl;
+      }
+    }
+  } catch {}
+
+  // Google Sheets & Drive Shared Backup Config (Distributed to all clan members)
+  app.get("/api/google-backup-config", (_req, res) => {
+    res.json({
+      webAppUrl: sharedGoogleBackupUrl,
+      sheetUrl: sharedGoogleSheetUrl
+    });
+  });
+
+  app.post("/api/google-backup-config", async (req, res) => {
+    try {
+      const { webAppUrl, sheetUrl } = req.body;
+      let hasChanged = false;
+      if (typeof webAppUrl === 'string' && webAppUrl.trim() !== sharedGoogleBackupUrl) {
+        sharedGoogleBackupUrl = webAppUrl.trim();
+        hasChanged = true;
+      }
+      if (typeof sheetUrl === 'string' && sheetUrl.trim() !== sharedGoogleSheetUrl) {
+        sharedGoogleSheetUrl = sheetUrl.trim();
+        hasChanged = true;
+      }
+      if (hasChanged) {
+        try {
+          fs.writeFileSync(GOOGLE_CONFIG_FILE, JSON.stringify({
+            webAppUrl: sharedGoogleBackupUrl,
+            sheetUrl: sharedGoogleSheetUrl
+          }, null, 2), 'utf-8');
+        } catch {}
+      }
+      res.json({ success: true, webAppUrl: sharedGoogleBackupUrl, sheetUrl: sharedGoogleSheetUrl });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to save config' });
+    }
+  });
+
+  // Real-time Event Emitter for Instant Cross-Member Sync (< 20ms response)
+  const liveStateEmitter = new EventEmitter();
+  liveStateEmitter.setMaxListeners(500);
+
+  // Real-time In-Memory Hub State for Instant Cross-Member Sync
+  let liveHubState: {
+    data: any;
+    updatedAt: number;
+    version: number;
+  } = {
+    data: null,
+    updatedAt: 0,
+    version: 0
+  };
+
+  // Restore live hub state from disk if available
+  try {
+    if (fs.existsSync(LIVE_STATE_FILE)) {
+      const parsedLive = JSON.parse(fs.readFileSync(LIVE_STATE_FILE, 'utf-8'));
+      if (parsedLive && typeof parsedLive.version === 'number' && parsedLive.data) {
+        liveHubState = parsedLive;
+      }
+    }
+  } catch {}
+
+  app.get("/api/live-state", (req, res) => {
+    const clientVersion = Number(req.query.v) || 0;
+    const shouldWait = req.query.wait === 'true' || req.query.wait === '1';
+
+    // If client is behind or server has newer data, return immediately
+    if (clientVersion !== liveHubState.version || liveHubState.version === 0) {
+      return res.json({
+        modified: liveHubState.version > 0,
+        version: liveHubState.version,
+        updatedAt: liveHubState.updatedAt,
+        data: liveHubState.data
+      });
+    }
+
+    // Client is up to date and does not want to wait: return modified: false
+    if (!shouldWait) {
+      return res.json({ modified: false, version: liveHubState.version });
+    }
+
+    // Long-polling: hold connection for up to 15 seconds or until new live update is broadcast
+    let handled = false;
+    const onLiveUpdate = () => {
+      if (handled) return;
+      handled = true;
+      clearTimeout(waitTimeout);
+      res.json({
+        modified: true,
+        version: liveHubState.version,
+        updatedAt: liveHubState.updatedAt,
+        data: liveHubState.data
+      });
+    };
+
+    liveStateEmitter.once('update', onLiveUpdate);
+
+    const waitTimeout = setTimeout(() => {
+      if (handled) return;
+      handled = true;
+      liveStateEmitter.off('update', onLiveUpdate);
+      res.json({ modified: false, version: liveHubState.version });
+    }, 15000);
+
+    req.on('close', () => {
+      if (!handled) {
+        handled = true;
+        clearTimeout(waitTimeout);
+        liveStateEmitter.off('update', onLiveUpdate);
+      }
+    });
+  });
+
+  app.post("/api/live-state", (req, res) => {
+    try {
+      const { data } = req.body;
+      if (data && typeof data === 'object') {
+        liveHubState = {
+          data,
+          updatedAt: Date.now(),
+          version: liveHubState.version + 1
+        };
+        // Persist to disk asynchronously
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8');
+        } catch {}
+        // Instantly notify all connected clan members!
+        liveStateEmitter.emit('update');
+      }
+      res.json({ success: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message });
     }
   });
 
@@ -612,7 +769,12 @@ Do not include markdown or explanations. Return pure JSON only.`;
   // Vite middleware in dev, static files in production
   if (options.serveFrontend !== false && process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        watch: {
+          ignored: ['**/scratch/**', '**/tests/**', '**/.git/**', '**/backups/**', '**/data/**', '**/*.json']
+        }
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

@@ -15,7 +15,8 @@ import {
   X,
   Layers,
   Sparkles,
-  Info
+  Info,
+  Database
 } from 'lucide-react';
 import { Language, User, VaultItem, QueueItem, ClanGroup, DiamondVaultRecord } from '../types';
 import { sounds } from '../utils/sound';
@@ -28,6 +29,7 @@ import {
   backupAllDataToGoogleSheets,
   fetchDataFromGoogleSheets
 } from '../services/googleSheetsBackupService';
+import { syncBackupToFirestore, forceCheckAndFetchFirestore } from '../services/firebase';
 import { GOOGLE_APPS_SCRIPT_CODE } from '../services/googleAppsScriptTemplate';
 
 interface GoogleDriveBackupModalProps {
@@ -55,6 +57,8 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
   const [isTesting, setIsTesting] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [isSyncingToCloud, setIsSyncingToCloud] = useState(false);
+  const [isFetchingFromCloud, setIsFetchingFromCloud] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
     type: 'idle' | 'success' | 'error' | 'info';
@@ -245,6 +249,105 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
       sounds.playError();
     } finally {
       setIsRestoring(false);
+    }
+  };
+
+  const handleFetchFromFirebaseCloud = async () => {
+    sounds.playClick();
+    setIsFetchingFromCloud(true);
+    setStatusMessage({
+      type: 'info',
+      text: lang === 'th' ? 'กำลังเชื่อมต่อและดึงข้อมูลจริงจาก Firebase Cloud...' : 'Connecting and fetching authentic data from Firebase Cloud...'
+    });
+
+    try {
+      const res = await forceCheckAndFetchFirestore();
+      if (res.success && res.data) {
+        if (onDataRestored) {
+          onDataRestored({
+            ...res.data,
+            vaultBalance: currentData.vaultBalance
+          });
+        }
+        setStatusMessage({
+          type: 'success',
+          text: lang === 'th'
+            ? `ดึงข้อมูลจาก Firebase Cloud สำเร็จ! สมาชิก ${res.data.users?.length || 0} คน, ไอเทม ${res.data.vaultItems?.length || 0} ชิ้น`
+            : `Firebase Cloud data restored! ${res.data.users?.length || 0} members, ${res.data.vaultItems?.length || 0} items`
+        });
+        sounds.playClaim();
+        if (showToast) {
+          showToast(
+            lang === 'th' ? 'ดึงข้อมูลจากระบบหลัก Firebase สำเร็จ!' : 'Restored data from Firebase Cloud!',
+            'success'
+          );
+        }
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: lang === 'th'
+            ? `ระบบหลัก Firebase ยังไม่พร้อมใช้งาน: ${res.message}`
+            : `Firebase Cloud not ready: ${res.message}`
+        });
+        sounds.playError();
+      }
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || 'Firebase fetch failed'
+      });
+      sounds.playError();
+    } finally {
+      setIsFetchingFromCloud(false);
+    }
+  };
+
+  const handleSyncToFirebaseCloud = async () => {
+    sounds.playClick();
+    const confirmed = window.confirm(
+      lang === 'th'
+        ? 'คุณต้องการเขียนข้อมูลปัจจุบันทับลงบน Firebase Cloud หรือไม่?'
+        : 'Do you want to write current data into Firebase Cloud?'
+    );
+    if (!confirmed) return;
+
+    setIsSyncingToCloud(true);
+    setStatusMessage({
+      type: 'info',
+      text: lang === 'th' ? 'กำลังบันทึกข้อมูลทับลงบน Firebase Cloud...' : 'Writing records to Firebase Cloud...'
+    });
+
+    try {
+      const res = await syncBackupToFirestore(currentData);
+      if (res.success) {
+        setStatusMessage({
+          type: 'success',
+          text: lang === 'th'
+            ? `บันทึกข้อมูลทับลง Firebase Cloud สำเร็จ (${res.writtenCount} รายการ)!`
+            : `Successfully synced ${res.writtenCount} records to Firebase Cloud!`
+        });
+        sounds.playClaim();
+        if (showToast) {
+          showToast(
+            lang === 'th' ? 'เขียนข้อมูลลง Firebase Cloud สำเร็จ!' : 'Synced to Firebase Cloud!',
+            'success'
+          );
+        }
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: res.message
+        });
+        sounds.playError();
+      }
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || 'Sync to Cloud failed'
+      });
+      sounds.playError();
+    } finally {
+      setIsSyncingToCloud(false);
     }
   };
 
@@ -539,6 +642,54 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
                       className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-400 bg-slate-900 border-white/20"
                     />
                   </label>
+                </div>
+              </div>
+
+              {/* Primary Database (Firebase Cloud) 2-Way Sync */}
+              <div className="p-3.5 rounded-xl bg-[#0a1222] border border-sky-500/30 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-sky-400" />
+                    <span className="font-bold text-white text-xs sm:text-sm">
+                      {lang === 'th' ? 'การซิงค์กับระบบหลัก (Firebase Firestore Cloud)' : 'Primary Database (Firebase Cloud Sync)'}
+                    </span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                    {lang === 'th' ? 'ระบบหลัก' : 'Primary Cloud'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  {lang === 'th'
+                    ? 'เมื่อระบบหลัก Firebase หายจากการติดโควต้าหรืออัปเกรดแล้ว สามารถกดดึงข้อมูลจริงจาก Cloud มาทับ หรือเขียนข้อมูลปัจจุบันกลับขึ้น Cloud ได้'
+                    : 'When Firebase Cloud recovers from quota limits, you can fetch authentic cloud data to overwrite local, or push current data back to Cloud.'}
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  <button
+                    onClick={handleFetchFromFirebaseCloud}
+                    disabled={isFetchingFromCloud}
+                    className="py-2.5 px-3 rounded-xl bg-sky-600/30 hover:bg-sky-600/50 border border-sky-500/50 text-sky-200 hover:text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isFetchingFromCloud ? 'animate-spin' : ''}`} />
+                    <span>
+                      {isFetchingFromCloud
+                        ? (lang === 'th' ? 'กำลังดึงจาก Cloud...' : 'Fetching from Cloud...')
+                        : (lang === 'th' ? 'ดึงข้อมูลจริงจาก Firebase Cloud มาทับ' : 'Fetch & Overwrite from Cloud')}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={handleSyncToFirebaseCloud}
+                    disabled={isSyncingToCloud}
+                    className="py-2.5 px-3 rounded-xl bg-amber-600/25 hover:bg-amber-600/45 border border-amber-500/50 text-amber-200 hover:text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                  >
+                    <UploadCloud className={`w-3.5 h-3.5 ${isSyncingToCloud ? 'animate-bounce' : ''}`} />
+                    <span>
+                      {isSyncingToCloud
+                        ? (lang === 'th' ? 'กำลังเขียนลง Cloud...' : 'Writing to Cloud...')
+                        : (lang === 'th' ? 'เขียนข้อมูลชุดนี้กลับขึ้น Firebase Cloud' : 'Push Data to Firebase Cloud')}
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>

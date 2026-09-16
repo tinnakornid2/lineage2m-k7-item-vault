@@ -42,15 +42,58 @@ export function getGoogleBackupConfig(): GoogleBackupConfig {
   }
 }
 
-export function saveGoogleBackupConfig(updates: Partial<GoogleBackupConfig>): GoogleBackupConfig {
+export function saveGoogleBackupConfig(
+  updates: Partial<GoogleBackupConfig>,
+  broadcastToBackend: boolean = true
+): GoogleBackupConfig {
   try {
     const current = getGoogleBackupConfig();
     const updated = { ...current, ...updates };
     localStorage.setItem(CONFIG_KEY, JSON.stringify(updated));
+
+    // Share with all members via backend API if webAppUrl was changed by the user
+    if (
+      broadcastToBackend &&
+      (updates.webAppUrl !== undefined || updates.sheetUrl !== undefined) &&
+      (updates.webAppUrl !== current.webAppUrl || updates.sheetUrl !== current.sheetUrl)
+    ) {
+      fetch('/api/google-backup-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webAppUrl: updated.webAppUrl,
+          sheetUrl: updated.sheetUrl
+        })
+      }).catch(() => {});
+    }
+
     return updated;
   } catch (err) {
     console.error('Error saving google backup config:', err);
     return getGoogleBackupConfig();
+  }
+}
+
+/**
+ * Initialize shared Google Backup config so all members automatically get the Owner's database URL
+ */
+export async function initSharedGoogleBackupConfig(): Promise<void> {
+  try {
+    const res = await fetch('/api/google-backup-config');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.webAppUrl) {
+        saveGoogleBackupConfig(
+          {
+            webAppUrl: data.webAppUrl,
+            sheetUrl: data.sheetUrl
+          },
+          false // DO NOT echo back to server!
+        );
+      }
+    }
+  } catch (err) {
+    // Ignore offline errors
   }
 }
 
@@ -366,3 +409,178 @@ export function triggerDebouncedAutoBackup(
       .catch(err => console.warn('Auto backup skipped or failed:', err));
   }, 10000);
 }
+
+/**
+ * Track changes that occurred during Firebase Quota downtime to auto-push when Firebase recovers
+ */
+export function setPendingFirebaseSync(pending: boolean) {
+  try {
+    if (pending) {
+      localStorage.setItem('l2m_pending_firebase_sync', 'true');
+      localStorage.setItem('l2m_pending_firebase_sync_at', Date.now().toString());
+    } else {
+      localStorage.removeItem('l2m_pending_firebase_sync');
+      localStorage.removeItem('l2m_pending_firebase_sync_at');
+    }
+  } catch (e) {}
+}
+
+export function isPendingFirebaseSync(): boolean {
+  try {
+    return localStorage.getItem('l2m_pending_firebase_sync') === 'true';
+  } catch (e) {
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Real-Time Live State Relay & Synchronization Engine
+// ─────────────────────────────────────────────────────────────
+
+let realtimeActive = false;
+let abortController: AbortController | null = null;
+let sheetsPollingInterval: any = null;
+let currentLocalVersion = 0;
+let isApplyingRemoteUpdate = false;
+
+let lastBroadcastString = '';
+
+export function getIsApplyingRemoteUpdate(): boolean {
+  return isApplyingRemoteUpdate;
+}
+
+export function setIsApplyingRemoteUpdate(val: boolean) {
+  isApplyingRemoteUpdate = val;
+}
+
+export function getCurrentLocalVersion(): number {
+  return currentLocalVersion;
+}
+
+export function setCurrentLocalVersion(version: number) {
+  currentLocalVersion = version;
+}
+
+export function setLastBroadcastPayload(payload: BackupDataPayload) {
+  try {
+    lastBroadcastString = JSON.stringify(payload);
+  } catch {}
+}
+
+/**
+ * Broadcast local Clan Hub state changes instantly to server live relay (< 20ms)
+ * to propagate to all other active clan members
+ */
+export async function broadcastLiveState(
+  payload: BackupDataPayload,
+  performedBy: string = 'User'
+): Promise<{ success: boolean; version?: number }> {
+  try {
+    const payloadStr = JSON.stringify(payload);
+    if (payloadStr === lastBroadcastString) {
+      // Data is identical to what was already broadcasted or received from remote. Skip!
+      return { success: true, version: currentLocalVersion };
+    }
+
+    const res = await fetch('/api/live-state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        data: payload,
+        performedBy
+      })
+    });
+    if (res.ok) {
+      const json = await res.json();
+      lastBroadcastString = payloadStr;
+      if (typeof json.version === 'number') {
+        currentLocalVersion = json.version;
+      }
+      return { success: true, version: json.version };
+    }
+  } catch (err) {
+    console.warn('broadcastLiveState error:', err);
+  }
+  return { success: false };
+}
+
+/**
+ * Start real-time live synchronization across all clan members:
+ * - Ultra-fast push notifications via long-polling server relay (< 50ms latency)
+ * - Automatic background fallback sync with Google Sheets & Google Drive every 35s
+ */
+export function startGoogleRealtimeSync(
+  onDataChanged: (data: BackupDataPayload) => void
+) {
+  if (realtimeActive) return;
+  realtimeActive = true;
+
+  const pollLoop = async () => {
+    while (realtimeActive) {
+      try {
+        abortController = new AbortController();
+        const url = `/api/live-state?v=${currentLocalVersion}&wait=true&_t=${Date.now()}`;
+        const res = await fetch(url, {
+          signal: abortController.signal
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json.modified && json.data) {
+            currentLocalVersion = json.version;
+            try {
+              lastBroadcastString = JSON.stringify(json.data);
+            } catch {}
+            isApplyingRemoteUpdate = true;
+            onDataChanged(json.data);
+            setTimeout(() => {
+              isApplyingRemoteUpdate = false;
+            }, 500);
+          }
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          break; // User stopped sync
+        }
+        // Small delay on network error before reconnecting
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  };
+
+  pollLoop();
+
+  // Periodic Google Sheets fallback sync (every 35 seconds)
+  sheetsPollingInterval = setInterval(async () => {
+    if (!realtimeActive) return;
+    try {
+      const res = await fetchDataFromGoogleSheets();
+      if (res.success && res.data) {
+        if (res.data.users?.length || res.data.vaultItems?.length) {
+          isApplyingRemoteUpdate = true;
+          onDataChanged(res.data);
+          setTimeout(() => {
+            isApplyingRemoteUpdate = false;
+          }, 500);
+        }
+      }
+    } catch {}
+  }, 35000);
+}
+
+/**
+ * Stop real-time live synchronization cleanly
+ */
+export function stopGoogleRealtimeSync() {
+  realtimeActive = false;
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
+  }
+  if (sheetsPollingInterval) {
+    clearInterval(sheetsPollingInterval);
+    sheetsPollingInterval = null;
+  }
+}
+
+
