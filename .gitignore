@@ -1,7 +1,9 @@
 node_modules/
 .pnpm-store/
 build/
-dist/
+dist/*
+!dist/server.js
+!dist/server.js.map
 coverage/
 .DS_Store
 *.log
