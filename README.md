@@ -1,22 +1,34 @@
-# ⚔️ Lineage2M Clan Hub & Boss Item Vault (v2.0.0)
+# ⚔️ Lineage2M Clan Hub & Boss Item Vault (v2.1.0)
 
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.0.0 — เวอร์ชั่นสมบูรณ์)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.1.0 — อัปเดตล่าสุด)**  
 > ระบบบริหารจัดการกิลด์ คลังไอเทมบอส คิวไอเทม สแกนสลิปผู้ล่าด้วย AI และแจ้งเตือน Discord แบบ Real-time
 
 ---
 
 ## ✨ ฟีเจอร์หลัก (Key Features)
 
-- 🏰 **Item Vault (คลังไอเทมบอส):**
+- 🖥️ **Fluid Dynamic Responsive UI (ปรับขนาดตามหน้าต่างบราวเซอร์):**
+  - คอนเทนเนอร์หลักปรับขนาดอัตโนมัติตามขนาดหน้าต่างบราวเซอร์ (`w-full max-w-full 2xl:max-w-[1920px]`)
+  - รองรับทั้งการแบ่งหน้าจอ (Split-Screen), แล็ปท็อป, มอนิเตอร์มาตรฐาน และจอ Ultrawide 2K/4K
+- 🔄 **Tab State & URL Hash Persistence (รีเฟรชแล้วอยู่หน้าเดิม):**
+  - ซิงค์แท็บหน้าปัจจุบันลงบน URL Hash (`#vault`, `#queue`, `#distribution`, ฯลฯ) ร่วมกับ `localStorage`
+  - กด F5 Refresh หรือกดปุ่ม Back/Forward ของเบราว์เซอร์จะไม่หลุดกลับไปหน้า Dashboard
+- 🏰 **Item Vault & Dashboard (คลังไอเทมบอส):**
+  - **จัดกล่องไอเทมแถวละ 4 ชิ้นบนเดสก์ท็อป (`lg:grid-cols-4`)**
+  - **การ์ดไอเทมกะทัดรัดจัดระเบียบ 2 บรรทัดติดรูปภาพ Thumbnail**
+    - บรรทัด 1: ชื่อไอเทมเด่นชัด + ป้ายเกรดความหายาก
+    - บรรทัด 2: ราคาเพชร (หรือ FREE) + เกณฑ์พลังขั้นต่ำ + จำนวนผู้ขอรับ
   - ลงทะเบียนและแก้ไขข้อมูลไอเทมเปิดรับได้อิสระ (`EditVaultItemModal`) ทั้งชื่อ, จำนวน, ราคา, พลังขั้นต่ำ, รูปไอเทม และรายชื่อผู้ล่า
   - ระบบจดจำชื่อไอเทมที่เคยกรอกอัตโนมัติ (Item Names Autocomplete & Recent Memory)
-  - กำหนดระดับความหายาก (Mythic, Legend, Epic, Rare) และเกณฑ์พลังขั้นต่ำ (Min Power Level / PL)
+- 🔔 **Discord Webhook Integration with Custom Role Mentions:**
+  - Owner สามารถตั้งค่ารูปแบบการแท็กแจ้งเตือน Discord ได้ 3 แบบ: **`Role ID`**, **`@everyone`**, หรือ **`none`**
+  - ส่งการ์ดแจ้งเตือน Discord อัตโนมัติทันทีที่มีการลงไอเทมใหม่เข้าคลัง (ทั้ง Admin และ Owner)
 - 🧾 **Multiple Receipt Bills (ระบบแนบรูปบิลหลายใบ):**
   - แนบภาพบิล/ใบเสร็จได้หลายใบต่อ 1 ไอเทม สำหรับไอเทมที่แจกแล้ว
   - หน้าต่างแกลเลอรีซูมภาพขนาดใหญ่ พร้อมระบบเพิ่ม/ลบบิลย้อนหลังได้อย่างปลอดภัย
 - 💎 **Clan Fund (กองทุนเพชรแคลน):**
   - ฝากและถอนเพชรแบบ 1:1 ตรงตามจำนวนจริง (นำช่องหักภาษีตลาดออกเพื่อความสะดวกและโปร่งใส)
-  - ระบบคำนวณยอดคงเหลือมาตรฐานเดียวกันทุกจุด (Dashboard, Sidebar, Modal)
+  - ระบบคำนวณยอดคงเหลือมาตรฐานเดียวกันทุกจุด (Dashboard, Sidebar, Modal) ผ่าน `diamondHelper.ts`
   - **ปุ่มรีเซ็ตยอด (Owner Balance Reset):** สิทธิ์พิเศษเฉพาะ Owner ในการล้างประวัติธุรกรรมเริ่มใหม่ที่ 0 หรือบันทึกรายการปรับยอด (Adjust) อัตโนมัติ
   - สรุปภาพรวมยอดกองทุนและบันทึกภาพการ์ดสรุปยอด (Balance Snapshot Generator) ส่งเข้า LINE / Discord ได้ทันที
 - 📸 **AI Hunter OCR Scanner (Google Gemini AI):**
@@ -26,9 +38,6 @@
 - ⏳ **Item Queue Management (คิวไอเทม):**
   - แสดงลำดับคิวและสถานะรับไอเทมของสมาชิกอย่างโปร่งใส
   - ระบบตรวจสอบเงื่อนไขสเตตัสก่อนเคลม (สมาชิกต้องส่งสเตตัสและผ่านการอนุมัติก่อน)
-- 🔔 **Discord Webhook Integration:**
-  - แจ้งเตือนไอเทมบอสดรอปใหม่เข้าห้อง Discord กิลด์แบบ Real-time
-  - ประกาศผลการแจกจ่ายไอเทมพร้อมสถิติและรูปหลักฐาน
 - 🛡️ **Clan & Member Management:**
   - จัดการแคลนพันธมิตร ลากย้ายสมาชิกข้ามแคลน (Drag & Drop และ Bulk Swap)
   - ระบบขออนุมัติและเปรียบเทียบสเตตัสแบบ Split-View พร้อมภาพสกรีนช็อต
@@ -59,11 +68,14 @@ npm run dev
 
 ---
 
-## 📦 การสร้าง Production Build & Run
+## 📦 การสร้าง Production Build & Verification
 
-```bash
-npm run build
-npm start
+```powershell
+# ตรวจสอบ TypeScript Type Safety
+& 'C:\Program Files\nodejs\node.exe' 'node_modules\typescript\bin\tsc' --noEmit
+
+# สร้าง Production Bundle
+& 'C:\Program Files\nodejs\node.exe' 'node_modules\vite\bin\vite.js' build
 ```
 
 ---

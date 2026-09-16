@@ -22,7 +22,8 @@ import {
   UserRole,
   UserStatus,
   hasUserUpdatedStats,
-  isUserStatsPending
+  isUserStatsPending,
+  AppNotification
 } from './types';
 import { getOrGenerateStatHistory } from './utils/growthTimelineHelper';
 import { translations } from './translations';
@@ -65,9 +66,10 @@ import {
   clearLocalSessionUser,
   getLocalSessionUser,
   INITIAL_QUICK_ITEMS,
-  INITIAL_CLANS
+  INITIAL_CLANS,
+  DEFAULT_OWNER
 } from './services/firebase';
-import { computeTotalVaultBalance } from './utils/diamondHelper';
+import { calculateDiamondNetChange, computeTotalVaultBalance } from './utils/diamondHelper';
 import { setInMemoryFormulaSettings } from './services/powerFormulaService';
 
 import { Sidebar } from './components/Sidebar';
@@ -82,6 +84,7 @@ import { EditVaultItemModal } from './components/EditVaultItemModal';
 import { ClaimantsModal } from './components/ClaimantsModal';
 import { QuickItemModal } from './components/QuickItemModal';
 import { OwnerResetModal } from './components/OwnerResetModal';
+import { NotificationModal } from './components/NotificationModal';
 import { RequestPowerLevelModal } from './components/RequestPowerLevelModal';
 import { GeminiKeyModal } from './components/GeminiKeyModal';
 import {
@@ -123,8 +126,61 @@ export const App: React.FC = () => {
     setSoundEnabled(next);
   };
 
-  // 2. Navigation Tab State
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const VALID_TABS: ActiveTab[] = [
+    'dashboard',
+    'vault',
+    'queue',
+    'all_members',
+    'clans',
+    'bulk_swap',
+    'my_stats',
+    'stat_approvals'
+  ];
+
+  const getInitialTab = (): ActiveTab => {
+    try {
+      if (typeof window !== 'undefined') {
+        // 1. Check URL hash (e.g. #queue, #vault)
+        const hash = window.location.hash.replace(/^#\/?/, '') as ActiveTab;
+        if (VALID_TABS.includes(hash)) return hash;
+
+        // 2. Check URL search param (e.g. ?tab=queue)
+        const searchTab = new URLSearchParams(window.location.search).get('tab') as ActiveTab;
+        if (VALID_TABS.includes(searchTab)) return searchTab;
+
+        // 3. Check localStorage
+        const saved = localStorage.getItem('l2m_active_tab') as ActiveTab;
+        if (VALID_TABS.includes(saved)) return saved;
+      }
+    } catch {}
+    return 'dashboard';
+  };
+
+  // 2. Navigation Tab State (persists across refresh & syncs with URL hash)
+  const [activeTab, setActiveTab] = useState<ActiveTab>(getInitialTab);
+
+  // Synchronize activeTab to localStorage and URL hash
+  useEffect(() => {
+    try {
+      localStorage.setItem('l2m_active_tab', activeTab);
+      const currentHash = window.location.hash.replace(/^#\/?/, '');
+      if (currentHash !== activeTab) {
+        window.history.replaceState(null, '', `#${activeTab}`);
+      }
+    } catch {}
+  }, [activeTab]);
+
+  // Listen to hash changes (for browser back / forward buttons)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace(/^#\/?/, '') as ActiveTab;
+      if (VALID_TABS.includes(hash)) {
+        setActiveTab(hash);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   // 3. Current User / Authentication
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -133,6 +189,9 @@ export const App: React.FC = () => {
       if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') {
         u.role = 'owner';
         u.status = 'active';
+        if (!u.powerLevel || u.powerLevel === 0) {
+          u.powerLevel = DEFAULT_OWNER.powerLevel;
+        }
       }
       return u;
     }
@@ -172,6 +231,17 @@ export const App: React.FC = () => {
   const [isPowerFormulaOpen, setIsPowerFormulaOpen] = useState(false);
   const [selectedClanScope, setSelectedClanScope] = useState<string>('all');
 
+  // 5d. In-App Notification Center State (Admin & Owner)
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('l2m_read_notifications');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   // 5b. In-App Toast Feedback State
   const [toast, setToast] = useState<{
     message: string;
@@ -189,14 +259,15 @@ export const App: React.FC = () => {
     }
   }, [toast]);
 
-  // RBAC Guard for Vault item creation, Clan management and OCR
+  // RBAC Guard for Owner, Admin, and Manager
+  const isOwner = currentUser?.role === 'owner';
   const canAccessAdminFeatures =
-    currentUser?.role === 'owner' ||
+    isOwner ||
     currentUser?.role === 'admin' ||
     currentUser?.role === 'manager';
 
   useEffect(() => {
-    if (!canAccessAdminFeatures && activeTab === 'vault') {
+    if (!canAccessAdminFeatures && (activeTab === 'vault' || activeTab === 'bulk_swap' || activeTab === 'stat_approvals')) {
       setActiveTab('dashboard');
     }
   }, [canAccessAdminFeatures, activeTab]);
@@ -217,6 +288,162 @@ export const App: React.FC = () => {
   useEffect(() => {
     currentUserRef.current = currentUser;
   }, [currentUser]);
+
+  // ─────────────────────────────────────────────────────────────
+  // 5e. In-App Notification Center (Claims & Stat Verification Alerts)
+  // ─────────────────────────────────────────────────────────────
+  const notifications = useMemo<AppNotification[]>(() => {
+    const list: AppNotification[] = [];
+
+    // 1. Claim alerts from vault items
+    vaultItems.forEach((item) => {
+      (item.claimants || []).forEach((c) => {
+        const claimantId = c.userId || c.inGameName;
+        const notifId = `claim_${item.id}_${claimantId}_${c.claimedAt || 0}`;
+        const th = lang === 'th';
+        list.push({
+          id: notifId,
+          type: 'claim',
+          title: th
+            ? `${c.inGameName} (${cleanClanName(c.clan) || 'VoltZ'}) ลงชื่อขอรับไอเทม`
+            : `${c.inGameName} (${cleanClanName(c.clan) || 'VoltZ'}) claimed an item`,
+          description: th
+            ? `ขอรับ [${item.rarity}] ${item.name} (x${item.quantity || 1}) • ${item.price > 0 ? `💎 ${item.price.toLocaleString()} เพชร` : '🎁 ฟรี'}`
+            : `Claimed [${item.rarity}] ${item.name} (x${item.quantity || 1}) • ${item.price > 0 ? `💎 ${item.price.toLocaleString()} Dia` : '🎁 Free'}`,
+          timestamp: c.claimedAt || item.createdAt || Date.now(),
+          read: readNotificationIds.includes(notifId),
+          item: item,
+          claimant: c
+        });
+      });
+    });
+
+    // 2. Pending stat verification requests
+    users.forEach((u) => {
+      if (u.pendingPowerLevel && u.pendingPowerLevel > 0) {
+        const notifId = `stat_req_${u.id}_${u.updatedAt || 0}`;
+        const th = lang === 'th';
+        list.push({
+          id: notifId,
+          type: 'stat_request',
+          title: th
+            ? `${u.inGameName || u.username} (${cleanClanName(u.clan) || 'Alliance'}) ส่งคำขออัปเดตสเตตัส`
+            : `${u.inGameName || u.username} (${cleanClanName(u.clan) || 'Alliance'}) requested stats update`,
+          description: th
+            ? `ค่าพลังใหม่: ⚡ ${Number(u.pendingPowerLevel).toLocaleString()} PL (รอ Admin ตรวจสอบและอนุมัติ)`
+            : `New Power Level: ⚡ ${Number(u.pendingPowerLevel).toLocaleString()} PL (Pending Admin verification)`,
+          timestamp: u.updatedAt || Date.now(),
+          read: readNotificationIds.includes(notifId),
+          user: u
+        });
+      }
+    });
+
+    // Sort newest first
+    return list.sort((a, b) => b.timestamp - a.timestamp);
+  }, [vaultItems, users, lang, readNotificationIds]);
+
+  const unreadNotificationCount = useMemo(() => {
+    return notifications.filter((n) => !n.read).length;
+  }, [notifications]);
+
+  // Real-time detection of new claims to alert Admin & Owner
+  const previousClaimKeysRef = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    const currentClaimKeys = new Set<string>();
+    const currentClaimsList: { item: VaultItem; claimant: Claimant }[] = [];
+
+    vaultItems.forEach((item) => {
+      (item.claimants || []).forEach((c) => {
+        const key = `${item.id}_${c.userId || c.inGameName}_${c.claimedAt || 0}`;
+        currentClaimKeys.add(key);
+        currentClaimsList.push({ item, claimant: c });
+      });
+    });
+
+    // Initial load: record existing claims without playing chime
+    if (previousClaimKeysRef.current === null) {
+      previousClaimKeysRef.current = currentClaimKeys;
+      return;
+    }
+
+    // Only notify Admin or Owner when another user submits a claim
+    const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+    if (isPrivileged) {
+      const newClaims = currentClaimsList.filter(
+        ({ item, claimant }) =>
+          !previousClaimKeysRef.current!.has(
+            `${item.id}_${claimant.userId || claimant.inGameName}_${claimant.claimedAt || 0}`
+          ) && claimant.userId !== currentUser?.id
+      );
+
+      if (newClaims.length > 0) {
+        sounds.playNotification();
+        const newest = newClaims[newClaims.length - 1];
+        showToast(
+          lang === 'th'
+            ? `🔔 ${newest.claimant.inGameName} (${cleanClanName(newest.claimant.clan) || 'VoltZ'}) ลงชื่อขอรับ [${newest.item.name}]!`
+            : `🔔 ${newest.claimant.inGameName} (${cleanClanName(newest.claimant.clan) || 'VoltZ'}) claimed [${newest.item.name}]!`,
+          'info'
+        );
+      }
+    }
+
+    previousClaimKeysRef.current = currentClaimKeys;
+  }, [vaultItems, currentUser, lang]);
+
+  const handleMarkAllNotificationsAsRead = () => {
+    const allIds = notifications.map((n) => n.id);
+    setReadNotificationIds(allIds);
+    try {
+      localStorage.setItem('l2m_read_notifications', JSON.stringify(allIds));
+    } catch {}
+  };
+
+  const handleClearNotifications = () => {
+    const allIds = notifications.map((n) => n.id);
+    setReadNotificationIds(allIds);
+    try {
+      localStorage.setItem('l2m_read_notifications', JSON.stringify(allIds));
+    } catch {}
+  };
+
+  // Continuously synchronize currentUser with latest user document in users state
+  useEffect(() => {
+    if (!currentUser) return;
+    const isCurrentEloni =
+      currentUser.id === 'user_owner_eloni' ||
+      currentUser.username?.toLowerCase() === 'eloni' ||
+      currentUser.inGameName?.toLowerCase() === 'eloni';
+
+    const found = isCurrentEloni
+      ? users.find((u) => u.id === 'user_owner_eloni') ||
+        users.find((u) => u.username?.toLowerCase() === 'eloni') ||
+        users.find((u) => u.inGameName?.toLowerCase() === 'eloni')
+      : users.find((u) => u.id === currentUser.id);
+
+    if (found) {
+      const safeUser: User = isCurrentEloni
+        ? { ...found, role: 'owner' as UserRole, status: 'active' as UserStatus }
+        : found;
+
+      if (
+        safeUser.powerLevel !== currentUser.powerLevel ||
+        safeUser.role !== currentUser.role ||
+        safeUser.status !== currentUser.status ||
+        safeUser.clan !== currentUser.clan ||
+        safeUser.inGameName !== currentUser.inGameName ||
+        safeUser.characterClass !== currentUser.characterClass ||
+        safeUser.verified !== currentUser.verified ||
+        JSON.stringify(safeUser.stats) !== JSON.stringify(currentUser.stats) ||
+        JSON.stringify(safeUser.pendingStats) !== JSON.stringify(currentUser.pendingStats)
+      ) {
+        setCurrentUser(safeUser);
+        saveLocalSessionUser(safeUser);
+      }
+    }
+  }, [users, currentUser]);
 
   // Firestore Subscriptions (run once on mount)
   useEffect(() => {
@@ -338,8 +565,27 @@ export const App: React.FC = () => {
       };
     }
 
-    setCurrentUser(user);
-    saveLocalSessionUser(user);
+    const isEloni =
+      user.id === 'user_owner_eloni' ||
+      user.username?.toLowerCase() === 'eloni' ||
+      user.inGameName?.toLowerCase() === 'eloni';
+
+    const matchedInUsers = isEloni
+      ? users.find((u) => u.id === 'user_owner_eloni') ||
+        users.find((u) => u.username?.toLowerCase() === 'eloni') ||
+        users.find((u) => u.inGameName?.toLowerCase() === 'eloni')
+      : users.find((u) => u.id === user.id || u.username?.toLowerCase() === user.username?.toLowerCase());
+
+    const activeUser: User = matchedInUsers
+      ? {
+          ...user,
+          ...matchedInUsers,
+          ...(isEloni ? { role: 'owner' as UserRole, status: 'active' as UserStatus } : {})
+        }
+      : (isEloni ? { ...DEFAULT_OWNER, ...user, role: 'owner' as UserRole, status: 'active' as UserStatus } : user);
+
+    setCurrentUser(activeUser);
+    saveLocalSessionUser(activeUser);
     setShowAuthModal(false);
     return { success: true };
   };
@@ -402,6 +648,10 @@ export const App: React.FC = () => {
     }
   ) => {
     if (!currentUser) return;
+    const currentBal = vaultBalance;
+    const net = calculateDiamondNetChange({ type, amount, netAmount: details?.netAmount });
+    const computedBalanceAfter = Math.max(0, currentBal + net);
+
     await addDiamondTransactionDoc({
       type,
       amount,
@@ -415,7 +665,7 @@ export const App: React.FC = () => {
       recipientName: details?.recipientName,
       recipientClan: details?.recipientClan,
       proofImageUrl: details?.proofImageUrl,
-      balanceAfter: details?.balanceAfter,
+      balanceAfter: typeof details?.balanceAfter === 'number' ? details.balanceAfter : computedBalanceAfter,
       performedBy: {
         userId: currentUser.id,
         name: currentUser.inGameName,
@@ -509,6 +759,95 @@ export const App: React.FC = () => {
     }
   };
 
+  // Broadcast single vault item to Discord (Owner only)
+  const handleBroadcastItemToDiscord = async (item: VaultItem) => {
+    if (!isOwner) return;
+    if (!discordSettings?.enabled) {
+      showToast(
+        lang === 'th'
+          ? 'กรุณาเปิดใช้งานระบบ Discord ในการตั้งค่าก่อน'
+          : 'Please enable Discord Webhook in settings first',
+        'warning'
+      );
+      return;
+    }
+
+    try {
+      const res = await sendDiscordNotification(discordSettings, 'new_item', {
+        item,
+        actorName: currentUser?.inGameName || 'Owner',
+        lang
+      });
+
+      if (res.success) {
+        sounds.playSuccess();
+        showToast(
+          lang === 'th'
+            ? `📢 ส่งไอเทม [${item.name}] เข้า Discord สำเร็จแล้ว!`
+            : `📢 Broadcasted [${item.name}] to Discord successfully!`,
+          'success'
+        );
+      } else {
+        sounds.playError();
+        showToast(
+          res.message || (lang === 'th' ? 'ส่งไป Discord ไม่สำเร็จ' : 'Failed to send to Discord'),
+          'error'
+        );
+      }
+    } catch (err: any) {
+      sounds.playError();
+      showToast(
+        err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการส่ง Discord' : 'Error sending to Discord'),
+        'error'
+      );
+    }
+  };
+
+  // Broadcast all available vault items to Discord (Owner only)
+  const handleSyncAllItemsToDiscord = async () => {
+    if (!isOwner) return;
+    const itemsToSend = availableDashboardItems;
+    if (itemsToSend.length === 0) {
+      showToast(lang === 'th' ? 'ไม่พบไอเทมในคลังที่จะส่ง' : 'No vault items to broadcast', 'info');
+      return;
+    }
+
+    showToast(
+      lang === 'th'
+        ? `กำลังทยอยส่งไอเทม ${itemsToSend.length} ชิ้น เข้า Discord...`
+        : `Broadcasting ${itemsToSend.length} items to Discord...`,
+      'info'
+    );
+
+    let sentCount = 0;
+    for (const item of itemsToSend) {
+      try {
+        await sendDiscordNotification(
+          { ...discordSettings, enabled: true, notifyOnNewItem: true } as DiscordSettings,
+          'new_item',
+          {
+            item,
+            actorName: currentUser?.inGameName || 'Owner',
+            lang
+          }
+        );
+        sentCount++;
+        // 600ms delay between messages to respect Discord rate limits
+        await new Promise((r) => setTimeout(r, 600));
+      } catch (err) {
+        console.warn('Failed to broadcast item:', item.name, err);
+      }
+    }
+
+    showToast(
+      lang === 'th'
+        ? `ส่งไอเทมเข้า Discord สำเร็จแล้ว ${sentCount}/${itemsToSend.length} รายการ!`
+        : `Broadcasted ${sentCount}/${itemsToSend.length} items to Discord successfully!`,
+      'success'
+    );
+  };
+
+
   // Vault Items Handlers
   const handleCreateVaultItem = async (
     itemData: Omit<VaultItem, 'id' | 'createdAt' | 'status' | 'claimants'>
@@ -523,6 +862,15 @@ export const App: React.FC = () => {
       sendDiscordNotification(discordSettings, 'new_item', {
         item: createdItem,
         actorName: currentUser?.inGameName || currentUser?.username || 'Admin'
+      }).then((res) => {
+        if (res.success) {
+          showToast(
+            lang === 'th'
+              ? `📢 ส่งแจ้งเตือน [${createdItem.name}] เข้า Discord เรียบร้อยแล้ว!`
+              : `📢 Sent [${createdItem.name}] alert to Discord!`,
+            'info'
+          );
+        }
       }).catch((err) => console.warn('Discord notification error:', err));
     }
   };
@@ -841,7 +1189,7 @@ export const App: React.FC = () => {
     setBgConfig(newConfig);
     localStorage.setItem('k7_bg_config', JSON.stringify(newConfig));
 
-    if (syncGlobally && canAccessAdminFeatures) {
+    if (syncGlobally && isOwner) {
       try {
         await saveBackgroundSettingsDoc({
           imageUrl: newConfig.imageUrl,
@@ -1714,17 +2062,8 @@ export const App: React.FC = () => {
             onRegister={handleRegister}
             users={users}
             clans={clans}
-            onOpenBgModal={() => setShowBgModal(true)}
           />
         </div>
-
-        <BackgroundSettingsModal
-          isOpen={showBgModal}
-          onClose={() => setShowBgModal(false)}
-          lang={lang}
-          config={bgConfig}
-          onChangeConfig={setBgConfig}
-        />
       </div>
     );
   }
@@ -1755,7 +2094,7 @@ export const App: React.FC = () => {
         activeTab={activeTab}
         onTabChange={(tab) => {
           sounds.playClick();
-          if (!canAccessAdminFeatures && tab === 'vault') {
+          if (!canAccessAdminFeatures && (tab === 'vault' || tab === 'bulk_swap' || tab === 'stat_approvals')) {
             setActiveTab('dashboard');
             return;
           }
@@ -1775,9 +2114,9 @@ export const App: React.FC = () => {
         onToggleLanguage={handleToggleLanguage}
         soundEnabled={soundEnabled}
         onToggleSound={handleToggleSound}
-        onOpenBgModal={() => setShowBgModal(true)}
-        onOpenDiscordModal={() => setShowDiscordModal(true)}
-        onOpenGeminiModal={() => setShowGeminiModal(true)}
+        onOpenBgModal={isOwner ? () => setShowBgModal(true) : undefined}
+        onOpenDiscordModal={isOwner ? () => setShowDiscordModal(true) : undefined}
+        onOpenGeminiModal={isOwner ? () => setShowGeminiModal(true) : undefined}
         onOpenRequestCp={() => setActiveTab('my_stats')}
         onOpenMyStats={() => setActiveTab('my_stats')}
         onOpenPowerFormula={() => setIsPowerFormulaOpen(true)}
@@ -1792,6 +2131,8 @@ export const App: React.FC = () => {
         allMembers={users}
         isMobileOpen={isMobileOpen}
         setIsMobileOpen={setIsMobileOpen}
+        unreadNotificationCount={unreadNotificationCount}
+        onOpenNotifications={() => setShowNotificationModal(true)}
       />
 
       {/* 2. MAIN CONTENT AREA (Padded on left for desktop sidebar: lg:pl-64 xl:pl-72) */}
@@ -1804,7 +2145,7 @@ export const App: React.FC = () => {
           onSaveAnnouncement={handleSaveAnnouncement}
         />
 
-        <main className="flex-1 w-full max-w-[1720px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <main className="flex-1 w-full max-w-full 2xl:max-w-[1920px] mx-auto px-2.5 sm:px-4 md:px-6 lg:px-7 py-3 sm:py-5 min-w-0 transition-all">
         {activeTab === 'dashboard' && (
           <DashboardView
             lang={lang}
@@ -1830,6 +2171,7 @@ export const App: React.FC = () => {
             allMembers={users}
             distributedItems={vaultItems.filter((i) => i.status === 'distributed')}
             clans={clans}
+            onBroadcastToDiscord={handleBroadcastItemToDiscord}
           />
         )}
 
@@ -2033,6 +2375,7 @@ export const App: React.FC = () => {
           vaultItems={vaultItems}
           onUpdateItem={handleUpdateVaultItem}
           onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
+          onBroadcastToDiscord={handleBroadcastItemToDiscord}
         />
       )}
 
@@ -2053,6 +2396,29 @@ export const App: React.FC = () => {
         />
       )}
 
+      {showNotificationModal && (
+        <NotificationModal
+          isOpen={showNotificationModal}
+          onClose={() => setShowNotificationModal(false)}
+          lang={lang}
+          notifications={notifications}
+          onMarkAllAsRead={handleMarkAllNotificationsAsRead}
+          onClearNotifications={handleClearNotifications}
+          onOpenDistributeModal={(item) => {
+            setShowNotificationModal(false);
+            setDistributeTargetItem(item);
+          }}
+          onViewClaimants={(item) => {
+            setShowNotificationModal(false);
+            setClaimantsTargetItem(item);
+          }}
+          onNavigateTab={(tab) => {
+            setShowNotificationModal(false);
+            setActiveTab(tab);
+          }}
+          onViewImageZoom={(url, title) => setImageViewerData({ url, title, images: [url], currentIndex: 0 })}
+        />
+      )}
 
       <QuickItemModal
         isOpen={showQuickItemsModal && canAccessAdminFeatures}
@@ -2065,14 +2431,16 @@ export const App: React.FC = () => {
         onDeleteQuickItem={handleDeleteQuickItem}
       />
 
-      <BackgroundSettingsModal
-        isOpen={showBgModal}
-        onClose={() => setShowBgModal(false)}
-        lang={lang}
-        config={bgConfig}
-        onChangeConfig={handleUpdateBackgroundConfig}
-        isAdminOrOwner={canAccessAdminFeatures}
-      />
+      {isOwner && (
+        <BackgroundSettingsModal
+          isOpen={showBgModal}
+          onClose={() => setShowBgModal(false)}
+          lang={lang}
+          config={bgConfig}
+          onChangeConfig={handleUpdateBackgroundConfig}
+          isOwner={isOwner}
+        />
+      )}
 
       <OwnerResetModal
         isOpen={showOwnerResetModal}
@@ -2086,12 +2454,14 @@ export const App: React.FC = () => {
       />
 
       <DiscordWebhookModal
-        isOpen={showDiscordModal && canAccessAdminFeatures}
+        isOpen={showDiscordModal && isOwner}
         onClose={() => setShowDiscordModal(false)}
         settings={discordSettings}
         onSaveSettings={handleSaveDiscordSettings}
         currentUser={currentUser}
         lang={lang}
+        vaultItemsCount={availableDashboardItems.length}
+        onSyncAllToDiscord={handleSyncAllItemsToDiscord}
       />
 
 

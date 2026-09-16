@@ -67,6 +67,33 @@ export async function saveStoredGeminiApiKey(apiKey: string, updatedBy: string) 
   }
 }
 
+export async function getStoredDiscordWebhookUrl() {
+  if (!hasAdminCredentials()) return '';
+  try {
+    const snapshot = await getAdminDatabase().collection('app_settings').doc('discord_secure').get();
+    const webhookUrl = snapshot.data()?.webhookUrl;
+    return typeof webhookUrl === 'string' ? webhookUrl.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+export async function saveStoredDiscordWebhookUrl(webhookUrl: string, updatedBy: string) {
+  if (!hasAdminCredentials()) {
+    console.warn('saveStoredDiscordWebhookUrl skipped: No Firebase Admin credentials in environment.');
+    return;
+  }
+  try {
+    await getAdminDatabase().collection('app_settings').doc('discord_secure').set({
+      webhookUrl: webhookUrl.trim(),
+      updatedBy,
+      updatedAt: Date.now()
+    }, { merge: true });
+  } catch (err: any) {
+    console.warn('Cannot save stored discord webhook via Admin SDK:', err?.message || err);
+  }
+}
+
 export async function getKnownMemberProfiles() {
   if (!hasAdminCredentials()) return [];
   try {

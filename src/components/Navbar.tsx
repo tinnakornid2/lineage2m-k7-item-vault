@@ -10,7 +10,8 @@ import {
   Crown,
   Sword,
   Sparkles,
-  Zap
+  Zap,
+  Bell
 } from 'lucide-react';
 import { ActiveTab, Language, User, cleanClanName } from '../types';
 import { translations } from '../translations';
@@ -32,9 +33,11 @@ interface NavbarProps {
   soundEnabled: boolean;
   setSoundEnabled?: (enabled: boolean) => void;
   onToggleSound?: () => void;
-  onOpenBgModal: () => void;
+  onOpenBgModal?: () => void;
   onOpenRequestCp?: () => void;
   onOpenMyStats?: () => void;
+  unreadNotificationCount?: number;
+  onOpenNotifications?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -55,9 +58,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleSound,
   onOpenBgModal,
   onOpenRequestCp,
-  onOpenMyStats
+  onOpenMyStats,
+  unreadNotificationCount,
+  onOpenNotifications
 }) => {
   const t = translations[lang];
+  const isOwner = currentUser?.role === 'owner';
   const effectiveCurrentTab = currentTab || activeTab || 'dashboard';
 
   const handleTabSelect = (tab: ActiveTab) => {
@@ -129,7 +135,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   CLAN HUB
                 </span>
                 <span className="text-[9px] sm:text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300">
-                  v2.0.0
+                  v2.1.0
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 truncate max-w-[190px] sm:max-w-none">
@@ -165,19 +171,21 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </button>
 
-            {/* Background / Wallpaper Settings Toggle */}
-            <button
-              id="btn-wallpaper-settings"
-              onClick={() => {
-                sounds.playClick();
-                onOpenBgModal();
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg border border-[#1e2e4b] bg-[#0c1424]/80 hover:border-[#d4af37]/60 text-xs font-medium text-slate-300 hover:text-[#f5d77f] transition-all shadow-sm cursor-pointer"
-              title={lang === 'th' ? 'ตั้งค่าภาพพื้นหลังปราสาท' : 'Wallpaper Settings'}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#d4af37]" />
-              <span className="hidden md:inline">{lang === 'th' ? 'พื้นหลัง' : 'Wallpaper'}</span>
-            </button>
+            {/* Background / Wallpaper Settings Toggle (Owner Only) */}
+            {isOwner && onOpenBgModal && (
+              <button
+                id="btn-wallpaper-settings"
+                onClick={() => {
+                  sounds.playClick();
+                  onOpenBgModal();
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg border border-[#1e2e4b] bg-[#0c1424]/80 hover:border-[#d4af37]/60 text-xs font-medium text-slate-300 hover:text-[#f5d77f] transition-all shadow-sm cursor-pointer"
+                title={lang === 'th' ? 'ตั้งค่าภาพพื้นหลังปราสาท (Owner)' : 'Wallpaper Settings (Owner)'}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#d4af37]" />
+                <span className="hidden md:inline">{lang === 'th' ? 'พื้นหลัง' : 'Wallpaper'}</span>
+              </button>
+            )}
 
             {/* Sound Toggle */}
             <button
@@ -204,6 +212,31 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Globe className="w-3.5 h-3.5 text-[#d4af37]" />
               <span>{lang === 'th' ? 'TH' : 'EN'}</span>
             </button>
+
+            {/* Notification Bell (Admin & Owner) */}
+            {canAccessVaultAndQueue && onOpenNotifications && (
+              <button
+                id="btn-notification-bell"
+                onClick={() => {
+                  sounds.playClick();
+                  onOpenNotifications();
+                }}
+                className={`relative p-2 rounded-lg border transition-all cursor-pointer ${
+                  (unreadNotificationCount || 0) > 0
+                    ? 'border-amber-500/60 bg-amber-500/15 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                    : 'border-slate-800 text-slate-400 hover:text-slate-200 bg-[#0d121d]/80 hover:border-slate-700'
+                }`}
+                title={t.notificationsTitle}
+                aria-label={t.notificationsTitle}
+              >
+                <Bell className="w-4 h-4" />
+                {(unreadNotificationCount || 0) > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold font-mono text-white shadow ring-2 ring-[#070c18] animate-pulse">
+                    {(unreadNotificationCount || 0) > 9 ? '9+' : unreadNotificationCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* User Profile / Auth Action */}
             {currentUser ? (

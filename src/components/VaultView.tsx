@@ -10,6 +10,8 @@ import {
   ZoomIn,
   Eye,
   CheckCircle2,
+  CheckCircle,
+  Clock,
   AlertCircle,
   Gem,
   Zap,
@@ -53,7 +55,8 @@ import { GeminiKeyModal } from './GeminiKeyModal';
 import {
   getCurrentUserIdToken,
   listenToGeminiAiSettings,
-  updateVaultItemDoc
+  updateVaultItemDoc,
+  clearDistributedVaultItemsDoc
 } from '../services/firebase';
 
 interface VaultViewProps {
@@ -97,6 +100,32 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
   // State for in-app deletion confirmation
   const [itemToDelete, setItemToDelete] = useState<VaultItem | null>(null);
+
+  // State for quick purge of distributed items (storage optimization)
+  const [showQuickPurgeModal, setShowQuickPurgeModal] = useState(false);
+  const [isPurgingDistributed, setIsPurgingDistributed] = useState(false);
+  const [purgeSuccessMsg, setPurgeSuccessMsg] = useState<string | null>(null);
+
+  const handleQuickPurgeDistributed = async () => {
+    if (!isOwner) return;
+    setIsPurgingDistributed(true);
+    try {
+      sounds.playClick();
+      const count = await clearDistributedVaultItemsDoc();
+      sounds.playSuccess();
+      setPurgeSuccessMsg(
+        lang === 'th'
+          ? `ล้างประวัติไอเทมที่แจกแล้วสำเร็จ (${count} รายการ) คืนพื้นที่ฟรีเรียบร้อย!`
+          : `Successfully purged ${count} distributed items, freeing up database storage!`
+      );
+      setShowQuickPurgeModal(false);
+      setTimeout(() => setPurgeSuccessMsg(null), 5000);
+    } catch (err) {
+      console.error('Purge error:', err);
+    } finally {
+      setIsPurgingDistributed(false);
+    }
+  };
 
   // Form State
   const [name, setName] = useState('');
@@ -1393,9 +1422,14 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   {/* 3. Price (Diamonds) */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      3. {t.itemPrice} *
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-slate-300">
+                        3. {t.itemPrice} *
+                      </label>
+                      {price === 0 && (
+                        <span className="text-[10px] text-emerald-400 font-bold">🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}</span>
+                      )}
+                    </div>
                     <div className="relative">
                       <Gem className="w-4 h-4 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)] absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
@@ -1403,7 +1437,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                         type="number"
                         min="0"
                         required
-                        placeholder={lang === 'th' ? 'ระบุราคา (เพชร)' : 'Price (Diamonds)'}
+                        placeholder={lang === 'th' ? 'ระบุราคา (เพชร) - ใส่ 0 = ฟรี' : 'Price (Diamonds) - 0 = Free'}
                         value={price}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -2321,21 +2355,69 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 {t.distributedItemsDesc}
               </p>
             </div>
-            {currentUser?.role === 'owner' && onOpenOwnerResetModal && (
-              <button
-                id="btn-owner-clear-distributed-tab"
-                onClick={() => {
-                  sounds.playClick();
-                  onOpenOwnerResetModal();
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-950/70 border border-red-700/80 hover:border-red-500 text-red-200 hover:text-white text-xs font-bold transition-all cursor-pointer shadow"
-                title={t.clearDistributedOptionDesc}
-              >
-                <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                <span>{t.clearDistributedOption}</span>
-              </button>
+            {currentUser?.role === 'owner' && (
+              <div className="flex items-center gap-2">
+                <button
+                  id="btn-owner-quick-purge-distributed"
+                  onClick={() => {
+                    sounds.playClick();
+                    setShowQuickPurgeModal(true);
+                  }}
+                  disabled={distributedItems.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/80 border border-emerald-600/70 hover:border-emerald-400 text-emerald-200 hover:text-white text-xs font-bold transition-all cursor-pointer shadow disabled:opacity-40 disabled:cursor-not-allowed"
+                  title={lang === 'th' ? 'ล้างประวัติไอเทมที่แจกแล้วเพื่อคืนพื้นที่ฐานข้อมูลฟรี' : 'Purge distributed items to preserve free database storage'}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{lang === 'th' ? 'ล้างประวัติที่แจกแล้ว (คืนพื้นที่)' : 'Purge Distributed (Free Space)'}</span>
+                </button>
+
+                {onOpenOwnerResetModal && (
+                  <button
+                    id="btn-owner-clear-distributed-tab"
+                    onClick={() => {
+                      sounds.playClick();
+                      onOpenOwnerResetModal();
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-950/70 border border-red-700/80 hover:border-red-500 text-red-200 hover:text-white text-xs font-bold transition-all cursor-pointer shadow"
+                    title={t.clearDistributedOptionDesc}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                    <span>{t.clearDistributedOption}</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
+
+          {purgeSuccessMsg && (
+            <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center gap-2 animate-in fade-in">
+              <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{purgeSuccessMsg}</span>
+            </div>
+          )}
+
+          {isOwner && distributedItems.length > 0 && (
+            <div className="p-3 rounded-xl bg-[#0e1726]/90 border border-sky-500/30 text-slate-300 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-amber-400 text-sm shrink-0">💡</span>
+                <span className="text-[11px] text-slate-300 leading-relaxed">
+                  {lang === 'th'
+                    ? `มีประวัติไอเทมที่แจกจ่ายแล้วสะสม ${distributedItems.length} รายการ แนะนำให้กดล้างข้อมูลเก่าเป็นระยะเพื่อรักษาพื้นที่ฐานข้อมูลฟรี 100% ตลอดไป`
+                    : `Accumulated ${distributedItems.length} distributed item records. Periodic purging is recommended to preserve 100% free database storage.`}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  setShowQuickPurgeModal(true);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shrink-0 transition shadow cursor-pointer"
+              >
+                {lang === 'th' ? 'ล้างทันที' : 'Purge Now'}
+              </button>
+            </div>
+          )}
 
           {distributedItems.length === 0 ? (
             <div className="p-10 rounded-xl bg-[#0c121e] border border-slate-800 text-center text-xs text-slate-500">
@@ -2404,8 +2486,16 @@ export const VaultView: React.FC<VaultViewProps> = ({
                       </td>
 
                       {/* 4. Price */}
-                      <td className="py-3 px-4 font-mono text-white font-bold drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]">
-                        {item.price.toLocaleString()} {t.diamonds}
+                      <td className="py-3 px-4 font-mono font-bold">
+                        {item.price > 0 ? (
+                          <span className="text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]">
+                            {item.price.toLocaleString()} {t.diamonds}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                            🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
+                          </span>
+                        )}
                       </td>
 
                       {/* 5. Distributed To */}
@@ -2776,9 +2866,15 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border uppercase ${getRarityBadge(viewingDistributedHuntersItem.rarity)}`}>
                       {viewingDistributedHuntersItem.rarity}
                     </span>
-                    <span className="text-xs font-mono text-white font-bold drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]">
-                      {viewingDistributedHuntersItem.price.toLocaleString()} {t.diamonds}
-                    </span>
+                    {viewingDistributedHuntersItem.price > 0 ? (
+                      <span className="text-xs font-mono text-white font-bold drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]">
+                        {viewingDistributedHuntersItem.price.toLocaleString()} {t.diamonds}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                        🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
+                      </span>
+                    )}
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     {t.distributedHuntersModalDesc}
@@ -3011,6 +3107,57 @@ export const VaultView: React.FC<VaultViewProps> = ({
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* QUICK PURGE CONFIRMATION MODAL */}
+      {showQuickPurgeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl bg-[#0f172a] border border-emerald-500/40 shadow-2xl p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">
+                  {lang === 'th' ? 'ล้างประวัติไอเทมที่แจกจ่ายแล้ว' : 'Purge Distributed Item Records'}
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  {lang === 'th' ? 'คืนพื้นที่ฐานข้อมูลและรักษาความเร็วระบบ (ฟรี 100%)' : 'Free up database storage and optimize performance'}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {lang === 'th'
+                ? `คุณต้องการล้างข้อมูลไอเทมที่แจกจ่ายเสร็จสิ้นแล้วทั้งหมด ${distributedItems.length} รายการใช่หรือไม่? ข้อมูลประวัตินี้จะถูกลบออกจากฐานข้อมูลเพื่อรักษาพื้นที่ฟรีของระบบ (ไอเทมที่เปิดรับอยู่ในคลังจะไม่ได้รับผลกระทบ)`
+                : `Are you sure you want to purge all ${distributedItems.length} distributed items? These records will be permanently removed to conserve your free tier quota (active vault items remain untouched).`}
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                disabled={isPurgingDistributed}
+                onClick={() => setShowQuickPurgeModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                disabled={isPurgingDistributed}
+                onClick={handleQuickPurgeDistributed}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-600/30 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+              >
+                {isPurgingDistributed && <Clock className="w-3.5 h-3.5 animate-spin" />}
+                <span>
+                  {isPurgingDistributed
+                    ? (lang === 'th' ? 'กำลังล้างข้อมูล...' : 'Purging...')
+                    : (lang === 'th' ? 'ยืนยันล้างข้อมูล' : 'Confirm Purge')}
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       )}

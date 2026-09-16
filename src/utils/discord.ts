@@ -42,31 +42,42 @@ export async function sendDiscordNotification(
 
   let payload: any = null;
 
+function getAnsiRarityCode(rarity: ItemRarity): string {
+  switch (rarity) {
+    case 'MYTHIC':
+      return '\u001b[1;33m'; // Bold Yellow/Gold
+    case 'LAGEND':
+      return '\u001b[1;35m'; // Bold Magenta/Purple
+    case 'EPIC':
+      return '\u001b[1;31m'; // Bold Red
+    case 'RARE':
+    default:
+      return '\u001b[1;36m'; // Bold Cyan/Sky Blue
+  }
+}
+
   if (event === 'test') {
+    const rawRoleId = settings.mentionRoleId ? settings.mentionRoleId.trim().replace(/\D/g, '') : '';
+    const mentionType = settings.mentionType || (rawRoleId ? 'role' : settings.mentionEveryone !== false ? 'everyone' : 'none');
+    let mentionDesc = 'None (Silent)';
+    if (mentionType === 'everyone') mentionDesc = '@everyone';
+    else if (mentionType === 'role' && rawRoleId) mentionDesc = `<@&${rawRoleId}> (Role ID: ${rawRoleId})`;
+
     payload = {
       username: settings.botName || 'Lineage 2M Clan Hub',
       avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
       embeds: [
         {
-          title: th ? '🔔 ทดสอบการเชื่อมต่อ Discord Webhook สำเร็จ!' : '🔔 Discord Webhook connection successful!',
-          description: th
-            ? 'ระบบแคลนและคลังไอเทม **Lineage 2M Clan Hub** เชื่อมต่อกับช่อง Discord นี้เรียบร้อยแล้ว\nเมื่อมีไอเทมใหม่หรือมีการแจกไอเทม ระบบจะแจ้งเตือนที่นี่โดยอัตโนมัติ'
-            : '**Lineage 2M Clan Hub** is now connected to this Discord channel.\nNew items and item distributions will be announced here automatically.',
+          title: '🔔 Discord Webhook Connected Successfully!',
+          description: [
+            '```ansi',
+            '\u001b[1;32m✅ Connection Verified\u001b[0m',
+            '\u001b[1;33m⚔️ Lineage 2M Clan Hub Webhook is Active\u001b[0m',
+            '```',
+            `**Mention Mode:** ${mentionDesc}`,
+            `**Tested by:** ${data?.actorName || 'Owner'}`
+          ].join('\n'),
           color: 0x10b981, // Green
-          fields: [
-            {
-              name: th ? '👑 ผู้ทดสอบระบบ' : '👑 Tested by',
-              value: data?.actorName || 'Admin/Owner',
-              inline: true
-            },
-            {
-              name: th ? '⚡ สถานะการแจ้งเตือน' : '⚡ Notification status',
-              value: th
-                ? `• แจ้งเตือนของใหม่: ${settings.notifyOnNewItem ? '✅ เปิด' : '❌ ปิด'}\n• แจ้งเตือนเมื่อแจก: ${settings.notifyOnDistribute ? '✅ เปิด' : '❌ ปิด'}`
-                : `• New item alerts: ${settings.notifyOnNewItem ? '✅ On' : '❌ Off'}\n• Distribution alerts: ${settings.notifyOnDistribute ? '✅ On' : '❌ Off'}`,
-              inline: true
-            }
-          ],
           footer: {
             text: 'Lineage 2M Clan Hub • Notification Bot'
           },
@@ -81,44 +92,53 @@ export async function sendDiscordNotification(
 
     const item = data.item;
     const color = getRarityColor(item.rarity);
-    const hunterCount = item.hunters?.length || 0;
-    const hunterSample = item.hunters && item.hunters.length > 0
-      ? item.hunters.slice(0, 10).map((h) => `${h.name} (${cleanClanName(h.clan) || 'VoltZ'})`).join(', ') + (item.hunters.length > 10 ? (th ? ` และอีก ${item.hunters.length - 10} คน` : ` and ${item.hunters.length - 10} more`) : '')
-      : (th ? 'ไม่มีรายชื่อ' : 'No hunters listed');
+    const ansiRarity = getAnsiRarityCode(item.rarity);
+    const priceText = item.price > 0 ? `${item.price.toLocaleString()} Diamonds` : 'FREE (0 Diamonds)';
+    const qtyText = item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : '';
+
+    // Direct Webapp claim link
+    const origin = typeof window !== 'undefined' && window.location ? window.location.origin : '';
+    const baseWebUrl = (settings.appBaseUrl || origin || '').replace(/\/$/, '');
+    const claimLink = baseWebUrl ? `${baseWebUrl}/?tab=dashboard&item=${encodeURIComponent(item.id)}` : '';
+
+    const ansiBlock = [
+      '```ansi',
+      `${ansiRarity}⚔️ [${item.rarity}] ${item.name}${qtyText}\u001b[0m`,
+      `\u001b[1;32m💎 Price: ${priceText}\u001b[0m`,
+      '```'
+    ].join('\n');
+
+    const actionLine = claimLink
+      ? `👉 [**Click here to Claim in Clan Hub**](${claimLink})`
+      : `👉 **Log in to Clan Hub to Claim**`;
+
+    // Determine mention strategy: 'everyone', specific 'role', or 'none'
+    const rawRoleId = settings.mentionRoleId ? settings.mentionRoleId.trim().replace(/\D/g, '') : '';
+    const mentionType = settings.mentionType || (rawRoleId ? 'role' : settings.mentionEveryone !== false ? 'everyone' : 'none');
+
+    let mentionPrefix = '';
+    let allowedMentions: { parse?: string[]; roles?: string[] } = { parse: [] };
+
+    if (mentionType === 'everyone') {
+      mentionPrefix = '@everyone ';
+      allowedMentions = { parse: ['everyone'] };
+    } else if (mentionType === 'role' && rawRoleId) {
+      mentionPrefix = `<@&${rawRoleId}> `;
+      allowedMentions = { parse: ['roles'], roles: [rawRoleId] };
+    }
 
     payload = {
+      content: `${mentionPrefix}⚔️ **New Boss Item Added to Vault!**`.trim(),
       username: settings.botName || 'Lineage 2M Clan Hub',
       avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
+      allowed_mentions: allowedMentions,
       embeds: [
         {
-          title: th ? `⚔️ ไอเทมใหม่เข้าคลัง! [${item.rarity}] ${item.name}` : `⚔️ New vault item! [${item.rarity}] ${item.name}`,
-          description: th ? 'แอดมินนำไอเทมบอสเข้าสู่ระบบคลังแล้ว สมาชิกที่มีพลังตามเกณฑ์สามารถเข้ามาลงชื่อรับไอเทมได้ทันที' : 'A new boss item has been added to the vault. Eligible members can submit a claim now.',
           color: color,
+          description: `${ansiBlock}\n${actionLine}`,
           thumbnail: item.imageUrl ? { url: item.imageUrl } : undefined,
-          fields: [
-            {
-              name: th ? '📦 จำนวน' : '📦 Quantity',
-              value: `**${item.quantity || 1} ${th ? 'ชิ้น' : 'pcs'}**`,
-              inline: true
-            },
-            {
-              name: th ? '💎 มูลค่าคลัง' : '💎 Vault value',
-              value: item.price > 0 ? `**${item.price.toLocaleString()} Diamonds**` : '**🎁 FREE (ฟรี 0 เพชร)**',
-              inline: true
-            },
-            {
-              name: th ? '🛡️ พลังรบขั้นต่ำ' : '🛡️ Minimum Power Level',
-              value: `**⚡ ${item.minPowerLevel.toLocaleString()} PL**`,
-              inline: true
-            },
-            {
-              name: th ? '👥 สมาชิกร่วมล่าบอส' : '👥 Boss hunters',
-              value: `**${hunterCount} ${th ? 'คน' : 'members'}**\n${hunterSample}`,
-              inline: false
-            }
-          ],
           footer: {
-            text: `${th ? 'ลงระบบโดย' : 'Added by'}: ${data.actorName || 'Admin'} • Lineage 2M Clan Hub`
+            text: 'Lineage 2M Clan Hub • Vault Announcement'
           },
           timestamp: new Date().toISOString()
         }

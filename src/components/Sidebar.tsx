@@ -23,7 +23,8 @@ import {
   ArrowRightLeft,
   CheckSquare,
   Check,
-  ChevronDown
+  ChevronDown,
+  MessageSquare
 } from 'lucide-react';
 import { ActiveTab, Language, User, ClanGroup, cleanClanName } from '../types';
 import { translations } from '../translations';
@@ -45,7 +46,7 @@ export interface SidebarProps {
   soundEnabled: boolean;
   setSoundEnabled?: (enabled: boolean) => void;
   onToggleSound?: () => void;
-  onOpenBgModal: () => void;
+  onOpenBgModal?: () => void;
   onOpenDiscordModal?: () => void;
   onOpenGeminiModal?: () => void;
   onOpenRequestCp?: () => void;
@@ -62,6 +63,8 @@ export interface SidebarProps {
   allMembers?: User[];
   isMobileOpen: boolean;
   setIsMobileOpen: (open: boolean) => void;
+  unreadNotificationCount?: number;
+  onOpenNotifications?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -96,7 +99,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   clans = [],
   allMembers = [],
   isMobileOpen,
-  setIsMobileOpen
+  setIsMobileOpen,
+  unreadNotificationCount,
+  onOpenNotifications
 }) => {
   const t = translations[lang];
   const effectiveCurrentTab = currentTab || activeTab || 'dashboard';
@@ -226,10 +231,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Right Mobile Actions: Diamond Count, Discord & Wallpaper */}
+        {/* Right Mobile Actions: Notifications, Discord & Wallpaper */}
         <div className="flex items-center gap-2">
 
-          {canAccessVault && onOpenDiscordModal && (
+          {/* In-App Notifications Bell (Admin & Owner) */}
+          {canAccessVault && onOpenNotifications && (
+            <button
+              onClick={() => {
+                sounds.playClick();
+                onOpenNotifications();
+              }}
+              className={`relative p-1.5 rounded-lg border transition-all cursor-pointer ${
+                (unreadNotificationCount || 0) > 0
+                  ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
+                  : 'bg-[#0c1424]/80 border-slate-800 text-slate-400 hover:text-white'
+              }`}
+              title={t.notificationsTitle}
+              aria-label={t.notificationsTitle}
+            >
+              <Bell className="w-4 h-4" />
+              {(unreadNotificationCount || 0) > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center rounded-full bg-red-500 text-[8px] font-bold font-mono text-white shadow ring-1 ring-[#090e1a] animate-pulse">
+                  {(unreadNotificationCount || 0) > 9 ? '9+' : unreadNotificationCount}
+                </span>
+              )}
+            </button>
+          )}
+
+          {isOwner && onOpenDiscordModal && (
             <button
               onClick={() => {
                 sounds.playClick();
@@ -239,7 +268,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               title={lang === 'th' ? 'ตั้งค่าแจ้งเตือน Discord' : 'Discord Webhook'}
               aria-label="Discord Webhook"
             >
-              <Bell className="w-4 h-4" />
+              <MessageSquare className="w-4 h-4" />
               {discordEnabled && (
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-400 rounded-full shadow-[0_0_6px_#34d399]" />
               )}
@@ -271,16 +300,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span>{vaultBalance.toLocaleString()}</span>
           </button>
 
-          <button
-            onClick={() => {
-              sounds.playClick();
-              onOpenBgModal();
-            }}
-            className="p-1.5 rounded-lg bg-[#0c1424]/80 border border-[#1e2e4b] text-[#f5d77f] cursor-pointer"
-            title={lang === 'th' ? 'ตั้งค่าพื้นหลัง' : 'Wallpaper'}
-          >
-            <Sparkles className="w-4 h-4" />
-          </button>
+          {isOwner && onOpenBgModal && (
+            <button
+              onClick={() => {
+                sounds.playClick();
+                onOpenBgModal();
+              }}
+              className="p-1.5 rounded-lg bg-[#0c1424]/80 border border-[#1e2e4b] text-[#f5d77f] cursor-pointer"
+              title={lang === 'th' ? 'ตั้งค่าพื้นหลัง (Owner)' : 'Wallpaper (Owner)'}
+            >
+              <Sparkles className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </header>
 
@@ -580,7 +611,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     if (onOpenStatApproval) onOpenStatApproval();
                     setIsMobileOpen(false);
                   }}
-                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer mb-1 ${
                     effectiveCurrentTab === 'stat_approvals'
                       ? 'bg-rose-500/25 text-rose-200 border border-rose-500/60 font-semibold shadow-inner'
                       : pendingStatApprovalCount > 0
@@ -595,6 +626,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {pendingStatApprovalCount > 0 && (
                     <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500 text-white animate-pulse">
                       {pendingStatApprovalCount}
+                    </span>
+                  )}
+                </button>
+              )}
+
+              {/* Admin Notifications Button with Badge */}
+              {onOpenNotifications && (
+                <button
+                  id="btn-sidebar-notifications"
+                  onClick={() => {
+                    sounds.playClick();
+                    onOpenNotifications();
+                    setIsMobileOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer mb-1 ${
+                    (unreadNotificationCount || 0) > 0
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40 hover:bg-amber-500/25 font-semibold'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Bell className="size-3.5 text-amber-400" />
+                    <span>{t.notificationsTitle}</span>
+                  </div>
+                  {(unreadNotificationCount || 0) > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-red-500 text-white animate-pulse">
+                      {unreadNotificationCount}
                     </span>
                   )}
                 </button>
@@ -684,22 +742,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Quick Utility Icons Row (Wallpaper, Sound, Language) */}
           <div className="flex items-center justify-between gap-1.5 pt-1">
-            {/* Wallpaper Settings */}
-            <button
-              id="btn-wallpaper-settings"
-              onClick={() => {
-                sounds.playClick();
-                onOpenBgModal();
-              }}
-              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#0b1220]/80 border border-[#1e2e4b] hover:border-[#d4af37]/60 text-slate-300 hover:text-[#f5d77f] text-[11px] font-medium transition-all shadow-sm cursor-pointer"
-              title={lang === 'th' ? 'ตั้งค่าภาพพื้นหลังปราสาท' : 'Wallpaper Settings'}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#d4af37]" />
-              <span>{lang === 'th' ? 'พื้นหลัง' : 'Theme'}</span>
-            </button>
+            {/* Wallpaper Settings (Owner Only) */}
+            {isOwner && onOpenBgModal && (
+              <button
+                id="btn-wallpaper-settings"
+                onClick={() => {
+                  sounds.playClick();
+                  onOpenBgModal();
+                }}
+                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#0b1220]/80 border border-[#1e2e4b] hover:border-[#d4af37]/60 text-slate-300 hover:text-[#f5d77f] text-[11px] font-medium transition-all shadow-sm cursor-pointer"
+                title={lang === 'th' ? 'ตั้งค่าภาพพื้นหลังปราสาท (Owner)' : 'Wallpaper Settings (Owner)'}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#d4af37]" />
+                <span>{lang === 'th' ? 'พื้นหลัง' : 'Theme'}</span>
+              </button>
+            )}
 
-            {/* Discord Webhook Settings (For Admin / Owner) */}
-            {canAccessVault && onOpenDiscordModal && (
+            {/* In-App Notifications Bell (For Admin / Owner) */}
+            {canAccessVault && onOpenNotifications && (
+              <button
+                id="btn-sidebar-notification-bell"
+                onClick={() => {
+                  sounds.playClick();
+                  onOpenNotifications();
+                }}
+                className={`relative p-1.5 rounded-lg border transition-all cursor-pointer ${
+                  (unreadNotificationCount || 0) > 0
+                    ? 'border-amber-500/60 bg-amber-500/20 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
+                    : 'border-slate-800 text-slate-400 hover:text-white bg-[#0c1424]/80'
+                }`}
+                title={t.notificationsTitle}
+                aria-label={t.notificationsTitle}
+              >
+                <Bell className="w-4 h-4" />
+                {(unreadNotificationCount || 0) > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center rounded-full bg-red-500 text-[8px] font-bold font-mono text-white shadow ring-1 ring-[#090e1a] animate-pulse">
+                    {(unreadNotificationCount || 0) > 9 ? '9+' : unreadNotificationCount}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {/* Discord Webhook Settings (For Owner Only) */}
+            {isOwner && onOpenDiscordModal && (
               <button
                 id="btn-discord-settings"
                 onClick={() => {
@@ -710,7 +795,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 title={lang === 'th' ? 'ตั้งค่าแจ้งเตือน Discord' : 'Discord Webhook'}
                 aria-label="Discord Webhook"
               >
-                <Bell className="w-4 h-4" />
+                <MessageSquare className="w-4 h-4" />
                 {discordEnabled && (
                   <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-400 rounded-full shadow-[0_0_6px_#34d399]" />
                 )}
@@ -770,7 +855,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v2.0.0</span>
+              <span>v2.1.0</span>
             </div>
           </div>
 

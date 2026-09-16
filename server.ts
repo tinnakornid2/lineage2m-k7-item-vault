@@ -9,6 +9,8 @@ import {
   getKnownMemberProfiles,
   getStoredGeminiApiKey,
   saveStoredGeminiApiKey,
+  getStoredDiscordWebhookUrl,
+  saveStoredDiscordWebhookUrl,
   uploadBackgroundImage,
   verifyRoleToken
 } from "./api/_firebaseAdmin.ts";
@@ -447,7 +449,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
   app.use(express.static(path.join(process.cwd(), "public")));
 
   // Background upload endpoint - saves to public/fantasy-original.png
-  app.post("/api/save-background", requireRoles(['owner', 'admin']), async (req, res) => {
+  app.post("/api/save-background", requireRoles(['owner']), async (req, res) => {
     try {
       const { imageBase64 } = req.body;
       if (!imageBase64 || typeof imageBase64 !== 'string') {
@@ -470,6 +472,55 @@ Do not include markdown or explanations. Return pure JSON only.`;
     }
   });
 
+  // Helper to get Discord Webhook URL from environment or secure storage
+  const getDiscordWebhookUrl = async () => {
+    const environmentUrl = process.env.DISCORD_WEBHOOK_URL?.trim();
+    if (environmentUrl) return environmentUrl;
+    return getStoredDiscordWebhookUrl();
+  };
+
+  // Get Discord Webhook configuration status (Owner only)
+  app.get("/api/discord-status", requireRoles(['owner']), async (_req, res) => {
+    try {
+      const url = await getDiscordWebhookUrl();
+      if (!url) {
+        return res.json({ configured: false, maskedUrl: null });
+      }
+      const maskedUrl = url.length > 35
+        ? `${url.slice(0, 33)}...${url.slice(-4)}`
+        : 'https://discord.com/api/webhooks/...';
+      return res.json({ configured: true, maskedUrl });
+    } catch (error) {
+      console.error('Failed to read Discord configuration:', error);
+      return res.status(500).json({ error: 'CONFIG_READ_FAILED', message: 'Failed to read Discord configuration.' });
+    }
+  });
+
+  // Save Discord Webhook URL (Owner only)
+  app.post("/api/save-discord-webhook", requireRoles(['owner']), async (req, res) => {
+    try {
+      const { webhookUrl } = req.body;
+      const cleanUrl = typeof webhookUrl === 'string' ? webhookUrl.trim() : '';
+      if (!cleanUrl) {
+        await saveStoredDiscordWebhookUrl('', res.locals.actor.uid);
+        process.env.DISCORD_WEBHOOK_URL = '';
+        return res.json({ success: true, message: 'ลบการตั้งค่า Discord Webhook เรียบร้อยแล้ว / Discord Webhook removed.' });
+      }
+      if (!cleanUrl.startsWith("https://discord.com/api/webhooks/") && !cleanUrl.startsWith("https://discordapp.com/api/webhooks/")) {
+        return res.status(400).json({
+          error: "INVALID_WEBHOOK_URL",
+          message: "รูปแบบ Webhook URL ไม่ถูกต้อง ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/"
+        });
+      }
+      await saveStoredDiscordWebhookUrl(cleanUrl, res.locals.actor.uid);
+      process.env.DISCORD_WEBHOOK_URL = cleanUrl;
+      return res.json({ success: true, message: 'บันทึก Discord Webhook สำเร็จ / Discord Webhook saved successfully.' });
+    } catch (err: any) {
+      console.error('Failed to save discord webhook:', err);
+      return res.status(500).json({ error: 'SAVE_FAILED', message: 'บันทึก Discord Webhook ไม่สำเร็จ' });
+    }
+  });
+
   // Discord Webhook Proxy Endpoint (bypasses browser CORS & formats payloads)
   app.post("/api/discord-webhook", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
     try {
@@ -489,13 +540,13 @@ Do not include markdown or explanations. Return pure JSON only.`;
       }
 
       const actorId = String(res.locals.actor?.uid || "unknown");
-      if (!consumeRateLimit(discordRateLimits, actorId, 5, 60_000)) {
+      if (!consumeRateLimit(discordRateLimits, actorId, 15, 60_000)) {
         return res.status(429).json({
           error: "DISCORD_RATE_LIMITED",
           message: "ส่งข้อความถี่เกินไป กรุณารอสักครู่ / Too many Discord messages. Please wait."
         });
       }
-      const webhookUrl = process.env.DISCORD_WEBHOOK_URL?.trim();
+      const webhookUrl = await getDiscordWebhookUrl();
       if (!webhookUrl) {
         return res.status(503).json({ error: "DISCORD_NOT_CONFIGURED", message: "ยังไม่ได้ตั้งค่า Discord Webhook / Discord Webhook is not configured." });
       }
@@ -513,8 +564,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
         },
         body: JSON.stringify({
           ...payload,
-          // Never allow profile/item text to trigger @everyone, @here or role pings.
-          allowed_mentions: { parse: [] }
+          allowed_mentions: payload.allowed_mentions || { parse: ["everyone", "roles"] }
         })
       });
 

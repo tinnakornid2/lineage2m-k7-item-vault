@@ -1,5 +1,5 @@
 # 🏛️ SYSTEM_ARCHITECTURE.md — สถาปัตยกรรมระบบและคู่มือป้องกันโค้ดเสียหาย
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.0.0 — เวอร์ชั่นสมบูรณ์)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.1.0 — อัปเดตล่าสุด)**  
 > **Last Updated:** 2026-09-16  
 > **Live Production:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)  
 > **Repository:** `tinnakornid2/lineage2m-k7-item-vault`
@@ -106,10 +106,19 @@
 1. เพิ่มชื่อคอลเลกชันใน `src/services/firebase.ts`
 2. ใช้ฟังก์ชัน `sanitizeForFirestore(data)` เสมอเพื่อตัดค่า `undefined`
 
-### 2.3 การเพิ่มประเภทการแจ้งเตือน Discord Webhook (Adding Discord Notifications)
+### 2.3 การตั้งค่าการแจ้งเตือน Discord Webhook และ Role Mentions (v2.1.0)
 1. เข้าไปที่ `src/utils/discord.ts`
-2. เพิ่มประเภทใน `DiscordNotificationType`
-3. เพิ่ม Embed Payload ฟอร์แมตสองภาษา พร้อมส่งผ่านฟังก์ชัน `sendDiscordNotification`
+2. ระบบรองรับ `mentionType`: `'everyone' | 'role' | 'none'` และ `mentionRoleId: string`
+3. จัดเก็บค่าลงใน Firestore `app_settings/discord`
+4. บน Backend `server.ts` ได้กำหนด `allowed_mentions: { parse: ['everyone', 'roles', 'users'], roles: [roleId] }` เพื่อให้ Discord API ส่ง Ping แจ้งเตือนไปยัง Role ID นั้นได้ถูกต้อง
+
+### 2.4 สถาปัตยกรรม Tab State & URL Hash Persistence (v2.1.0)
+- ควบคุมผ่าน `window.location.hash` และ fallback สู่ `localStorage` (`l2m_active_tab`)
+- เมื่อกดรีเฟรช F5 หรือปุ่มนำทางบราวเซอร์ (Back/Forward) Event listener `hashchange` จะทำการซิงค์ `activeTab` กลับมาที่หน้าเดิมอัตโนมัติ
+
+### 2.5 สถาปัตยกรรม Fluid Responsive Scaling (v2.1.0)
+- กำหนดคอนเทนเนอร์หลักใน `src/App.tsx`: `w-full max-w-full 2xl:max-w-[1920px] mx-auto px-2.5 sm:px-4 md:px-6 lg:px-7 py-3 sm:py-5 min-w-0 transition-all`
+- ทำให้แอปปรับขนาดความกว้างตามหน้าต่างบราวเซอร์แบบ Real-time โดยไม่เสียสัดส่วน รองรับทั้งหน้าต่างย่อครึ่งจอ (Split screen) และจอมอนิเตอร์ Ultrawide
 
 ---
 
@@ -167,7 +176,7 @@ graph TD
 | `GeminiKeyModal.tsx` | ตั้งค่า/ทดสอบ Gemini API Key ตรวจสอบตรงกับ Google | ⚠️ เฉพาะ Owner |
 | `OwnerResetModal.tsx` | ล้างข้อมูลระบบเพื่อเริ่มรอบใหม่ (ต้องพิมพ์ RESET) | ⚠️ เฉพาะ Owner |
 | `DiscordWebhookModal.tsx` | ตั้งค่า Webhook URL แจ้งเตือน Discord | ✅ ปรับแต่งได้ |
-| `BackgroundSettingsModal.tsx` | เปลี่ยนภาพพื้นหลังปราสาท, ปรับความมืด/เบลอ | ✅ ปรับแต่งได้ |
+| `BackgroundSettingsModal.tsx` | เปลี่ยนภาพพื้นหลังปราสาท, ปรับความมืด/เบลอ | ⚠️ เฉพาะ Owner |
 
 ---
 

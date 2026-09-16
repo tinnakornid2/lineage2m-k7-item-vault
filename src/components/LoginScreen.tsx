@@ -31,7 +31,6 @@ interface LoginScreenProps {
     password: string;
     inGameName: string;
   }) => Promise<{ success: boolean; message?: string }>;
-  onOpenBgModal?: () => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
@@ -40,8 +39,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   soundEnabled,
   onToggleSound,
   onLogin,
-  onRegister,
-  onOpenBgModal
+  onRegister
 }) => {
   const t = translations[lang];
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -146,23 +144,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       <div className="absolute bottom-0 right-0 w-[500px] h-[350px] bg-[#3b82f6]/5 blur-3xl pointer-events-none -z-10" />
       <div className="absolute top-1/3 left-10 w-[350px] h-[350px] bg-[#d4af37]/5 blur-3xl pointer-events-none -z-10" />
 
-      {/* Top right quick settings: Wallpaper, Language & Sound */}
+      {/* Top right quick settings: Language & Sound */}
       <div className="absolute top-4 right-4 sm:top-6 sm:right-6 flex items-center gap-2 z-20">
-        {onOpenBgModal && (
-          <button
-            id="btn-login-wallpaper"
-            onClick={() => {
-              sounds.playClick();
-              onOpenBgModal();
-            }}
-            className="px-2.5 py-1.5 rounded-lg bg-[#0b101c]/80 border border-[#1e2e4b] hover:border-[#d4af37]/60 text-slate-300 hover:text-[#f5d77f] font-semibold text-xs transition-all shadow-md flex items-center gap-1.5 cursor-pointer backdrop-blur-sm"
-            title={lang === 'th' ? 'ปรับแต่งภาพพื้นหลังปราสาท' : 'Wallpaper Settings'}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-[#d4af37]" />
-            <span className="hidden sm:inline">{lang === 'th' ? 'พื้นหลัง' : 'Wallpaper'}</span>
-          </button>
-        )}
-
         <button
           id="btn-login-sound-toggle"
           onClick={() => {
@@ -222,7 +205,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 CLAN HUB SYSTEM
               </span>
               <span className="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/35 text-[10px] font-mono font-bold text-sky-300">
-                v2.0.0
+                v2.1.0
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-2 font-prompt">

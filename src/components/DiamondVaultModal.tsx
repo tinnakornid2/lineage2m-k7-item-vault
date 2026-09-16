@@ -29,6 +29,7 @@ import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { clearDiamondTransactionsDoc } from '../services/firebase';
 import { calculateDiamondNetChange } from '../utils/diamondHelper';
+import { compressImageFile } from '../utils/imageCompressor';
 
 interface DiamondVaultModalProps {
   isOpen: boolean;
@@ -198,24 +199,26 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    const handlePaste = (e: ClipboardEvent) => {
+    const handlePaste = async (e: ClipboardEvent) => {
       if (!e.clipboardData) return;
       const items = e.clipboardData.items;
       for (let i = 0; i < items.length; i++) {
         if (items[i].type.indexOf('image') !== -1) {
           const blob = items[i].getAsFile();
           if (blob) {
-            const reader = new FileReader();
-            reader.onload = (loadEvent) => {
-              const base64 = loadEvent.target?.result as string;
-              if (base64) {
-                setProofImage(base64);
-                sounds.playClick();
-                setSuccessToast(lang === 'th' ? 'วางรูปภาพจาก Clipboard แล้ว' : 'Image pasted from clipboard');
-                setTimeout(() => setSuccessToast(''), 3000);
-              }
-            };
-            reader.readAsDataURL(blob);
+            try {
+              const compressed = await compressImageFile(blob, {
+                maxWidth: 1000,
+                maxHeight: 1000,
+                quality: 0.75
+              });
+              setProofImage(compressed);
+              sounds.playClick();
+              setSuccessToast(lang === 'th' ? 'วางรูปภาพและบีบอัดเรียบร้อย' : 'Image pasted and compressed');
+              setTimeout(() => setSuccessToast(''), 3000);
+            } catch (err) {
+              console.error('Error compressing pasted image:', err);
+            }
           }
         }
       }
@@ -225,20 +228,23 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
     return () => window.removeEventListener('paste', handlePaste);
   }, [isOpen, lang]);
 
-  const handleFileUpload = (file: File) => {
+  const handleFileUpload = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       setError(lang === 'th' ? 'กรุณาอัพโหลดไฟล์รูปภาพเท่านั้น' : 'Please upload an image file');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const base64 = e.target?.result as string;
-      if (base64) {
-        setProofImage(base64);
-        sounds.playClick();
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImageFile(file, {
+        maxWidth: 1000,
+        maxHeight: 1000,
+        quality: 0.75
+      });
+      setProofImage(compressed);
+      sounds.playClick();
+    } catch (err) {
+      console.error('Error compressing uploaded slip:', err);
+      setError(lang === 'th' ? 'เกิดข้อผิดพลาดในการประมวลผลรูปภาพ' : 'Failed to process image');
+    }
   };
 
   // ── Form Submissions ─────────────────────────────────────────────────────
@@ -1198,19 +1204,19 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                               </div>
                             ) : (
                               <span className="font-semibold text-slate-200 truncate">
-                                {tx.note || (isCredit ? 'Credit' : isDeduct ? 'Deduction' : tx.type)}
+                                {tx.note || (isCredit ? (lang === 'th' ? 'เพิ่มเพชร' : 'Credit') : isDeduct ? (lang === 'th' ? 'หักเพชร' : 'Deduction') : isAdjust ? (lang === 'th' ? 'ปรับยอด' : 'Adjust') : isFulfill ? (lang === 'th' ? 'แจกไอเทม/เบิก' : 'Expenditure') : tx.type)}
                               </span>
                             )}
 
                             {/* Scope Badge */}
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
-                              {tx.clanScope === 'all' || !tx.clanScope ? 'Alliance' : tx.clanScope}
+                              {tx.clanScope === 'all' || !tx.clanScope ? (lang === 'th' ? 'พันธมิตร' : 'Alliance') : tx.clanScope}
                             </span>
 
                             {/* Recipient Tag */}
                             {tx.recipientName && (
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/20 text-violet-300 border border-violet-500/30">
-                                🎁 To: {tx.recipientName} {tx.recipientClan ? `[${tx.recipientClan}]` : ''}
+                                🎁 {lang === 'th' ? 'ให้:' : 'To:'} {tx.recipientName} {tx.recipientClan ? `[${tx.recipientClan}]` : ''}
                               </span>
                             )}
 
@@ -1223,7 +1229,7 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                                   setEditingNoteText(tx.note || '');
                                 }}
                                 className="text-slate-500 hover:text-sky-400 p-0.5"
-                                title="Edit note"
+                                title={lang === 'th' ? 'แก้ไขหมายเหตุ' : 'Edit note'}
                               >
                                 <Edit2 className="w-3 h-3" />
                               </button>
@@ -1234,11 +1240,11 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                           <div className="flex items-center gap-2 text-[11px] text-slate-400 flex-wrap mt-0.5">
                             {tx.grossAmount && tx.taxPct ? (
                               <span className="text-slate-400 font-mono">
-                                Gross: {tx.grossAmount.toLocaleString()} | Tax ({tx.taxPct}%): -{tx.taxAmount?.toLocaleString()}
+                                Gross: {tx.grossAmount.toLocaleString()} | {lang === 'th' ? 'ภาษี' : 'Tax'} ({tx.taxPct}%): -{tx.taxAmount?.toLocaleString()}
                               </span>
                             ) : null}
-                            <span>• By: {tx.performedBy?.name || 'Admin'}</span>
-                            <span>• {new Date(tx.timestamp).toLocaleString()}</span>
+                            <span>• {lang === 'th' ? 'โดย:' : 'By:'} {tx.performedBy?.name || (lang === 'th' ? 'แอดมิน' : 'Admin')}</span>
+                            <span>• {new Date(tx.timestamp).toLocaleString(lang === 'th' ? 'th-TH' : 'en-US')}</span>
                           </div>
                         </div>
                       </div>
@@ -1251,7 +1257,7 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                           </div>
                           {tx.balanceAfter !== undefined && (
                             <div className="text-[10px] text-slate-500 font-mono">
-                              Bal: {tx.balanceAfter.toLocaleString()}
+                              {lang === 'th' ? 'คงเหลือ:' : 'Bal:'} {tx.balanceAfter.toLocaleString()}
                             </div>
                           )}
                         </div>
@@ -1261,7 +1267,7 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                           <div
                             onClick={() => setLightboxImage(tx.proofImageUrl || null)}
                             className="relative w-9 h-9 rounded-lg border border-slate-700 overflow-hidden cursor-pointer hover:border-sky-400 transition shrink-0 group"
-                            title="Click to view slip / proof"
+                            title={lang === 'th' ? 'คลิกเพื่อดูสลิป / หลักฐาน' : 'Click to view slip / proof'}
                           >
                             <img
                               src={tx.proofImageUrl}
@@ -1392,17 +1398,21 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                           className="rounded bg-slate-900 border-slate-700 text-sky-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
                         />
                         <span className="truncate flex-1 text-slate-300 font-medium">
-                          {tx.note || tx.type}
+                          {tx.note || (tx.type === 'credit' || tx.type === 'deposit' ? (lang === 'th' ? 'เพิ่มเพชร' : 'Credit') : (lang === 'th' ? 'หักเพชร' : 'Deduct'))}
                         </span>
-                        <span
-                          className={`font-mono font-bold text-[11px] ${
-                            tx.type === 'credit' || tx.type === 'deposit'
-                              ? 'text-emerald-400'
-                              : 'text-rose-400'
-                          }`}
-                        >
-                          {tx.amount.toLocaleString()} 💎
-                        </span>
+                        {(() => {
+                          const net = calculateDiamondNetChange(tx);
+                          const isPos = net >= 0;
+                          return (
+                            <span
+                              className={`font-mono font-bold text-[11px] ${
+                                isPos ? 'text-emerald-400' : 'text-rose-400'
+                              }`}
+                            >
+                              {isPos ? '+' : '-'}{Math.abs(net).toLocaleString()} 💎
+                            </span>
+                          );
+                        })()}
                       </label>
                     );
                   })}

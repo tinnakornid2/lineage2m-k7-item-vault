@@ -16,7 +16,8 @@ import {
   Clock,
   CheckCircle2,
   Users,
-  Plus
+  Plus,
+  MessageSquare
 } from 'lucide-react';
 import {
   ItemRarity,
@@ -42,6 +43,7 @@ interface EditVaultItemModalProps {
   vaultItems?: VaultItem[];
   onUpdateItem: (itemId: string, updates: Partial<VaultItem>) => Promise<void>;
   onViewImageZoom?: (url: string, title?: string) => void;
+  onBroadcastToDiscord?: (item: VaultItem) => Promise<void>;
 }
 
 export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
@@ -54,9 +56,12 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
   quickItems = [],
   vaultItems = [],
   onUpdateItem,
-  onViewImageZoom
+  onViewImageZoom,
+  onBroadcastToDiscord
 }) => {
   const t = translations[lang];
+  const isOwner = currentUser?.role === 'owner';
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
 
   // Form states
   const [name, setName] = useState('');
@@ -522,7 +527,7 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
                       {t.itemPrice}
                     </label>
                     {price === 0 && (
-                      <span className="text-[9px] text-emerald-400 font-bold">🎁 {t.freeBadge}</span>
+                      <span className="text-[9px] text-emerald-400 font-bold">🎁 {t.freeBadge || (lang === 'th' ? 'ฟรี' : 'Free')}</span>
                     )}
                   </div>
                   <div className="relative">
@@ -530,6 +535,7 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
                       type="number"
                       min="0"
                       required
+                      placeholder={lang === 'th' ? '0 = ฟรี' : '0 = Free'}
                       value={price}
                       onChange={(e) => setPrice(e.target.value ? Math.max(0, Number(e.target.value)) : 0)}
                       className="w-full pl-2 pr-6 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs font-mono focus:border-[#d4af37] focus:outline-none"
@@ -754,14 +760,40 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
           </div>
 
           {/* Form Actions */}
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-            >
-              {t.cancel}
-            </button>
+          <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-800">
+            {isOwner && onBroadcastToDiscord && item && (
+              <button
+                type="button"
+                disabled={isBroadcasting}
+                onClick={async () => {
+                  sounds.playClick();
+                  setIsBroadcasting(true);
+                  try {
+                    await onBroadcastToDiscord(item);
+                  } finally {
+                    setIsBroadcasting(false);
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#5865F2]/20 hover:bg-[#5865F2]/30 text-[#8ea1e1] hover:text-white border border-[#5865F2]/50 text-xs font-bold transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                title={t.sendToDiscord || 'ส่งไป Discord'}
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-[#5865F2]" />
+                <span>
+                  {isBroadcasting
+                    ? (lang === 'th' ? 'กำลังส่ง...' : 'Sending...')
+                    : (t.sendToDiscord || 'ส่งไป Discord')}
+                </span>
+              </button>
+            )}
+
+            <div className="flex items-center gap-2.5 ml-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                {t.cancel}
+              </button>
             <button
               id="btn-confirm-save-edit-item"
               type="submit"
@@ -781,6 +813,7 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
               )}
             </button>
           </div>
+        </div>
 
         </form>
 

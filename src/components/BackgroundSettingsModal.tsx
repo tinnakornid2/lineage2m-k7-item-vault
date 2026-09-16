@@ -97,7 +97,7 @@ interface BackgroundSettingsModalProps {
   lang: Language;
   config: BackgroundConfig;
   onChangeConfig: (newConfig: BackgroundConfig, syncGlobally?: boolean) => void;
-  isAdminOrOwner?: boolean;
+  isOwner?: boolean;
 }
 
 export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = ({
@@ -106,7 +106,7 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
   lang,
   config,
   onChangeConfig,
-  isAdminOrOwner = false
+  isOwner = false
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -115,7 +115,7 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
   const [urlInput, setUrlInput] = useState('');
   const [showUrlInput, setShowUrlInput] = useState(false);
 
-  if (!isOpen) return null;
+  if (!isOpen || !isOwner) return null;
 
   const handleFileUpload = async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -143,7 +143,7 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
       if (!res.ok || !data.url) {
         throw new Error(data.message || 'Upload failed');
       }
-      onChangeConfig({ ...config, imageUrl: data.url }, isAdminOrOwner);
+      onChangeConfig({ ...config, imageUrl: data.url }, isOwner);
 
       sounds.playClaim();
       setIsUploading(false);
@@ -163,7 +163,7 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
       ...config,
       imageUrl: trimmed
     };
-    onChangeConfig(updatedConfig, isAdminOrOwner);
+    onChangeConfig(updatedConfig, isOwner);
     setUrlInput('');
     setShowUrlInput(false);
     setUploadSuccess(true);
@@ -176,14 +176,14 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
       ...config,
       imageUrl: url
     };
-    onChangeConfig(updatedConfig, isAdminOrOwner);
+    onChangeConfig(updatedConfig, isOwner);
     setUploadSuccess(true);
     setTimeout(() => setUploadSuccess(false), 3500);
   };
 
   const handleReset = () => {
     sounds.playClick();
-    onChangeConfig(DEFAULT_BG_CONFIG, isAdminOrOwner);
+    onChangeConfig(DEFAULT_BG_CONFIG, isOwner);
     setUploadSuccess(true);
     setTimeout(() => setUploadSuccess(false), 3000);
   };
@@ -199,16 +199,18 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
               <ImageIcon className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-cinzel text-lg font-bold text-slate-100">
                   {lang === 'th' ? 'ตั้งค่าภาพพื้นหลัง' : 'Wallpaper & Background Settings'}
                 </h3>
-                <Sparkles className="w-4 h-4 text-[#d4af37]" />
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono">
+                  👑 {lang === 'th' ? 'เฉพาะ Owner' : 'Owner Only'}
+                </span>
               </div>
               <p className="text-xs text-slate-400">
                 {lang === 'th'
-                  ? 'ปรับแต่งภาพพื้นหลังและบรรยากาศปราสาท Lineage 2M'
-                  : 'Customize castle background atmosphere and brightness'}
+                  ? 'ปรับแต่งภาพพื้นหลังและบรรยากาศปราสาท Lineage 2M (สิทธิ์เฉพาะ Owner)'
+                  : 'Customize castle background atmosphere (Owner Only privilege)'}
               </p>
             </div>
           </div>
@@ -229,13 +231,13 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
           <div className="text-[11px] leading-relaxed text-slate-300">
             {lang === 'th' ? (
               <span>
-                <strong className="text-[#f5d77f]">ซิงค์ทุกคนในกิลด์: </strong>
-                เมื่อ Owner หรือ Admin เปลี่ยนแปลงภาพพื้นหลัง ทุกคนที่เปิดเว็บไซต์จะเห็นภาพและแสงเงาตรงกันทันทีแบบ Real-time
+                <strong className="text-[#f5d77f]">ซิงค์ทุกคนในกิลด์ (เฉพาะ Owner): </strong>
+                เมื่อ Owner เปลี่ยนแปลงภาพพื้นหลัง ทุกคนที่เปิดเว็บไซต์จะเห็นภาพและแสงเงาตรงกันทันทีแบบ Real-time
               </span>
             ) : (
               <span>
-                <strong className="text-[#f5d77f]">Global Clan Sync: </strong>
-                When Owner/Admin updates this wallpaper, all members see the changes instantly in real-time.
+                <strong className="text-[#f5d77f]">Global Clan Sync (Owner Only): </strong>
+                When Owner updates this wallpaper, all members see the changes instantly in real-time.
               </span>
             )}
           </div>
@@ -263,7 +265,7 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
                 background: `radial-gradient(ellipse at center, rgba(10,18,34,${config.vignetteOpacity * 0.5}) 0%, rgba(4,8,16,${config.vignetteOpacity}) 100%)`
               }}
             />
-            {isAdminOrOwner && (
+            {isOwner && (
               <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
                   onClick={() => fileInputRef.current?.click()}
@@ -284,7 +286,7 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
           </div>
 
           {/* Preset Wallpapers */}
-          {isAdminOrOwner && (
+          {isOwner && (
             <div>
               <label className="text-xs font-semibold text-slate-300 mb-2 block flex items-center justify-between">
                 <span>{lang === 'th' ? 'เลือกภาพธีมสำเร็จรูป' : 'Preset Wallpapers'}</span>
@@ -330,7 +332,7 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
           )}
 
           {/* Direct URL Input Modal Toggle */}
-          {isAdminOrOwner && showUrlInput && (
+          {isOwner && showUrlInput && (
             <div className="p-3 rounded-xl bg-slate-900/90 border border-[#d4af37]/40 space-y-2 animate-in fade-in duration-200">
               <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
                 <LinkIcon className="w-3.5 h-3.5 text-[#d4af37]" />
@@ -355,8 +357,8 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
             </div>
           )}
 
-          {/* Upload New Custom Image (Admin / Owner only) */}
-          {isAdminOrOwner && (
+          {/* Upload New Custom Image (Owner only) */}
+          {isOwner && (
             <div>
               <input
                 type="file"
@@ -430,10 +432,10 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
                   onChangeConfig(newC, false);
                 }}
                 onMouseUp={() => {
-                  if (isAdminOrOwner) onChangeConfig(config, true);
+                  if (isOwner) onChangeConfig(config, true);
                 }}
                 onTouchEnd={() => {
-                  if (isAdminOrOwner) onChangeConfig(config, true);
+                  if (isOwner) onChangeConfig(config, true);
                 }}
                 className="w-full accent-[#d4af37] cursor-pointer"
               />
@@ -460,10 +462,10 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
                   onChangeConfig(newC, false);
                 }}
                 onMouseUp={() => {
-                  if (isAdminOrOwner) onChangeConfig(config, true);
+                  if (isOwner) onChangeConfig(config, true);
                 }}
                 onTouchEnd={() => {
-                  if (isAdminOrOwner) onChangeConfig(config, true);
+                  if (isOwner) onChangeConfig(config, true);
                 }}
                 className="w-full accent-sky-400 cursor-pointer"
               />
@@ -490,10 +492,10 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
                   onChangeConfig(newC, false);
                 }}
                 onMouseUp={() => {
-                  if (isAdminOrOwner) onChangeConfig(config, true);
+                  if (isOwner) onChangeConfig(config, true);
                 }}
                 onTouchEnd={() => {
-                  if (isAdminOrOwner) onChangeConfig(config, true);
+                  if (isOwner) onChangeConfig(config, true);
                 }}
                 className="w-full accent-purple-400 cursor-pointer"
               />
@@ -515,7 +517,7 @@ export const BackgroundSettingsModal: React.FC<BackgroundSettingsModalProps> = (
           </button>
 
           <div className="flex items-center gap-2">
-            {isAdminOrOwner && (
+            {isOwner && (
               <button
                 type="button"
                 onClick={() => {

@@ -31,7 +31,8 @@ import {
   Clock,
   AlertTriangle,
   AlertCircle,
-  Edit2
+  Edit2,
+  MessageSquare
 } from 'lucide-react';
 import {
   ActiveTab,
@@ -48,6 +49,7 @@ import {
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { calculateDiamondNetChange } from '../utils/diamondHelper';
 
 interface DashboardViewProps {
   lang: Language;
@@ -70,6 +72,7 @@ interface DashboardViewProps {
   onOpenOwnerResetModal?: () => void;
   onDeleteItem?: (itemId: string) => void;
   onEditItem?: (item: VaultItem) => void;
+  onBroadcastToDiscord?: (item: VaultItem) => Promise<void>;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -92,9 +95,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onViewImage,
   onOpenOwnerResetModal,
   onDeleteItem,
-  onEditItem
+  onEditItem,
+  onBroadcastToDiscord
 }) => {
   const t = translations[lang];
+  const isOwner = currentUser?.role === 'owner';
+  const [broadcastingItemId, setBroadcastingItemId] = React.useState<string | null>(null);
   const [itemToDelete, setItemToDelete] = React.useState<VaultItem | null>(null);
   const [statWarningModalItem, setStatWarningModalItem] = React.useState<VaultItem | null>(null);
   const [filterAvailableToMe, setFilterAvailableToMe] = React.useState(false);
@@ -269,163 +275,295 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
       
-      {/* 1. HERO & DIAMOND VAULT BOX (COMPACT CLAN HUB COMMAND CENTER) */}
-      <section className="relative rounded-2xl overflow-hidden l2m-panel border border-[#d4af37]/30 p-3.5 sm:p-4 lg:p-5 space-y-3.5">
+      {/* 1. CLAN HUB COMMAND CENTER - TOP-LEFT DIAMOND VAULT & COMPACT COMMAND GRID */}
+      <section className="relative rounded-2xl overflow-hidden l2m-panel border border-[#d4af37]/30 p-2.5 sm:p-3.5 lg:p-4 space-y-2.5 sm:space-y-3">
         <div className="absolute -right-16 -top-16 w-80 h-80 bg-gradient-to-bl from-[#d4af37]/15 via-[#38bdf8]/10 to-transparent rounded-full blur-3xl pointer-events-none" />
         
-        {/* Top Row: Compact Header Branding + Diamond Vault & Timeline */}
-        <div className="relative z-10 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3.5">
-          <div className="space-y-1 max-w-xl xl:max-w-md">
-            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/30 text-[10px] font-semibold text-[#f5d77f]">
-              <Crown className="w-3 h-3 text-amber-400" />
-              <span>LINEAGE 2M • CLAN HUB</span>
-            </div>
-            <h1 className="text-lg sm:text-xl font-extrabold font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#b8860b] leading-snug">
-              {t.appTitle}
-            </h1>
-            <p className="text-[11px] text-slate-400 leading-normal">
-              {t.appSubtitle}
-            </p>
-          </div>
-
-          {/* Right Area: Unified Diamond Vault & Activity Log Card */}
+        {/* ─────────────────────────────────────────────────────────────
+            ROW 1: TOP ROW (50 / 50 SPLIT - ZERO EMPTY SPACE, COMPACT)
+            Left: Diamond Reserve Vault (เพชร บนมุมซ้าย)
+            Right: Lineage 2M Clan Hub & Alliance Overview (ลดขนาด)
+           ───────────────────────────────────────────────────────────── */}
+        <div className="relative z-10 grid grid-cols-1 xl:grid-cols-2 gap-2.5 sm:gap-3 items-stretch">
+          
+          {/* TOP-LEFT BOX: CLAN RESERVE VAULT & ACTIVITY TIMELINE */}
           <div
             id="diamond-vault-card"
-            className="w-full xl:w-auto min-w-[300px] max-w-sm rounded-xl bg-gradient-to-b from-[#131a29] via-[#0d131f] to-[#080c14] border border-white/20 hover:border-white/40 p-2.5 sm:p-3 shadow-lg relative flex flex-col justify-between group transition-all"
+            className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#38bdf8]/35 hover:border-[#38bdf8]/60 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group min-h-[155px]"
           >
-            {/* Top part: Vault Balance & Deposit/Withdraw Action */}
-            <div className="flex items-center justify-between gap-3 pb-2 border-b border-slate-800/80">
-              <div className="flex items-center gap-2">
-                <div className="p-1 rounded-md bg-white/10 border border-white/25 text-white shadow-inner">
-                  <Gem className="w-3.5 h-3.5 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)]" />
-                </div>
-                <div>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-xl sm:text-2xl font-extrabold font-mono text-white drop-shadow">
-                      {vaultBalance.toLocaleString()}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-semibold uppercase font-cinzel">
-                      {t.diamonds}
-                    </span>
-                  </div>
-                  <p className="text-[9px] text-slate-400">
-                    {lang === 'th' ? 'กองทุนเพชรกลาง' : 'Clan Reserve Vault'}
-                  </p>
-                </div>
-              </div>
+            <div className="absolute -right-8 -top-8 w-24 h-24 bg-sky-500/10 rounded-full blur-xl pointer-events-none" />
 
-              {isAdminOrOwner ? (
-                <button
-                  id="btn-dash-vault-manage"
-                  onClick={() => {
-                    sounds.playClick();
-                    onOpenVaultModal();
-                  }}
-                  className="py-1 px-2.5 rounded-lg bg-white/15 hover:bg-white/25 border border-white/25 text-white text-[10px] font-bold transition-all flex items-center gap-1 shadow cursor-pointer shrink-0"
-                >
-                  <ArrowDownCircle className="w-3 h-3 text-white" />
-                  <span>{t.deposit} / {t.withdraw}</span>
-                </button>
-              ) : (
-                <div className="text-[9px] text-slate-400 italic shrink-0">
-                  {lang === 'th' ? 'กองทุนเพชรกลางกิลด์' : 'Clan reserve pool'}
-                </div>
-              )}
-            </div>
-
-            {/* Bottom part: Transaction Timeline log inside the same card */}
-            <div className="pt-2">
-              <div className="flex items-center justify-between mb-1.5">
+            <div>
+              {/* Card Header */}
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-2">
                 <div className="flex items-center gap-1.5">
-                  <div className="p-0.5 rounded bg-amber-500/15 text-amber-400">
-                    <History className="w-3 h-3" />
+                  <div className="p-1 rounded-md bg-gradient-to-br from-sky-500/20 to-sky-950/40 border border-sky-500/40 text-sky-300 shadow-sm">
+                    <Gem className="w-3.5 h-3.5 text-sky-400 drop-shadow-[0_0_6px_rgba(56,189,248,0.6)]" />
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 font-cinzel">
-                    {lang === 'th' ? 'ไทม์ไลน์ธุรกรรม' : 'Transaction Timeline'}
-                  </span>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-bold font-cinzel text-slate-100 flex items-center gap-1">
+                      <span>{t.diamondVault}</span>
+                    </h3>
+                    <p className="text-[10px] sm:text-xs text-slate-300">
+                      {lang === 'th' ? 'กองทุนเพชรกลางกิลด์' : 'Clan Reserve Vault'}
+                    </p>
+                  </div>
                 </div>
 
-                <button
-                  onClick={() => {
-                    sounds.playClick();
-                    onOpenVaultModal();
-                  }}
-                  className="text-[9px] text-[#38bdf8] hover:text-white flex items-center gap-0.5 px-1.5 py-0.2 rounded hover:bg-[#38bdf8]/10 transition-colors cursor-pointer font-medium"
-                >
-                  <span>{lang === 'th' ? 'ดูทั้งหมด' : 'View all'}</span>
-                  <span className="text-[8px] px-1 rounded bg-slate-800 text-slate-300 font-mono">
-                    {transactions.length}
+                {isAdminOrOwner ? (
+                  <button
+                    id="btn-dash-vault-manage"
+                    onClick={() => {
+                      sounds.playClick();
+                      onOpenVaultModal();
+                    }}
+                    className="py-1 px-2.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/35 text-sky-200 hover:text-white text-[11px] font-bold transition-all flex items-center gap-1 shadow cursor-pointer shrink-0"
+                  >
+                    <ArrowDownCircle className="w-3 h-3 text-sky-400" />
+                    <span>{t.deposit} / {t.withdraw}</span>
+                  </button>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">
+                    {lang === 'th' ? 'กองทุนกลาง' : 'Clan Pool'}
                   </span>
-                  <ChevronRight className="w-2.5 h-2.5" />
-                </button>
+                )}
               </div>
 
-              <div className="h-[52px] overflow-y-auto pr-1 relative space-y-1">
-                {transactions.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 text-[9px] py-1">
-                    <Clock className="w-3 h-3 mb-0.5 text-slate-600" />
-                    <span>{lang === 'th' ? 'ยังไม่มีประวัติธุรกรรมเพชร' : 'No transactions recorded yet'}</span>
+              {/* Sub-grid: Balance on Left + Activity Timeline on Right */}
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5 items-center">
+                {/* Balance Area (2 cols) */}
+                <div className="sm:col-span-2 p-2 rounded-lg bg-[#090e18] border border-slate-800/80 flex flex-col justify-center space-y-1">
+                  <div className="text-[10px] text-slate-400 font-semibold uppercase font-cinzel flex items-center gap-1">
+                    <span>{lang === 'th' ? 'ยอดเพชรคงเหลือ' : 'Vault Balance'}</span>
                   </div>
-                ) : (
-                  <div className="relative pl-2.5 space-y-1 before:absolute before:left-1 before:top-1 before:bottom-1 before:w-[2px] before:bg-slate-800">
-                    {transactions.slice(0, 5).map((tx) => {
-                      const isDeposit = tx.type === 'deposit';
-                      return (
-                        <div key={tx.id} className="relative flex items-center justify-between gap-1.5 text-[10px]">
-                          <div
-                            className={`absolute -left-2.5 top-1.5 w-1.5 h-1.5 rounded-full ring-1 ${
-                              isDeposit
-                                ? 'bg-emerald-400 ring-emerald-500/20'
-                                : 'bg-amber-400 ring-amber-500/20'
-                            }`}
-                          />
-                          <div className="min-w-0 flex-1 pl-1 truncate">
-                            <span
-                              className={`font-mono font-bold text-[10px] mr-1 ${
-                                isDeposit ? 'text-emerald-400' : 'text-amber-400'
-                              }`}
-                            >
-                              {isDeposit ? '+' : '-'}{tx.amount.toLocaleString()} 💎
-                            </span>
-                            <span className="text-[9px] text-slate-400 truncate">
-                              <strong className="text-slate-300 font-normal">{tx.performedBy?.name || 'Admin'}</strong>
-                            </span>
-                          </div>
-                          <span className="text-[9px] text-slate-500 shrink-0 font-mono">
-                            {formatTimeAgo(tx.timestamp)}
-                          </span>
-                        </div>
-                      );
-                    })}
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-xl sm:text-2xl font-extrabold font-mono text-white drop-shadow">
+                      💎 {vaultBalance.toLocaleString()}
+                    </span>
                   </div>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      onOpenVaultModal();
+                    }}
+                    className="text-[10px] sm:text-[11px] text-[#38bdf8] hover:text-white flex items-center gap-0.5 font-medium transition-colors cursor-pointer w-fit"
+                  >
+                    <span>{lang === 'th' ? 'ดูประวัติทั้งหมด' : 'View Ledger'}</span>
+                    <ChevronRight className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+
+                {/* Timeline Area (3 cols) */}
+                <div className="sm:col-span-3 space-y-1">
+                  <div className="flex items-center justify-between px-0.5">
+                    <div className="flex items-center gap-1 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-300 font-cinzel">
+                      <History className="w-3 h-3 text-amber-400" />
+                      <span>{lang === 'th' ? 'ธุรกรรมล่าสุด' : 'Recent Activity'}</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
+                      {(transactions || []).length} {lang === 'th' ? 'รายการ' : 'records'}
+                    </span>
+                  </div>
+
+                  <div className="h-[75px] overflow-y-auto pr-1 relative space-y-1">
+                    {(!transactions || transactions.length === 0) ? (
+                      <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 text-[10px] py-1.5">
+                        <Clock className="w-3.5 h-3.5 mb-0.5 text-slate-500" />
+                        <span>{lang === 'th' ? 'ยังไม่มีประวัติธุรกรรมเพชร' : 'No transactions yet'}</span>
+                      </div>
+                    ) : (
+                      <div className="relative pl-2.5 space-y-1 before:absolute before:left-1 before:top-1 before:bottom-1 before:w-[2px] before:bg-slate-800">
+                        {transactions.slice(0, 3).map((tx) => {
+                          const netChange = calculateDiamondNetChange(tx);
+                          const isCredit = tx.type === 'credit' || tx.type === 'deposit';
+                          const isDeduct = tx.type === 'deduction' || tx.type === 'withdraw';
+                          const isExpenditure = tx.type === 'expenditure';
+                          const isAdjust = tx.type === 'adjust';
+
+                          let dotColor = 'bg-emerald-400 ring-emerald-500/20';
+                          let textColor = 'text-emerald-400';
+                          let prefix = '+';
+
+                          if (isCredit) {
+                            dotColor = 'bg-emerald-400 ring-emerald-500/20';
+                            textColor = 'text-emerald-400';
+                            prefix = '+';
+                          } else if (isDeduct) {
+                            dotColor = 'bg-rose-400 ring-rose-500/20';
+                            textColor = 'text-rose-400';
+                            prefix = '-';
+                          } else if (isExpenditure) {
+                            dotColor = 'bg-violet-400 ring-violet-500/20';
+                            textColor = 'text-violet-400';
+                            prefix = '-';
+                          } else if (isAdjust) {
+                            dotColor = 'bg-amber-400 ring-amber-500/20';
+                            textColor = 'text-amber-400';
+                            prefix = netChange >= 0 ? '+' : '-';
+                          } else {
+                            const isPositive = netChange >= 0;
+                            dotColor = isPositive ? 'bg-emerald-400 ring-emerald-500/20' : 'bg-rose-400 ring-rose-500/20';
+                            textColor = isPositive ? 'text-emerald-400' : 'text-rose-400';
+                            prefix = isPositive ? '+' : '-';
+                          }
+
+                          const adminLabel = lang === 'th' ? 'แอดมิน' : 'Admin';
+                          const performerName = tx.performedBy?.name || adminLabel;
+
+                          return (
+                            <div key={tx.id} className="relative flex items-center justify-between gap-1 text-[11px]">
+                              <div
+                                className={`absolute -left-2.5 top-1.5 w-1.5 h-1.5 rounded-full ring-1 ${dotColor}`}
+                              />
+                              <div className="min-w-0 flex-1 pl-1 truncate">
+                                <span className={`font-mono font-bold text-[11px] mr-1 ${textColor}`}>
+                                  {prefix}{Math.abs(netChange).toLocaleString()} 💎
+                                </span>
+                                <span
+                                  className="text-[10px] text-slate-300 truncate"
+                                  title={tx.note ? `${tx.note} (${performerName})` : performerName}
+                                >
+                                  <strong className="text-slate-200 font-semibold">{performerName}</strong>
+                                  {tx.note && (
+                                    <span className="text-slate-400 font-normal ml-1">· {tx.note}</span>
+                                  )}
+                                </span>
+                              </div>
+                              <span className="text-[9px] text-slate-400 shrink-0 font-mono">
+                                {formatTimeAgo(tx.timestamp)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
+
+          {/* TOP-RIGHT BOX: ALLIANCE COMMAND & METRICS BANNER (REDUCED SIZE) */}
+          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#d4af37]/35 hover:border-[#d4af37]/60 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group min-h-[155px]">
+            <div className="absolute -right-8 -top-8 w-24 h-24 bg-amber-500/10 rounded-full blur-xl pointer-events-none" />
+
+            <div>
+              {/* Card Header */}
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-2">
+                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/30 text-[11px] font-semibold text-[#f5d77f]">
+                  <Crown className="w-3 h-3 text-amber-400" />
+                  <span>LINEAGE 2M • CLAN HUB</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-950/40 border border-emerald-500/30 text-[10px] text-emerald-300 font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>{lang === 'th' ? 'ระบบออนไลน์' : 'Online'}</span>
+                </div>
+              </div>
+
+              {/* Title & Subtitle + 4 Stat Tiles */}
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5 items-center">
+                {/* Branding Left (2 cols) */}
+                <div className="sm:col-span-2 space-y-0.5">
+                  <h1 className="text-base sm:text-lg font-extrabold font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#b8860b] leading-tight">
+                    {t.appTitle}
+                  </h1>
+                  <p className="text-[11px] text-slate-300 leading-normal line-clamp-2">
+                    {t.appSubtitle}
+                  </p>
+                </div>
+
+                {/* 4 Metrics Matrix (3 cols) */}
+                <div className="sm:col-span-3 grid grid-cols-2 gap-1.5">
+                  {/* Active Members */}
+                  <div className="p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80 flex items-center gap-1.5">
+                    <div className="p-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 shrink-0">
+                      <Users className="w-3 h-3" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-mono font-bold text-xs text-slate-100 leading-none">
+                        {(allMembers || []).filter((m) => m.status === 'active').length}
+                      </div>
+                      <div className="text-[9px] text-slate-400 mt-0.5 truncate">
+                        {lang === 'th' ? 'สมาชิกทั้งหมด' : 'Members'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Total Clans */}
+                  <div className="p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80 flex items-center gap-1.5">
+                    <div className="p-1 rounded bg-purple-500/10 border border-purple-500/30 text-purple-400 shrink-0">
+                      <ShieldAlert className="w-3 h-3" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-mono font-bold text-xs text-slate-100 leading-none">
+                        {availableClansList.length}
+                      </div>
+                      <div className="text-[9px] text-slate-400 mt-0.5 truncate">
+                        {lang === 'th' ? 'แคลนพันธมิตร' : 'Clans'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Claimable Items */}
+                  <div className="p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80 flex items-center gap-1.5">
+                    <div className="p-1 rounded bg-sky-500/10 border border-sky-500/30 text-sky-400 shrink-0">
+                      <Sparkles className="w-3 h-3" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-mono font-bold text-xs text-sky-300 leading-none">
+                        {(availableItems || []).length}
+                      </div>
+                      <div className="text-[9px] text-slate-400 mt-0.5 truncate">
+                        {lang === 'th' ? 'ไอเทมเปิดรับ' : 'Claimable'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Total Queues Joined */}
+                  <div className="p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80 flex items-center gap-1.5">
+                    <div className="p-1 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shrink-0">
+                      <Zap className="w-3 h-3" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-mono font-bold text-xs text-emerald-300 leading-none">
+                        {(queueItems || []).length}
+                      </div>
+                      <div className="text-[9px] text-slate-400 mt-0.5 truncate">
+                        {lang === 'th' ? 'คิวเปิดรอรับ' : 'Active Queues'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
 
         {/* ─────────────────────────────────────────────────────────────
-            BOTTOM ROW: 3 COMPACT WIDGETS
-            (1. My Clan Status | 2. Top Power Leaderboard | 3. Recent Distributions Feed)
+            ROW 2: BOTTOM 3 COMPACT BALANCED CARDS (REDUCED SIZES)
+            (1. My Clan Status | 2. Top Power Leaderboard | 3. Recent Distributions)
            ───────────────────────────────────────────────────────────── */}
-        <div className="relative z-10 pt-3 border-t border-[#d4af37]/20 grid grid-cols-1 lg:grid-cols-3 gap-2.5 sm:gap-3">
+        <div className="relative z-10 pt-1.5 border-t border-[#d4af37]/20 grid grid-cols-1 lg:grid-cols-3 gap-2.5 sm:gap-3 items-stretch">
           
-          {/* WIDGET 1: MY CLAN STATUS WIDGET (COMPACT) */}
-          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#d4af37]/30 hover:border-[#d4af37]/50 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group">
+          {/* BOX 1: MY CLAN STATUS (REDUCED SIZE) */}
+          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#d4af37]/30 hover:border-[#d4af37]/50 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group min-h-[225px]">
             <div className="absolute -right-8 -top-8 w-24 h-24 bg-amber-500/10 rounded-full blur-xl pointer-events-none" />
             
             <div>
               {/* Header */}
-              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-2">
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-1.5">
                 <div className="flex items-center gap-1.5">
-                  <div className="p-1 rounded-lg bg-gradient-to-br from-amber-500/20 to-amber-950/40 border border-amber-500/40 text-amber-400 shadow-sm">
+                  <div className="p-1 rounded-md bg-gradient-to-br from-amber-500/20 to-amber-950/40 border border-amber-500/40 text-amber-400 shadow-sm">
                     <UserCheck className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <h3 className="text-xs font-bold font-cinzel text-slate-100 flex items-center gap-1">
+                    <h3 className="text-xs sm:text-sm font-bold font-cinzel text-slate-100 flex items-center gap-1">
                       <span>{t.myClanStatusTitle}</span>
                     </h3>
-                    <p className="text-[9px] text-slate-400">
+                    <p className="text-[10px] text-slate-400">
                       {t.myClanStatusDesc}
                     </p>
                   </div>
@@ -438,7 +576,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       sounds.playClick();
                       onNavigateTab('my_stats');
                     }}
-                    className="text-[9px] text-amber-300 hover:text-white flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all font-semibold cursor-pointer"
+                    className="text-[11px] text-amber-300 hover:text-white flex items-center gap-0.5 px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all font-semibold cursor-pointer"
                     title={t.tabMyStats}
                   >
                     <span>{t.tabMyStats}</span>
@@ -449,7 +587,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               {/* Logged in vs Guest */}
               {currentUser ? (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {/* Profile Banner */}
                   <div className="flex items-center justify-between p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80">
                     <div className="flex items-center gap-2 min-w-0">
@@ -458,14 +596,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-1 flex-wrap">
-                          <span className="text-[11px] font-bold text-slate-100 truncate">
+                          <span className="text-xs font-bold text-slate-100 truncate">
                             {currentUser.inGameName || currentUser.username}
                           </span>
-                          <span className="text-[8px] px-1 py-0.2 rounded font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40 uppercase">
+                          <span className="text-[9px] px-1 py-0.2 rounded font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40 uppercase">
                             {currentUser.role}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1 text-[9px] text-slate-400">
+                        <div className="flex items-center gap-1 text-[10px] text-slate-400">
                           <span className="font-semibold text-slate-300">{cleanClanName(currentUser.clan)}</span>
                           <span>•</span>
                           <span className="truncate">{currentUser.characterClass || 'Adventurer'}</span>
@@ -475,92 +613,49 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                     {/* Power Level Badge */}
                     <div className="text-right shrink-0">
-                      <div className="font-mono font-bold text-[11px] text-amber-300 flex items-center gap-0.5 justify-end drop-shadow">
-                        <Zap className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                      <div className="font-mono font-bold text-xs text-amber-300 flex items-center gap-0.5 justify-end drop-shadow">
+                        <Zap className="w-3 h-3 text-amber-400 fill-amber-400" />
                         <span>{Number(currentUser.powerLevel || 0).toLocaleString()} PL</span>
                       </div>
                       {userRankInClan ? (
-                        <span className="text-[8px] text-slate-400 font-medium">
+                        <span className="text-[9px] text-slate-300 font-medium">
                           {lang === 'th' ? `อันดับ #${userRankInClan.rank} ใน ${userRankInClan.clanName}` : `Rank #${userRankInClan.rank} in ${userRankInClan.clanName}`}
                         </span>
                       ) : (
-                        <span className="text-[8px] text-slate-500">
+                        <span className="text-[9px] text-slate-400">
                           {isUserStatsPending(currentUser) ? `⏳ ${t.myPowerStatusPending}` : `✓ ${t.myPowerStatusVerified}`}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Sub-block: Active Claims */}
+                  {/* Sub-block: Queues Waiting (คิวไอเทมที่รอรับ - 5 rows max then scroll) */}
                   <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[10px] font-semibold text-slate-300">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
                       <span className="flex items-center gap-1 text-slate-200">
-                        <Bookmark className="w-2.5 h-2.5 text-sky-400" />
-                        <span>{t.myActiveClaims}</span>
-                      </span>
-                      <span className="text-[9px] font-mono px-1 rounded-full bg-slate-800 text-sky-300 border border-slate-700">
-                        {userActiveClaims.length}
-                      </span>
-                    </div>
-
-                    {userActiveClaims.length === 0 ? (
-                      <div className="p-1 rounded bg-[#070b14] border border-slate-800/60 text-[9px] text-slate-500 text-center italic">
-                        {t.noActiveClaims}
-                      </div>
-                    ) : (
-                      <div className="space-y-0.5 max-h-14 overflow-y-auto pr-0.5">
-                        {userActiveClaims.map((item) => (
-                          <div
-                            key={item.id}
-                            className="flex items-center justify-between p-1 rounded bg-[#080d18] border border-slate-800/70 text-[10px]"
-                          >
-                            <div className="flex items-center gap-1 min-w-0 pr-1">
-                              <img
-                                src={item.imageUrl}
-                                alt={item.name}
-                                className="w-4 h-4 rounded object-cover border border-slate-700 shrink-0"
-                              />
-                              <span className="text-slate-200 font-medium truncate">{item.name}</span>
-                              <span className="text-[8px] font-bold font-mono px-0.5 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
-                                x{item.quantity || 1}
-                              </span>
-                            </div>
-                            <span className="text-[9px] font-mono text-amber-300 shrink-0">
-                              💎 {item.price.toLocaleString()}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Sub-block: Queues Waiting */}
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[10px] font-semibold text-slate-300">
-                      <span className="flex items-center gap-1 text-slate-200">
-                        <Crown className="w-2.5 h-2.5 text-purple-400" />
+                        <Crown className="w-3 h-3 text-purple-400" />
                         <span>{t.myQueuePositions}</span>
                       </span>
-                      <span className="text-[9px] font-mono px-1 rounded-full bg-slate-800 text-purple-300 border border-slate-700">
+                      <span className="text-[10px] font-mono px-1.5 rounded-full bg-slate-800 text-purple-300 border border-slate-700">
                         {userQueues.length}
                       </span>
                     </div>
 
                     {userQueues.length === 0 ? (
-                      <div className="p-1 rounded bg-[#070b14] border border-slate-800/60 text-[9px] text-slate-500 text-center italic">
+                      <div className="p-1.5 rounded bg-[#070b14] border border-slate-800/60 text-[10px] text-slate-400 text-center italic">
                         {t.noQueuesJoined}
                       </div>
                     ) : (
-                      <div className="space-y-0.5 max-h-14 overflow-y-auto pr-0.5">
+                      <div className="space-y-1 max-h-[148px] overflow-y-auto pr-0.5 custom-scrollbar">
                         {userQueues.map(({ item, rank, totalWaiting }) => (
                           <div
                             key={item.id}
-                            className="flex items-center justify-between p-1 rounded bg-[#080d18] border border-slate-800/70 text-[10px]"
+                            className="flex items-center justify-between p-1 rounded bg-[#080d18] border border-slate-800/70 hover:border-purple-500/40 transition-colors text-[11px]"
                           >
-                            <span className="text-slate-200 font-medium truncate pr-1">
+                            <span className="text-slate-200 font-medium truncate pr-1 text-[11px]">
                               {item.name}
                             </span>
-                            <span className="text-[9px] font-bold font-mono px-1.5 py-0.2 rounded-full bg-purple-950/70 border border-purple-500/50 text-purple-300 shrink-0">
+                            <span className="text-[10px] font-bold font-mono px-1.5 py-0.2 rounded-full bg-purple-950/70 border border-purple-500/50 text-purple-300 shrink-0">
                               #{rank} / {totalWaiting}
                             </span>
                           </div>
@@ -568,11 +663,60 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </div>
                     )}
                   </div>
+
+                  {/* Sub-block: Active Claims (ไอเทมที่ลงชื่อรอแจก - 5 rows max then scroll) */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+                      <span className="flex items-center gap-1 text-slate-200">
+                        <Bookmark className="w-3 h-3 text-sky-400" />
+                        <span>{t.myActiveClaims}</span>
+                      </span>
+                      <span className="text-[10px] font-mono px-1.5 rounded-full bg-slate-800 text-sky-300 border border-slate-700">
+                        {userActiveClaims.length}
+                      </span>
+                    </div>
+
+                    {userActiveClaims.length === 0 ? (
+                      <div className="p-1.5 rounded bg-[#070b14] border border-slate-800/60 text-[10px] text-slate-400 text-center italic">
+                        {t.noActiveClaims}
+                      </div>
+                    ) : (
+                      <div className="space-y-1 max-h-[148px] overflow-y-auto pr-0.5 custom-scrollbar">
+                        {userActiveClaims.map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex items-center justify-between p-1 rounded bg-[#080d18] border border-slate-800/70 hover:border-sky-500/40 transition-colors text-[11px]"
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0 pr-1">
+                              <img
+                                src={item.imageUrl}
+                                alt={item.name}
+                                className="w-4 h-4 rounded object-cover border border-slate-700 shrink-0"
+                              />
+                              <span className="text-slate-100 font-medium truncate text-[11px]">{item.name}</span>
+                              <span className="text-[9px] font-bold font-mono px-1 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                                x{item.quantity || 1}
+                              </span>
+                            </div>
+                            {item.price > 0 ? (
+                              <span className="text-[11px] font-mono text-amber-300 shrink-0 font-bold">
+                                💎 {item.price.toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-bold text-emerald-400 shrink-0">
+                                🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
-                <div className="py-4 text-center space-y-2">
+                <div className="py-5 text-center space-y-2">
                   <Lock className="w-5 h-5 mx-auto text-amber-400" />
-                  <p className="text-[10px] text-slate-400">
+                  <p className="text-[11px] text-slate-300">
                     {lang === 'th' ? 'เข้าสู่ระบบเพื่อดูสถานะของคุณ' : 'Log in to view your status'}
                   </p>
                   <button
@@ -581,7 +725,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       sounds.playClick();
                       onOpenAuth();
                     }}
-                    className="px-3 py-1 rounded-lg bg-gradient-to-r from-[#d4af37] to-[#aa841c] text-slate-950 font-bold text-[10px] shadow cursor-pointer"
+                    className="px-3 py-1 rounded-lg bg-gradient-to-r from-[#d4af37] to-[#aa841c] text-slate-950 font-bold text-[11px] shadow cursor-pointer"
                   >
                     {t.loginBtn}
                   </button>
@@ -590,42 +734,42 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          {/* WIDGET 2: TOP POWER LEADERBOARD (COMPACT) */}
-          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#a855f7]/30 hover:border-[#a855f7]/50 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group">
+          {/* BOX 2: TOP POWER LEADERBOARD (REDUCED SIZE) */}
+          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#a855f7]/30 hover:border-[#a855f7]/50 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group min-h-[225px]">
             <div className="absolute -right-8 -top-8 w-24 h-24 bg-purple-500/10 rounded-full blur-xl pointer-events-none" />
 
             <div>
               {/* Header */}
               <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-1.5">
                 <div className="flex items-center gap-1.5">
-                  <div className="p-1 rounded-lg bg-gradient-to-br from-yellow-500/20 to-amber-950/40 border border-amber-500/40 text-amber-300 shadow-sm">
+                  <div className="p-1 rounded-md bg-gradient-to-br from-yellow-500/20 to-amber-950/40 border border-amber-500/40 text-amber-300 shadow-sm">
                     <Trophy className="w-3.5 h-3.5 text-amber-400" />
                   </div>
                   <div>
-                    <h3 className="text-xs font-bold font-cinzel text-slate-100 flex items-center gap-1">
+                    <h3 className="text-xs sm:text-sm font-bold font-cinzel text-slate-100 flex items-center gap-1">
                       <span>{t.leaderboardTitle}</span>
                     </h3>
-                    <p className="text-[9px] text-slate-400">
+                    <p className="text-[10px] text-slate-400">
                       {t.leaderboardDesc}
                     </p>
                   </div>
                 </div>
 
-                <span className="text-[9px] font-bold text-amber-400 flex items-center gap-0.5">
+                <span className="text-[10px] font-bold text-amber-400 flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-amber-500/10 border border-amber-500/30">
                   <Crown className="w-2.5 h-2.5" />
                   <span>TOP 5</span>
                 </span>
               </div>
 
               {/* Clan Filter Pills */}
-              <div className="flex items-center gap-1 overflow-x-auto pb-1 mb-1.5 no-scrollbar text-[9px]">
+              <div className="flex items-center gap-1 overflow-x-auto pb-1 mb-1.5 no-scrollbar text-[11px]">
                 <button
                   type="button"
                   onClick={() => {
                     sounds.playClick();
                     setLeaderboardClanFilter('all');
                   }}
-                  className={`px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all cursor-pointer shrink-0 border ${
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer shrink-0 border ${
                     leaderboardClanFilter === 'all'
                       ? 'bg-purple-500 text-slate-950 border-purple-400 font-bold shadow-sm'
                       : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-slate-200'
@@ -641,7 +785,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       sounds.playClick();
                       setLeaderboardClanFilter(clanName);
                     }}
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-semibold transition-all cursor-pointer shrink-0 border ${
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer shrink-0 border ${
                       leaderboardClanFilter.toLowerCase() === clanName.toLowerCase()
                         ? 'bg-purple-500 text-slate-950 border-purple-400 font-bold shadow-sm'
                         : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-slate-200'
@@ -654,7 +798,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               {/* Top 5 List */}
               {topMembers.length === 0 ? (
-                <div className="py-6 text-center text-[10px] text-slate-500 space-y-1">
+                <div className="py-5 text-center text-[11px] text-slate-400 space-y-1">
                   <Trophy className="w-5 h-5 mx-auto text-slate-600 opacity-60" />
                   <p>{lang === 'th' ? 'ไม่พบข้อมูลสมาชิกในแคลนนี้' : 'No verified members found'}</p>
                 </div>
@@ -677,7 +821,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     return (
                       <div
                         key={m.id || idx}
-                        className={`flex items-center justify-between p-1 sm:p-1.5 rounded-lg border transition-all text-[11px] ${
+                        className={`flex items-center justify-between p-1 sm:p-1.5 rounded-lg border transition-all text-xs ${
                           isCurrentUser
                             ? 'bg-purple-950/40 border-purple-500/60 shadow-sm ring-1 ring-purple-500/30'
                             : idx === 0
@@ -685,7 +829,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             : 'bg-[#090e18] border-slate-800/80 hover:border-slate-700'
                         }`}
                       >
-                        <div className="flex items-center gap-1.5 min-w-0 pr-1.5">
+                        <div className="flex items-center gap-1.5 min-w-0 pr-1">
                           <div
                             className={`w-5 h-5 rounded flex items-center justify-center font-bold text-[10px] shrink-0 font-mono ${
                               idx === 0
@@ -703,19 +847,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <div className="min-w-0">
                             <div className="flex items-center gap-1 flex-wrap">
                               <span
-                                className={`font-bold truncate text-[11px] ${
-                                  isCurrentUser ? 'text-purple-200' : idx === 0 ? 'text-amber-200' : 'text-slate-200'
+                                className={`font-bold truncate text-xs ${
+                                  isCurrentUser ? 'text-purple-200' : idx === 0 ? 'text-amber-200' : 'text-slate-100'
                                 }`}
                               >
                                 {m.inGameName || m.username}
                               </span>
                               {isCurrentUser && (
-                                <span className="text-[7px] font-bold px-1 rounded bg-purple-500/30 text-purple-300 border border-purple-400/40">
+                                <span className="text-[8px] font-bold px-1 py-0.2 rounded bg-purple-500/30 text-purple-300 border border-purple-400/40">
                                   {lang === 'th' ? 'คุณ' : 'You'}
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-1 text-[9px] text-slate-400">
+                            <div className="flex items-center gap-1 text-[10px] text-slate-400">
                               <span className="font-semibold text-slate-300">{cleanClanName(m.clan)}</span>
                               <span>•</span>
                               <span className="truncate">{m.characterClass || 'Adventurer'}</span>
@@ -725,11 +869,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                         {/* Power Level */}
                         <div className="text-right shrink-0">
-                          <div className="font-mono font-bold text-[11px] text-amber-300 flex items-center gap-0.5 justify-end drop-shadow">
-                            <Zap className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                          <div className="font-mono font-bold text-xs text-amber-300 flex items-center gap-0.5 justify-end drop-shadow">
+                            <Zap className="w-3 h-3 text-amber-400 fill-amber-400" />
                             <span>{Number(m.powerLevel || 0).toLocaleString()}</span>
                           </div>
-                          <span className="text-[8px] text-slate-500 font-mono">PL</span>
+                          <span className="text-[9px] text-slate-400 font-mono">PL</span>
                         </div>
                       </div>
                     );
@@ -739,53 +883,53 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          {/* WIDGET 3: RECENT DISTRIBUTION FEED (COMPACT) */}
-          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#38bdf8]/30 hover:border-[#38bdf8]/50 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group">
+          {/* BOX 3: RECENT DISTRIBUTION FEED (REDUCED SIZE) */}
+          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#38bdf8]/30 hover:border-[#38bdf8]/50 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group min-h-[225px]">
             <div className="absolute -right-8 -top-8 w-24 h-24 bg-sky-500/10 rounded-full blur-xl pointer-events-none" />
 
             <div>
               {/* Header */}
-              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-2">
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-1.5">
                 <div className="flex items-center gap-1.5">
-                  <div className="p-1 rounded-lg bg-gradient-to-br from-sky-500/20 to-sky-950/40 border border-sky-500/40 text-sky-400 shadow-sm">
+                  <div className="p-1 rounded-md bg-gradient-to-br from-sky-500/20 to-sky-950/40 border border-sky-500/40 text-sky-400 shadow-sm">
                     <Gift className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <h3 className="text-xs font-bold font-cinzel text-slate-100 flex items-center gap-1">
+                    <h3 className="text-xs sm:text-sm font-bold font-cinzel text-slate-100 flex items-center gap-1">
                       <span>{t.recentDistributionsTitle}</span>
                     </h3>
-                    <p className="text-[9px] text-slate-400">
+                    <p className="text-[10px] text-slate-400">
                       {t.recentDistributionsDesc}
                     </p>
                   </div>
                 </div>
 
-                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-sky-950/70 text-sky-300 border border-sky-500/40">
+                <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-sky-950/70 text-sky-300 border border-sky-500/40 font-bold">
                   {distributedItems.length} {lang === 'th' ? 'ชิ้น' : 'items'}
                 </span>
               </div>
 
               {/* List */}
               {recentDistributedList.length === 0 ? (
-                <div className="py-6 text-center text-[10px] text-slate-500 space-y-1">
-                  <Gift className="w-6 h-6 mx-auto text-slate-600 opacity-60" />
+                <div className="py-5 text-center text-[11px] text-slate-400 space-y-1">
+                  <Gift className="w-5 h-5 mx-auto text-slate-600 opacity-60" />
                   <p>{t.noRecentDistributions}</p>
                 </div>
               ) : (
-                <div className="space-y-1.5">
+                <div className="space-y-1 max-h-[148px] overflow-y-auto pr-0.5">
                   {recentDistributedList.map((item) => (
                     <div
                       key={item.id}
                       className="flex items-center justify-between p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80 hover:border-sky-500/30 transition-all text-xs group/item"
                     >
-                      <div className="flex items-center gap-2 min-w-0 pr-1.5">
+                      <div className="flex items-center gap-2 min-w-0 pr-1">
                         <button
                           type="button"
                           onClick={() => {
                             sounds.playClick();
                             onViewImage?.(item.imageUrl, item.name);
                           }}
-                          className="w-8 h-8 rounded-md overflow-hidden border border-slate-700 group-hover/item:border-sky-400 shrink-0 cursor-pointer shadow-sm relative transition-all"
+                          className="w-7 h-7 sm:w-8 sm:h-8 rounded-md overflow-hidden border border-slate-700 group-hover/item:border-sky-400 shrink-0 cursor-pointer shadow-sm relative transition-all"
                           title={t.zoomImage}
                         >
                           <img
@@ -797,14 +941,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                         <div className="min-w-0">
                           <div className="flex items-center gap-1 flex-wrap">
-                            <span className="font-bold text-slate-100 text-[11px] truncate max-w-[120px]">
+                            <span className="font-bold text-slate-100 text-xs truncate max-w-[120px]">
                               {item.name}
                             </span>
-                            <span className="text-[8px] font-mono font-bold px-1 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                            <span className="text-[9px] font-mono font-bold px-1 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
                               x{item.quantity || 1}
                             </span>
                             <span
-                              className={`text-[7px] font-bold px-1 py-0.2 rounded border uppercase ${getRarityBadge(
+                              className={`text-[8px] font-bold px-1 py-0.2 rounded border uppercase ${getRarityBadge(
                                 item.rarity
                               )}`}
                             >
@@ -812,13 +956,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-1 text-[9px] text-slate-400 mt-0.5">
+                          <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-0.2">
                             <span>{t.distributedToMember}</span>
                             <strong className="text-amber-300 font-semibold truncate max-w-[90px]">
                               {item.distributedTo?.name || 'Member'}
                             </strong>
                             {item.distributedTo?.clan && (
-                              <span className="text-slate-500 truncate">
+                              <span className="text-slate-400 truncate">
                                 ({cleanClanName(item.distributedTo.clan)})
                               </span>
                             )}
@@ -827,10 +971,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </div>
 
                       <div className="text-right shrink-0">
-                        <div className="text-[10px] font-mono font-bold text-white">
-                          💎 {item.price.toLocaleString()}
+                        <div className="text-xs font-mono font-bold text-white">
+                          {item.price > 0 ? `💎 ${item.price.toLocaleString()}` : `🎁 ${t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}`}
                         </div>
-                        <div className="text-[8px] text-slate-500 font-mono mt-0.5">
+                        <div className="text-[9px] text-slate-400 font-mono mt-0.2">
                           {formatTimeAgo(item.distributedTo?.distributedAt || item.createdAt)}
                         </div>
                       </div>
@@ -918,7 +1062,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Stat Update Alert Banner for members who haven't updated stats */}
-        {currentUser && !hasUserUpdatedStats(currentUser) && (
+        {currentUser && !isAdminOrOwner && !hasUserUpdatedStats(currentUser) && (
           <div className="p-3.5 sm:p-4 rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-[#181308] to-[#0d121f] text-slate-200 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in duration-200">
             <div className="flex items-start gap-3 min-w-0">
               <div className="p-2 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-400 shrink-0 mt-0.5 sm:mt-0">
@@ -976,135 +1120,141 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {filterAvailableToMe ? (
               <button
                 onClick={() => setFilterAvailableToMe(false)}
-                className="text-xs text-amber-400 hover:underline"
+                className="text-xs text-amber-400 hover:underline cursor-pointer"
               >
                 {lang === 'th' ? 'แสดงไอเทมทั้งหมด' : 'Show all items'}
               </button>
             ) : isAdminOrOwner && (
               <button
                 onClick={() => onNavigateTab('vault')}
-                className="text-xs text-[#f5d77f] hover:underline"
+                className="text-xs text-[#f5d77f] hover:underline cursor-pointer"
               >
                 + {t.addNewItem}
               </button>
             )}
           </div>
         ) : (
-          <div className="rounded-xl border border-[#23314f] bg-gradient-to-b from-[#101726] via-[#0c121e] to-[#070b14] shadow-xl overflow-hidden">
-            <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
-              <table className="w-full text-left border-collapse min-w-[680px]">
-                <thead className="sticky top-0 z-10 bg-[#090e1a]/95 backdrop-blur-sm shadow-sm">
-                  <tr className="border-b border-[#1f2d47] text-[10px] font-bold tracking-wider text-[#d4af37] uppercase font-cinzel">
-                    <th className="py-2 px-3 w-14 text-center">{t.itemImage}</th>
-                    <th className="py-2 px-3 min-w-[150px]">{t.itemName}</th>
-                    <th className="py-2 px-3 min-w-[110px]">{t.itemPrice}</th>
-                    <th className="py-2 px-3 min-w-[140px]">{t.itemMinPower}</th>
-                    <th className="py-2 px-3 text-center min-w-[80px]">{t.claimCount}</th>
-                    <th className="py-2 px-3 text-right min-w-[160px]">{t.actions}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#18233a]/70 text-xs">
-                  {displayedAvailableItems.map((item) => {
-                    const hasClaimed = Boolean(
-                      currentUser &&
-                      item.claimants?.some(
-                        (c) =>
-                          (c.userId && c.userId === currentUser.id) ||
-                          (c.inGameName &&
-                            currentUser.inGameName &&
-                            c.inGameName.trim().toLowerCase() ===
-                              currentUser.inGameName.trim().toLowerCase())
-                      )
-                    );
-                    const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
-                    const hasStats = hasUserUpdatedStats(currentUser);
-                    const isStatsPendingState = isUserStatsPending(currentUser);
-                    const userPower = Number(currentUser?.powerLevel || 0);
-                    const hasEnoughPower = isPrivileged || (hasStats && userPower >= Number(item.minPowerLevel || 0));
+          <div className="max-h-[640px] overflow-y-auto pr-1 custom-scrollbar">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+              {displayedAvailableItems.map((item) => {
+                const hasClaimed = Boolean(
+                  currentUser &&
+                  item.claimants?.some(
+                    (c) =>
+                      (c.userId && c.userId === currentUser.id) ||
+                      (c.inGameName &&
+                        currentUser.inGameName &&
+                        c.inGameName.trim().toLowerCase() ===
+                          currentUser.inGameName.trim().toLowerCase())
+                  )
+                );
+                const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+                const hasStats = hasUserUpdatedStats(currentUser);
+                const isStatsPendingState = isUserStatsPending(currentUser);
+                const userPower = Number(currentUser?.powerLevel || 0);
+                const hasEnoughPower = isPrivileged || (hasStats && userPower >= Number(item.minPowerLevel || 0));
 
-                    return (
-                      <tr
-                        key={item.id}
-                        className="hover:bg-[#121c2e]/70 transition-colors group"
-                      >
-                        {/* 1. Item Image (Compact & Zoomable) */}
-                        <td className="py-1.5 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              sounds.playClick();
-                              onViewImage?.(item.imageUrl, item.name);
-                            }}
-                            title={t.zoomImage}
-                            className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-lg overflow-hidden border bg-[#080d18] mx-auto cursor-pointer shadow-sm group-hover:scale-105 transition-transform block shrink-0 ${getRarityBorder(
+                return (
+                  <div
+                    key={item.id}
+                    className={`p-2 sm:p-2.5 rounded-xl bg-gradient-to-b from-[#101726] via-[#0c121e] to-[#070b14] border border-[#23314f] hover:border-[#d4af37]/60 transition-all duration-200 flex items-center gap-2.5 shadow-md group relative ${getRarityBorder(
+                      item.rarity
+                    )}`}
+                  >
+                    {/* Left: Thumbnail Image */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        onViewImage?.(item.imageUrl, item.name);
+                      }}
+                      title={t.zoomImage}
+                      className={`relative w-11 h-11 rounded-lg overflow-hidden border bg-[#080d18] cursor-pointer shadow-sm group-hover:scale-105 transition-transform block shrink-0 ${getRarityBorder(
+                        item.rarity
+                      )}`}
+                    >
+                      <img
+                        src={item.imageUrl}
+                        alt={item.name}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Eye className="w-3.5 h-3.5 text-white drop-shadow" />
+                      </div>
+                    </button>
+
+                    {/* Right: Exactly 2 Lines per item */}
+                    <div className="flex-1 min-w-0 flex flex-col justify-between gap-1.5">
+                      {/* Line 1: [Rarity] Item Name xQty + Price */}
+                      <div className="flex items-center justify-between gap-1.5 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0 truncate">
+                          <span
+                            className={`text-[8px] font-bold px-1.5 py-0.2 rounded border uppercase tracking-wider shrink-0 ${getRarityBadge(
                               item.rarity
                             )}`}
                           >
-                            <img
-                              src={item.imageUrl}
-                              alt={item.name}
-                              className="w-full h-full object-cover"
-                            />
-                          </button>
-                        </td>
-
-                        {/* 2. Name & Rarity */}
-                        <td className="py-1.5 px-3">
-                          <div className="flex flex-col gap-0.5 max-w-[220px]">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-xs sm:text-sm font-bold text-slate-100 group-hover:text-[#f5d77f] transition-colors truncate">
-                                {item.name}
-                              </span>
-                              <span className="text-[10px] font-bold font-mono px-1.5 py-0.2 rounded-md bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
-                                x{item.quantity || 1}
-                              </span>
-                            </div>
-                            <span
-                              className={`self-start text-[8.5px] font-bold px-1.5 py-0.2 rounded border uppercase tracking-wider ${getRarityBadge(
-                                item.rarity
-                              )}`}
-                            >
-                              {item.rarity}
+                            {item.rarity}
+                          </span>
+                          <h4
+                            className="text-xs font-bold text-slate-100 group-hover:text-[#f5d77f] transition-colors truncate"
+                            title={item.name}
+                          >
+                            {item.name}
+                          </h4>
+                          {item.quantity && item.quantity > 1 && (
+                            <span className="text-[9px] font-bold font-mono px-1 py-0.2 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 shrink-0">
+                              x{item.quantity}
                             </span>
-                          </div>
-                        </td>
+                          )}
+                        </div>
 
-                        {/* 3. Price */}
-                        <td className="py-1.5 px-3">
-                          <div className="flex items-center gap-1 font-mono font-bold text-xs sm:text-sm text-white">
-                            <Gem className="w-3.5 h-3.5 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)] shrink-0" />
-                            <span>{item.price.toLocaleString()}</span>
-                            <span className="text-[10px] text-slate-400 font-normal">
-                              {t.diamonds}
-                            </span>
-                          </div>
-                        </td>
-
-                        {/* 4. Min Power (PL) */}
-                        <td className="py-1.5 px-3">
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-1 font-mono font-bold text-xs text-amber-300">
-                              <Zap className="w-3 h-3 text-amber-400 shrink-0" />
-                              <span>⚡ {item.minPowerLevel.toLocaleString()} PL</span>
+                        {/* Price */}
+                        <div className="shrink-0 ml-1">
+                          {item.price > 0 ? (
+                            <div className="flex items-center gap-0.5 font-mono font-bold text-xs text-white">
+                              <Gem className="w-3 h-3 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)] shrink-0" />
+                              <span>{item.price.toLocaleString()}</span>
                             </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                              🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Line 2: Min PL + Claimants + Action Buttons */}
+                      <div className="flex items-center justify-between gap-1 min-w-0">
+                        {/* Left: Min Power (PL) & Claimants Count */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <div
+                            className="flex items-center gap-0.5 text-[10px] font-mono"
+                            title={`Min Power: ${item.minPowerLevel.toLocaleString()} PL`}
+                          >
+                            <Zap className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                            <span className="text-amber-300 font-bold">{item.minPowerLevel.toLocaleString()}</span>
                             {currentUser && (
-                              <div className="text-[9px]">
+                              <span className="text-[8.5px] ml-0.5 font-bold">
                                 {hasEnoughPower ? (
-                                  <span className="text-emerald-400 font-medium">
-                                    ✓ {t.eligibleToClaim} (⚡ {userPower.toLocaleString()} PL)
+                                  <span
+                                    className="text-emerald-400"
+                                    title={`⚡ ${userPower.toLocaleString()} PL: ${lang === 'th' ? 'ถึงเกณฑ์' : 'Eligible'}`}
+                                  >
+                                    ✓
                                   </span>
                                 ) : (
-                                  <span className="text-red-400 font-medium">
-                                    ✗ {t.insufficientPower} (⚡ {userPower.toLocaleString()} PL)
+                                  <span
+                                    className="text-red-400"
+                                    title={`⚡ ${userPower.toLocaleString()} PL: ${lang === 'th' ? 'ไม่ถึงเกณฑ์' : 'Low PL'}`}
+                                  >
+                                    ✗
                                   </span>
                                 )}
-                              </div>
+                              </span>
                             )}
                           </div>
-                        </td>
 
-                        {/* 5. Claimants */}
-                        <td className="py-1.5 px-3 text-center">
+                          {/* Claimants Button */}
                           <button
                             type="button"
                             id={`btn-view-claimants-${item.id}`}
@@ -1112,169 +1262,174 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               sounds.playClick();
                               if (onViewClaimants) onViewClaimants(item);
                             }}
-                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#0d1524] hover:bg-[#16243d] border border-slate-700/60 hover:border-sky-500/60 text-slate-300 hover:text-white transition-all cursor-pointer shadow-sm group"
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[#0d1524] hover:bg-[#16243d] border border-slate-700/60 hover:border-sky-500/60 text-slate-300 hover:text-white transition-all cursor-pointer shadow-sm text-[10px] group/btn"
                             title={lang === 'th' ? 'คลิกดูรายชื่อผู้ลงชื่อเครม' : 'Click to view claimants list'}
                           >
-                            <Users className="w-3 h-3 text-sky-400 group-hover:scale-110 transition-transform" />
-                            <span className="font-bold text-sky-300 font-mono text-xs">
+                            <Users className="w-2.5 h-2.5 text-sky-400 group-hover/btn:scale-110 transition-transform" />
+                            <span className="font-bold text-sky-300 font-mono">
                               {item.claimants?.length || 0}
                             </span>
-                            <span className="text-[9px] text-slate-400 group-hover:text-slate-200">
+                            <span className="text-[8.5px] text-slate-400">
                               {lang === 'th' ? 'คน' : 'p'}
                             </span>
-                            <Eye className="w-2.5 h-2.5 text-sky-400 opacity-60 group-hover:opacity-100 transition-opacity ml-0.5" />
                           </button>
-                        </td>
+                        </div>
 
-                        {/* 6. Action */}
-                        <td className="py-1.5 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {/* Member Claim Button / Status */}
-                            {!currentUser ? (
-                              <button
-                                onClick={() => {
-                                  sounds.playClick();
-                                  onOpenAuth();
-                                }}
-                                className="px-2.5 py-1 rounded-lg bg-[#1a2538] hover:bg-[#233149] text-[11px] font-bold text-[#f5d77f] border border-[#d4af37]/30 transition-all"
-                              >
-                                {t.login}
-                              </button>
-                            ) : hasClaimed ? (
-                              <div className="flex items-center gap-1">
-                                <div className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-950/50 border border-emerald-700/50 text-emerald-300 text-[11px] font-bold">
-                                  <CheckCircle className="w-3 h-3 text-emerald-400" />
-                                  <span>{t.alreadyClaimed}</span>
-                                </div>
-                                {onUnclaimItem && (
-                                  <button
-                                    type="button"
-                                    id={`btn-unclaim-dashboard-${item.id}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      sounds.playClick();
-                                      onUnclaimItem(item.id);
-                                    }}
-                                    className="px-2 py-1 rounded-lg bg-red-950/70 hover:bg-red-900 border border-red-800/70 text-red-300 hover:text-white text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 shadow-sm active:scale-95"
-                                    title={t.cancelClaimBtn}
-                                  >
-                                    <X className="w-3 h-3 text-red-400" />
-                                    <span className="hidden sm:inline">{t.cancelClaimBtn}</span>
-                                  </button>
-                                )}
-                              </div>
-                            ) : !currentUser ? (
-                              <button
-                                id={`btn-claim-${item.id}`}
-                                onClick={() => onOpenAuth()}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 btn-l2m-gold text-slate-950 shadow-md cursor-pointer active:scale-95"
-                              >
-                                <Sparkles className="w-3 h-3" />
-                                <span>{t.claimItemBtn}</span>
-                              </button>
-                            ) : !hasStats && !isPrivileged ? (
-                              <button
-                                id={`btn-claim-${item.id}`}
-                                onClick={() => {
-                                  sounds.playClick();
-                                  setStatWarningModalItem(item);
-                                }}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-sm cursor-pointer active:scale-95"
-                                title={isStatsPendingState ? t.statsPendingBadge : t.updateStatsFirst}
-                              >
-                                {isStatsPendingState ? (
-                                  <>
-                                    <Clock className="w-3 h-3 text-amber-400 animate-pulse" />
-                                    <span>{t.statsPendingBadge}</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <AlertCircle className="w-3 h-3 text-amber-400" />
-                                    <span>{t.updateStatsFirst}</span>
-                                  </>
-                                )}
-                              </button>
-                            ) : (
-                              <button
-                                id={`btn-claim-${item.id}`}
-                                disabled={!hasEnoughPower}
-                                onClick={() => {
-                                  sounds.playClaim();
-                                  onClaimItem(item.id);
-                                }}
-                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 ${
-                                  hasEnoughPower
-                                    ? 'btn-l2m-gold text-slate-950 font-bold shadow-md cursor-pointer active:scale-95'
-                                    : 'bg-slate-800/60 text-slate-500 border border-slate-700/40 cursor-not-allowed'
-                                }`}
-                              >
-                                {hasEnoughPower ? (
-                                  <>
-                                    <Sparkles className="w-3 h-3" />
-                                    <span>{t.claimItemBtn}</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Lock className="w-3 h-3" />
-                                    <span>{t.insufficientPower}</span>
-                                  </>
-                                )}
-                              </button>
-                            )}
+                        {/* Right: Action Buttons */}
+                        <div className="flex items-center gap-1 shrink-0 justify-end">
+                          {!currentUser ? (
+                            <button
+                              onClick={() => {
+                                sounds.playClick();
+                                onOpenAuth();
+                              }}
+                              className="px-2 py-0.5 rounded bg-[#1a2538] hover:bg-[#233149] text-[10px] font-bold text-[#f5d77f] border border-[#d4af37]/30 transition-all cursor-pointer"
+                            >
+                              {t.login}
+                            </button>
+                          ) : hasClaimed ? (
+                            <div className="flex items-center gap-1">
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-700/50 text-emerald-300 text-[10px] font-bold">
+                                <CheckCircle className="w-2.5 h-2.5 text-emerald-400" />
+                                <span>{t.alreadyClaimed}</span>
+                              </span>
+                              {onUnclaimItem && (
+                                <button
+                                  type="button"
+                                  id={`btn-unclaim-dashboard-${item.id}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    sounds.playClick();
+                                    onUnclaimItem(item.id);
+                                  }}
+                                  className="p-1 rounded bg-red-950/70 hover:bg-red-900 border border-red-800/70 text-red-300 hover:text-white text-[10px] font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
+                                  title={t.cancelClaimBtn}
+                                >
+                                  <X className="w-2.5 h-2.5 text-red-400" />
+                                </button>
+                              )}
+                            </div>
+                          ) : !hasStats && !isPrivileged ? (
+                            <button
+                              id={`btn-claim-${item.id}`}
+                              onClick={() => {
+                                sounds.playClick();
+                                setStatWarningModalItem(item);
+                              }}
+                              className="px-2 py-0.5 rounded text-[10px] font-semibold transition-all flex items-center gap-0.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-sm cursor-pointer active:scale-95"
+                              title={isStatsPendingState ? t.statsPendingBadge : t.updateStatsFirst}
+                            >
+                              {isStatsPendingState ? (
+                                <>
+                                  <Clock className="w-2.5 h-2.5 text-amber-400 animate-pulse" />
+                                  <span className="hidden sm:inline">{t.statsPendingBadge}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <AlertCircle className="w-2.5 h-2.5 text-amber-400" />
+                                  <span className="hidden sm:inline">{t.updateStatsFirst}</span>
+                                </>
+                              )}
+                            </button>
+                          ) : (
+                            <button
+                              id={`btn-claim-${item.id}`}
+                              disabled={!hasEnoughPower}
+                              onClick={() => {
+                                sounds.playClaim();
+                                onClaimItem(item.id);
+                              }}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all flex items-center gap-0.5 ${
+                                hasEnoughPower
+                                  ? 'btn-l2m-gold text-slate-950 font-bold shadow-sm cursor-pointer active:scale-95'
+                                  : 'bg-slate-800/60 text-slate-500 border border-slate-700/40 cursor-not-allowed'
+                              }`}
+                            >
+                              {hasEnoughPower ? (
+                                <>
+                                  <Sparkles className="w-2.5 h-2.5" />
+                                  <span>{t.claimItemBtn}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Lock className="w-2.5 h-2.5" />
+                                  <span>{t.insufficientPower}</span>
+                                </>
+                              )}
+                            </button>
+                          )}
 
-                            {/* Admin / Owner Distribute Button */}
-                            {isAdminOrOwner && (
-                              <button
-                                id={`btn-distribute-${item.id}`}
-                                onClick={() => {
-                                  sounds.playClick();
-                                  onOpenDistributeModal(item);
-                                }}
-                                className="px-2.5 py-1 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white text-[11px] font-bold transition-all flex items-center gap-1 shadow-md cursor-pointer shrink-0"
-                                title={t.distributeItemBtn}
-                              >
-                                <Gift className="w-3 h-3" />
-                                <span className="hidden sm:inline">{t.distributeItemBtn}</span>
-                              </button>
-                            )}
+                          {/* Admin / Owner Distribute Button */}
+                          {isAdminOrOwner && (
+                            <button
+                              id={`btn-distribute-${item.id}`}
+                              onClick={() => {
+                                sounds.playClick();
+                                onOpenDistributeModal(item);
+                              }}
+                              className="p-1 rounded bg-[#0284c7] hover:bg-[#0369a1] text-white transition-all shadow-sm cursor-pointer shrink-0"
+                              title={t.distributeItemBtn}
+                            >
+                              <Gift className="w-3 h-3" />
+                            </button>
+                          )}
 
-                            {/* Admin / Owner Edit Button */}
-                            {isAdminOrOwner && onEditItem && (
-                              <button
-                                id={`btn-edit-active-item-${item.id}`}
-                                onClick={() => {
-                                  sounds.playClick();
-                                  onEditItem(item);
-                                }}
-                                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm cursor-pointer shrink-0"
-                                title={t.editItem}
-                              >
-                                <Edit2 className="w-3 h-3" />
-                                <span className="hidden sm:inline">{t.editItem}</span>
-                              </button>
-                            )}
+                          {/* Admin / Owner Edit Button */}
+                          {isAdminOrOwner && onEditItem && (
+                            <button
+                              id={`btn-edit-active-item-${item.id}`}
+                              onClick={() => {
+                                sounds.playClick();
+                                onEditItem(item);
+                              }}
+                              className="p-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-all shadow-sm cursor-pointer shrink-0"
+                              title={t.editItem}
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          )}
 
-                            {/* Admin / Owner Delete Active Item Button */}
-                            {isAdminOrOwner && onDeleteItem && (
-                              <button
-                                id={`btn-delete-active-item-${item.id}`}
-                                onClick={() => {
-                                  sounds.playClick();
-                                  setItemToDelete(item);
-                                }}
-                                className="p-1 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95 shrink-0"
-                                title={lang === 'th' ? 'ลบไอเทมนี้' : 'Delete item'}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          {/* Owner Broadcast to Discord Button */}
+                          {isOwner && onBroadcastToDiscord && (
+                            <button
+                              id={`btn-discord-broadcast-${item.id}`}
+                              disabled={broadcastingItemId === item.id}
+                              onClick={async () => {
+                                sounds.playClick();
+                                setBroadcastingItemId(item.id);
+                                try {
+                                  await onBroadcastToDiscord(item);
+                                } finally {
+                                  setBroadcastingItemId(null);
+                                }
+                              }}
+                              className="p-1 rounded bg-[#5865F2]/20 hover:bg-[#5865F2]/35 text-[#8ea1e1] hover:text-white border border-[#5865F2]/50 transition-all shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
+                              title={t.sendToDiscord || 'ส่งไป Discord'}
+                            >
+                              <MessageSquare className="w-3 h-3 text-[#5865F2]" />
+                            </button>
+                          )}
+
+                          {/* Admin / Owner Delete Active Item Button */}
+                          {isAdminOrOwner && onDeleteItem && (
+                            <button
+                              id={`btn-delete-active-item-${item.id}`}
+                              onClick={() => {
+                                sounds.playClick();
+                                setItemToDelete(item);
+                              }}
+                              className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95 shrink-0"
+                              title={lang === 'th' ? 'ลบไอเทมนี้' : 'Delete item'}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

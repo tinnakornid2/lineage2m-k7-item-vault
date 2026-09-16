@@ -25,6 +25,34 @@ export type CharacterClass = string;
 
 export type ItemRarity = 'RARE' | 'EPIC' | 'LAGEND' | 'MYTHIC';
 
+export const getRarityBadge = (r: ItemRarity) => {
+  switch (r) {
+    case 'MYTHIC':
+      return 'bg-amber-500/20 text-amber-300 border-amber-500/60 glow-mythic';
+    case 'LAGEND':
+      return 'bg-purple-500/20 text-purple-300 border-purple-500/60 glow-legend';
+    case 'EPIC':
+      return 'bg-red-500/20 text-red-300 border-red-500/60 glow-epic';
+    case 'RARE':
+    default:
+      return 'bg-sky-500/20 text-sky-300 border-sky-500/60 glow-rare';
+  }
+};
+
+export const getRarityBorder = (r: ItemRarity) => {
+  switch (r) {
+    case 'MYTHIC':
+      return 'border-[#eab308]/60 hover:border-[#eab308]';
+    case 'LAGEND':
+      return 'border-[#a855f7]/60 hover:border-[#a855f7]';
+    case 'EPIC':
+      return 'border-[#ef4444]/60 hover:border-[#ef4444]';
+    case 'RARE':
+    default:
+      return 'border-[#38bdf8]/60 hover:border-[#38bdf8]';
+  }
+};
+
 export type UserRole = 'owner' | 'admin' | 'manager' | 'party_leader' | 'member';
 
 export type UserStatus = 'active' | 'pending_approval';
@@ -234,6 +262,7 @@ export const DEFAULT_CLAN = 'VoltZ';
  */
 export function hasUserUpdatedStats(user?: User | null): boolean {
   if (!user) return false;
+  if (user.role === 'owner') return true;
   if (typeof user.powerLevel === 'number' && user.powerLevel > 0) return true;
   if (user.stats && typeof user.stats === 'object') {
     return Object.values(user.stats).some((v) => typeof v === 'number' && v > 0);
@@ -267,15 +296,33 @@ export interface AnnouncementSettings {
   updatedAt?: number;
 }
 
+export type DiscordMentionType = 'none' | 'everyone' | 'role';
+
 export interface DiscordSettings {
   webhookUrl: string;
+  appBaseUrl?: string;
   enabled: boolean;
   notifyOnNewItem: boolean;
   notifyOnDistribute: boolean;
   notifyOnStatRequest?: boolean;
+  mentionType?: DiscordMentionType;
+  mentionRoleId?: string;
+  mentionEveryone?: boolean;
   botName?: string;
   updatedBy?: string;
   updatedAt?: number;
+}
+
+export interface AppNotification {
+  id: string;
+  type: 'claim' | 'stat_request';
+  title: string;
+  description: string;
+  timestamp: number;
+  read: boolean;
+  item?: VaultItem;
+  claimant?: Claimant;
+  user?: User;
 }
 
 // ─────────────────────────────────────────────────────────────
