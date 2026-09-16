@@ -65,7 +65,7 @@ const firebaseConfig = {
 // Initialize Firebase App
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
-const useFirebaseEmulators = import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true';
+const useFirebaseEmulators = (import.meta as any).env?.VITE_USE_FIREBASE_EMULATORS === 'true';
 
 // Initialize Firestore with Persistent Local Cache (IndexedDB)
 // This saves up to 70-90% of Firestore reads by serving cached data directly from browser storage
