@@ -48,16 +48,19 @@
 - ไฟล์ที่เกี่ยวข้อง: [`src/components/DashboardView.tsx`](file:///d:/Anti%20webapp/src/components/DashboardView.tsx)
 - ปรับ Grid Layout ของกล่องไอเทมเปิดรับบนหน้า Dashboard ให้แสดงเป็นแถวละ 4 ชิ้นบนจอ Desktop:
   ```tsx
-  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-3.5">
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
   ```
-- ย่อขยายตาม Responsive Breakpoints ได้ราบรื่น (มือถือ 1 คอลัมน์, แท็บเล็ต 2-3 คอลัมน์, เดสก์ท็อป 4 คอลัมน์)
+- ย่อขยายตาม Responsive Breakpoints ได้ราบรื่น (มือถือ 1 คอลัมน์, แท็บเล็ต 2 คอลัมน์, จอขนาดกลาง 3 คอลัมน์, เดสก์ท็อปขนาดใหญ่ 4 คอลัมน์)
 
-### 4. การ์ดไอเทมเปิดรับแบบกะทัดรัด 2 บรรทัด (Compact 2-Line Item Cards beside Thumbnail)
+### 4. การ์ดไอเทมเปิดรับแบบกะทัดรัด 2 บรรทัด & ป้องกันปุ่มล้นจอ (Compact 2-Line Item Cards & Responsive Mini Toolbar)
 - ไฟล์ที่เกี่ยวข้อง: [`src/components/DashboardView.tsx`](file:///d:/Anti%20webapp/src/components/DashboardView.tsx)
 - ปรับการ์ดไอเทมเปิดรับแต่ละชิ้น ให้มีความสูงกะทัดรัด ตัวหนังสือข้างรูป Thumbnail จัดเป็น 2 บรรทัดชัดเจน:
   - **บรรทัดที่ 1:** ชื่อไอเทม (ตัวหนา เด่นชัด ตัดข้อความยาวด้วย truncate พร้อมเงาสีตามเกรด) + ป้ายระดับความหายาก (Mythic, Legend, Epic, Rare)
   - **บรรทัดที่ 2:** ราคาเพชร (หรือป้าย FREE) + เกณฑ์พลังขั้นต่ำ (Min PL) + จำนวนผู้ลงชื่อเคลม
-- ปุ่ม Action (ลงชื่อขอรับ, ยกเลิก, แก้ไข, แจกจ่าย, ลบ) จัดเรียงอย่างเป็นสัดส่วนไม่กินพื้นที่
+- **ป้องกันปุ่มล้นขอบการ์ดเมื่อย่อหน้าจอ:**
+  - เพิ่ม `overflow-hidden min-w-0` ให้กับตัวการ์ด และใส่ `flex-wrap` ให้กับบรรทัดที่ 2
+  - รวมปุ่มจัดการของแอดมิน (แจกจ่าย, แก้ไข, ส่งดิสคอร์ด, ลบ) เข้าเป็น **Admin Mini Toolbar** ชิ้นเดียว (`inline-flex items-center gap-0.5 p-0.5 rounded-md bg-slate-900/90 border border-slate-700/60`) ประหยัดพื้นที่ลงกว่า 45%
+  - ปรับคำบนปุ่มขอรับให้กระชับ: `lang === 'th' ? 'ขอรับ' : 'Claim'` และ `lang === 'th' ? 'พลังไม่ถึง' : 'Low PL'`
 
 ### 5. ปรับแต่งการแท็กแจ้งเตือน Discord ตาม Role ID / @everyone / ไม่แท็ก (Discord Role Mentions)
 - ไฟล์ที่เกี่ยวข้อง:
@@ -75,6 +78,12 @@
 ### 6. ส่งแจ้งเตือน Discord อัตโนมัติเมื่อมีการลงไอเทมใหม่ (Auto Notify on New Vault Items)
 - ทั้ง Admin และ Owner เมื่อเพิ่มไอเทมใหม่เข้าคลัง ระบบจะส่งข้อความ Embed การ์ดไอเทมใหม่ไปยังห้อง Discord ที่ตั้งค่าไว้โดยอัตโนมัติ พร้อมแท็ก Role ID หรือ @everyone ตามที่ตั้งค่าไว้
 - ข้อความแจ้งเตือน Discord กำหนดเป็นภาษาอังกฤษสากลมาตรฐาน ส่วน UI การตั้งค่าในเว็บเป็น 2 ภาษา (TH/EN) 100%
+
+### 7. ระบบป้องกันข้อมูลสูญหายจาก Firestore Quota Exceeded (Persistent Local Caching & Backup)
+- ไฟล์ที่เกี่ยวข้อง: [`src/services/firebase.ts`](file:///d:/Anti%20webapp/src/services/firebase.ts), [`src/data/realBackupMembers.ts`](file:///d:/Anti%20webapp/src/data/realBackupMembers.ts), [`src/App.tsx`](file:///d:/Anti%20webapp/src/App.tsx)
+- แก้ปัญหาโควตาอ่าน Firestore ฟรี (50,000 reads/วัน) เกินลิมิตแล้ว listener คืนอาร์เรย์ว่าง `[]` ทำให้หน้าเว็บว่างเปล่า
+- แคชข้อมูลสมาชิกลง `localStorage` (`l2m_cached_users`, `l2m_cached_vault_items`, `l2m_cached_distribution_history`, `l2m_cached_diamond_fund`)
+- หาก Firestore คืน `[]` หรือ Quota เต็ม ระบบจะไม่ลบข้อมูลเดิม แต่จะดึงข้อมูลจาก Local Cache หรือรายชื่อสำรองจริงของสมาชิก (123 คน) มาแสดงแทนทันที พร้อมแบนเนอร์แจ้งเตือน 2 ภาษาที่หน้าจอ
 
 ---
 
