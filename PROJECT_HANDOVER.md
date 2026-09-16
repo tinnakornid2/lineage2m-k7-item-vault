@@ -1,11 +1,11 @@
 # 📋 PROJECT HANDOVER & WORK CONTINUATION GUIDE
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.2.0 — อัปเดตล่าสุด)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.3.0 — อัปเดตล่าสุด)**  
 > **Last Updated:** 2026-09-16  
 > **Repository:** `tinnakornid2/lineage2m-k7-item-vault`  
 > **Live Web App:** [https://lineage2m-k7-item-vault.vercel.app/](https://lineage2m-k7-item-vault.vercel.app/)  
 > **Master Architecture Guide:** [SYSTEM_ARCHITECTURE.md](file:///d:/Anti%20webapp/SYSTEM_ARCHITECTURE.md)  
 > **AI Quick Context:** [AI_CONTEXT.md](file:///d:/Anti%20webapp/AI_CONTEXT.md)  
-> **System Manual:** [SYSTEM_MANUAL_v2.2.0.md](file:///d:/Anti%20webapp/SYSTEM_MANUAL_v2.2.0.md)
+> **System Manual:** [SYSTEM_MANUAL_v2.3.0.md](file:///d:/Anti%20webapp/SYSTEM_MANUAL_v2.3.0.md)
 
 ---
 
@@ -30,60 +30,49 @@
 
 ---
 
-## 🏗️ ฟีเจอร์ล่าสุดในเวอร์ชัน v2.2.0 (What's New in v2.2.0)
+## 🏗️ ฟีเจอร์ล่าสุดในเวอร์ชัน v2.3.0 (What's New in v2.3.0)
 
-### 1. ระบบแม่แบบข้อความ Discord 4 รูปแบบ (Discord Message Templates)
+### 1. ฟอนต์ราคาไอเทม Discord สีขาว ANSI (`\u001b[1;37m`)
 - ไฟล์ที่เกี่ยวข้อง: [`src/utils/discord.ts`](file:///d:/Anti%20webapp/src/utils/discord.ts), [`src/components/DiscordBroadcastModal.tsx`](file:///d:/Anti%20webapp/src/components/DiscordBroadcastModal.tsx), [`src/components/DiscordWebhookModal.tsx`](file:///d:/Anti%20webapp/src/components/DiscordWebhookModal.tsx)
-- ระบบมีชุดแม่แบบข้อความส่งประกาศเข้า Discord ให้เลือก 4 สไตล์:
-  1. **🌟 Radiant Neon (`neon_glow`):** สไตล์นีออนเรืองแสง กรอบ ANSI สีตามความหายาก สวยสะดุดตา
-  2. **⚔️ Siege & War Vault Alert (`war_horn`):** สไตล์บัญชาการรบ ดุดัน แจ้งเตือนบอสและเปิดเคลมเสริมทัพกิลด์
-  3. **🏛️ Guild Treasury & Market (`clan_market`):** สไตล์ตลาดประมูลปราสาทกีรัน เน้นราคาเพชรและรายการไอเทม
-  4. **✨ Crystal Minimal (`crystal_minimal`):** การ์ด Embed กระชับ คลีน ไม่มีขยะข้อความ
-- ข้อความทั้งหมดที่ส่งเข้า Discord เป็นภาษาอังกฤษ 100% สั้น กระชับ และมีลิงก์กดเปิดคลังเคลมไอเทมได้ทันที
+- เปลี่ยนสีตัวอักษรของราคาเพชร `Price: FREE (0 Diamonds)` หรือราคาเพชรอื่น ๆ จากเดิมสีเขียว เป็น **สีขาวเรืองแสง (`\u001b[1;37m`)**
+- ปรับใช้ครบทั้ง 4 แม่แบบข้อความ (`neon_glow`, `war_horn`, `clan_market`, `crystal_minimal`)
+- ปรับแต่ง Live Preview ใน UI ให้แสดงเป็นสีขาว (`text-white`) ตรงกัน 100%
 
-### 2. ฟอนต์ชื่อไอเทมมีสีเรืองแสงจริงใน Discord (Discord ANSI Color Codeblocks)
-- ใช้ฟีเจอร์ Discord ANSI Syntax Highlighting (` ```ansi `) กำหนดสีตามระดับความหายาก:
-  - 🟨 **MYTHIC:** ฟอนต์สีทอง (`\u001b[1;33m`)
-  - 🟪 **LEGEND:** ฟอนต์สีม่วงเรืองแสง (`\u001b[1;35m`)
-  - 🟥 **EPIC:** ฟอนต์สีแดงเรืองแสง (`\u001b[1;31m`)
-  - 🟦 **RARE:** ฟอนต์สีฟ้าเรืองแสง (`\u001b[1;36m`)
-  - 💎 **ราคาเพชร:** ฟอนต์สีเขียวเรืองแสง (`\u001b[1;32m`)
-- แยก Emoji ออกจากบล็อก ANSI เพื่อป้องกัน byte misalignment ในระบบ Discord Renderer
+### 2. บันทึก Discord Webhook และ Gemini OCR Key ถาวรข้ามแอดมิน (Shared Persistence)
+- ไฟล์ที่เกี่ยวข้อง: [`src/services/firebase.ts`](file:///d:/Anti%20webapp/src/services/firebase.ts), [`firestore.rules`](file:///d:/Anti%20webapp/firestore.rules), [`api/_server.ts`](file:///d:/Anti%20webapp/api/_server.ts), [`src/components/VaultView.tsx`](file:///d:/Anti%20webapp/src/components/VaultView.tsx)
+- **Discord Webhook (`app_settings/discord`):** จัดเก็บค่า URL และการตั้งค่าบน Firestore พร้อม Real-time Listener ทำให้แอดมินทุกคนใช้งานร่วมกันได้ทันที และมี LocalStorage สำรอง
+- **Gemini OCR Key (`app_settings/gemini_ai`):** เมื่อ Owner ตั้งค่าคีย์ไว้ แอดมินทุกคนสามารถใช้ฟังก์ชันสแกน OCR รายชื่อผู้ล่าได้ทันที โดยไม่ต้องกรอกคีย์เอง และรีเฟรชหน้าจอข้อมูลไม่สูญหาย
+- **Dynamic API Key Forwarding:** ระบบส่งต่อ active API key ไปยัง Backend Endpoint `/api/scan-hunters` ทำให้เซิร์ฟเวอร์บน Vercel ทำงานได้ทันทีโดยไม่ต้อง Redeploy หลังตั้งค่าคีย์
 
-### 3. ระบบส่งรูปภาพ Thumbnail อัตโนมัติ (Native Multipart Image Attachments & Fallback)
-- ไฟล์ที่เกี่ยวข้อง: [`src/utils/discord.ts`](file:///d:/Anti%20webapp/src/utils/discord.ts), [`src/utils/defaultItemIcon.ts`](file:///d:/Anti%20webapp/src/utils/defaultItemIcon.ts), [`server.ts`](file:///d:/Anti%20webapp/server.ts)
-- อัปโหลดไฟล์รูปภาพไบนารี (`files[0]`, `attachment://item.jpg`) เข้า Discord API โดยตรง ไม่พึ่งพา URL ภายนอกที่อาจหมดอายุ
-- หากไอเทมไม่มีรูปภาพ หรือกดปุ่ม "ทดสอบส่ง Discord" ระบบจะใช้ `DEFAULT_ITEM_ICON_BASE64` ส่งเป็น Thumbnail ที่มุมขวาบนเสมอ 100%
-- ตรวจจับนามสกุลไฟล์อัตโนมัติ (`jpg`, `png`, `webp`) ให้ตรงกันทั้งใน Local Proxy และ Direct Browser Fallback
+### 3. แก้ไขข้อผิดพลาด Vercel Serverless `FUNCTION_INVOCATION_FAILED` อย่างสมบูรณ์
+- ไฟล์ที่เกี่ยวข้อง: [`api/_entry.ts`](file:///d:/Anti%20webapp/api/_entry.ts), [`api/_firebaseAdmin.ts`](file:///d:/Anti%20webapp/api/_firebaseAdmin.ts), [`api/index.js`](file:///d:/Anti%20webapp/api/index.js)
+- เปลี่ยนจากการ Import `firebase-admin` แบบคงที่มาเป็นแบบ Dynamic โหลดตามต้องการ ป้องกัน Crash จาก missing credentials
+- ห่อหุ้ม Express Request/Response ด้วย Promise Listener เพื่อรอ `res.on('finish')` ป้องกัน Lambda ตัดการทำงานก่อนส่งข้อมูล
+- Bundling โค้ดทั้งหมดเข้าเป็นไฟล์เดียว `api/index.js` ป้องกัน Route Collision บน Vercel
+- ตรวจสอบผ่าน `/api/health` คืนค่า 200 OK ทันที
 
-### 4. หน้าต่างเลือกแม่แบบก่อนส่งไอเทม (DiscordBroadcastModal)
-- ไฟล์ที่เกี่ยวข้อง: [`src/components/DiscordBroadcastModal.tsx`](file:///d:/Anti%20webapp/src/components/DiscordBroadcastModal.tsx)
-- เมื่อกดปุ่มส่ง Discord ที่การ์ดไอเทมในคลัง จะมีหน้าต่างขึ้นมาให้เลือกแม่แบบ
-- มี **Live Color Preview** แสดงตัวอย่างสีของไอเทมตรงตามระดับก่อนส่ง
-- เลือกรูปแบบการแท็กได้อิสระ (`@everyone`, `Role ID`, หรือไม่แท็ก)
-- สามารถใส่ Custom Announcement Note และมี Checkbox "จำแม่แบบนี้เป็นค่าเริ่มต้น"
+### 4. อัปเดตป้ายกำกับเวอร์ชันในหน้าเว็บ UI เป็น v2.3.0
+- [`package.json`](file:///d:/Anti%20webapp/package.json): `"version": "2.3.0"`
+- [`src/components/Sidebar.tsx`](file:///d:/Anti%20webapp/src/components/Sidebar.tsx): `v2.3.0`
+- [`src/components/LoginScreen.tsx`](file:///d:/Anti%20webapp/src/components/LoginScreen.tsx): `v2.3.0`
+- [`src/components/Navbar.tsx`](file:///d:/Anti%20webapp/src/components/Navbar.tsx): `v2.3.0`
 
-### 5. ขอบการ์ดไอเทมเรืองแสงสไตล์นีออน (Neon Glowing UI)
-- ไฟล์ที่เกี่ยวข้อง: [`src/types.ts`](file:///d:/Anti%20webapp/src/types.ts), [`src/index.css`](file:///d:/Anti%20webapp/src/index.css)
-- เกรด LEGEND ปรับใช้สีม่วงอัลตร้านีออน `#8500fd` พร้อมเงาสี `box-shadow` เรืองแสงสมจริง
-- เกรด MYTHIC ใช้สีทอง `#ffb800`
-- เกรด EPIC ใช้สีแดงเลเซอร์ `#ff1744`
-- เกรด RARE ใช้สีฟ้าเพชร `#00e5ff`
-
-### 6. ฐานข้อมูลและสแนปช็อต v2.2.0 (Verified Milestone Snapshot)
-- ไฟล์ที่เกี่ยวข้อง: [`backups/complete_snapshot_v2.2.0.json`](file:///d:/Anti%20webapp/backups/complete_snapshot_v2.2.0.json), [`scripts/export_complete_v2.2.0_backup.mjs`](file:///d:/Anti%20webapp/scripts/export_complete_v2.2.0_backup.mjs)
-- สแนปช็อตข้อมูลจริงล่าสุด: สมาชิก 22 คน, ไอเทมในคลัง 16 ชิ้น, คิว 5 ชิ้น, กองทุนเพชร 23,521 เพชร
+### 5. ฐานข้อมูลและสแนปช็อต v2.3.0 (Verified Milestone Snapshot)
+- ไฟล์ที่เกี่ยวข้อง: [`backups/complete_snapshot_v2.3.0.json`](file:///d:/Anti%20webapp/backups/complete_snapshot_v2.3.0.json), [`scripts/export_complete_v2.3.0_backup.mjs`](file:///d:/Anti%20webapp/scripts/export_complete_v2.3.0_backup.mjs)
+- สแนปช็อตข้อมูลจริงล่าสุด: สมาชิก 22 คน, ไอเทมในคลัง 23 ชิ้น, คิว 5 ชิ้น, กองทุนเพชร 23,521 เพชร
 
 ---
 
-## 📜 ฟีเจอร์หลักก่อนหน้าจาก v2.1.0 ที่คงอยู่อย่างสมบูรณ์ (Inherited Features)
-1. **Fluid Dynamic Responsive Scaling ([`src/App.tsx`](file:///d:/Anti%20webapp/src/App.tsx)):** ปรับขนาดตามหน้าต่างบราวเซอร์อัตโนมัติ รองรับแบ่งครึ่งหน้าจอและจอ Ultrawide
-2. **Tab State & URL Hash Persistence:** รีเฟรช F5 หรือกด Back/Forward อยู่หน้าเดิมเสมอ
-3. **Available Items 4-Columns Grid:** กล่องไอเทมเปิดรับแถวละ 4 ชิ้นบนเดสก์ท็อป
-4. **Compact 2-Line Item Cards & Mini Toolbar:** การ์ดไอเทมกะทัดรัด 2 บรรทัดติดรูปภาพ ไม่ล้นจอ
-5. **Discord Role Mentions:** รองรับแท็ก Role ID เฉพาะกลุ่ม
-6. **Persistent Local Caching & Quota Protection:** แคชข้อมูลลง LocalStorage ป้องกันจอขาวเมื่อติด Quota Firestore
-7. **Gemini AI OCR Party Hunters:** สแกนรายชื่อผู้ล่าตัดชื่อซ้ำอัตโนมัติ
+## 📜 ฟีเจอร์หลักก่อนหน้าจาก v2.2.0 ที่คงอยู่อย่างสมบูรณ์ (Inherited Features)
+1. **Discord Message Templates 4 รูปแบบ:** Radiant Neon, Siege & War, Guild Market, Crystal Minimal
+2. **Discord ANSI Colors ตามระดับไอเทม:** MYTHIC (ทอง), LEGEND (ม่วง), EPIC (แดง), RARE (ฟ้า)
+3. **ระบบส่งรูปภาพ Thumbnail อัตโนมัติ (Native Multipart Upload):** ส่งไฟล์ไบนารีเข้า Discord ตรง 100% พร้อม Breka's Soul Default Icon Fallback
+4. **Fluid Dynamic Responsive Scaling ([`src/App.tsx`](file:///d:/Anti%20webapp/src/App.tsx)):** ปรับขนาดตามหน้าต่างบราวเซอร์อัตโนมัติ รองรับแบ่งครึ่งหน้าจอและจอ Ultrawide
+5. **Tab State & URL Hash Persistence:** รีเฟรช F5 หรือกด Back/Forward อยู่หน้าเดิมเสมอ
+6. **Available Items 4-Columns Grid & Compact 2-Line Item Cards:** กล่องไอเทมแถวละ 4 ชิ้นบนเดสก์ท็อป พร้อมข้อมูล 2 บรรทัดติดรูป
+7. **Discord Role Mentions:** รองรับแท็ก Role ID เฉพาะกลุ่ม
+8. **Persistent Local Caching & Quota Protection:** แคชข้อมูลลง LocalStorage ป้องกันจอขาวเมื่อติด Quota Firestore
+9. **Gemini AI OCR Party Hunters:** สแกนรายชื่อผู้ล่าตัดชื่อซ้ำอัตโนมัติ
 
 ---
 
@@ -107,26 +96,28 @@
 
 ```
 d:/Anti webapp/
-├── package.json                   # เวอร์ชั่น v2.2.0 และ dependencies
+├── package.json                   # เวอร์ชั่น v2.3.0 และ dependencies
 ├── server.ts                      # Express Backend (Local API + Proxy Discord/Gemini + Multipart Image Upload)
 ├── api/
-│   ├── index.ts                   # Vercel Serverless Entrypoint
-│   └── _firebaseAdmin.ts          # Firebase Admin & JWT Verification
+│   ├── _entry.ts                  # Serverless Entrypoint Wrapper (Promise res.on finish)
+│   ├── _server.ts                 # Express Router สำหรับ Serverless
+│   ├── _firebaseAdmin.ts          # Firebase Admin แบบ Dynamic Import
+│   └── index.js                   # Single Bundled Serverless Function (สร้างโดย esbuild)
 ├── backups/
-│   ├── complete_snapshot_v2.2.0.json # สแนปช็อตข้อมูลครบถ้วน v2.2.0
+│   ├── complete_snapshot_v2.3.0.json # สแนปช็อตข้อมูลครบถ้วน v2.3.0
 │   └── complete_snapshot_latest.json # สแนปช็อตล่าสุด
 ├── scripts/
-│   ├── export_complete_v2.2.0_backup.mjs # สคริปต์ส่งออกข้อมูลสำรอง v2.2.0
+│   ├── export_complete_v2.3.0_backup.mjs # สคริปต์ส่งออกข้อมูลสำรอง v2.3.0
 │   └── backup-firestore-encrypted.mjs    # สำรอง Firestore เข้ารหัส
 ├── src/
 │   ├── App.tsx                    # ตัวควบคุมหลัก: Responsive Container, Tab Routing, Firestore Listeners
 │   ├── types.ts                   # Types กลาง (User, VaultItem, DiscordSettings, DiscordMessageTemplate)
 │   ├── translations.ts            # พจนานุกรม 2 ภาษา (TH / EN)
 │   ├── services/
-│   │   ├── firebase.ts            # Firestore Listeners & Database Operations
+│   │   ├── firebase.ts            # Firestore Listeners, Shared Settings Sync, Sanitize
 │   │   └── gemini.ts              # Gemini AI OCR Client
 │   ├── utils/
-│   │   ├── discord.ts             # Discord Webhook, Templates, ANSI Colors, Multipart Images
+│   │   ├── discord.ts             # Discord Webhook, Templates, White Price ANSI, Multipart Images
 │   │   ├── defaultItemIcon.ts     # ภาพไอคอนสำรองมาตรฐาน (Breka's Soul Base64)
 │   │   ├── diamondHelper.ts       # ยอดคำนวณเพชรส่วนกลาง
 │   │   └── sound.ts               # ระบบเสียงประกอบ Web Audio API
@@ -138,9 +129,9 @@ d:/Anti webapp/
 │       ├── DiamondVaultModal.tsx  # กองทุนเพชร 1:1 และปุ่มรีเซ็ตยอดของ Owner
 │       ├── DiscordBroadcastModal.tsx # หน้าต่างเลือกแม่แบบส่งประกาศ Discord พร้อม Live Preview
 │       ├── DiscordWebhookModal.tsx# ตั้งค่า Webhook URL, Role ID Mention และแม่แบบเริ่มต้น
-│       ├── Sidebar.tsx            # เมนูด้านข้างและแท็บนำทาง
-│       ├── Navbar.tsx             # แถบเมนูด้านบน สลับภาษา และยอดเพชร
-│       └── LoginScreen.tsx        # หน้าจอล็อกอินพร้อมระบบสเตตัสเริ่มต้น
+│       ├── Sidebar.tsx            # เมนูด้านข้างและแท็บนำทาง (v2.3.0)
+│       ├── Navbar.tsx             # แถบเมนูด้านบน สลับภาษา และยอดเพชร (v2.3.0)
+│       └── LoginScreen.tsx        # หน้าจอล็อกอินพร้อมระบบสเตตัสเริ่มต้น (v2.3.0)
 ```
 
 ---
@@ -154,7 +145,10 @@ d:/Anti webapp/
 # 2. ทดสอบสร้าง Production Bundle
 & 'C:\Program Files\nodejs\node.exe' 'node_modules\vite\bin\vite.js' build
 
-# 3. รัน Dev Server (Localhost)
+# 3. บิลด์ Serverless Function สำหรับ Vercel
+& 'C:\Program Files\nodejs\node.exe' 'node_modules\esbuild\bin\esbuild' api/_entry.ts --bundle --platform=node --format=esm --packages=external --outfile=api/index.js
+
+# 4. รัน Dev Server (Localhost)
 & 'C:\Program Files\nodejs\node.exe' 'node_modules\tsx\dist\cli.mjs' server.ts
 ```
 
@@ -163,17 +157,17 @@ d:/Anti webapp/
 ## 💬 ข้อความตัวอย่างสำหรับ Copy ไปเริ่มในห้องแชทใหม่:
 
 ```
-โปรดอ่านไฟล์ SYSTEM_MANUAL_v2.2.0.md, AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
-ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v2.2.0 — อัปเดตล่าสุด)
+โปรดอ่านไฟล์ SYSTEM_MANUAL_v2.3.0.md, AI_CONTEXT.md และ PROJECT_HANDOVER.md ในโปรเจกต์นี้ทั้งหมดก่อนเริ่มงาน
+ระบบปัจจุบันคือ Lineage2M Clan Hub & Boss Item Vault (v2.3.0 — อัปเดตล่าสุด)
 - บัญชี Owner: Eloni (สิทธิ์ Owner สูงสุด)
 - Live Production: https://lineage2m-k7-item-vault.vercel.app/
-- สถานะระบบล่าสุด (v2.2.0):
-  1. แม่แบบข้อความ Discord 4 รูปแบบ (Radiant Neon, Siege & War, Guild Market, Crystal Minimal)
-  2. สีฟอนต์ชื่อไอเทมเรืองแสงตรงตามระดับความหายาก (Discord ANSI: MYTHIC=ทอง, LEGEND=ม่วง, EPIC=แดง, RARE=ฟ้า, Price=เขียว)
-  3. รูปภาพ Thumbnail ไอเทมแนบส่งเข้า Discord API ตรง 100% พร้อม Default Icon Fallback
-  4. หน้าต่าง DiscordBroadcastModal สำหรับเลือกแม่แบบพร้อม Live Color Preview ก่อนส่ง
-  5. ขอบการ์ดไอเทมเรืองแสงสไตล์นีออน (LEGEND #8500fd, MYTHIC #ffb800, EPIC #ff1744, RARE #00e5ff)
-  6. หน้าจอ Fluid Responsive ปรับขนาดตามหน้าต่างบราวเซอร์อัตโนมัติ (App.tsx)
+- สถานะระบบล่าสุด (v2.3.0):
+  1. Discord ฟอนต์ราคาไอเทมเป็นสีขาวเด่นชัด (ANSI \u001b[1;37m) ครบทั้ง 4 แม่แบบ (Price: FREE (0 Diamonds) สีขาว)
+  2. บันทึก Discord Webhook และ Gemini OCR Key ถาวรข้ามแอดมินทุกคนผ่าน Firestore (app_settings/discord, app_settings/gemini_ai)
+  3. แก้ไขข้อผิดพลาด Vercel Serverless FUNCTION_INVOCATION_FAILED สำเร็จ 100% (/api/health 200 OK)
+  4. อัปเดตเวอร์ชัน v2.3.0 ครบทุกจุด (package.json, Navbar, Sidebar, LoginScreen)
+  5. มีสแนปช็อตข้อมูลสำรองครบถ้วนที่ backups/complete_snapshot_v2.3.0.json (22 users, 23 vault items, 23,521 diamonds)
+  6. แม่แบบข้อความ Discord 4 รูปแบบ (Radiant Neon, Siege & War, Guild Market, Crystal Minimal)
   7. ระบบ 2 ภาษา TH/EN 100% ทุกจุด
   8. Typecheck และ Vite Build ผ่าน 0 errors
 โปรดยืนยันว่าเข้าใจสถาปัตยกรรมและกฎการป้องกันโค้ดเสียหายแล้ว พร้อมรับคำสั่งงานต่อไปครับ
