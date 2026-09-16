@@ -45,7 +45,13 @@ import {
   cleanClanName,
   DEFAULT_CLAN
 } from '../types';
-import { REAL_BACKUP_MEMBERS, REAL_BACKUP_CLANS, REAL_BACKUP_QUEUES } from '../data/offlineMembersData';
+import {
+  REAL_BACKUP_MEMBERS,
+  REAL_BACKUP_CLANS,
+  REAL_BACKUP_QUEUES,
+  REAL_BACKUP_VAULT_ITEMS,
+  REAL_BACKUP_DIAMOND_TXS
+} from '../data/offlineMembersData';
 
 const firebaseConfig = {
   apiKey: firebaseConfigData.apiKey,
@@ -243,7 +249,9 @@ export const INITIAL_QUICK_ITEMS: QuickItem[] = [
   }
 ];
 
-export const INITIAL_VAULT_ITEMS: VaultItem[] = [
+export const INITIAL_VAULT_ITEMS: VaultItem[] = (REAL_BACKUP_VAULT_ITEMS && REAL_BACKUP_VAULT_ITEMS.length > 0)
+  ? REAL_BACKUP_VAULT_ITEMS
+  : [
   {
     id: 'item_initial_1',
     name: 'Dynasty Crusher Spear',
@@ -398,7 +406,7 @@ export function getCachedQueues(): QueueItem[] {
 }
 
 export function getCachedDiamondTransactions(): DiamondVaultRecord[] {
-  return getCachedData<DiamondVaultRecord[]>(CACHE_KEYS.DIAMOND_TXS, []);
+  return getCachedData<DiamondVaultRecord[]>(CACHE_KEYS.DIAMOND_TXS, REAL_BACKUP_DIAMOND_TXS || []);
 }
 
 let onQuotaExceededCallback: ((isQuotaExceeded: boolean) => void) | null = null;

@@ -1,4 +1,4 @@
-import { User, ClanGroup, QueueItem } from '../types';
+import { User, ClanGroup, QueueItem, VaultItem, DiamondVaultRecord } from '../types';
 
 export const REAL_BACKUP_MEMBERS: User[] = [
   {
@@ -6529,5 +6529,254 @@ export const REAL_BACKUP_QUEUES: QueueItem[] = [
         "userId": "user_1789133575406_lffm"
       }
     ]
+  }
+];
+
+export const REAL_BACKUP_VAULT_ITEMS: VaultItem[] = [
+  {
+    id: 'vault_item_breka_1',
+    name: "Breka's Soul",
+    imageUrl: 'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062077000
+  },
+  {
+    id: 'vault_item_durendal',
+    name: 'Durendal',
+    imageUrl: 'https://images.unsplash.com/photo-1589241062272-c0a000072dfa?w=300&auto=format&fit=crop&q=80',
+    price: 1000,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062078000
+  },
+  {
+    id: 'vault_item_dance_of_fury',
+    name: 'Dance of Fury',
+    imageUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062079000
+  },
+  {
+    id: 'vault_item_olaki_soul',
+    name: "Olaki's Soul",
+    imageUrl: 'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062080000
+  },
+  {
+    id: 'vault_item_sonic_blaster',
+    name: 'Sonic Blaster',
+    imageUrl: 'https://images.unsplash.com/photo-1514539079130-25950c84af65?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062081000
+  },
+  {
+    id: 'vault_item_improved_orb',
+    name: 'Improved Orb',
+    imageUrl: 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062082000
+  },
+  {
+    id: 'vault_item_backflip',
+    name: 'Backflip',
+    imageUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062083000
+  },
+  {
+    id: 'vault_item_increase_stun',
+    name: 'Increase Stun',
+    imageUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 7,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062084000
+  },
+  {
+    id: 'vault_item_paralyze',
+    name: 'Paralyze',
+    imageUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=300&auto=format&fit=crop&q=80',
+    price: 1500,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062085000
+  },
+  {
+    id: 'vault_item_whip_dash',
+    name: 'Whip Dash',
+    imageUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062086000
+  },
+  {
+    id: 'vault_item_vital_destruction',
+    name: 'Vital Destruction',
+    imageUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062087000
+  },
+  {
+    id: 'vault_item_cancellation',
+    name: 'Cancellation',
+    imageUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062088000
+  },
+  {
+    id: 'vault_item_peace_of_mind',
+    name: 'Peace of Mind',
+    imageUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062089000
+  },
+  {
+    id: 'vault_item_breka_2',
+    name: "Breka's Soul",
+    imageUrl: 'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062090000
+  },
+  {
+    id: 'vault_item_breka_3',
+    name: "Breka's Soul",
+    imageUrl: 'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=300&auto=format&fit=crop&q=80',
+    price: 0,
+    minPowerLevel: 0,
+    rarity: 'EPIC',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'available',
+    claimants: [],
+    createdAt: 1789062091000
+  },
+  {
+    id: 'vault_item_bow_of_halisha',
+    name: 'Bow of Halisha',
+    imageUrl: 'https://images.unsplash.com/photo-1514539079130-25950c84af65?w=300&auto=format&fit=crop&q=80',
+    price: 60000,
+    minPowerLevel: 0,
+    rarity: 'LAGEND',
+    quantity: 1,
+    hunters: [{ name: 'Eloni', clan: 'VoltZ' }],
+    hunterScreenshots: [],
+    status: 'distributed',
+    claimants: [],
+    distributedTo: {
+      name: 'ImaGiNe',
+      clan: 'VoltZ',
+      distributedAt: 1789157611000,
+      distributedBy: 'Eloni'
+    },
+    createdAt: 1789062000000
+  }
+];
+
+export const REAL_BACKUP_DIAMOND_TXS: DiamondVaultRecord[] = [
+  {
+    id: 'tx_init_fund_23521',
+    type: 'deposit',
+    amount: 23521,
+    balanceAfter: 23521,
+    note: 'ยอดกองทุนเพชรแคลนคงเหลือ',
+    timestamp: 1789157611000,
+    performedBy: {
+      userId: 'user_owner_eloni',
+      name: 'Eloni',
+      role: 'owner'
+    }
   }
 ];
