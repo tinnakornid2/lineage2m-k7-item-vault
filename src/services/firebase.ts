@@ -6,7 +6,8 @@ import {
   getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  signOut
+  signOut,
+  updatePassword
 } from 'firebase/auth';
 import {
   connectFirestoreEmulator,
@@ -493,6 +494,63 @@ export async function deleteUserDoc(userId: string) {
   }
 }
 
+export function canChangePassword(currentUser: User | null, targetUser: User | null): boolean {
+  if (!currentUser || !targetUser) return false;
+  // 1. Everyone can change their own password
+  if (currentUser.id === targetUser.id) return true;
+  // 2. Owner can change anyone's password
+  if (currentUser.role === 'owner') return true;
+  // 3. Admin can change members and party leaders (cannot change owner or another admin)
+  if (currentUser.role === 'admin') {
+    return targetUser.role === 'member' || targetUser.role === 'party_leader';
+  }
+  return false;
+}
+
+export async function changeUserPassword(targetUserId: string, newPassword: string): Promise<void> {
+  if (!newPassword || newPassword.length < 6 || newPassword.length > 128) {
+    throw new Error('Password must be between 6 and 128 characters');
+  }
+
+  // 1. If changing own password and signed in via Firebase client auth, update client auth directly
+  if (auth.currentUser && auth.currentUser.uid === targetUserId) {
+    try {
+      await updatePassword(auth.currentUser, newPassword);
+    } catch (authErr: any) {
+      console.warn('Firebase client updatePassword notice:', authErr?.code || authErr?.message);
+    }
+  }
+
+  // 2. Call backend server API
+  const token = await getCurrentUserIdToken();
+  const response = await fetch(`/api/users/${encodeURIComponent(targetUserId)}/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify({ newPassword })
+  });
+
+  if (!response.ok) {
+    const result = await response.json().catch(() => null);
+    throw new Error(result?.message || `Change password failed (${response.status})`);
+  }
+
+  // 3. Keep local fallback / session in sync
+  const local = getLocalSessionUser();
+  if (local && local.id === targetUserId) {
+    saveLocalSessionUser({ ...local, password: newPassword });
+  }
+
+  // 4. Special owner custom pass backup in localStorage
+  if (targetUserId === 'user_owner_eloni' || local?.username?.toLowerCase() === 'eloni') {
+    try {
+      localStorage.setItem('k7_owner_custom_pass', newPassword);
+    } catch {}
+  }
+}
+
 const SESSION_KEY = 'k7_active_session_user';
 const LEGACY_LOGGED_KEY = 'k7_logged_user';
 
@@ -585,31 +643,44 @@ export async function loginUserQuery(username: string, pass: string): Promise<Us
   const cleanUsername = username.trim();
   const lowerUser = cleanUsername.toLowerCase();
 
-  // 1. Check Owner account (Eloni / 0386231334)
-  if (lowerUser === 'eloni' && pass === '0386231334') {
+  // 1. Check Owner account (Eloni / custom or default 0386231334)
+  if (lowerUser === 'eloni') {
+    let ownerPass = '0386231334';
     try {
-      // 1. Check direct doc ID 'user_owner_eloni' first
-      const directSnap = await getDoc(doc(db, USERS_COLLECTION, 'user_owner_eloni'));
-      if (directSnap.exists()) {
-        const user = { ...DEFAULT_OWNER, ...directSnap.data(), id: 'user_owner_eloni', role: 'owner', status: 'active' } as User;
-        saveLocalSessionUser(user);
-        return user;
-      }
+      const localOwnerPass = localStorage.getItem('k7_owner_custom_pass');
+      if (localOwnerPass) ownerPass = localOwnerPass;
 
-      // 2. Query collection for username
-      const snap = await getDocs(query(collection(db, USERS_COLLECTION), where('username', 'in', ['eloni', 'Eloni'])));
-      if (!snap.empty) {
-        const docSnap = snap.docs[0];
-        const user = { ...DEFAULT_OWNER, ...docSnap.data(), id: docSnap.id, role: 'owner', status: 'active' } as User;
-        saveLocalSessionUser(user);
-        return user;
+      const ownerDoc = await getDoc(doc(db, USERS_COLLECTION, 'user_owner_eloni'));
+      if (ownerDoc.exists() && ownerDoc.data()?.password) {
+        ownerPass = ownerDoc.data()!.password;
       }
-    } catch (e) {
-      notifyQuotaExceeded(e);
-      console.warn('Could not query eloni doc, using DEFAULT_OWNER fallback:', e);
+    } catch (e) {}
+
+    if (pass === ownerPass || pass === '0386231334') {
+      try {
+        // 1. Check direct doc ID 'user_owner_eloni' first
+        const directSnap = await getDoc(doc(db, USERS_COLLECTION, 'user_owner_eloni'));
+        if (directSnap.exists()) {
+          const user = { ...DEFAULT_OWNER, ...directSnap.data(), id: 'user_owner_eloni', role: 'owner', status: 'active' } as User;
+          saveLocalSessionUser(user);
+          return user;
+        }
+
+        // 2. Query collection for username
+        const snap = await getDocs(query(collection(db, USERS_COLLECTION), where('username', 'in', ['eloni', 'Eloni'])));
+        if (!snap.empty) {
+          const docSnap = snap.docs[0];
+          const user = { ...DEFAULT_OWNER, ...docSnap.data(), id: docSnap.id, role: 'owner', status: 'active' } as User;
+          saveLocalSessionUser(user);
+          return user;
+        }
+      } catch (e) {
+        notifyQuotaExceeded(e);
+        console.warn('Could not query eloni doc, using DEFAULT_OWNER fallback:', e);
+      }
+      saveLocalSessionUser(DEFAULT_OWNER);
+      return DEFAULT_OWNER;
     }
-    saveLocalSessionUser(DEFAULT_OWNER);
-    return DEFAULT_OWNER;
   }
 
   // 2. Try Firebase Authentication
@@ -923,6 +994,22 @@ export async function updateVaultItemDoc(itemId: string, updates: Partial<VaultI
     }
     throw err;
   }
+}
+
+export async function confirmVaultItemPayment(
+  itemId: string,
+  actorName: string,
+  status: 'pending' | 'paid' = 'paid'
+) {
+  const isPaid = status === 'paid';
+  const now = Date.now();
+  const updates: Partial<VaultItem> = {
+    paymentStatus: status,
+    ...(isPaid
+      ? { paidAt: now, paidBy: actorName }
+      : { paidAt: undefined, paidBy: undefined })
+  };
+  await updateVaultItemDoc(itemId, updates);
 }
 
 export async function deleteVaultItemDoc(itemId: string) {

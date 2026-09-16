@@ -205,7 +205,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 CLAN HUB SYSTEM
               </span>
               <span className="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/35 text-[10px] font-mono font-bold text-sky-300">
-                v2.3.0
+                v2.4.0
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-2 font-prompt">

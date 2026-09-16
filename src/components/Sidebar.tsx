@@ -25,7 +25,8 @@ import {
   Check,
   ChevronDown,
   MessageSquare,
-  FileSpreadsheet
+  FileSpreadsheet,
+  KeyRound
 } from 'lucide-react';
 import { ActiveTab, Language, User, ClanGroup, cleanClanName } from '../types';
 import { translations } from '../translations';
@@ -53,6 +54,7 @@ export interface SidebarProps {
   onOpenGoogleBackupModal?: () => void;
   onOpenRequestCp?: () => void;
   onOpenMyStats?: () => void;
+  onOpenChangePassword?: () => void;
   onOpenPowerFormula?: () => void;
   onOpenBulkSwap?: () => void;
   onOpenStatApproval?: () => void;
@@ -93,6 +95,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenGoogleBackupModal,
   onOpenRequestCp,
   onOpenMyStats,
+  onOpenChangePassword,
   onOpenPowerFormula,
   onOpenBulkSwap,
   onOpenStatApproval,
@@ -754,6 +757,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </div>
 
+              {onOpenChangePassword && (
+                <button
+                  id="btn-sidebar-change-password"
+                  type="button"
+                  onClick={() => {
+                    sounds.playClick();
+                    onOpenChangePassword();
+                  }}
+                  className="p-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-white transition-all cursor-pointer shrink-0 shadow-sm"
+                  title={t.changePasswordModalTitle}
+                  aria-label={t.changePasswordModalTitle}
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                </button>
+              )}
+
               <button
                 id="btn-logout"
                 onClick={() => {
@@ -911,7 +930,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v2.3.0</span>
+              <span>v2.4.0</span>
             </div>
           </div>
 

@@ -256,3 +256,77 @@ export async function deleteManagedUser(
   await targetRef.delete();
   return { allowed: true };
 }
+
+export async function changeManagedUserPassword(
+  actor: { uid: string; role: string },
+  targetUid: string,
+  newPassword: string
+): Promise<{ allowed: boolean; reason?: string }> {
+  if (!targetUid || typeof newPassword !== 'string' || newPassword.length < 6 || newPassword.length > 128) {
+    return { allowed: false, reason: 'INVALID_PASSWORD' };
+  }
+
+  const isSelf = actor.uid === targetUid;
+  const isOwner = actor.role === 'owner';
+  const isAdmin = actor.role === 'admin';
+
+  // 1. Check basic permissions:
+  // Must be either self, owner, or admin. Regular members cannot change anyone else's password.
+  if (!isSelf && !isOwner && !isAdmin) {
+    return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED' };
+  }
+
+  const sdk = await getAdminSdk();
+  if (!sdk) {
+    console.warn('changeManagedUserPassword: No Firebase Admin credentials in environment, returning local success.');
+    return { allowed: true };
+  }
+
+  const targetRef = sdk.db.collection('users').doc(targetUid);
+  const target = await targetRef.get();
+
+  if (target.exists) {
+    const targetRole = String(target.data()?.role || 'member');
+    // If admin is changing someone else's password:
+    // Admin can ONLY change member and party_leader (cannot change owner or other admins)
+    if (isAdmin && !isSelf) {
+      if (targetRole === 'owner' || targetRole === 'admin') {
+        return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED' };
+      }
+    }
+  }
+
+  // Update in Firebase Auth
+  try {
+    await sdk.auth.updateUser(targetUid, { password: newPassword });
+  } catch (error: any) {
+    if (error?.code !== 'auth/user-not-found') {
+      console.warn('Firebase Auth updateUser notice:', error?.message || error);
+    }
+  }
+
+  // Update in Firestore users collection
+  try {
+    if (target.exists) {
+      await targetRef.set({
+        password: newPassword,
+        updatedAt: Date.now()
+      }, { merge: true });
+    }
+  } catch (dbErr) {
+    console.warn('Firestore set password notice:', dbErr);
+  }
+
+  // If this is eloni (owner), also save to app_settings/owner_auth
+  if (targetUid === 'user_owner_eloni' || target.data()?.username?.toLowerCase() === 'eloni') {
+    try {
+      await sdk.db.collection('app_settings').doc('owner_auth').set({
+        password: newPassword,
+        updatedAt: Date.now()
+      }, { merge: true });
+    } catch (e) {}
+  }
+
+  return { allowed: true };
+}
+

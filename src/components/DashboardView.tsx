@@ -12,6 +12,7 @@ import {
   ArrowUpCircle,
   Gift,
   CheckCircle,
+  Check,
   Lock,
   Zap,
   Users,
@@ -77,6 +78,7 @@ interface DashboardViewProps {
   isQuotaExceeded?: boolean;
   onOpenGoogleBackupModal?: () => void;
   onCheckFirebaseHealth?: () => void;
+  onConfirmPayment?: (item: VaultItem, targetStatus?: 'pending' | 'paid') => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -103,10 +105,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onBroadcastToDiscord,
   isQuotaExceeded = false,
   onOpenGoogleBackupModal,
-  onCheckFirebaseHealth
+  onCheckFirebaseHealth,
+  onConfirmPayment
 }) => {
   const t = translations[lang];
   const isOwner = currentUser?.role === 'owner';
+  const isAdmin = currentUser?.role === 'admin' || isOwner;
   const [broadcastingItemId, setBroadcastingItemId] = React.useState<string | null>(null);
   const [itemToDelete, setItemToDelete] = React.useState<VaultItem | null>(null);
   const [statWarningModalItem, setStatWarningModalItem] = React.useState<VaultItem | null>(null);
@@ -1039,10 +1043,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </div>
                       </div>
 
-                      <div className="text-right shrink-0">
+                      <div className="text-right shrink-0 flex flex-col items-end gap-0.5">
                         <div className="text-xs font-mono font-bold text-white">
                           {item.price > 0 ? `💎 ${item.price.toLocaleString()}` : `🎁 ${t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}`}
                         </div>
+
+                        {/* Payment Status for non-free distributed item (Status only, no button on dashboard) */}
+                        {item.price > 0 && (
+                          <div className="flex items-center gap-1 my-0.5 justify-end">
+                            {item.paymentStatus === 'paid' ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm"
+                                title={
+                                  lang === 'th'
+                                    ? `ชำระแล้ว ${item.paidBy ? `(ยืนยันโดย ${item.paidBy})` : ''}`
+                                    : `Paid ${item.paidBy ? `(verified by ${item.paidBy})` : ''}`
+                                }
+                              >
+                                <CheckCircle className="w-2.5 h-2.5 text-emerald-400" />
+                                <span>{t.paymentStatusPaid || (lang === 'th' ? 'ชำระแล้ว' : 'Paid')}</span>
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm animate-pulse"
+                                title={lang === 'th' ? 'รอการชำระเพชร' : 'Pending diamond payment'}
+                              >
+                                <Clock className="w-2.5 h-2.5 text-amber-400" />
+                                <span>{t.paymentStatusPending || (lang === 'th' ? 'รอชำระ' : 'Pending Payment')}</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+
                         <div className="text-[9px] text-slate-400 font-mono mt-0.2">
                           {formatTimeAgo(item.distributedTo?.distributedAt || item.createdAt)}
                         </div>

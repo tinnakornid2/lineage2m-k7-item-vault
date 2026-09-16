@@ -1,25 +1,33 @@
-# ⚔️ Lineage2M Clan Hub & Boss Item Vault (v2.3.0)
+# ⚔️ Lineage2M Clan Hub & Boss Item Vault (v2.4.0)
 
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.3.0 — อัปเดตล่าสุด)**  
-> ระบบบริหารจัดการกิลด์ คลังไอเทมบอส คิวไอเทม สแกนสลิปผู้ล่าด้วย AI และแจ้งเตือน Discord ANSI Colors & Templates แบบ Real-time
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.4.0 — อัปเดตล่าสุด)**  
+> ระบบบริหารจัดการกิลด์ คลังไอเทมบอส คิวไอเทม สแกนสลิปผู้ล่าด้วย AI จัดการรหัสผ่านตามสิทธิ์ ติดตามสถานะชำระเงิน และแจ้งเตือน Discord ANSI Colors & Templates แบบ Real-time
 
 ---
 
-## ✨ ฟีเจอร์ใหม่ล่าสุดใน v2.3.0 (What's New in v2.3.0)
+## ✨ ฟีเจอร์ใหม่ล่าสุดใน v2.4.0 (What's New in v2.4.0)
 
-- ⚪ **Discord Price Font Color is Bold White (ANSI \u001b[1;37m):**
-  - ตัวอักษรแสดงราคาเพชร เช่น `Price: FREE (0 Diamonds)` หรือราคาเพชรอื่น ๆ เปลี่ยนเป็น **สีขาวเรืองแสงเด่นชัด** สวยงาม อ่านง่ายทั้งบนคอมและมือถือ ครบทั้ง 4 แม่แบบ
-  - อัปเดต UI Live Preview ในหน้าเลือกแม่แบบ (`DiscordBroadcastModal`) และหน้าตั้งค่า (`DiscordWebhookModal`) เป็นสีขาว (`text-white`)
-- 💾 **ระบบบันทึก Discord Webhook และ Gemini OCR Key ถาวรข้ามแอดมิน (Shared Persistence):**
-  - ข้อมูล URL ของ Webhook และคีย์ Gemini OCR จัดเก็บบน Firestore (`app_settings/discord`, `app_settings/gemini_ai`) และมี `localStorage` สำรอง
-  - รีเฟรชหน้าจอ F5 ข้อมูลไม่สูญหาย ไม่ต้องกรอกใหม่
-  - เมื่อ Owner บันทึกคีย์ Gemini AI แล้ว แอดมินทุกคนสามารถกดสแกนรูปปาร์ตี้บอสได้ทันทีโดยไม่ต้องขอคีย์มากรอกเอง
-- ⚡ **ความเสถียรบน Vercel Serverless (แก้ปัญหา FUNCTION_INVOCATION_FAILED):**
-  - Dynamic Import โมดูล Firebase Admin ป้องกันการ Crash จาก Credential ขาดหาย
-  - ห่อหุ้ม Express Handler ด้วย Promise รอ `res.on('finish')` ป้องกัน Lambda ตัดการเชื่อมต่อก่อนส่งผลลัพธ์
-  - Bundle ไฟล์เดียว `api/index.js` พร้อม Endpoint `/api/health` คืนค่ารวดเร็ว <150ms
-- 📦 **สแนปช็อตสำรองข้อมูลสมบูรณ์ v2.3.0:**
-  - `backups/complete_snapshot_v2.3.0.json` (สมาชิก 22 คน, ไอเทม 23 ชิ้น, คิว 5 รายการ, กองทุน 23,521 เพชร)
+- 🔑 **ระบบเปลี่ยนรหัสผ่านตามลำดับสิทธิ์ (Role-Based Password Management):**
+  - สมาชิกทุกคนสามารถเปลี่ยนรหัสผ่านของตนเองได้
+  - Owner สามารถเปลี่ยนรหัสผ่านของสมาชิกทุกคนในระบบได้
+  - Admin สามารถเปลี่ยนรหัสผ่านของตนเอง และของสมาชิกทั่วไป (`Member`, `Party Leader`) ได้ โดยห้ามแตะ Owner และ Admin คนอื่น
+  - หน้าต่าง `ChangePasswordModal` ปลอดภัยสไตล์ Dark Fantasy พร้อมการยืนยันรหัสผ่านใหม่
+  - รองรับทั้งใน Sidebar, My Stats และหน้าทำเนียบสมาชิก (Members)
+- 🗑️ **ระบบจัดการและลบการแจ้งเตือน (Notification Center Deletion & Auto-Cleanup):**
+  - ปุ่มถังขยะ (`Trash2`) บนการแจ้งเตือนแต่ละรายการ ให้ลบเฉพาะข้อความที่ต้องการ
+  - ปุ่ม "ล้างทั้งหมด" (Clear All) บันทึกลง `localStorage` ไม่ให้ข้อความเก่าเด้งกลับมา
+  - **ระบบตัดการแจ้งเตือนอัตโนมัติ:** เมื่อไอเทมถูกแจกจ่ายแล้ว ข้อความแจ้งเตือนขอรับของชิ้นนั้นจะถูกลบออกอัตโนมัติ ไม่ค้างในหน้าแจ้งเตือน
+- 💳 **ระบบติดตามสถานะการชำระเงินของไอเทมแจกจ่าย (Payment Tracking & Confirmation):**
+  - ไอเทมที่มีราคา (`price > 0`) แสดงสถานะ `⏳ รอชำระ` (`Pending Payment`) หรือ `✓ ชำระแล้ว` (`Paid`)
+  - ไอเทมแจกฟรี (`price <= 0`) แสดงสถานะ `🎁 ฟรี` (`Free`) อัตโนมัติ
+  - ในหน้าคลังไอเทม (แท็บของที่แจกแล้ว) มีปุ่ม `✓ ยืนยันการชำระ` พร้อมปุ่ม Revert สำหรับ Admin/Owner
+  - ในหน้าแดชบอร์ด (Box 3 - Recent Distributions) แสดงเฉพาะป้ายสถานะอย่างสวยงาม โดยไม่มีปุ่มกด เพื่อความสะอาดตา
+- 🏷️ **ปรับปรุงหน้าจอ My Stats (Thai Subtitles & Clean Inputs):**
+  - ชื่อสเตตัสทุกค่ามีวงเล็บภาษาไทยกำกับต่อท้ายจางๆ พออ่านได้ เช่น `Damage (พลังโจมตี)`, `Accuracy (ความแม่นยำ)`, `Level (เลเวล)`
+  - ลบค่าตัวเลขหลอกตาในพื้นหลัง (`placeholder=""`) สะอาดตา 100%
+  - เพิ่มปุ่ม "เปลี่ยนรหัสผ่าน" ในการ์ดข้อมูลส่วนตัว
+- 📦 **สแนปช็อตสำรองข้อมูลสมบูรณ์ v2.4.0:**
+  - `backups/complete_snapshot_v2.4.0.json` (สมาชิก 23 คน, ไอเทม 23 ชิ้น, คิว 5 รายการ, กองทุน 23,521 เพชร)
 
 ---
 
@@ -104,6 +112,12 @@ npm run dev
 
 # สร้าง Production Bundle
 & 'C:\Program Files\nodejs\node.exe' 'node_modules\vite\bin\vite.js' build
+
+# บิลด์ Serverless Function สำหรับ Vercel
+& 'C:\Program Files\nodejs\node.exe' 'node_modules\esbuild\bin\esbuild' api/_entry.ts --bundle --platform=node --format=esm --packages=external --outfile=api/index.js
+
+# บิลด์ Local Server
+& 'C:\Program Files\nodejs\node.exe' 'node_modules\esbuild\bin\esbuild' server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/server.js
 ```
 
 ---
@@ -113,5 +127,6 @@ npm run dev
 - **Frontend:** React 19, TypeScript, Tailwind CSS v4, Lucide React, Motion
 - **Backend Server:** Node.js, Express, ESBuild, tsx
 - **Database:** Firebase Cloud Firestore (Real-time synchronization `onSnapshot`)
+- **Authentication:** Firebase Authentication & Firebase Admin SDK
 - **AI Engine:** Google GenAI SDK (`@google/genai` - Gemini Flash Models)
 - **Hosting / Deploy:** Vercel (Frontend & Serverless API) / Express Server (Local)

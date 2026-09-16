@@ -59,6 +59,8 @@ import {
   deleteClanDoc,
   updateUserDoc,
   deleteUserDoc,
+  changeUserPassword,
+  confirmVaultItemPayment,
   addDiamondTransactionDoc,
   updateDiamondTransactionNoteDoc,
   clearDiamondTransactionsDoc,
@@ -98,6 +100,7 @@ import { QuickItemModal } from './components/QuickItemModal';
 import { OwnerResetModal } from './components/OwnerResetModal';
 import { NotificationModal } from './components/NotificationModal';
 import { RequestPowerLevelModal } from './components/RequestPowerLevelModal';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { GeminiKeyModal } from './components/GeminiKeyModal';
 import { GoogleDriveBackupModal } from './components/GoogleDriveBackupModal';
 import {
@@ -301,9 +304,18 @@ export const App: React.FC = () => {
 
   // 5d. In-App Notification Center State (Admin & Owner)
   const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [passwordTargetUser, setPasswordTargetUser] = useState<User | null>(null);
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('l2m_read_notifications');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('l2m_dismissed_notifications');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -406,11 +418,15 @@ export const App: React.FC = () => {
   const notifications = useMemo<AppNotification[]>(() => {
     const list: AppNotification[] = [];
 
-    // 1. Claim alerts from vault items
+    // 1. Claim alerts from vault items (Auto-omits distributed items)
     vaultItems.forEach((item) => {
+      // Auto-remove distributed items: distributed items must not show claim notifications!
+      if (item.status === 'distributed') return;
+
       (item.claimants || []).forEach((c) => {
         const claimantId = c.userId || c.inGameName;
         const notifId = `claim_${item.id}_${claimantId}_${c.claimedAt || 0}`;
+        if (dismissedNotificationIds.includes(notifId)) return;
         const th = lang === 'th';
         list.push({
           id: notifId,
@@ -433,6 +449,7 @@ export const App: React.FC = () => {
     users.forEach((u) => {
       if (u.pendingPowerLevel && u.pendingPowerLevel > 0) {
         const notifId = `stat_req_${u.id}_${u.updatedAt || 0}`;
+        if (dismissedNotificationIds.includes(notifId)) return;
         const th = lang === 'th';
         list.push({
           id: notifId,
@@ -452,7 +469,7 @@ export const App: React.FC = () => {
 
     // Sort newest first
     return list.sort((a, b) => b.timestamp - a.timestamp);
-  }, [vaultItems, users, lang, readNotificationIds]);
+  }, [vaultItems, users, lang, readNotificationIds, dismissedNotificationIds]);
 
   const unreadNotificationCount = useMemo(() => {
     return notifications.filter((n) => !n.read).length;
@@ -513,11 +530,37 @@ export const App: React.FC = () => {
   };
 
   const handleClearNotifications = () => {
+    sounds.playClick();
     const allIds = notifications.map((n) => n.id);
-    setReadNotificationIds(allIds);
-    try {
-      localStorage.setItem('l2m_read_notifications', JSON.stringify(allIds));
-    } catch {}
+    setDismissedNotificationIds((prev) => {
+      const next = Array.from(new Set([...prev, ...allIds]));
+      try {
+        localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    setReadNotificationIds((prev) => {
+      const next = Array.from(new Set([...prev, ...allIds]));
+      try {
+        localStorage.setItem('l2m_read_notifications', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    showToast(
+      lang === 'th' ? 'ล้างการแจ้งเตือนทั้งหมดเรียบร้อยแล้ว' : 'All notifications cleared',
+      'info'
+    );
+  };
+
+  const handleDeleteNotification = (id: string) => {
+    sounds.playClick();
+    setDismissedNotificationIds((prev) => {
+      const next = Array.from(new Set([...prev, id]));
+      try {
+        localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
   };
 
   // Continuously synchronize currentUser with latest user document in users state
@@ -1370,11 +1413,16 @@ export const App: React.FC = () => {
     recipient: { name: string; clan: string; userId?: string; receiptImages?: string[] }
   ) => {
     try {
+      const targetItem = vaultItems.find((i) => i.id === itemId);
+      const isNotFree = Boolean(targetItem && targetItem.price > 0);
+      const initialPaymentStatus: 'pending' | 'paid' = isNotFree ? 'pending' : 'paid';
+
       const distributedPayload: any = {
         name: recipient.name,
         clan: recipient.clan || 'No Clan',
         distributedAt: Date.now(),
-        distributedBy: currentUser?.inGameName || currentUser?.username || 'Admin'
+        distributedBy: currentUser?.inGameName || currentUser?.username || 'Admin',
+        paymentStatus: initialPaymentStatus
       };
       if (recipient.userId) {
         distributedPayload.userId = recipient.userId;
@@ -1386,14 +1434,29 @@ export const App: React.FC = () => {
       await updateVaultItemDoc(itemId, {
         status: 'distributed',
         distributedTo: distributedPayload,
-        receiptImages: recipient.receiptImages || []
+        receiptImages: recipient.receiptImages || [],
+        paymentStatus: initialPaymentStatus
       });
 
+      // Optimistic update local vaultItems
+      setVaultItems((prev) =>
+        prev.map((i) =>
+          i.id === itemId
+            ? {
+                ...i,
+                status: 'distributed',
+                distributedTo: distributedPayload,
+                receiptImages: recipient.receiptImages || [],
+                paymentStatus: initialPaymentStatus
+              }
+            : i
+        )
+      );
+
       // Send Discord notification if enabled
-      const targetItem = vaultItems.find((i) => i.id === itemId);
       if (targetItem && discordSettings?.enabled && discordSettings.notifyOnDistribute) {
         sendDiscordNotification(discordSettings, 'distribute', {
-          item: { ...targetItem, status: 'distributed', distributedTo: distributedPayload },
+          item: { ...targetItem, status: 'distributed', distributedTo: distributedPayload, paymentStatus: initialPaymentStatus },
           distributeInfo: distributedPayload,
           actorName: currentUser?.inGameName || currentUser?.username || 'Admin'
         }).catch((err) => console.warn('Discord notification error on distribute:', err));
@@ -1403,6 +1466,20 @@ export const App: React.FC = () => {
       if (claimantsTargetItem?.id === itemId) {
         setClaimantsTargetItem(null);
       }
+
+      // Automatically clear notifications for this distributed item
+      setDismissedNotificationIds((prev) => {
+        const itemNotifIds = notifications
+          .filter((n) => n.item?.id === itemId)
+          .map((n) => n.id);
+        if (itemNotifIds.length === 0) return prev;
+        const next = Array.from(new Set([...prev, ...itemNotifIds]));
+        try {
+          localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+
       showToast(
         lang === 'th' ? 'แจกจ่ายไอเทมสำเร็จแล้ว!' : 'Item distributed successfully!',
         'success'
@@ -1413,6 +1490,55 @@ export const App: React.FC = () => {
         lang === 'th'
           ? 'เกิดข้อผิดพลาดในการแจกไอเทม กรุณาลองใหม่อีกครั้ง'
           : 'Error distributing item, please try again',
+        'error'
+      );
+    }
+  };
+
+  // Payment Status Handler for Distributed Items
+  const handleConfirmPayment = async (
+    item: VaultItem,
+    targetStatus: 'pending' | 'paid' = 'paid'
+  ) => {
+    sounds.playClick();
+    const isPaid = targetStatus === 'paid';
+    const actorName = currentUser?.inGameName || currentUser?.username || 'Admin';
+    const now = Date.now();
+
+    // Optimistic update
+    setVaultItems((prev) =>
+      prev.map((i) => {
+        if (i.id !== item.id) return i;
+        const updatedDistributedTo = i.distributedTo
+          ? {
+              ...i.distributedTo,
+              paymentStatus: targetStatus,
+              paidAt: isPaid ? now : undefined,
+              paidBy: isPaid ? actorName : undefined
+            }
+          : undefined;
+        return {
+          ...i,
+          paymentStatus: targetStatus,
+          paidAt: isPaid ? now : undefined,
+          paidBy: isPaid ? actorName : undefined,
+          distributedTo: updatedDistributedTo
+        };
+      })
+    );
+
+    try {
+      await confirmVaultItemPayment(item.id, actorName, targetStatus);
+      showToast(
+        isPaid
+          ? (lang === 'th' ? `ยืนยันการชำระเพชรสำหรับ "${item.name}" สำเร็จ!` : `Payment confirmed for "${item.name}"!`)
+          : (lang === 'th' ? `เปลี่ยนสถานะ "${item.name}" เป็นรอชำระแล้ว` : `Status reverted to pending for "${item.name}"`),
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to update payment status:', err);
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการอัปเดตสถานะการชำระ' : 'Failed to update payment status',
         'error'
       );
     }
@@ -1806,6 +1932,23 @@ export const App: React.FC = () => {
     } catch (err) {
       console.error('Failed to delete member in Firestore:', err);
       showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการลบสมาชิก' : 'Failed to delete member', 'error');
+    }
+  };
+
+  const handleChangePassword = async (targetUser: User, newPass: string) => {
+    try {
+      await changeUserPassword(targetUser.id, newPass);
+      showToast(
+        lang === 'th' ? 'เปลี่ยนรหัสผ่านสำเร็จแล้ว!' : 'Password changed successfully!',
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Error changing password:', err);
+      showToast(
+        err?.message || (lang === 'th' ? 'เปลี่ยนรหัสผ่านไม่สำเร็จ' : 'Failed to change password'),
+        'error'
+      );
+      throw err;
     }
   };
 
@@ -2426,6 +2569,7 @@ export const App: React.FC = () => {
         onOpenGoogleBackupModal={isOwner ? () => setShowGoogleBackupModal(true) : undefined}
         onOpenRequestCp={() => setActiveTab('my_stats')}
         onOpenMyStats={() => setActiveTab('my_stats')}
+        onOpenChangePassword={currentUser ? () => setPasswordTargetUser(currentUser) : undefined}
         onOpenPowerFormula={() => setIsPowerFormulaOpen(true)}
         onOpenBulkSwap={() => setActiveTab('bulk_swap')}
         onOpenStatApproval={() => setActiveTab('stat_approvals')}
@@ -2484,6 +2628,7 @@ export const App: React.FC = () => {
             isQuotaExceeded={isQuotaExceeded}
             onOpenGoogleBackupModal={isOwner ? () => setShowGoogleBackupModal(true) : undefined}
             onCheckFirebaseHealth={handleManualCheckFirebase}
+            onConfirmPayment={handleConfirmPayment}
           />
         )}
 
@@ -2501,6 +2646,7 @@ export const App: React.FC = () => {
               setImageViewerData({ url, title, images, currentIndex })
             }
             onOpenOwnerResetModal={() => setShowOwnerResetModal(true)}
+            onConfirmPayment={handleConfirmPayment}
           />
         )}
 
@@ -2538,6 +2684,7 @@ export const App: React.FC = () => {
             onRejectCpUpdate={handleRejectPowerLevelUpdate}
             onUpdateMember={handleUpdateMember}
             onDeleteMember={handleDeleteMember}
+            onChangePassword={(user) => setPasswordTargetUser(user)}
             onOpenStatApproval={() => setActiveTab('stat_approvals')}
           />
         )}
@@ -2597,6 +2744,7 @@ export const App: React.FC = () => {
             showToast={showToast}
             onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
             onSaveHistory={handleSaveUserHistory}
+            onOpenChangePassword={currentUser ? () => setPasswordTargetUser(currentUser) : undefined}
           />
         )}
 
@@ -2716,6 +2864,7 @@ export const App: React.FC = () => {
           notifications={notifications}
           onMarkAllAsRead={handleMarkAllNotificationsAsRead}
           onClearNotifications={handleClearNotifications}
+          onDeleteNotification={handleDeleteNotification}
           onOpenDistributeModal={(item) => {
             setShowNotificationModal(false);
             setDistributeTargetItem(item);
@@ -2729,6 +2878,17 @@ export const App: React.FC = () => {
             setActiveTab(tab);
           }}
           onViewImageZoom={(url, title) => setImageViewerData({ url, title, images: [url], currentIndex: 0 })}
+        />
+      )}
+
+      {passwordTargetUser && (
+        <ChangePasswordModal
+          isOpen={Boolean(passwordTargetUser)}
+          onClose={() => setPasswordTargetUser(null)}
+          targetUser={passwordTargetUser}
+          currentUser={currentUser}
+          lang={lang}
+          onSubmit={handleChangePassword}
         />
       )}
 

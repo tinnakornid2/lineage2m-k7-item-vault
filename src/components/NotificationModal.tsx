@@ -33,6 +33,7 @@ interface NotificationModalProps {
   notifications: AppNotification[];
   onMarkAllAsRead: () => void;
   onClearNotifications: () => void;
+  onDeleteNotification?: (id: string) => void;
   onOpenDistributeModal?: (item: VaultItem) => void;
   onViewClaimants?: (item: VaultItem) => void;
   onNavigateTab?: (tab: ActiveTab) => void;
@@ -46,6 +47,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   notifications,
   onMarkAllAsRead,
   onClearNotifications,
+  onDeleteNotification,
   onOpenDistributeModal,
   onViewClaimants,
   onNavigateTab,
@@ -359,6 +361,22 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                       >
                         <Zap className="w-3 h-3" />
                         <span>{lang === 'th' ? 'ตรวจสเตตัส' : 'Review Stats'}</span>
+                      </button>
+                    )}
+
+                    {onDeleteNotification && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          sounds.playClick();
+                          onDeleteNotification(notif.id);
+                        }}
+                        className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition-all cursor-pointer"
+                        title={t.deleteNotification}
+                        aria-label={t.deleteNotification}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>

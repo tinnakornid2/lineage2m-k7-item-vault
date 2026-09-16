@@ -17,11 +17,13 @@ import {
   ArrowRight,
   LayoutGrid,
   List,
-  Loader2
+  Loader2,
+  KeyRound
 } from 'lucide-react';
 import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, OFFICIAL_CLASSES, cleanClanName, ClanGroup } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { canChangePassword } from '../services/firebase';
 
 interface MembersViewProps {
   lang: Language;
@@ -37,6 +39,7 @@ interface MembersViewProps {
   onRejectCpUpdate?: (userId: string) => Promise<void>;
   onUpdateMember: (userId: string, updates: Partial<User>) => Promise<void>;
   onDeleteMember: (userId: string) => Promise<void>;
+  onChangePassword?: (user: User) => void;
   onOpenBulkSwap?: () => void;
   onOpenStatApproval?: () => void;
 }
@@ -55,6 +58,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
   onRejectCpUpdate,
   onUpdateMember,
   onDeleteMember,
+  onChangePassword,
   onOpenBulkSwap,
   onOpenStatApproval
 }) => {
@@ -604,15 +608,30 @@ export const MembersView: React.FC<MembersViewProps> = ({
                             </div>
                           </div>
 
-                          {isAdminOrOwner && (
-                            <button
-                              onClick={() => handleOpenEdit(mem)}
-                              className="p-1 rounded text-slate-500 hover:text-amber-300 hover:bg-slate-800 transition-all shrink-0 cursor-pointer"
-                              title={t.edit}
-                            >
-                              <Edit className="w-3 h-3" />
-                            </button>
-                          )}
+                          <div className="flex items-center gap-1 shrink-0">
+                            {canChangePassword(currentUser, mem) && onChangePassword && (
+                              <button
+                                onClick={() => {
+                                  sounds.playClick();
+                                  onChangePassword(mem);
+                                }}
+                                className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800 transition-all cursor-pointer"
+                                title={lang === 'th' ? `เปลี่ยนรหัสผ่าน (${mem.inGameName})` : `Change Password (${mem.inGameName})`}
+                              >
+                                <KeyRound className="w-3 h-3" />
+                              </button>
+                            )}
+
+                            {isAdminOrOwner && (
+                              <button
+                                onClick={() => handleOpenEdit(mem)}
+                                className="p-1 rounded text-slate-500 hover:text-amber-300 hover:bg-slate-800 transition-all cursor-pointer"
+                                title={t.edit}
+                              >
+                                <Edit className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -765,6 +784,19 @@ export const MembersView: React.FC<MembersViewProps> = ({
                             {isAdminOrOwner && (
                               <td className="py-2.5 px-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
+                                  {canChangePassword(currentUser, mem) && onChangePassword && (
+                                    <button
+                                      id={`btn-change-password-${mem.id}`}
+                                      onClick={() => {
+                                        sounds.playClick();
+                                        onChangePassword(mem);
+                                      }}
+                                      className="p-1.5 rounded-lg bg-[#162235] hover:bg-[#1f314d] text-amber-300 hover:text-white border border-amber-500/40 hover:border-amber-400 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                                      title={lang === 'th' ? `เปลี่ยนรหัสผ่าน (${mem.inGameName})` : `Change Password (${mem.inGameName})`}
+                                    >
+                                      <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                                    </button>
+                                  )}
                                   {canEditMember(mem) && (
                                     <button
                                       id={`btn-edit-member-${mem.id}`}
@@ -965,6 +997,28 @@ export const MembersView: React.FC<MembersViewProps> = ({
                     <option value="member">{t.roleMember}</option>
                     <option value="admin">{t.roleAdmin}</option>
                   </select>
+                </div>
+              )}
+
+              {/* Change Password Option */}
+              {editingUser && canChangePassword(currentUser, editingUser) && onChangePassword && (
+                <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+                  <span className="text-xs text-slate-400">
+                    {lang === 'th' ? 'ความปลอดภัยของบัญชี' : 'Account Security'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      const target = editingUser;
+                      setEditingUser(null);
+                      onChangePassword(target);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 text-[#f5d77f] text-xs font-semibold transition cursor-pointer"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-[#d4af37]" />
+                    <span>{t.editPassword}</span>
+                  </button>
                 </div>
               )}
 

@@ -76,6 +76,7 @@ interface VaultViewProps {
     currentIndex?: number
   ) => void;
   onOpenOwnerResetModal?: () => void;
+  onConfirmPayment?: (item: VaultItem, targetStatus?: 'pending' | 'paid') => void;
 }
 
 export const VaultView: React.FC<VaultViewProps> = ({
@@ -88,7 +89,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
   onCreateVaultItem,
   onDeleteVaultItem,
   onViewImageZoom,
-  onOpenOwnerResetModal
+  onOpenOwnerResetModal,
+  onConfirmPayment
 }) => {
   const t = translations[lang];
   const isOwner = currentUser?.role === 'owner';
@@ -2509,12 +2511,60 @@ export const VaultView: React.FC<VaultViewProps> = ({
                         </span>
                       </td>
 
-                      {/* 4. Price */}
+                      {/* 4. Price & Payment Status */}
                       <td className="py-3 px-4 font-mono font-bold">
                         {item.price > 0 ? (
-                          <span className="text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]">
-                            {item.price.toLocaleString()} {t.diamonds}
-                          </span>
+                          <div className="space-y-1.5">
+                            <span className="text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.3)] block text-xs">
+                              {item.price.toLocaleString()} {t.diamonds}
+                            </span>
+                            {item.paymentStatus === 'paid' ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!onConfirmPayment) return;
+                                  sounds.playClick();
+                                  if (window.confirm(
+                                    lang === 'th'
+                                      ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นรอชำระใช่หรือไม่?`
+                                      : `Revert "${item.name}" status to pending payment?`
+                                  )) {
+                                    onConfirmPayment(item, 'pending');
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer hover:bg-emerald-500/30 transition-all shadow-sm"
+                                title={
+                                  lang === 'th'
+                                    ? `ชำระแล้ว ${item.paidBy ? `(ยืนยันโดย ${item.paidBy})` : ''} - คลิกเพื่อเปลี่ยนกลับเป็นรอชำระ`
+                                    : `Paid ${item.paidBy ? `(verified by ${item.paidBy})` : ''} - Click to revert to pending`
+                                }
+                              >
+                                <CheckCircle className="w-3 h-3 text-emerald-400" />
+                                <span>{t.paymentStatusPaid || (lang === 'th' ? 'ชำระแล้ว' : 'Paid')}</span>
+                              </button>
+                            ) : (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse shadow-sm">
+                                  <Clock className="w-3 h-3 text-amber-400" />
+                                  <span>{t.paymentStatusPending || (lang === 'th' ? 'รอชำระ' : 'Pending Payment')}</span>
+                                </span>
+                                {onConfirmPayment && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      sounds.playClick();
+                                      onConfirmPayment(item, 'paid');
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-[10px] font-bold shadow cursor-pointer transition-all hover:scale-105 active:scale-95 border border-emerald-400/40"
+                                    title={lang === 'th' ? 'กดยืนยันว่าสมาชิกชำระเพชรแล้ว' : 'Click to confirm member has paid diamonds'}
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    <span>{t.confirmPayment || (lang === 'th' ? 'ยืนยันการชำระ' : 'Confirm Payment')}</span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
                             🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}

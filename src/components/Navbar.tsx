@@ -11,7 +11,8 @@ import {
   Sword,
   Sparkles,
   Zap,
-  Bell
+  Bell,
+  KeyRound
 } from 'lucide-react';
 import { ActiveTab, Language, User, cleanClanName } from '../types';
 import { translations } from '../translations';
@@ -36,6 +37,7 @@ interface NavbarProps {
   onOpenBgModal?: () => void;
   onOpenRequestCp?: () => void;
   onOpenMyStats?: () => void;
+  onOpenChangePassword?: () => void;
   unreadNotificationCount?: number;
   onOpenNotifications?: () => void;
 }
@@ -59,6 +61,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenBgModal,
   onOpenRequestCp,
   onOpenMyStats,
+  onOpenChangePassword,
   unreadNotificationCount,
   onOpenNotifications
 }) => {
@@ -135,7 +138,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   CLAN HUB
                 </span>
                 <span className="text-[9px] sm:text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300">
-                  v2.3.0
+                  v2.4.0
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 truncate max-w-[190px] sm:max-w-none">
@@ -288,13 +291,29 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 </div>
 
+                {onOpenChangePassword && (
+                  <button
+                    id="btn-navbar-change-password"
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      onOpenChangePassword();
+                    }}
+                    className="p-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-white transition-all cursor-pointer shadow-sm"
+                    title={t.changePasswordModalTitle}
+                    aria-label={t.changePasswordModalTitle}
+                  >
+                    <KeyRound className="w-4 h-4" />
+                  </button>
+                )}
+
                 <button
                   id="btn-logout"
                   onClick={() => {
                     sounds.playClick();
                     onLogout();
                   }}
-                  className="p-2 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 hover:text-white transition-all"
+                  className="p-2 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 hover:text-white transition-all cursor-pointer"
                   title={t.logout}
                 >
                   <LogOut className="w-4 h-4" />

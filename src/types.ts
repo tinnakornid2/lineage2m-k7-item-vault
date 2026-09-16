@@ -159,6 +159,9 @@ export interface DistributedInfo {
   distributedAt: number;
   distributedBy: string;
   receiptImages?: string[];
+  paymentStatus?: 'pending' | 'paid';
+  paidAt?: number;
+  paidBy?: string;
 }
 
 export interface VaultItem {
@@ -175,6 +178,9 @@ export interface VaultItem {
   claimants: Claimant[];
   distributedTo?: DistributedInfo;
   receiptImages?: string[];
+  paymentStatus?: 'pending' | 'paid';
+  paidAt?: number;
+  paidBy?: string;
   createdAt: number;
 }
 

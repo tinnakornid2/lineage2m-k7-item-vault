@@ -15,6 +15,7 @@ backups/*
 !backups/complete_snapshot_v2.1.0.json
 !backups/complete_snapshot_v2.2.0.json
 !backups/complete_snapshot_v2.3.0.json
+!backups/complete_snapshot_v2.4.0.json
 !backups/complete_snapshot_latest.json
 secrets/
 data/

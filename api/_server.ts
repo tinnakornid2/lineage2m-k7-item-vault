@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import {
   deleteManagedUser,
+  changeManagedUserPassword,
   getKnownMemberProfiles,
   getStoredGeminiApiKey,
   saveStoredGeminiApiKey,
@@ -179,6 +180,43 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         success: false,
         error: 'DELETE_USER_FAILED',
         message: 'ลบบัญชีไม่สำเร็จ / Failed to delete the user account.'
+      });
+    }
+  });
+
+  app.post("/api/users/:userId/change-password", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
+    try {
+      const { newPassword } = req.body;
+      if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6 || newPassword.length > 128) {
+        return res.status(400).json({
+          success: false,
+          error: 'INVALID_PASSWORD',
+          message: 'รหัสผ่านต้องมีความยาว 6–128 ตัวอักษร / Password must be between 6 and 128 characters.'
+        });
+      }
+
+      const result = await changeManagedUserPassword(res.locals.actor, req.params.userId, newPassword);
+      if (!result.allowed) {
+        const notFound = result.reason === 'USER_NOT_FOUND';
+        return res.status(notFound ? 404 : 403).json({
+          success: false,
+          error: result.reason,
+          message: notFound
+            ? 'ไม่พบบัญชีผู้ใช้ / User account not found.'
+            : 'ไม่มีสิทธิ์เปลี่ยนรหัสผ่านสำหรับบัญชีนี้ / You do not have permission to change password for this account.'
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'เปลี่ยนรหัสผ่านสำเร็จแล้ว / Password changed successfully.'
+      });
+    } catch (error) {
+      console.error('Failed to change password:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'CHANGE_PASSWORD_FAILED',
+        message: 'เปลี่ยนรหัสผ่านไม่สำเร็จ / Failed to change password.'
       });
     }
   });

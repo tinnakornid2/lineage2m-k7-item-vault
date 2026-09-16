@@ -21,7 +21,8 @@ import {
   Check,
   Eye,
   Maximize2,
-  ExternalLink
+  ExternalLink,
+  KeyRound
 } from 'lucide-react';
 import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint } from '../types';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
@@ -53,6 +54,7 @@ interface MyStatsViewProps {
   showToast?: (msg: string, type: 'info' | 'success' | 'warning' | 'error') => void;
   onViewImageZoom?: (url: string, title?: string) => void;
   onSaveHistory?: (newHistory: StatHistoryPoint[]) => Promise<void>;
+  onOpenChangePassword?: () => void;
 }
 
 export const MyStatsView: React.FC<MyStatsViewProps> = ({
@@ -64,7 +66,8 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   onNavigateTab,
   showToast,
   onViewImageZoom,
-  onSaveHistory
+  onSaveHistory,
+  onOpenChangePassword
 }) => {
   const [formulaSettings, setFormulaSettings] = useState<FormulaSettings>(getFormulaSettings());
 
@@ -410,6 +413,40 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     };
   };
 
+  // Helper to retrieve clean Thai subtitle for stat labels
+  const getThaiStatSubtitle = (statId: string, labelTh?: string): string => {
+    const customMap: Record<string, string> = {
+      damage: 'พลังโจมตี',
+      accuracy: 'ความแม่นยำ',
+      defense: 'พลังป้องกัน',
+      damage_reduction: 'ลดทอนความเสียหาย',
+      skill_resistance: 'ต้านทานสกิล',
+      skill_defense_percent: 'ป้องกันสกิล %',
+      weapon_defense_percent: 'ป้องกันอาวุธ %',
+      skill_damage_boost_percent: 'บูสต์ดาเมจสกิล %',
+      weapon_damage_boost_percent: 'บูสต์ดาเมจอาวุธ %',
+      soulshot_level: 'กระสุนวิญญาณ',
+      valor_level: 'ความกล้าหาญ',
+      guardian_level: 'ผู้พิทักษ์',
+      conquer_level: 'พิชิต',
+      duel_level: 'ประลอง',
+      stun_resistance: 'ต้านทานสตัน',
+      stun_accuracy: 'แม่นยำสตัน',
+      triple_chance: 'โอกาสทริปเปิ้ล',
+      aster_chance: 'โอกาสแอสเตอร์',
+      level: 'เลเวล',
+      legend_classes: 'คลาสตำนาน',
+      legend_agathions: 'อากาธีออนตำนาน',
+      class: 'คลาส'
+    };
+    if (customMap[statId]) return customMap[statId];
+    if (labelTh) {
+      const clean = labelTh.replace(/\s*\([^)]*\)/g, '').trim();
+      if (clean) return clean;
+    }
+    return '';
+  };
+
   return (
     <div className="space-y-4 animate-in fade-in duration-200 pb-16">
       {/* ── TOP NAV / RETURN BAR ────────────────────────────────────── */}
@@ -602,10 +639,32 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                     value={inGameName}
                     onChange={(e) => setInGameName(e.target.value)}
                     onBlur={handleIgnBlur}
-                    placeholder={currentUser?.inGameName || 'IGN'}
+                    placeholder=""
                     className="w-full px-4 py-2.5 rounded-xl bg-zinc-750/70 border border-zinc-700 text-white font-bold text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all placeholder:text-zinc-500 shadow-inner"
                   />
                 </div>
+
+                {/* Change Password Button */}
+                {onOpenChangePassword && (
+                  <div className="pt-2 border-t border-zinc-700/60 flex items-center justify-between">
+                    <div className="text-[11px] text-zinc-400">
+                      <span>{lang === 'th' ? 'ความปลอดภัยของบัญชี' : 'Account Security'}</span>
+                    </div>
+                    <button
+                      id="btn-mystats-change-password"
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        onOpenChangePassword();
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-white text-xs font-semibold transition shadow-sm cursor-pointer active:scale-95"
+                      title={lang === 'th' ? 'เปลี่ยนรหัสผ่านของคุณ' : 'Change your password'}
+                    >
+                      <KeyRound className="size-3.5 text-amber-400" />
+                      <span>{lang === 'th' ? 'เปลี่ยนรหัสผ่าน' : 'Change Password'}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -951,7 +1010,9 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                 {/* Left: Class (multi) scrollable list */}
                 <div className="md:col-span-5 space-y-1.5">
                   <label className="block font-semibold text-zinc-200 text-xs">
-                    Class <span className="font-normal text-zinc-400">(multi)</span>
+                    <span>Class</span>{' '}
+                    <span className="text-zinc-400 font-normal text-[11px] opacity-80">(คลาส)</span>{' '}
+                    <span className="font-normal text-zinc-400">(multi)</span>
                   </label>
                   <div className="space-y-1.5 bg-zinc-900/70 p-2 border border-zinc-700 rounded-xl max-h-48 overflow-y-auto custom-scrollbar">
                     {OFFICIAL_CLASSES.map((cls) => {
@@ -994,8 +1055,9 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                 <div className="md:col-span-7 grid grid-cols-3 gap-2.5 self-start pt-6">
                   {/* Level */}
                   <div className="p-3 rounded-xl bg-zinc-900/70 border border-zinc-700 flex flex-col justify-between">
-                    <label className="block mb-2 font-semibold text-zinc-300 text-xs">
-                      Level
+                    <label className="block mb-2 font-semibold text-zinc-300 text-xs leading-snug">
+                      <span>Level</span>{' '}
+                      <span className="text-zinc-400 font-normal text-[11px] opacity-80">(เลเวล)</span>
                     </label>
                     <input
                       type="number"
@@ -1006,15 +1068,16 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                         const v = parseInt(e.target.value, 10);
                         setCharLevel(isNaN(v) ? 0 : Math.max(0, Math.min(99, v)));
                       }}
-                      placeholder="79"
+                      placeholder=""
                       className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-2.5 py-2 text-center font-bold text-white text-base focus:ring-2 focus:ring-purple-500 outline-none"
                     />
                   </div>
 
                   {/* Legend Classes */}
                   <div className="p-3 rounded-xl bg-zinc-900/70 border border-zinc-700 flex flex-col justify-between">
-                    <label className="block mb-2 font-semibold text-zinc-300 text-xs">
-                      Legend Classes
+                    <label className="block mb-2 font-semibold text-zinc-300 text-xs leading-snug">
+                      <span>Legend Classes</span>{' '}
+                      <span className="text-zinc-400 font-normal text-[11px] opacity-80">(คลาสตำนาน)</span>
                     </label>
                     <input
                       type="number"
@@ -1024,15 +1087,16 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                         const v = parseInt(e.target.value, 10);
                         setCharLegendClasses(isNaN(v) ? 0 : Math.max(0, v));
                       }}
-                      placeholder="3"
+                      placeholder=""
                       className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-2.5 py-2 text-center font-bold text-white text-base focus:ring-2 focus:ring-purple-500 outline-none"
                     />
                   </div>
 
                   {/* Legend Agathions */}
                   <div className="p-3 rounded-xl bg-zinc-900/70 border border-zinc-700 flex flex-col justify-between">
-                    <label className="block mb-2 font-semibold text-zinc-300 text-xs">
-                      Legend Agathions
+                    <label className="block mb-2 font-semibold text-zinc-300 text-xs leading-snug">
+                      <span>Legend Agathions</span>{' '}
+                      <span className="text-zinc-400 font-normal text-[11px] opacity-80">(อากาธีออนตำนาน)</span>
                     </label>
                     <input
                       type="number"
@@ -1042,7 +1106,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                         const v = parseInt(e.target.value, 10);
                         setCharLegendAgathions(isNaN(v) ? 0 : Math.max(0, v));
                       }}
-                      placeholder="0"
+                      placeholder=""
                       className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-2.5 py-2 text-center font-bold text-white text-base focus:ring-2 focus:ring-purple-500 outline-none"
                     />
                   </div>
@@ -1090,34 +1154,45 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
 
               {/* All Combat & Defense Stats Grid (3 columns on desktop, 2 on mobile) */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
-                {combatAndDefenseStats.map((stat) => (
-                  <div
-                    key={stat.id}
-                    className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-750 hover:border-zinc-600 space-y-1.5 transition"
-                  >
-                    <div className="flex items-center justify-between">
-                      <label className="font-semibold text-zinc-200 text-xs truncate" title={stat.labelEn}>
-                        {stat.labelEn}
-                      </label>
-                    </div>
+                {combatAndDefenseStats.map((stat) => {
+                  const thaiSubtitle = getThaiStatSubtitle(stat.id, stat.labelTh);
+                  return (
+                    <div
+                      key={stat.id}
+                      className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-750 hover:border-zinc-600 space-y-1.5 transition"
+                    >
+                      <div className="flex items-center justify-between">
+                        <label
+                          className="font-semibold text-zinc-200 text-xs leading-snug"
+                          title={`${stat.labelEn} ${thaiSubtitle ? `(${thaiSubtitle})` : ''}`}
+                        >
+                          <span>{stat.labelEn}</span>
+                          {thaiSubtitle && (
+                            <span className="text-zinc-400 font-normal text-[11px] ml-1.5 opacity-80">
+                              ({thaiSubtitle})
+                            </span>
+                          )}
+                        </label>
+                      </div>
 
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        value={stats[stat.id] === 0 ? '' : stats[stat.id]}
-                        onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
-                        placeholder="0"
-                        className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm font-bold font-mono text-white focus:ring-2 focus:ring-purple-500 outline-none"
-                      />
-                      {stat.inputType === 'percentage' && (
-                        <span className="absolute right-2.5 top-2 text-xs text-zinc-400 font-bold pointer-events-none">
-                          %
-                        </span>
-                      )}
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                          onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
+                          placeholder=""
+                          className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm font-bold font-mono text-white focus:ring-2 focus:ring-purple-500 outline-none"
+                        />
+                        {stat.inputType === 'percentage' && (
+                          <span className="absolute right-2.5 top-2 text-xs text-zinc-400 font-bold pointer-events-none">
+                            %
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -1144,34 +1219,45 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-                  {otherStats.map((stat) => (
-                    <div
-                      key={stat.id}
-                      className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-750 hover:border-zinc-600 space-y-1.5 transition"
-                    >
-                      <div className="flex items-center justify-between">
-                        <label className="font-semibold text-zinc-200 text-xs truncate" title={stat.labelEn}>
-                          {stat.labelEn}
-                        </label>
-                      </div>
+                  {otherStats.map((stat) => {
+                    const thaiSubtitle = getThaiStatSubtitle(stat.id, stat.labelTh);
+                    return (
+                      <div
+                        key={stat.id}
+                        className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-750 hover:border-zinc-600 space-y-1.5 transition"
+                      >
+                        <div className="flex items-center justify-between">
+                          <label
+                            className="font-semibold text-zinc-200 text-xs leading-snug"
+                            title={`${stat.labelEn} ${thaiSubtitle ? `(${thaiSubtitle})` : ''}`}
+                          >
+                            <span>{stat.labelEn}</span>
+                            {thaiSubtitle && (
+                              <span className="text-zinc-400 font-normal text-[11px] ml-1.5 opacity-80">
+                                ({thaiSubtitle})
+                              </span>
+                            )}
+                          </label>
+                        </div>
 
-                      <div className="relative">
-                        <input
-                          type="number"
-                          min="0"
-                          value={stats[stat.id] === 0 ? '' : stats[stat.id]}
-                          onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
-                          placeholder="0"
-                          className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm font-bold font-mono text-white focus:ring-2 focus:ring-purple-500 outline-none"
-                        />
-                        {stat.inputType === 'percentage' && (
-                          <span className="absolute right-2.5 top-2 text-xs text-zinc-400 font-bold pointer-events-none">
-                            %
-                          </span>
-                        )}
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="0"
+                            value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                            onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
+                            placeholder=""
+                            className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm font-bold font-mono text-white focus:ring-2 focus:ring-purple-500 outline-none"
+                          />
+                          {stat.inputType === 'percentage' && (
+                            <span className="absolute right-2.5 top-2 text-xs text-zinc-400 font-bold pointer-events-none">
+                              %
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1203,6 +1289,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                   {spiritStats.map((stat) => {
                     const colorCfg = getSpiritColorConfig(stat.id);
                     const currentTier = spiritEnhancements[stat.id] ?? 0;
+                    const thaiSubtitle = getThaiStatSubtitle(stat.id, stat.labelTh);
 
                     return (
                       <div
@@ -1211,11 +1298,16 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                       >
                         {/* Spirit Header */}
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-base">{colorCfg.icon}</span>
                             <span className="font-bold text-sm text-white">
                               {colorCfg.name}
                             </span>
+                            {thaiSubtitle && (
+                              <span className="text-zinc-400 font-normal text-xs opacity-80">
+                                ({thaiSubtitle})
+                              </span>
+                            )}
                           </div>
                         </div>
 
@@ -1223,8 +1315,9 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                         <div className="grid grid-cols-12 gap-3 items-end">
                           {/* Level input */}
                           <div className="col-span-4 space-y-1">
-                            <label className="block text-[11px] font-semibold text-zinc-400">
-                              Level
+                            <label className="block text-[11px] font-semibold text-zinc-300">
+                              <span>Level</span>{' '}
+                              <span className="text-zinc-400 font-normal text-[10px] opacity-80">(เลเวล)</span>
                             </label>
                             <input
                               type="number"
@@ -1232,15 +1325,16 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                               max="20"
                               value={stats[stat.id] === 0 ? '' : stats[stat.id]}
                               onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
-                              placeholder="10"
+                              placeholder=""
                               className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-2 py-2 text-center font-bold text-sm text-white focus:ring-2 focus:ring-purple-500 outline-none"
                             />
                           </div>
 
                           {/* Enhancement Buttons [0] [+1] [+2] [+3] */}
                           <div className="col-span-8 space-y-1">
-                            <label className="block text-[11px] font-semibold text-zinc-400">
-                              Enhancement
+                            <label className="block text-[11px] font-semibold text-zinc-300">
+                              <span>Enhancement</span>{' '}
+                              <span className="text-zinc-400 font-normal text-[10px] opacity-80">(ขั้นตีบวก)</span>
                             </label>
                             <div className="grid grid-cols-4 gap-1.5">
                               {[0, 1, 2, 3].map((tier) => {
