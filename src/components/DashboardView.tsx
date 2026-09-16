@@ -144,7 +144,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return Array.from(map.values());
   }, [allMembers]);
 
-  // Recent 5 Distributed Items for Feed
+  // Recent Distributed Items for Feed
   const recentDistributedList = React.useMemo(() => {
     return [...(distributedItems || [])]
       .sort((a, b) => {
@@ -152,7 +152,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         const timeB = b.distributedTo?.distributedAt || b.createdAt || 0;
         return timeB - timeA;
       })
-      .slice(0, 5);
+      .slice(0, 15);
   }, [distributedItems]);
 
   // Current User's Rank in their Clan
@@ -956,13 +956,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          {/* BOX 3: RECENT DISTRIBUTION FEED (REDUCED SIZE) */}
-          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#38bdf8]/30 hover:border-[#38bdf8]/50 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group min-h-[225px]">
+          {/* BOX 3: RECENT DISTRIBUTION FEED (EXPAND TO FILL BOX HEIGHT BEFORE SCROLLING) */}
+          <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#38bdf8]/30 hover:border-[#38bdf8]/50 p-2.5 sm:p-3 shadow-md flex flex-col transition-all relative overflow-hidden group min-h-[225px]">
             <div className="absolute -right-8 -top-8 w-24 h-24 bg-sky-500/10 rounded-full blur-xl pointer-events-none" />
 
-            <div>
+            <div className="flex flex-col flex-1 min-h-0">
               {/* Header */}
-              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-1.5">
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-1.5 shrink-0">
                 <div className="flex items-center gap-1.5">
                   <div className="p-1 rounded-md bg-gradient-to-br from-sky-500/20 to-sky-950/40 border border-sky-500/40 text-sky-400 shadow-sm">
                     <Gift className="w-3.5 h-3.5" />
@@ -984,12 +984,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               {/* List */}
               {recentDistributedList.length === 0 ? (
-                <div className="py-5 text-center text-[11px] text-slate-400 space-y-1">
+                <div className="py-5 text-center text-[11px] text-slate-400 space-y-1 my-auto">
                   <Gift className="w-5 h-5 mx-auto text-slate-600 opacity-60" />
                   <p>{t.noRecentDistributions}</p>
                 </div>
               ) : (
-                <div className="space-y-1 max-h-[148px] overflow-y-auto pr-0.5">
+                <div className="space-y-1 overflow-y-auto pr-0.5 custom-scrollbar flex-1 min-h-0 max-h-[280px] sm:max-h-[320px] lg:max-h-none">
                   {recentDistributedList.map((item) => (
                     <div
                       key={item.id}
