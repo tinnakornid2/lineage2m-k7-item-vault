@@ -67,7 +67,13 @@ import {
   getLocalSessionUser,
   INITIAL_QUICK_ITEMS,
   INITIAL_CLANS,
-  DEFAULT_OWNER
+  DEFAULT_OWNER,
+  getCachedUsers,
+  getCachedVaultItems,
+  getCachedClans,
+  getCachedQueues,
+  getCachedDiamondTransactions,
+  setOnQuotaExceededListener
 } from './services/firebase';
 import { calculateDiamondNetChange, computeTotalVaultBalance } from './utils/diamondHelper';
 import { setInMemoryFormulaSettings } from './services/powerFormulaService';
@@ -198,13 +204,20 @@ export const App: React.FC = () => {
     return null;
   });
 
-  // 4. Data Collections State
-  const [users, setUsers] = useState<User[]>([]);
-  const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
-  const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
+  // 4. Data Collections State (Resiliently initialized with cached/offline data)
+  const [users, setUsers] = useState<User[]>(() => getCachedUsers());
+  const [vaultItems, setVaultItems] = useState<VaultItem[]>(() => getCachedVaultItems());
+  const [queueItems, setQueueItems] = useState<QueueItem[]>(() => getCachedQueues());
   const [quickItems, setQuickItems] = useState<QuickItem[]>(INITIAL_QUICK_ITEMS);
-  const [clans, setClans] = useState<ClanGroup[]>([]);
-  const [diamondLogs, setDiamondLogs] = useState<DiamondVaultRecord[]>([]);
+  const [clans, setClans] = useState<ClanGroup[]>(() => getCachedClans());
+  const [diamondLogs, setDiamondLogs] = useState<DiamondVaultRecord[]>(() => getCachedDiamondTransactions());
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
+
+  useEffect(() => {
+    setOnQuotaExceededListener((exceeded) => {
+      setIsQuotaExceeded(exceeded);
+    });
+  }, []);
 
   // 5. Modals State
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -495,16 +508,32 @@ export const App: React.FC = () => {
       }
     });
 
-    const unsubVault = listenToVaultItems((items) => setVaultItems(items));
-    const unsubQueue = listenToQueueItems((items) => setQueueItems(items));
+    const unsubVault = listenToVaultItems((items) => {
+      if (items && items.length > 0) {
+        setVaultItems(items);
+      }
+    });
+    const unsubQueue = listenToQueueItems((items) => {
+      if (items && items.length > 0) {
+        setQueueItems(items);
+      }
+    });
     const unsubQuick = listenToQuickItems((items) => {
-      if (items.length > 0) setQuickItems(items);
+      if (items && items.length > 0) {
+        setQuickItems(items);
+      }
     });
     const unsubClans = listenToClans((clanList) => {
       const validClans = clanList.filter((c) => !isNoClan(c.name));
-      setClans(validClans);
+      if (validClans && validClans.length > 0) {
+        setClans(validClans);
+      }
     });
-    const unsubDiamonds = listenToDiamondTransactions((logs) => setDiamondLogs(logs));
+    const unsubDiamonds = listenToDiamondTransactions((logs) => {
+      if (logs && logs.length > 0) {
+        setDiamondLogs(logs);
+      }
+    });
     const unsubBg = listenToBackgroundSettings((settings) => {
       if (settings && settings.imageUrl) {
         setBgConfig({
@@ -2146,6 +2175,21 @@ export const App: React.FC = () => {
         />
 
         <main className="flex-1 w-full max-w-full 2xl:max-w-[1920px] mx-auto px-2.5 sm:px-4 md:px-6 lg:px-7 py-3 sm:py-5 min-w-0 transition-all">
+        {isQuotaExceeded && (
+          <div className="mb-4 p-3 sm:p-4 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 flex items-start gap-3 backdrop-blur-md shadow-lg transition-all animate-fade-in">
+            <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-xs sm:text-sm leading-relaxed">
+              <div className="font-bold text-amber-200">
+                {lang === 'th' ? '⚡ ฐานข้อมูล Firestore ถึงขีดจำกัดอ่านฟรีรายวันของ Google Cloud (50,000 ครั้ง/วัน)' : '⚡ Google Cloud Firestore Free Daily Read Quota Reached (50,000 reads/day)'}
+              </div>
+              <div className="text-amber-300/80 mt-0.5">
+                {lang === 'th'
+                  ? 'ข้อมูลจริงในระบบปลอดภัย 100% ไม่สูญหาย ขณะนี้ระบบเปิดโหมดข้อมูลสำรองและแคชออฟไลน์อัตโนมัติ โควตาจะรีเซ็ตอัตโนมัติในรอบวันถัดไป หรือสามารถอัปเกรดเป็น Blaze Plan บน Firebase Console ได้ครับ'
+                  : 'All real data remains 100% safe in the database. Running in offline/cached backup mode. Quota resets daily or upgrade to Blaze Plan in Firebase Console.'}
+              </div>
+            </div>
+          </div>
+        )}
         {activeTab === 'dashboard' && (
           <DashboardView
             lang={lang}

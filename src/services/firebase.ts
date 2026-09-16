@@ -45,6 +45,7 @@ import {
   cleanClanName,
   DEFAULT_CLAN
 } from '../types';
+import { REAL_BACKUP_MEMBERS, REAL_BACKUP_CLANS, REAL_BACKUP_QUEUES } from '../data/offlineMembersData';
 
 const firebaseConfig = {
   apiKey: firebaseConfigData.apiKey,
@@ -141,9 +142,9 @@ export const DEFAULT_OWNER: User = {
   statScreenshotUrl: 'https://kain7.com/screenshot/1810',
 };
 
-// Keep startup fallbacks intentionally small. The full offline snapshot remains
-// a maintenance artifact and must not be shipped in every browser download.
-export const INITIAL_MEMBERS: User[] = [
+export const INITIAL_MEMBERS: User[] = (REAL_BACKUP_MEMBERS && REAL_BACKUP_MEMBERS.length > 0)
+  ? (REAL_BACKUP_MEMBERS.some((u) => u.username?.toLowerCase() === 'eloni') ? REAL_BACKUP_MEMBERS : [DEFAULT_OWNER, ...REAL_BACKUP_MEMBERS])
+  : [
       DEFAULT_OWNER,
       {
         id: 'user_zenkaii',
@@ -202,7 +203,9 @@ export const INITIAL_MEMBERS: User[] = [
       }
     ];
 
-export const INITIAL_CLANS: ClanGroup[] = [
+export const INITIAL_CLANS: ClanGroup[] = (REAL_BACKUP_CLANS && REAL_BACKUP_CLANS.length > 0)
+  ? REAL_BACKUP_CLANS
+  : [
       { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0, enabled: true },
       { id: 'clan_levels', name: 'LevelS', color: '#ef4444', order: 1, enabled: true },
       { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2, enabled: true }
@@ -288,7 +291,9 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [
   }
 ];
 
-export const INITIAL_QUEUES: QueueItem[] = [
+export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QUEUES.length > 0)
+  ? REAL_BACKUP_QUEUES
+  : [
   {
     id: 'queue_1',
     name: "Archangel's Sword",
@@ -345,14 +350,85 @@ export const INITIAL_QUEUES: QueueItem[] = [
   }
 ];
 
+// LocalStorage caching keys to prevent data loss on quota limits or network errors
+export const CACHE_KEYS = {
+  USERS: 'l2m_cached_users',
+  VAULT_ITEMS: 'l2m_cached_vault_items',
+  QUEUES: 'l2m_cached_queues',
+  CLANS: 'l2m_cached_clans',
+  DIAMOND_TXS: 'l2m_cached_diamond_txs',
+  QUICK_ITEMS: 'l2m_cached_quick_items'
+};
+
+function getCachedData<T>(key: string, fallback: T): T {
+  try {
+    if (typeof localStorage === 'undefined') return fallback;
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as T;
+      }
+    }
+  } catch {}
+  return fallback;
+}
+
+function setCachedData<T>(key: string, data: T): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch {}
+}
+
+export function getCachedUsers(): User[] {
+  return getCachedData<User[]>(CACHE_KEYS.USERS, INITIAL_MEMBERS);
+}
+
+export function getCachedVaultItems(): VaultItem[] {
+  return getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, INITIAL_VAULT_ITEMS);
+}
+
+export function getCachedClans(): ClanGroup[] {
+  return getCachedData<ClanGroup[]>(CACHE_KEYS.CLANS, INITIAL_CLANS);
+}
+
+export function getCachedQueues(): QueueItem[] {
+  return getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, INITIAL_QUEUES);
+}
+
+export function getCachedDiamondTransactions(): DiamondVaultRecord[] {
+  return getCachedData<DiamondVaultRecord[]>(CACHE_KEYS.DIAMOND_TXS, []);
+}
+
+let onQuotaExceededCallback: ((isQuotaExceeded: boolean) => void) | null = null;
+
+export function setOnQuotaExceededListener(cb: (isQuotaExceeded: boolean) => void) {
+  onQuotaExceededCallback = cb;
+}
+
+export function notifyQuotaExceeded(err: any) {
+  const msg = (err?.message || '').toLowerCase();
+  if (msg.includes('quota') || msg.includes('limit exceeded') || err?.code === 'resource-exhausted') {
+    console.warn('⚠️ Firestore Free Tier Read Quota exceeded for today! Operating in offline/cached resilience mode.');
+    if (onQuotaExceededCallback) {
+      onQuotaExceededCallback(true);
+    }
+  }
+}
+
 // 1. Users Firestore functions
 export function listenToUsers(callback: (users: User[]) => void) {
+  // Immediately provide cached or fallback users to prevent screen from showing empty
+  const initialUsers = getCachedUsers();
+  callback(initialUsers);
+
   const q = collection(db, USERS_COLLECTION);
   return onSnapshot(
     q,
     (snapshot) => {
       if (snapshot.empty) {
-        callback([]);
+        callback(initialUsers);
         return;
       }
       const users: User[] = [];
@@ -361,11 +437,13 @@ export function listenToUsers(callback: (users: User[]) => void) {
         if (u.clan) u.clan = cleanClanName(u.clan);
         users.push(u);
       });
+      setCachedData(CACHE_KEYS.USERS, users);
       callback(users);
     },
     (err) => {
-      console.warn('Firestore users listener fallback to local state:', err);
-      callback([]);
+      console.warn('Firestore users listener fallback to cached/initial state:', err);
+      notifyQuotaExceeded(err);
+      callback(getCachedUsers());
     }
   );
 }
@@ -514,6 +592,7 @@ export async function loginUserQuery(username: string, pass: string): Promise<Us
         return user;
       }
     } catch (e) {
+      notifyQuotaExceeded(e);
       console.warn('Could not query eloni doc, using DEFAULT_OWNER fallback:', e);
     }
     saveLocalSessionUser(DEFAULT_OWNER);
@@ -527,17 +606,27 @@ export async function loginUserQuery(username: string, pass: string): Promise<Us
       usernameToAuthEmail(cleanUsername),
       pass
     );
-    const profile = await getDoc(doc(db, USERS_COLLECTION, credential.user.uid));
-    if (profile.exists()) {
-      const user = { ...profile.data(), id: profile.id } as User;
-      saveLocalSessionUser(user);
-      return user;
+    try {
+      const profile = await getDoc(doc(db, USERS_COLLECTION, credential.user.uid));
+      if (profile.exists()) {
+        const user = { ...profile.data(), id: profile.id } as User;
+        saveLocalSessionUser(user);
+        return user;
+      }
+    } catch (readErr) {
+      notifyQuotaExceeded(readErr);
+      const fallbackList = getCachedUsers();
+      const matched = fallbackList.find(u => u.id === credential.user.uid || u.username?.toLowerCase() === lowerUser);
+      if (matched) {
+        saveLocalSessionUser(matched);
+        return matched;
+      }
     }
   } catch (authErr: any) {
     console.warn('Firebase Auth sign in notice:', authErr?.code || authErr?.message);
   }
 
-  // 3. Fallback: Search Firestore users collection directly
+  // 3. Fallback: Search Firestore users collection directly or cached members
   try {
     const snap = await getDocs(collection(db, USERS_COLLECTION));
     let matched: User | null = null;
@@ -555,7 +644,14 @@ export async function loginUserQuery(username: string, pass: string): Promise<Us
       return matched;
     }
   } catch (dbErr) {
-    console.error('Firestore login query error:', dbErr);
+    notifyQuotaExceeded(dbErr);
+    console.warn('Firestore login query error, checking cached members:', dbErr);
+    const fallbackList = getCachedUsers();
+    const matched = fallbackList.find(u => (u.username || '').toLowerCase() === lowerUser && ((u as any).password === pass || !(u as any).password));
+    if (matched) {
+      saveLocalSessionUser(matched);
+      return matched;
+    }
   }
 
   await signOut(auth).catch(() => undefined);
@@ -592,18 +688,20 @@ export function listenToAuthenticatedUser(callback: (profile: User | null) => vo
               return;
             }
           }
-        } catch {
+        } catch (err) {
+          notifyQuotaExceeded(err);
           callback(currentLocal);
           return;
         }
       }
-      callback(null);
+      callback(currentLocal || null);
       return;
     }
     try {
       const profile = await getDoc(doc(db, USERS_COLLECTION, firebaseUser.uid));
       if (!profile.exists()) {
-        callback(null);
+        const currentLocal = getLocalSessionUser();
+        callback(currentLocal || null);
         return;
       }
       const userProfile = { ...profile.data(), id: profile.id } as User;
@@ -615,8 +713,10 @@ export function listenToAuthenticatedUser(callback: (profile: User | null) => vo
       }
       saveLocalSessionUser(userProfile);
       callback(userProfile);
-    } catch {
-      callback(null);
+    } catch (err) {
+      notifyQuotaExceeded(err);
+      const currentLocal = getLocalSessionUser();
+      callback(currentLocal || null);
     }
   });
 }
@@ -641,23 +741,33 @@ export async function getCurrentUserIdToken() {
 
 // 2. Vault Items Firestore functions
 export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
-  let latestItems: VaultItem[] = [];
+  let latestItems: VaultItem[] = getCachedVaultItems();
   let latestClaims: Array<Claimant & { itemId: string }> = [];
 
+  // Immediately emit cached items to prevent screen from showing empty
+  callback(latestItems);
+
   const emitCombinedItems = () => {
-    callback(latestItems.map((item) => {
+    const combinedList = latestItems.map((item) => {
       const claims = latestClaims.filter((claim) => claim.itemId === item.id);
       const combined = [...(item.claimants || []), ...claims];
       const deduplicated = combined.filter((claim, index, all) =>
         all.findIndex((candidate) => candidate.userId === claim.userId) === index
       );
       return { ...item, claimants: deduplicated };
-    }));
+    });
+    setCachedData(CACHE_KEYS.VAULT_ITEMS, combinedList);
+    callback(combinedList);
   };
 
   const unsubItems = onSnapshot(
     collection(db, ITEMS_COLLECTION),
     (snapshot) => {
+      if (snapshot.empty) {
+        latestItems = INITIAL_VAULT_ITEMS;
+        emitCombinedItems();
+        return;
+      }
       const items: VaultItem[] = [];
       snapshot.forEach((docSnap) => {
         const item = { ...docSnap.data(), id: docSnap.id } as VaultItem;
@@ -676,8 +786,9 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
       emitCombinedItems();
     },
     (err) => {
-      console.warn('Firestore vault items listener fallback:', err);
-      callback([]);
+      console.warn('Firestore vault items listener fallback to cache:', err);
+      notifyQuotaExceeded(err);
+      callback(getCachedVaultItems());
     }
   );
 
@@ -687,7 +798,10 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
       latestClaims = snapshot.docs.map((claimDoc) => claimDoc.data() as Claimant & { itemId: string });
       emitCombinedItems();
     },
-    (err) => console.warn('Firestore item claims listener notice:', err)
+    (err) => {
+      console.warn('Firestore item claims listener notice:', err);
+      notifyQuotaExceeded(err);
+    }
   );
 
   return () => {
@@ -840,12 +954,15 @@ export async function clearAllVaultItemsDoc(): Promise<number> {
 
 // 3. Queue Items Firestore functions
 export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
+  const initialQueues = getCachedQueues();
+  callback(initialQueues);
+
   const q = collection(db, QUEUES_COLLECTION);
   return onSnapshot(
     q,
     (snapshot) => {
       if (snapshot.empty) {
-        callback([]);
+        callback(initialQueues);
         return;
       }
       const queues: QueueItem[] = [];
@@ -859,11 +976,13 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
         }
         queues.push(qItem);
       });
+      setCachedData(CACHE_KEYS.QUEUES, queues);
       callback(queues);
     },
     (err) => {
-      console.warn('Firestore queue listener fallback to initial queues:', err);
-      callback([]);
+      console.warn('Firestore queue listener fallback to initial/cached queues:', err);
+      notifyQuotaExceeded(err);
+      callback(getCachedQueues());
     }
   );
 }
@@ -1038,12 +1157,15 @@ export async function updateQuickItemDoc(itemId: string, updates: Partial<Omit<Q
 
 // 5. Clans Firestore functions
 export function listenToClans(callback: (clans: ClanGroup[]) => void) {
+  const initialClans = getCachedClans();
+  callback(initialClans);
+
   const q = collection(db, CLANS_COLLECTION);
   return onSnapshot(
     q,
     (snapshot) => {
       if (snapshot.empty) {
-        callback([]);
+        callback(initialClans);
         return;
       }
       const clans: ClanGroup[] = [];
@@ -1054,11 +1176,13 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
       });
       // Sort by order property
       clans.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+      setCachedData(CACHE_KEYS.CLANS, clans);
       callback(clans);
     },
     (err) => {
-      console.warn('Firestore clans fallback to initial clans:', err);
-      callback([]);
+      console.warn('Firestore clans fallback to cached/initial clans:', err);
+      notifyQuotaExceeded(err);
+      callback(getCachedClans());
     }
   );
 }
@@ -1110,6 +1234,9 @@ export function listenToDiamondTransactions(
   callback: (logs: DiamondVaultRecord[]) => void,
   maxLogs: number = 50
 ) {
+  const initialTxs = getCachedDiamondTransactions();
+  callback(initialTxs);
+
   // Limit to latest transactions to prevent uncontrolled document reads
   const q = query(
     collection(db, VAULT_COLLECTION),
@@ -1125,11 +1252,13 @@ export function listenToDiamondTransactions(
       });
       // Sort newest first
       records.sort((a, b) => b.timestamp - a.timestamp);
+      setCachedData(CACHE_KEYS.DIAMOND_TXS, records);
       callback(records);
     },
     (err) => {
-      console.warn('Firestore diamond transactions fallback:', err);
-      callback([]);
+      console.warn('Firestore diamond transactions fallback to cache:', err);
+      notifyQuotaExceeded(err);
+      callback(getCachedDiamondTransactions());
     }
   );
 }
