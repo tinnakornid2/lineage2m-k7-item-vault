@@ -109,14 +109,28 @@ export const QueueView: React.FC<QueueViewProps> = ({
   const getRarityBadge = (r: ItemRarity) => {
     switch (r) {
       case 'MYTHIC':
-        return 'bg-amber-500/20 text-amber-300 border-amber-500/60 glow-mythic';
+        return 'bg-amber-500/25 text-amber-200 border-[#ffb800] glow-mythic';
       case 'LAGEND':
-        return 'bg-purple-500/20 text-purple-300 border-purple-500/60 glow-legend';
+        return 'bg-[#8500fd]/25 text-[#e0b0ff] border-[#8500fd] glow-legend';
       case 'EPIC':
-        return 'bg-red-500/20 text-red-300 border-red-500/60 glow-epic';
+        return 'bg-red-500/25 text-red-200 border-[#ff1744] glow-epic';
       case 'RARE':
       default:
-        return 'bg-sky-500/20 text-sky-300 border-sky-500/60 glow-rare';
+        return 'bg-cyan-500/25 text-cyan-200 border-[#00e5ff] glow-rare';
+    }
+  };
+
+  const getRarityTextGlow = (r: ItemRarity) => {
+    switch (r) {
+      case 'MYTHIC':
+        return 'font-glow-mythic';
+      case 'LAGEND':
+        return 'font-glow-legend';
+      case 'EPIC':
+        return 'font-glow-epic';
+      case 'RARE':
+      default:
+        return 'font-glow-rare';
     }
   };
 
@@ -651,7 +665,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                         </span>
                       )}
                     </div>
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-100 font-cinzel line-clamp-2 mt-0.5 leading-snug" title={queue.name}>
+                    <h3 className={`text-xs sm:text-sm font-bold font-cinzel line-clamp-2 mt-0.5 leading-snug ${getRarityTextGlow(queue.rarity)}`} title={queue.name}>
                       {queue.name}
                     </h3>
                   </div>
@@ -950,7 +964,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
 
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="text-base font-bold text-slate-100 font-cinzel">
+                        <h3 className={`text-base font-bold font-cinzel ${getRarityTextGlow(queue.rarity)}`}>
                           {queue.name}
                         </h3>
                         <span className={`text-[9px] font-bold px-2 py-0.5 rounded border uppercase ${getRarityBadge(queue.rarity)}`}>

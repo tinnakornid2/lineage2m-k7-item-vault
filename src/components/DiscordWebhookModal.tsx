@@ -12,10 +12,11 @@ import {
   AlertCircle,
   Key,
   Layers,
-  AtSign
+  AtSign,
+  Eye
 } from 'lucide-react';
-import { DiscordSettings, DiscordMentionType, Language, User } from '../types';
-import { sendDiscordNotification } from '../utils/discord';
+import { DiscordSettings, DiscordMentionType, DiscordMessageTemplate, Language, User } from '../types';
+import { sendDiscordNotification, DISCORD_TEMPLATES } from '../utils/discord';
 import { sounds } from '../utils/sound';
 import { getCurrentUserIdToken } from '../services/firebase';
 import { translations } from '../translations';
@@ -47,6 +48,9 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
   const [enabled, setEnabled] = useState(settings?.enabled ?? false);
   const [notifyOnNewItem, setNotifyOnNewItem] = useState(settings?.notifyOnNewItem ?? true);
   const [notifyOnDistribute, setNotifyOnDistribute] = useState(settings?.notifyOnDistribute ?? true);
+  const [messageTemplate, setMessageTemplate] = useState<DiscordMessageTemplate>(
+    settings?.messageTemplate || 'neon_glow'
+  );
   const [mentionType, setMentionType] = useState<DiscordMentionType>(() => {
     if (settings?.mentionType) return settings.mentionType;
     if (settings?.mentionRoleId?.trim()) return 'role';
@@ -76,6 +80,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
       setEnabled(settings?.enabled ?? false);
       setNotifyOnNewItem(settings?.notifyOnNewItem ?? true);
       setNotifyOnDistribute(settings?.notifyOnDistribute ?? true);
+      setMessageTemplate(settings?.messageTemplate || 'neon_glow');
       const initialMentionType: DiscordMentionType =
         settings?.mentionType ||
         (settings?.mentionRoleId?.trim() ? 'role' : settings?.mentionEveryone === false ? 'none' : 'everyone');
@@ -149,8 +154,30 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
     sounds.playClick();
 
     const cleanRoleId = mentionRoleId.trim().replace(/\D/g, '');
+    const candidateUrl =
+      webhookUrlInput.trim() ||
+      settings?.webhookUrl ||
+      (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '');
+
+    // Auto-save to backend if user typed a new URL
+    if (webhookUrlInput.trim()) {
+      getCurrentUserIdToken().then((token) => {
+        fetch('/api/save-discord-webhook', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ webhookUrl: webhookUrlInput.trim() })
+        }).catch(() => undefined);
+      });
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('vault_discord_webhook_url', webhookUrlInput.trim());
+      }
+    }
+
     const tempSettings: DiscordSettings = {
-      webhookUrl: '',
+      webhookUrl: candidateUrl,
       appBaseUrl: appBaseUrl.trim(),
       enabled: true,
       notifyOnNewItem,
@@ -158,12 +185,15 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
       mentionType,
       mentionRoleId: cleanRoleId,
       mentionEveryone: mentionType === 'everyone',
+      messageTemplate,
       botName: botName.trim() || 'Lineage 2M Vault'
     };
 
     const res = await sendDiscordNotification(tempSettings, 'test', {
       actorName: currentUser?.inGameName || 'Owner',
-      lang
+      lang,
+      webhookUrl: candidateUrl,
+      template: messageTemplate
     });
 
     setIsTesting(false);
@@ -238,6 +268,12 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
     sounds.playClick();
 
     try {
+      const activeUrl =
+        webhookUrlInput.trim() ||
+        (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '') ||
+        settings?.webhookUrl ||
+        '';
+
       // 1. If user entered a new Webhook URL, save it to secure backend
       if (webhookUrlInput.trim()) {
         const token = await getCurrentUserIdToken();
@@ -259,6 +295,9 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
         if (!res.ok) {
           throw new Error(data.message || (lang === 'th' ? 'บันทึก Webhook URL ไม่สำเร็จ' : 'Failed to save Webhook URL'));
         }
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('vault_discord_webhook_url', webhookUrlInput.trim());
+        }
         setServerStatus({
           configured: true,
           maskedUrl:
@@ -272,7 +311,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
       // 2. Save settings to Firestore
       const cleanRoleId = mentionRoleId.trim().replace(/\D/g, '');
       const updated: DiscordSettings = {
-        webhookUrl: '',
+        webhookUrl: activeUrl,
         appBaseUrl: appBaseUrl.trim(),
         enabled,
         notifyOnNewItem,
@@ -280,6 +319,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
         mentionType,
         mentionRoleId: cleanRoleId,
         mentionEveryone: mentionType === 'everyone',
+        messageTemplate,
         botName: botName.trim() || 'Lineage 2M Vault',
         updatedBy: currentUser?.inGameName || 'Owner',
         updatedAt: Date.now()
@@ -503,6 +543,138 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
                 />
               </label>
 
+            </div>
+          </div>
+
+          {/* Discord Message Template Selection & Color Preview */}
+          <div className="space-y-2.5 pt-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>
+                  {lang === 'th' ? 'แม่แบบข้อความ & สีตัวอักษร:' : 'Message Template & Font Colors:'}
+                </span>
+              </label>
+              <div className="flex items-center gap-1 text-[9px]">
+                <span className="text-amber-400 font-bold">🟨 {lang === 'th' ? 'ทอง' : 'Gold'}</span>
+                <span className="text-[#b55aff] font-bold">🟪 {lang === 'th' ? 'ม่วง' : 'Purple'}</span>
+                <span className="text-rose-400 font-bold">🟥 {lang === 'th' ? 'แดง' : 'Red'}</span>
+                <span className="text-cyan-400 font-bold">🟦 {lang === 'th' ? 'ฟ้า' : 'Cyan'}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {DISCORD_TEMPLATES.map((tmpl) => {
+                const isSelected = messageTemplate === tmpl.id;
+                return (
+                  <button
+                    key={tmpl.id}
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setMessageTemplate(tmpl.id);
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer relative ${
+                      isSelected
+                        ? 'bg-[#151c33] text-white shadow-md'
+                        : 'bg-[#090f1b] border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                    style={{
+                      borderColor: isSelected ? tmpl.accentColor : undefined,
+                      boxShadow: isSelected ? `0 0 12px ${tmpl.accentColor}33` : undefined
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-slate-100 flex items-center gap-1">
+                        {tmpl.name[lang]}
+                      </span>
+                      {isSelected && <Check className="w-3.5 h-3.5 shrink-0" style={{ color: tmpl.accentColor }} />}
+                    </div>
+                    <div className="text-[10px] text-slate-400 leading-tight">
+                      {tmpl.description[lang]}
+                    </div>
+                    <div className="mt-2 flex items-center gap-1">
+                      <span
+                        className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                        style={{
+                          backgroundColor: `${tmpl.accentColor}22`,
+                          color: tmpl.accentColor,
+                          border: `1px solid ${tmpl.accentColor}44`
+                        }}
+                      >
+                        {tmpl.badge[lang]}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Live Colored Text Preview Card */}
+            <div className="p-3 rounded-xl bg-[#1e1f22] border border-slate-700/80 space-y-1.5 font-mono text-[11px]">
+              <div className="flex items-center justify-between text-[10px] font-sans text-slate-400 pb-1 border-b border-slate-700">
+                <span className="flex items-center gap-1 text-slate-300 font-bold">
+                  <Eye className="w-3 h-3 text-[#5865F2]" />
+                  <span>{lang === 'th' ? 'ตัวอย่างการแสดงผลจริงใน Discord (English 100%)' : 'Discord Live Color Preview (100% English)'}</span>
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
+                  Embed Card Preview
+                </span>
+              </div>
+
+              {messageTemplate === 'neon_glow' && (
+                <div className="space-y-0.5 pt-1 bg-[#141517] p-2.5 rounded-lg border border-slate-800">
+                  <div className="text-slate-200">
+                    <span className="text-rose-400 font-bold">[EPIC] Breka&apos;s Soul</span>{' '}
+                    <span className="text-slate-300 font-bold">(x1)</span>
+                  </div>
+                  <div className="text-emerald-400 font-bold">
+                    💎 Price: FREE (0 Diamonds)
+                  </div>
+                </div>
+              )}
+
+              {messageTemplate === 'war_horn' && (
+                <div className="space-y-0.5 pt-1 bg-[#141517] p-2.5 rounded-lg border border-slate-800">
+                  <div className="text-slate-200">
+                    <span className="text-red-400 font-bold">⚔️ [WAR VAULT]</span>{' '}
+                    <span className="text-rose-400 font-bold">[EPIC] Breka&apos;s Soul</span>
+                  </div>
+                  <div className="text-slate-300">
+                    <span className="text-emerald-400 font-bold">💎 FREE (0 Diamonds)</span>{' '}
+                    <span className="text-slate-300 font-bold">(x1)</span> • <span className="text-amber-400 font-bold">Claim Ready</span>
+                  </div>
+                </div>
+              )}
+
+              {messageTemplate === 'clan_market' && (
+                <div className="space-y-0.5 pt-1 bg-[#141517] p-2.5 rounded-lg border border-slate-800">
+                  <div className="text-slate-200">
+                    <span className="text-cyan-400 font-bold">🏛️ [MARKET]</span>{' '}
+                    <span className="text-rose-400 font-bold">[EPIC] Breka&apos;s Soul</span>
+                  </div>
+                  <div className="text-slate-300">
+                    <span className="text-emerald-400 font-bold">💎 Value: FREE (0 Diamonds)</span>{' '}
+                    <span className="text-slate-300 font-bold">(x1)</span>
+                  </div>
+                </div>
+              )}
+
+              {messageTemplate === 'crystal_minimal' && (
+                <div className="space-y-0.5 pt-1 text-slate-300 font-sans border-l-2 border-sky-400 pl-2 bg-[#141517] p-2.5 rounded-r-lg">
+                  <div>
+                    <span className="text-rose-400 font-bold font-mono">⚔️ [EPIC] Breka&apos;s Soul</span>{' '}
+                    <span className="text-slate-300 font-bold font-mono">(x1)</span>
+                  </div>
+                  <div>
+                    💎 <span className="font-bold text-white">Price:</span> <span className="text-emerald-400 font-bold font-mono">FREE (0 Diamonds)</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="text-[10px] font-sans text-sky-400 pt-1">
+                👉 <span className="underline cursor-pointer">Open Vault to Claim Item (Direct Link)</span>
+              </div>
             </div>
           </div>
 

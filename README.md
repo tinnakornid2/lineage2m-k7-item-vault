@@ -1,12 +1,22 @@
-# ⚔️ Lineage2M Clan Hub & Boss Item Vault (v2.1.0)
+# ⚔️ Lineage2M Clan Hub & Boss Item Vault (v2.2.0)
 
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.1.0 — อัปเดตล่าสุด)**  
-> ระบบบริหารจัดการกิลด์ คลังไอเทมบอส คิวไอเทม สแกนสลิปผู้ล่าด้วย AI และแจ้งเตือน Discord แบบ Real-time
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.2.0 — อัปเดตล่าสุด)**  
+> ระบบบริหารจัดการกิลด์ คลังไอเทมบอส คิวไอเทม สแกนสลิปผู้ล่าด้วย AI และแจ้งเตือน Discord ANSI Colors & Templates แบบ Real-time
 
 ---
 
 ## ✨ ฟีเจอร์หลัก (Key Features)
 
+- 🎨 **Discord Message Templates & ANSI Glowing Colors (ใหม่ใน v2.2.0):**
+  - **4 สไตล์แม่แบบข้อความ:** Radiant Neon, Siege & War, Guild Market, Crystal Minimal
+  - **สีฟอนต์ชื่อไอเทมเรืองแสงตรงตามระดับความหายาก:**
+    - 🟨 **MYTHIC:** สีทอง (`\u001b[1;33m`)
+    - 🟪 **LEGEND:** สีม่วงเรืองแสง (`\u001b[1;35m`) และธีม `#8500fd`
+    - 🟥 **EPIC:** สีแดงเรืองแสง (`\u001b[1;31m`)
+    - 🟦 **RARE:** สีฟ้าเรืองแสง (`\u001b[1;36m`)
+    - 💎 **ราคาไอเทม:** สีเขียวเรืองแสง (`\u001b[1;32m`)
+  - **การแนบรูปภาพ Thumbnail อัตโนมัติ:** ส่งไฟล์ภาพจริงเข้า Discord API โดยตรง พร้อมระบบสำรอง Default Icon 100%
+  - **DiscordBroadcastModal:** หน้าต่างเลือกแม่แบบพร้อม Live Color Preview ก่อนกดส่งประกาศ
 - 🖥️ **Fluid Dynamic Responsive UI (ปรับขนาดตามหน้าต่างบราวเซอร์):**
   - คอนเทนเนอร์หลักปรับขนาดอัตโนมัติตามขนาดหน้าต่างบราวเซอร์ (`w-full max-w-full 2xl:max-w-[1920px]`)
   - รองรับทั้งการแบ่งหน้าจอ (Split-Screen), แล็ปท็อป, มอนิเตอร์มาตรฐาน และจอ Ultrawide 2K/4K

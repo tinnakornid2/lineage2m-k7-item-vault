@@ -1069,14 +1069,28 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const getRarityBadge = (r: ItemRarity) => {
     switch (r) {
       case 'MYTHIC':
-        return 'bg-amber-500/20 text-amber-300 border-amber-500/60 glow-mythic';
+        return 'bg-amber-500/25 text-amber-200 border-[#ffb800] glow-mythic';
       case 'LAGEND':
-        return 'bg-purple-500/20 text-purple-300 border-purple-500/60 glow-legend';
+        return 'bg-[#8500fd]/25 text-[#e0b0ff] border-[#8500fd] glow-legend';
       case 'EPIC':
-        return 'bg-red-500/20 text-red-300 border-red-500/60 glow-epic';
+        return 'bg-red-500/25 text-red-200 border-[#ff1744] glow-epic';
       case 'RARE':
       default:
-        return 'bg-sky-500/20 text-sky-300 border-sky-500/60 glow-rare';
+        return 'bg-cyan-500/25 text-cyan-200 border-[#00e5ff] glow-rare';
+    }
+  };
+
+  const getRarityTextGlow = (r: ItemRarity) => {
+    switch (r) {
+      case 'MYTHIC':
+        return 'font-glow-mythic';
+      case 'LAGEND':
+        return 'font-glow-legend';
+      case 'EPIC':
+        return 'font-glow-epic';
+      case 'RARE':
+      default:
+        return 'font-glow-rare';
     }
   };
 
@@ -2467,7 +2481,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                       </td>
 
                       {/* 2. Item Name */}
-                      <td className="py-3 px-4 font-bold text-slate-100">
+                      <td className={`py-3 px-4 font-bold text-slate-100 ${getRarityTextGlow(item.rarity)}`}>
                         {item.name}
                       </td>
 

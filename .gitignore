@@ -11,6 +11,8 @@ coverage/
 scratch/
 backups/*
 !backups/complete_snapshot_v2.1.0.json
+!backups/complete_snapshot_v2.2.0.json
+!backups/complete_snapshot_latest.json
 secrets/
 data/
 

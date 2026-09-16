@@ -18,25 +18,62 @@
   }
 }
 
-/* Custom Lineage2M Glows & Rarity Styles */
+/* Custom Lineage2M Glows & Rarity Styles (Ultra Radiant Neon Glow) */
 .glow-mythic {
-  box-shadow: 0 0 15px rgba(234, 179, 8, 0.45), inset 0 0 10px rgba(234, 179, 8, 0.2);
-  border-color: #eab308;
+  box-shadow: 0 0 14px rgba(255, 184, 0, 0.7), 0 0 28px rgba(255, 184, 0, 0.4), inset 0 0 10px rgba(255, 184, 0, 0.3);
+  border-color: #ffb800 !important;
+  text-shadow: 0 0 8px rgba(255, 184, 0, 0.65);
+}
+.glow-mythic:hover {
+  box-shadow: 0 0 20px rgba(255, 184, 0, 0.9), 0 0 40px rgba(255, 184, 0, 0.6), inset 0 0 14px rgba(255, 184, 0, 0.4);
 }
 
 .glow-legend {
-  box-shadow: 0 0 15px rgba(168, 85, 247, 0.45), inset 0 0 10px rgba(168, 85, 247, 0.2);
-  border-color: #a855f7;
+  box-shadow: 0 0 16px rgba(133, 0, 253, 0.85), 0 0 32px rgba(133, 0, 253, 0.5), inset 0 0 12px rgba(133, 0, 253, 0.35);
+  border-color: #8500fd !important;
+  text-shadow: 0 0 9px rgba(133, 0, 253, 0.8);
+}
+.glow-legend:hover {
+  box-shadow: 0 0 22px rgba(133, 0, 253, 1), 0 0 45px rgba(133, 0, 253, 0.7), inset 0 0 15px rgba(133, 0, 253, 0.5);
 }
 
 .glow-epic {
-  box-shadow: 0 0 15px rgba(239, 68, 68, 0.45), inset 0 0 10px rgba(239, 68, 68, 0.2);
-  border-color: #ef4444;
+  box-shadow: 0 0 14px rgba(255, 23, 68, 0.75), 0 0 28px rgba(255, 23, 68, 0.4), inset 0 0 10px rgba(255, 23, 68, 0.3);
+  border-color: #ff1744 !important;
+  text-shadow: 0 0 8px rgba(255, 23, 68, 0.65);
+}
+.glow-epic:hover {
+  box-shadow: 0 0 20px rgba(255, 23, 68, 0.95), 0 0 40px rgba(255, 23, 68, 0.6), inset 0 0 14px rgba(255, 23, 68, 0.4);
 }
 
 .glow-rare {
-  box-shadow: 0 0 15px rgba(56, 189, 248, 0.45), inset 0 0 10px rgba(56, 189, 248, 0.2);
-  border-color: #38bdf8;
+  box-shadow: 0 0 14px rgba(0, 229, 255, 0.75), 0 0 28px rgba(0, 229, 255, 0.4), inset 0 0 10px rgba(0, 229, 255, 0.3);
+  border-color: #00e5ff !important;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.65);
+}
+.glow-rare:hover {
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.95), 0 0 40px rgba(0, 229, 255, 0.6), inset 0 0 14px rgba(0, 229, 255, 0.4);
+}
+
+/* Custom Lineage2M Radiant Font Glows (สีฟอนต์เรืองแสง) */
+.font-glow-mythic {
+  color: #fff2a3 !important;
+  text-shadow: 0 0 8px rgba(255, 184, 0, 0.9), 0 0 16px rgba(255, 184, 0, 0.7), 0 0 24px rgba(255, 184, 0, 0.5) !important;
+}
+
+.font-glow-legend {
+  color: #f5ebff !important;
+  text-shadow: 0 0 8px #8500fd, 0 0 16px #8500fd, 0 0 24px rgba(133, 0, 253, 0.8), 0 0 32px rgba(133, 0, 253, 0.5) !important;
+}
+
+.font-glow-epic {
+  color: #ffe4e6 !important;
+  text-shadow: 0 0 8px #ff1744, 0 0 16px #ff1744, 0 0 24px rgba(255, 23, 68, 0.7) !important;
+}
+
+.font-glow-rare {
+  color: #e0f7fa !important;
+  text-shadow: 0 0 8px #00e5ff, 0 0 16px #00e5ff, 0 0 24px rgba(0, 229, 255, 0.7) !important;
 }
 
 /* Custom Scrollbar for MMO inventory feel */

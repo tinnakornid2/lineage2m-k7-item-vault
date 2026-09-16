@@ -23,12 +23,15 @@ import {
   UserStatus,
   hasUserUpdatedStats,
   isUserStatsPending,
-  AppNotification
+  AppNotification,
+  DiscordMessageTemplate,
+  DiscordMentionType
 } from './types';
 import { getOrGenerateStatHistory } from './utils/growthTimelineHelper';
 import { translations } from './translations';
 import { sounds } from './utils/sound';
 import { sendDiscordNotification } from './utils/discord';
+import { DiscordBroadcastModal } from './components/DiscordBroadcastModal';
 import {
   listenToUsers,
   listenToVaultItems,
@@ -276,6 +279,7 @@ export const App: React.FC = () => {
   const [showQuickItemsModal, setShowQuickItemsModal] = useState(false);
   const [showOwnerResetModal, setShowOwnerResetModal] = useState(false);
   const [showDiscordModal, setShowDiscordModal] = useState(false);
+  const [broadcastTargetItem, setBroadcastTargetItem] = useState<VaultItem | null>(null);
   const [showRequestCpModal, setShowRequestCpModal] = useState(false);
   const [showGeminiModal, setShowGeminiModal] = useState(false);
   const [announcementSettings, setAnnouncementSettings] = useState<AnnouncementSettings | null>(null);
@@ -1035,7 +1039,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Broadcast single vault item to Discord (Owner only)
+  // Broadcast single vault item to Discord (Owner only) - Opens template picker modal
   const handleBroadcastItemToDiscord = async (item: VaultItem) => {
     if (!isOwner) return;
     if (!discordSettings?.enabled) {
@@ -1047,12 +1051,37 @@ export const App: React.FC = () => {
       );
       return;
     }
+    setBroadcastTargetItem(item);
+  };
+
+  const handleConfirmBroadcast = async (
+    item: VaultItem,
+    template: DiscordMessageTemplate,
+    customNote?: string,
+    overrideMentionType?: DiscordMentionType,
+    saveAsDefault?: boolean
+  ) => {
+    if (!isOwner || !discordSettings?.enabled) return;
+
+    if (saveAsDefault) {
+      handleSaveDiscordSettings({
+        ...discordSettings,
+        messageTemplate: template,
+        mentionType: overrideMentionType || discordSettings.mentionType
+      }).catch(console.warn);
+    }
+
+    const activeSettings = overrideMentionType
+      ? { ...discordSettings, mentionType: overrideMentionType }
+      : discordSettings;
 
     try {
-      const res = await sendDiscordNotification(discordSettings, 'new_item', {
+      const res = await sendDiscordNotification(activeSettings, 'new_item', {
         item,
         actorName: currentUser?.inGameName || 'Owner',
-        lang
+        lang,
+        template,
+        customNote
       });
 
       if (res.success) {
@@ -1104,7 +1133,8 @@ export const App: React.FC = () => {
           {
             item,
             actorName: currentUser?.inGameName || 'Owner',
-            lang
+            lang,
+            template: discordSettings?.messageTemplate || 'neon_glow'
           }
         );
         sentCount++;
@@ -2745,6 +2775,18 @@ export const App: React.FC = () => {
         vaultItemsCount={availableDashboardItems.length}
         onSyncAllToDiscord={handleSyncAllItemsToDiscord}
       />
+
+      {broadcastTargetItem && isOwner && (
+        <DiscordBroadcastModal
+          isOpen={Boolean(broadcastTargetItem)}
+          onClose={() => setBroadcastTargetItem(null)}
+          item={broadcastTargetItem}
+          settings={discordSettings}
+          currentUser={currentUser}
+          lang={lang}
+          onConfirmBroadcast={handleConfirmBroadcast}
+        />
+      )}
 
 
 

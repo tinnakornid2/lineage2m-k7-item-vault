@@ -227,6 +227,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   }
   const LIVE_STATE_FILE = path.join(DATA_DIR, 'hub-live-state.json');
   const GOOGLE_CONFIG_FILE = path.join(DATA_DIR, 'google-backup-config.json');
+  const DISCORD_CONFIG_FILE = path.join(DATA_DIR, 'discord-config.json');
 
   // Load saved google config if present
   try {
@@ -629,15 +630,35 @@ Do not include markdown or explanations. Return pure JSON only.`;
     }
   });
 
-  // Helper to get Discord Webhook URL from environment or secure storage
+  // Helper to get Discord Webhook URL from environment, disk cache, or secure storage
+  let diskDiscordWebhookUrl = '';
+  try {
+    if (fs.existsSync(DISCORD_CONFIG_FILE)) {
+      const parsedDiscord = JSON.parse(fs.readFileSync(DISCORD_CONFIG_FILE, 'utf-8'));
+      if (parsedDiscord?.webhookUrl) {
+        diskDiscordWebhookUrl = String(parsedDiscord.webhookUrl).trim();
+      }
+    }
+  } catch {}
+
   const getDiscordWebhookUrl = async () => {
     const environmentUrl = process.env.DISCORD_WEBHOOK_URL?.trim();
     if (environmentUrl) return environmentUrl;
+    if (diskDiscordWebhookUrl) return diskDiscordWebhookUrl;
+    try {
+      if (fs.existsSync(DISCORD_CONFIG_FILE)) {
+        const parsedDiscord = JSON.parse(fs.readFileSync(DISCORD_CONFIG_FILE, 'utf-8'));
+        if (parsedDiscord?.webhookUrl) {
+          diskDiscordWebhookUrl = String(parsedDiscord.webhookUrl).trim();
+          return diskDiscordWebhookUrl;
+        }
+      }
+    } catch {}
     return getStoredDiscordWebhookUrl();
   };
 
-  // Get Discord Webhook configuration status (Owner only)
-  app.get("/api/discord-status", requireRoles(['owner']), async (_req, res) => {
+  // Get Discord Webhook configuration status (Owner & Admin)
+  app.get("/api/discord-status", requireRoles(['owner', 'admin']), async (_req, res) => {
     try {
       const url = await getDiscordWebhookUrl();
       if (!url) {
@@ -653,14 +674,20 @@ Do not include markdown or explanations. Return pure JSON only.`;
     }
   });
 
-  // Save Discord Webhook URL (Owner only)
-  app.post("/api/save-discord-webhook", requireRoles(['owner']), async (req, res) => {
+  // Save Discord Webhook URL (Owner & Admin)
+  app.post("/api/save-discord-webhook", requireRoles(['owner', 'admin']), async (req, res) => {
     try {
       const { webhookUrl } = req.body;
       const cleanUrl = typeof webhookUrl === 'string' ? webhookUrl.trim() : '';
       if (!cleanUrl) {
-        await saveStoredDiscordWebhookUrl('', res.locals.actor.uid);
+        diskDiscordWebhookUrl = '';
         process.env.DISCORD_WEBHOOK_URL = '';
+        try {
+          if (fs.existsSync(DISCORD_CONFIG_FILE)) {
+            fs.unlinkSync(DISCORD_CONFIG_FILE);
+          }
+        } catch {}
+        await saveStoredDiscordWebhookUrl('', res.locals.actor?.uid || 'owner');
         return res.json({ success: true, message: 'ลบการตั้งค่า Discord Webhook เรียบร้อยแล้ว / Discord Webhook removed.' });
       }
       if (!cleanUrl.startsWith("https://discord.com/api/webhooks/") && !cleanUrl.startsWith("https://discordapp.com/api/webhooks/")) {
@@ -669,8 +696,12 @@ Do not include markdown or explanations. Return pure JSON only.`;
           message: "รูปแบบ Webhook URL ไม่ถูกต้อง ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/"
         });
       }
-      await saveStoredDiscordWebhookUrl(cleanUrl, res.locals.actor.uid);
+      diskDiscordWebhookUrl = cleanUrl;
       process.env.DISCORD_WEBHOOK_URL = cleanUrl;
+      try {
+        fs.writeFileSync(DISCORD_CONFIG_FILE, JSON.stringify({ webhookUrl: cleanUrl }, null, 2), 'utf-8');
+      } catch {}
+      await saveStoredDiscordWebhookUrl(cleanUrl, res.locals.actor?.uid || 'owner');
       return res.json({ success: true, message: 'บันทึก Discord Webhook สำเร็จ / Discord Webhook saved successfully.' });
     } catch (err: any) {
       console.error('Failed to save discord webhook:', err);
@@ -689,7 +720,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
         });
       }
       const serializedPayload = JSON.stringify(payload);
-      if (serializedPayload.length > 32_000 || !Array.isArray(payload.embeds) || payload.embeds.length !== 1) {
+      if (serializedPayload.length > 32_000 || !Array.isArray(payload.embeds) || payload.embeds.length < 1) {
         return res.status(400).json({
           error: "INVALID_DISCORD_PAYLOAD",
           message: "ข้อความ Discord มีขนาดหรือรูปแบบไม่ถูกต้อง / Discord payload size or shape is invalid."
@@ -703,9 +734,27 @@ Do not include markdown or explanations. Return pure JSON only.`;
           message: "ส่งข้อความถี่เกินไป กรุณารอสักครู่ / Too many Discord messages. Please wait."
         });
       }
-      const webhookUrl = await getDiscordWebhookUrl();
+
+      const clientWebhookUrl = typeof req.body.webhookUrl === 'string' ? req.body.webhookUrl.trim() : '';
+      const hasValidClientUrl = clientWebhookUrl.startsWith("https://discord.com/api/webhooks/") || clientWebhookUrl.startsWith("https://discordapp.com/api/webhooks/");
+
+      let webhookUrl = await getDiscordWebhookUrl();
+      if (!webhookUrl && hasValidClientUrl) {
+        webhookUrl = clientWebhookUrl;
+        diskDiscordWebhookUrl = clientWebhookUrl;
+        process.env.DISCORD_WEBHOOK_URL = clientWebhookUrl;
+        try {
+          fs.writeFileSync(DISCORD_CONFIG_FILE, JSON.stringify({ webhookUrl: clientWebhookUrl }, null, 2), 'utf-8');
+        } catch {}
+      } else if (hasValidClientUrl && (res.locals.actor?.role === 'owner' || res.locals.actor?.role === 'admin')) {
+        webhookUrl = clientWebhookUrl;
+      }
+
       if (!webhookUrl) {
-        return res.status(503).json({ error: "DISCORD_NOT_CONFIGURED", message: "ยังไม่ได้ตั้งค่า Discord Webhook / Discord Webhook is not configured." });
+        return res.status(503).json({
+          error: "DISCORD_NOT_CONFIGURED",
+          message: "ยังไม่ได้ตั้งค่า Discord Webhook กรุณาเปิดเมนูตั้งค่า Discord เพื่อใส่ Webhook URL / Discord Webhook is not configured. Please set Webhook URL."
+        });
       }
 
       // Basic URL verification for security
@@ -713,26 +762,89 @@ Do not include markdown or explanations. Return pure JSON only.`;
         return res.status(400).json({ error: "Invalid Discord Webhook URL. It must start with https://discord.com/api/webhooks/" });
       }
 
-      const response = await fetch(webhookUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "Lineage2M-K7Vault/1.0"
-        },
-        body: JSON.stringify({
+      // Optional binary image attachment (support item icons or stat screenshots)
+      const imageBase64 = typeof req.body.imageBase64 === 'string' ? req.body.imageBase64.trim() : '';
+      const attachTo = req.body.attachTo === 'image' ? 'image' : 'thumbnail';
+      let imageBuffer: Buffer | null = null;
+      let mimeType = 'image/png';
+      let fileName = 'item.png';
+
+      if (imageBase64.length > 50) {
+        const match = imageBase64.match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,(.+)$/s);
+        if (match) {
+          mimeType = match[1] === 'image/jpg' ? 'image/jpeg' : match[1];
+          const ext = mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/webp' ? 'webp' : 'png';
+          fileName = (attachTo === 'image' ? 'screenshot' : 'item') + '.' + ext;
+          try {
+            imageBuffer = Buffer.from(match[2], 'base64');
+          } catch {
+            imageBuffer = null;
+          }
+        }
+      }
+
+      let response: Response;
+
+      if (imageBuffer) {
+        // Adjust payload embed to point to Discord native attachment
+        if (Array.isArray(payload.embeds) && payload.embeds.length > 0) {
+          if (attachTo === 'image') {
+            payload.embeds[0].image = { url: `attachment://${fileName}` };
+          } else {
+            payload.embeds[0].thumbnail = { url: `attachment://${fileName}` };
+          }
+        }
+
+        const formData = new FormData();
+        formData.append('payload_json', JSON.stringify({
           ...payload,
-          allowed_mentions: payload.allowed_mentions || { parse: ["everyone", "roles"] }
-        })
-      });
+          allowed_mentions: payload.allowed_mentions !== undefined
+            ? payload.allowed_mentions
+            : { parse: ["everyone"] }
+        }));
+        formData.append('files[0]', new Blob([imageBuffer], { type: mimeType }), fileName);
+
+        response = await fetch(webhookUrl, {
+          method: "POST",
+          headers: {
+            "User-Agent": "Lineage2M-K7Vault/1.0"
+          },
+          body: formData
+        });
+      } else {
+        response = await fetch(webhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "Lineage2M-K7Vault/1.0"
+          },
+          body: JSON.stringify({
+            ...payload,
+            allowed_mentions: payload.allowed_mentions !== undefined
+              ? payload.allowed_mentions
+              : { parse: ["everyone"] }
+          })
+        });
+      }
 
       if (!response.ok) {
         const errText = await response.text();
         console.error("Discord returned non-OK status:", response.status, errText);
+        let friendlyMessage = 'ส่งข้อความ Discord ไม่สำเร็จ / Discord delivery failed.';
+        if (response.status === 400) {
+          friendlyMessage = `Discord ปฏิเสธข้อมูล (Bad Request 400) / Discord invalid format.`;
+        } else if (response.status === 404) {
+          friendlyMessage = 'ไม่พบ Webhook นี้ในเซิร์ฟเวอร์ Discord (URL อาจถูกลบใน Discord แล้ว) / Discord Webhook not found (404).';
+        } else if (response.status === 401 || response.status === 403) {
+          friendlyMessage = 'Discord ปฏิเสธการเข้าถึง Webhook (Token ไม่ถูกต้อง) / Discord Webhook unauthorized (401/403).';
+        } else if (response.status === 429) {
+          friendlyMessage = 'Discord แจ้งเตือน: ส่งข้อความถี่เกินไป กรุณารอสักครู่ (Rate Limited 429).';
+        }
         return res.status(response.status).json({
           success: false,
           status: response.status,
           error: 'DISCORD_DELIVERY_FAILED',
-          message: 'ส่งข้อความ Discord ไม่สำเร็จ / Discord delivery failed.'
+          message: friendlyMessage
         });
       }
 

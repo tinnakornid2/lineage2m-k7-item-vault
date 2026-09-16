@@ -28,28 +28,42 @@ export type ItemRarity = 'RARE' | 'EPIC' | 'LAGEND' | 'MYTHIC';
 export const getRarityBadge = (r: ItemRarity) => {
   switch (r) {
     case 'MYTHIC':
-      return 'bg-amber-500/20 text-amber-300 border-amber-500/60 glow-mythic';
+      return 'bg-amber-500/25 text-amber-200 border-[#ffb800] glow-mythic';
     case 'LAGEND':
-      return 'bg-purple-500/20 text-purple-300 border-purple-500/60 glow-legend';
+      return 'bg-[#8500fd]/25 text-[#e0b0ff] border-[#8500fd] glow-legend';
     case 'EPIC':
-      return 'bg-red-500/20 text-red-300 border-red-500/60 glow-epic';
+      return 'bg-red-500/25 text-red-200 border-[#ff1744] glow-epic';
     case 'RARE':
     default:
-      return 'bg-sky-500/20 text-sky-300 border-sky-500/60 glow-rare';
+      return 'bg-cyan-500/25 text-cyan-200 border-[#00e5ff] glow-rare';
   }
 };
 
 export const getRarityBorder = (r: ItemRarity) => {
   switch (r) {
     case 'MYTHIC':
-      return 'border-[#eab308]/60 hover:border-[#eab308]';
+      return 'border-[#ffb800]/80 hover:border-[#ffb800] shadow-[0_0_15px_rgba(255,184,0,0.4)] hover:shadow-[0_0_28px_rgba(255,184,0,0.8)]';
     case 'LAGEND':
-      return 'border-[#a855f7]/60 hover:border-[#a855f7]';
+      return 'border-[#8500fd]/85 hover:border-[#8500fd] shadow-[0_0_16px_rgba(133,0,253,0.5)] hover:shadow-[0_0_30px_rgba(133,0,253,0.9)]';
     case 'EPIC':
-      return 'border-[#ef4444]/60 hover:border-[#ef4444]';
+      return 'border-[#ff1744]/80 hover:border-[#ff1744] shadow-[0_0_15px_rgba(255,23,68,0.4)] hover:shadow-[0_0_28px_rgba(255,23,68,0.8)]';
     case 'RARE':
     default:
-      return 'border-[#38bdf8]/60 hover:border-[#38bdf8]';
+      return 'border-[#00e5ff]/80 hover:border-[#00e5ff] shadow-[0_0_15px_rgba(0,229,255,0.4)] hover:shadow-[0_0_28px_rgba(0,229,255,0.8)]';
+  }
+};
+
+export const getRarityTextGlow = (r: ItemRarity) => {
+  switch (r) {
+    case 'MYTHIC':
+      return 'font-glow-mythic';
+    case 'LAGEND':
+      return 'font-glow-legend';
+    case 'EPIC':
+      return 'font-glow-epic';
+    case 'RARE':
+    default:
+      return 'font-glow-rare';
   }
 };
 
@@ -297,6 +311,7 @@ export interface AnnouncementSettings {
 }
 
 export type DiscordMentionType = 'none' | 'everyone' | 'role';
+export type DiscordMessageTemplate = 'neon_glow' | 'war_horn' | 'clan_market' | 'crystal_minimal';
 
 export interface DiscordSettings {
   webhookUrl: string;
@@ -308,6 +323,7 @@ export interface DiscordSettings {
   mentionType?: DiscordMentionType;
   mentionRoleId?: string;
   mentionEveryone?: boolean;
+  messageTemplate?: DiscordMessageTemplate;
   botName?: string;
   updatedBy?: string;
   updatedAt?: number;

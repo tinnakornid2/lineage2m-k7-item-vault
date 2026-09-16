@@ -272,14 +272,14 @@ export const QuickItemModal: React.FC<QuickItemModalProps> = ({
   const getRarityBadge = (r: ItemRarity) => {
     switch (r) {
       case 'MYTHIC':
-        return 'bg-amber-500/20 text-amber-300 border-amber-500/70 shadow-[0_0_10px_rgba(245,158,11,0.3)]';
+        return 'bg-amber-500/25 text-amber-200 border-[#ffb800] glow-mythic';
       case 'LAGEND':
-        return 'bg-purple-500/20 text-purple-300 border-purple-500/70 shadow-[0_0_10px_rgba(168,85,247,0.3)]';
+        return 'bg-[#8500fd]/25 text-[#e0b0ff] border-[#8500fd] glow-legend';
       case 'EPIC':
-        return 'bg-red-500/20 text-red-300 border-red-500/70 shadow-[0_0_10px_rgba(239,68,68,0.3)]';
+        return 'bg-red-500/25 text-red-200 border-[#ff1744] glow-epic';
       case 'RARE':
       default:
-        return 'bg-sky-500/20 text-sky-300 border-sky-500/70 shadow-[0_0_10px_rgba(56,189,248,0.3)]';
+        return 'bg-cyan-500/25 text-cyan-200 border-[#00e5ff] glow-rare';
     }
   };
 
