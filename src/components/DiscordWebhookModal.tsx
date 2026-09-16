@@ -628,7 +628,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
                     <span className="text-rose-400 font-bold">[EPIC] Breka&apos;s Soul</span>{' '}
                     <span className="text-slate-300 font-bold">(x1)</span>
                   </div>
-                  <div className="text-emerald-400 font-bold">
+                  <div className="text-white font-bold">
                     💎 Price: FREE (0 Diamonds)
                   </div>
                 </div>
@@ -641,7 +641,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
                     <span className="text-rose-400 font-bold">[EPIC] Breka&apos;s Soul</span>
                   </div>
                   <div className="text-slate-300">
-                    <span className="text-emerald-400 font-bold">💎 FREE (0 Diamonds)</span>{' '}
+                    <span className="text-white font-bold">💎 FREE (0 Diamonds)</span>{' '}
                     <span className="text-slate-300 font-bold">(x1)</span> • <span className="text-amber-400 font-bold">Claim Ready</span>
                   </div>
                 </div>
@@ -654,7 +654,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
                     <span className="text-rose-400 font-bold">[EPIC] Breka&apos;s Soul</span>
                   </div>
                   <div className="text-slate-300">
-                    <span className="text-emerald-400 font-bold">💎 Value: FREE (0 Diamonds)</span>{' '}
+                    <span className="text-white font-bold">💎 Value: FREE (0 Diamonds)</span>{' '}
                     <span className="text-slate-300 font-bold">(x1)</span>
                   </div>
                 </div>
@@ -667,7 +667,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
                     <span className="text-slate-300 font-bold font-mono">(x1)</span>
                   </div>
                   <div>
-                    💎 <span className="font-bold text-white">Price:</span> <span className="text-emerald-400 font-bold font-mono">FREE (0 Diamonds)</span>
+                    💎 <span className="font-bold text-white">Price:</span> <span className="text-white font-bold font-mono">FREE (0 Diamonds)</span>
                   </div>
                 </div>
               )}

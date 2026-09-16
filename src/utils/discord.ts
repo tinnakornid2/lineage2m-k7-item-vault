@@ -129,7 +129,7 @@ function buildTemplateDescription(
       const ansiLine = [
         '```ansi',
         `${ansiColor}[${displayRarity}] ${item.name}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m`,
-        `\u001b[1;32m💎 Price: ${priceLabel}\u001b[0m`,
+        `\u001b[1;37m💎 Price: ${priceLabel}\u001b[0m`,
         '```'
       ].join('\n');
       return `${ansiLine}${noteLine}\n${actionLine}`;
@@ -139,7 +139,7 @@ function buildTemplateDescription(
       const ansiLine = [
         '```ansi',
         `\u001b[1;31m⚔️ [WAR VAULT]\u001b[0m ${ansiColor}[${displayRarity}] ${item.name}\u001b[0m`,
-        `\u001b[1;32m💎 ${priceLabel}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m • \u001b[1;33mClaim Ready\u001b[0m`,
+        `\u001b[1;37m💎 ${priceLabel}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m • \u001b[1;33mClaim Ready\u001b[0m`,
         '```'
       ].join('\n');
       return `${ansiLine}${noteLine}\n${actionLine}`;
@@ -149,7 +149,7 @@ function buildTemplateDescription(
       const ansiLine = [
         '```ansi',
         `\u001b[1;36m🏛️ [MARKET]\u001b[0m ${ansiColor}[${displayRarity}] ${item.name}\u001b[0m`,
-        `\u001b[1;32m💎 Value: ${priceLabel}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m`,
+        `\u001b[1;37m💎 Value: ${priceLabel}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m`,
         '```'
       ].join('\n');
       return `${ansiLine}${noteLine}\n${actionLine}`;
@@ -160,7 +160,7 @@ function buildTemplateDescription(
       const ansiLine = [
         '```ansi',
         `${ansiColor}⚔️ [${displayRarity}] ${item.name}\u001b[0m \u001b[1;37m(x${qty})\u001b[0m`,
-        `\u001b[1;32m💎 Price: ${priceLabel}\u001b[0m`,
+        `\u001b[1;37m💎 Price: ${priceLabel}\u001b[0m`,
         '```'
       ].join('\n');
       return `${ansiLine}${noteLine}\n${actionLine}`;

@@ -267,7 +267,7 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
                     </span>{' '}
                     <span className="text-slate-300 font-bold">(x{item.quantity || 1})</span>
                   </div>
-                  <div className="text-emerald-400 font-bold">
+                  <div className="text-white font-bold">
                     💎 Price: {discordPriceLabel}
                   </div>
                 </div>
@@ -282,7 +282,7 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
                     </span>
                   </div>
                   <div className="text-slate-300">
-                    <span className="text-emerald-400 font-bold">💎 {discordPriceLabel}</span>{' '}
+                    <span className="text-white font-bold">💎 {discordPriceLabel}</span>{' '}
                     <span className="text-slate-300 font-bold">(x{item.quantity || 1})</span> • <span className="text-amber-400 font-bold">Claim Ready</span>
                   </div>
                 </div>
@@ -297,7 +297,7 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
                     </span>
                   </div>
                   <div className="text-slate-300">
-                    <span className="text-emerald-400 font-bold">💎 Value: {discordPriceLabel}</span>{' '}
+                    <span className="text-white font-bold">💎 Value: {discordPriceLabel}</span>{' '}
                     <span className="text-slate-300 font-bold">(x{item.quantity || 1})</span>
                   </div>
                 </div>
@@ -312,7 +312,7 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
                     <span className="text-slate-300 font-bold font-mono">(x{item.quantity || 1})</span>
                   </div>
                   <div>
-                    💎 <span className="font-bold text-white">Price:</span> <span className="text-emerald-400 font-bold font-mono">{discordPriceLabel}</span>
+                    💎 <span className="font-bold text-white">Price:</span> <span className="text-white font-bold font-mono">{discordPriceLabel}</span>
                   </div>
                 </div>
               )}
