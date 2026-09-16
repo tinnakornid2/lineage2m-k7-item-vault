@@ -24,7 +24,8 @@ import {
   CheckSquare,
   Check,
   ChevronDown,
-  MessageSquare
+  MessageSquare,
+  FileSpreadsheet
 } from 'lucide-react';
 import { ActiveTab, Language, User, ClanGroup, cleanClanName } from '../types';
 import { translations } from '../translations';
@@ -49,6 +50,7 @@ export interface SidebarProps {
   onOpenBgModal?: () => void;
   onOpenDiscordModal?: () => void;
   onOpenGeminiModal?: () => void;
+  onOpenGoogleBackupModal?: () => void;
   onOpenRequestCp?: () => void;
   onOpenMyStats?: () => void;
   onOpenPowerFormula?: () => void;
@@ -86,6 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenBgModal,
   onOpenDiscordModal,
   onOpenGeminiModal,
+  onOpenGoogleBackupModal,
   onOpenRequestCp,
   onOpenMyStats,
   onOpenPowerFormula,
@@ -286,6 +289,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               aria-label="Gemini AI OCR"
             >
               <Cpu className="w-4 h-4" />
+            </button>
+          )}
+
+          {isOwner && onOpenGoogleBackupModal && (
+            <button
+              onClick={() => {
+                sounds.playClick();
+                onOpenGoogleBackupModal();
+              }}
+              className="relative p-1.5 rounded-lg bg-[#0c1424]/80 border border-emerald-500/50 text-emerald-400 hover:text-white cursor-pointer transition-all shadow-sm"
+              title={lang === 'th' ? 'สำรองข้อมูล Google Sheets & Drive (เฉพาะ Owner)' : 'Google Sheets & Drive Backup (Owner Only)'}
+              aria-label={lang === 'th' ? 'สำรองข้อมูล Google Sheets' : 'Google Sheets Backup'}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
             </button>
           )}
 
@@ -815,6 +832,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 aria-label="Gemini AI OCR"
               >
                 <Cpu className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Google Sheets & Drive Backup (For Owner Only) */}
+            {isOwner && onOpenGoogleBackupModal && (
+              <button
+                id="btn-google-backup"
+                onClick={() => {
+                  sounds.playClick();
+                  onOpenGoogleBackupModal();
+                }}
+                className="relative p-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-400 hover:text-white transition-all cursor-pointer"
+                title={lang === 'th' ? 'สำรองข้อมูล Google Sheets & Drive (เฉพาะ Owner)' : 'Google Sheets & Drive Backup (Owner Only)'}
+                aria-label={lang === 'th' ? 'สำรองข้อมูล Google Sheets' : 'Google Sheets Backup'}
+              >
+                <FileSpreadsheet className="w-4 h-4" />
               </button>
             )}
 

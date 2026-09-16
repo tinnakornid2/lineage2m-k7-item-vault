@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { AlertCircle, CheckCircle, Sparkles, X } from 'lucide-react';
+import { AlertCircle, CheckCircle, Sparkles, X, FileSpreadsheet } from 'lucide-react';
 import {
   ActiveTab,
   ClanGroup,
@@ -93,6 +93,12 @@ import { OwnerResetModal } from './components/OwnerResetModal';
 import { NotificationModal } from './components/NotificationModal';
 import { RequestPowerLevelModal } from './components/RequestPowerLevelModal';
 import { GeminiKeyModal } from './components/GeminiKeyModal';
+import { GoogleDriveBackupModal } from './components/GoogleDriveBackupModal';
+import {
+  triggerDebouncedAutoBackup,
+  fetchDataFromGoogleSheets,
+  getGoogleBackupConfig
+} from './services/googleSheetsBackupService';
 import {
   BackgroundSettingsModal,
   BackgroundConfig,
@@ -212,10 +218,25 @@ export const App: React.FC = () => {
   const [clans, setClans] = useState<ClanGroup[]>(() => getCachedClans());
   const [diamondLogs, setDiamondLogs] = useState<DiamondVaultRecord[]>(() => getCachedDiamondTransactions());
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
+  const [showGoogleBackupModal, setShowGoogleBackupModal] = useState(false);
 
   useEffect(() => {
     setOnQuotaExceededListener((exceeded) => {
       setIsQuotaExceeded(exceeded);
+      if (exceeded) {
+        const config = getGoogleBackupConfig();
+        if (config.webAppUrl && config.fallbackOnQuotaExceeded) {
+          fetchDataFromGoogleSheets().then((res) => {
+            if (res.success && res.data) {
+              if (res.data.users && res.data.users.length > 0) setUsers(res.data.users);
+              if (res.data.vaultItems && res.data.vaultItems.length > 0) setVaultItems(res.data.vaultItems);
+              if (res.data.queueItems) setQueueItems(res.data.queueItems);
+              if (res.data.clans && res.data.clans.length > 0) setClans(res.data.clans);
+              if (res.data.diamondLogs) setDiamondLogs(res.data.diamondLogs);
+            }
+          }).catch(console.warn);
+        }
+      }
     });
   }, []);
 
@@ -574,6 +595,20 @@ export const App: React.FC = () => {
   const vaultBalance = useMemo(() => {
     return computeTotalVaultBalance(diamondLogs);
   }, [diamondLogs]);
+
+  // Automatic debounced sync to Google Sheets & Drive when data updates
+  useEffect(() => {
+    if (users.length > 0 || vaultItems.length > 0) {
+      triggerDebouncedAutoBackup({
+        users,
+        vaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance
+      });
+    }
+  }, [users, vaultItems, queueItems, clans, diamondLogs, vaultBalance]);
 
   // Auth Handlers
   const handleLogin = async (username: string, pass: string): Promise<{ success: boolean; message?: string }> => {
@@ -2146,6 +2181,7 @@ export const App: React.FC = () => {
         onOpenBgModal={isOwner ? () => setShowBgModal(true) : undefined}
         onOpenDiscordModal={isOwner ? () => setShowDiscordModal(true) : undefined}
         onOpenGeminiModal={isOwner ? () => setShowGeminiModal(true) : undefined}
+        onOpenGoogleBackupModal={isOwner ? () => setShowGoogleBackupModal(true) : undefined}
         onOpenRequestCp={() => setActiveTab('my_stats')}
         onOpenMyStats={() => setActiveTab('my_stats')}
         onOpenPowerFormula={() => setIsPowerFormulaOpen(true)}
@@ -2178,7 +2214,7 @@ export const App: React.FC = () => {
         {isQuotaExceeded && (
           <div className="mb-4 p-3 sm:p-4 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 flex items-start gap-3 backdrop-blur-md shadow-lg transition-all animate-fade-in">
             <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-            <div className="text-xs sm:text-sm leading-relaxed">
+            <div className="text-xs sm:text-sm leading-relaxed flex-1">
               <div className="font-bold text-amber-200">
                 {lang === 'th' ? '⚡ ฐานข้อมูล Firestore ถึงขีดจำกัดอ่านฟรีรายวันของ Google Cloud (50,000 ครั้ง/วัน)' : '⚡ Google Cloud Firestore Free Daily Read Quota Reached (50,000 reads/day)'}
               </div>
@@ -2187,6 +2223,20 @@ export const App: React.FC = () => {
                   ? 'ข้อมูลจริงในระบบปลอดภัย 100% ไม่สูญหาย ขณะนี้ระบบเปิดโหมดข้อมูลสำรองและแคชออฟไลน์อัตโนมัติ โควตาจะรีเซ็ตอัตโนมัติในรอบวันถัดไป หรือสามารถอัปเกรดเป็น Blaze Plan บน Firebase Console ได้ครับ'
                   : 'All real data remains 100% safe in the database. Running in offline/cached backup mode. Quota resets daily or upgrade to Blaze Plan in Firebase Console.'}
               </div>
+              {isOwner && (
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      sounds.playClick();
+                      setShowGoogleBackupModal(true);
+                    }}
+                    className="px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs font-semibold inline-flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{lang === 'th' ? 'เปิดฐานข้อมูลสำรอง Google Sheets' : 'Open Google Sheets Backup'}</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -2516,6 +2566,30 @@ export const App: React.FC = () => {
         onClose={() => setShowGeminiModal(false)}
         lang={lang}
         isOwner={currentUser?.role === 'owner'}
+      />
+
+      {/* Google Sheets & Drive Backup Modal (Owner Only) */}
+      <GoogleDriveBackupModal
+        isOpen={showGoogleBackupModal}
+        onClose={() => setShowGoogleBackupModal(false)}
+        lang={lang}
+        isOwner={currentUser?.role === 'owner'}
+        currentData={{
+          users,
+          vaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance
+        }}
+        onDataRestored={(restored) => {
+          if (restored.users && restored.users.length > 0) setUsers(restored.users);
+          if (restored.vaultItems && restored.vaultItems.length > 0) setVaultItems(restored.vaultItems);
+          if (restored.queueItems) setQueueItems(restored.queueItems);
+          if (restored.clans && restored.clans.length > 0) setClans(restored.clans);
+          if (restored.diamondLogs) setDiamondLogs(restored.diamondLogs);
+        }}
+        showToast={showToast}
       />
 
       {/* 5. POWER FORMULA & CLAN MANAGEMENT MODALS */}
