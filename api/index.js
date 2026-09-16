@@ -8,47 +8,58 @@ import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 
 // api/_firebaseAdmin.ts
-import { cert, getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
-import { getStorage } from "firebase-admin/storage";
 import { randomUUID } from "node:crypto";
 var PROJECT_ID = "hybrid-box-753bd";
 var DATABASE_ID = "ai-studio-lineage2mk7itemv-4a75381c-cb0d-43f8-9b9b-c337a41dd8b0";
-function getAdminApp() {
-  if (getApps().length) return getApps()[0];
-  const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (rawServiceAccount) {
-    try {
-      const serviceAccount = JSON.parse(rawServiceAccount);
-      return initializeApp({ credential: cert(serviceAccount), projectId: PROJECT_ID });
-    } catch (e) {
-      console.warn("Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:", e);
-    }
-  }
-  if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
-    return initializeApp({ projectId: PROJECT_ID });
-  }
-  try {
-    return initializeApp({ projectId: PROJECT_ID });
-  } catch (e) {
-    console.warn("Failed to initializeApp without credentials:", e);
-    return getApps()[0] || {};
-  }
-}
-function getAdminDatabase() {
-  const app = getAdminApp();
-  return process.env.FIRESTORE_EMULATOR_HOST ? getFirestore(app) : getFirestore(app, DATABASE_ID);
-}
 function hasAdminCredentials() {
   return Boolean(
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST || process.env.GOOGLE_APPLICATION_CREDENTIALS
   );
 }
-async function getStoredGeminiApiKey() {
-  if (!hasAdminCredentials()) return "";
+var cachedAdmin = null;
+async function getAdminSdk() {
+  if (!hasAdminCredentials()) return null;
+  if (cachedAdmin) return cachedAdmin;
   try {
-    const snapshot = await getAdminDatabase().collection("app_settings").doc("gemini_ai").get();
+    const { cert, getApps, initializeApp } = await import("firebase-admin/app");
+    const { getAuth } = await import("firebase-admin/auth");
+    const { getFirestore } = await import("firebase-admin/firestore");
+    const { getStorage } = await import("firebase-admin/storage");
+    let app2 = getApps().length ? getApps()[0] : null;
+    if (!app2) {
+      const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+      if (rawServiceAccount) {
+        try {
+          const serviceAccount = JSON.parse(rawServiceAccount);
+          app2 = initializeApp({ credential: cert(serviceAccount), projectId: PROJECT_ID });
+        } catch (e) {
+          console.warn("Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:", e);
+        }
+      } else if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+        app2 = initializeApp({ projectId: PROJECT_ID });
+      } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        app2 = initializeApp({ projectId: PROJECT_ID });
+      }
+    }
+    if (!app2) return null;
+    const db = process.env.FIRESTORE_EMULATOR_HOST ? getFirestore(app2) : getFirestore(app2, DATABASE_ID);
+    cachedAdmin = {
+      app: app2,
+      auth: getAuth(app2),
+      db,
+      storage: getStorage(app2)
+    };
+    return cachedAdmin;
+  } catch (err) {
+    console.warn("Failed to load firebase-admin dynamically:", err);
+    return null;
+  }
+}
+async function getStoredGeminiApiKey() {
+  const sdk = await getAdminSdk();
+  if (!sdk) return "";
+  try {
+    const snapshot = await sdk.db.collection("app_settings").doc("gemini_ai").get();
     const apiKey = snapshot.data()?.apiKey;
     return typeof apiKey === "string" ? apiKey.trim() : "";
   } catch {
@@ -56,12 +67,13 @@ async function getStoredGeminiApiKey() {
   }
 }
 async function saveStoredGeminiApiKey(apiKey, updatedBy) {
-  if (!hasAdminCredentials()) {
+  const sdk = await getAdminSdk();
+  if (!sdk) {
     console.warn("saveStoredGeminiApiKey skipped: No Firebase Admin credentials in environment.");
     return;
   }
   try {
-    await getAdminDatabase().collection("app_settings").doc("gemini_ai").set({
+    await sdk.db.collection("app_settings").doc("gemini_ai").set({
       apiKey,
       updatedBy,
       updatedAt: Date.now()
@@ -71,9 +83,10 @@ async function saveStoredGeminiApiKey(apiKey, updatedBy) {
   }
 }
 async function getStoredDiscordWebhookUrl() {
-  if (!hasAdminCredentials()) return "";
+  const sdk = await getAdminSdk();
+  if (!sdk) return "";
   try {
-    const snapshot = await getAdminDatabase().collection("app_settings").doc("discord_secure").get();
+    const snapshot = await sdk.db.collection("app_settings").doc("discord_secure").get();
     const webhookUrl = snapshot.data()?.webhookUrl;
     return typeof webhookUrl === "string" ? webhookUrl.trim() : "";
   } catch {
@@ -81,12 +94,13 @@ async function getStoredDiscordWebhookUrl() {
   }
 }
 async function saveStoredDiscordWebhookUrl(webhookUrl, updatedBy) {
-  if (!hasAdminCredentials()) {
+  const sdk = await getAdminSdk();
+  if (!sdk) {
     console.warn("saveStoredDiscordWebhookUrl skipped: No Firebase Admin credentials in environment.");
     return;
   }
   try {
-    await getAdminDatabase().collection("app_settings").doc("discord_secure").set({
+    await sdk.db.collection("app_settings").doc("discord_secure").set({
       webhookUrl: webhookUrl.trim(),
       updatedBy,
       updatedAt: Date.now()
@@ -96,10 +110,11 @@ async function saveStoredDiscordWebhookUrl(webhookUrl, updatedBy) {
   }
 }
 async function getKnownMemberProfiles() {
-  if (!hasAdminCredentials()) return [];
+  const sdk = await getAdminSdk();
+  if (!sdk) return [];
   try {
-    const snapshot = await getAdminDatabase().collection("users").limit(1e3).get();
-    return snapshot.docs.map((document) => document.data()).filter((profile) => profile.status === "active").map((profile) => ({
+    const snapshot = await sdk.db.collection("users").limit(1e3).get();
+    return snapshot.docs.map((document) => document.data()).filter((profile) => profile && profile.status === "active").map((profile) => ({
       inGameName: typeof profile.inGameName === "string" ? profile.inGameName.slice(0, 60) : "",
       clan: typeof profile.clan === "string" ? profile.clan.slice(0, 60) : "",
       powerLevel: typeof profile.powerLevel === "number" ? profile.powerLevel : 0
@@ -110,9 +125,12 @@ async function getKnownMemberProfiles() {
   }
 }
 async function uploadBackgroundImage(buffer, contentType) {
-  const app = getAdminApp();
+  const sdk = await getAdminSdk();
+  if (!sdk) {
+    throw new Error("Firebase Admin credentials not configured for image upload.");
+  }
   const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "hybrid-box-753bd.firebasestorage.app";
-  const bucket = getStorage(app).bucket(bucketName);
+  const bucket = sdk.storage.bucket(bucketName);
   const objectName = `app-backgrounds/current-${Date.now()}.${contentType === "image/png" ? "png" : "jpg"}`;
   const downloadToken = randomUUID();
   const file = bucket.file(objectName);
@@ -139,7 +157,8 @@ async function verifyRoleToken(authorization, allowedRoles) {
     }
     return null;
   }
-  if (!hasAdminCredentials()) {
+  const sdk = await getAdminSdk();
+  if (!sdk) {
     try {
       const parts = token.split(".");
       if (parts.length === 3) {
@@ -154,10 +173,8 @@ async function verifyRoleToken(authorization, allowedRoles) {
     return { uid: "auth-user", role: allowedRoles[0] };
   }
   try {
-    const app = getAdminApp();
-    const decoded = await getAuth(app).verifyIdToken(token);
-    const db = getAdminDatabase();
-    const profile = await db.collection("users").doc(decoded.uid).get();
+    const decoded = await sdk.auth.verifyIdToken(token);
+    const profile = await sdk.db.collection("users").doc(decoded.uid).get();
     if (!profile.exists) return { uid: decoded.uid, role: allowedRoles[allowedRoles.length - 1] || "member" };
     const data = profile.data();
     if (data.status !== "active" || !allowedRoles.includes(data.role)) return null;
@@ -180,20 +197,19 @@ async function verifyRoleToken(authorization, allowedRoles) {
 }
 async function deleteManagedUser(actor, targetUid) {
   if (!targetUid || actor.uid === targetUid) return { allowed: false, reason: "SELF_DELETE_DENIED" };
-  if (!hasAdminCredentials()) {
+  const sdk = await getAdminSdk();
+  if (!sdk) {
     console.warn("deleteManagedUser: No Firebase Admin credentials in environment, returning local success.");
     return { allowed: true };
   }
-  const app = getAdminApp();
-  const db = getAdminDatabase();
-  const targetRef = db.collection("users").doc(targetUid);
+  const targetRef = sdk.db.collection("users").doc(targetUid);
   const target = await targetRef.get();
   if (!target.exists) return { allowed: false, reason: "USER_NOT_FOUND" };
   const targetRole = String(target.data()?.role || "member");
   const allowed = actor.role === "owner" && targetRole !== "owner" || actor.role === "admin" && ["party_leader", "member"].includes(targetRole);
   if (!allowed) return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
   try {
-    await getAuth(app).deleteUser(targetUid);
+    await sdk.auth.deleteUser(targetUid);
   } catch (error) {
     if (error?.code !== "auth/user-not-found") throw error;
   }
@@ -247,7 +263,7 @@ async function generateWithModelFallback(ai, request) {
   throw lastError;
 }
 async function createApp(options = {}) {
-  const app = express();
+  const app2 = express();
   const getGeminiApiKey = async () => {
     const environmentKey = process.env.GEMINI_API_KEY?.trim();
     if (environmentKey) return environmentKey;
@@ -286,12 +302,21 @@ async function createApp(options = {}) {
       });
     }
   };
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  app.get("/api/health", (_req, res) => {
+  app2.use(express.json({ limit: "50mb" }));
+  app2.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app2.use((req, _res, next) => {
+    const rawPath = req.headers["x-matched-path"] || req.headers["x-invoke-path"] || req.url;
+    if (rawPath && rawPath !== "/api/index" && rawPath !== "/api") {
+      if (!req.url.startsWith("/api") && rawPath.startsWith("/api")) {
+        req.url = rawPath;
+      }
+    }
+    next();
+  });
+  app2.get(["/api/health", "/health", "/api", "/api/index"], (_req, res) => {
     res.json({ status: "ok", timestamp: Date.now() });
   });
-  app.get("/api/gemini-status", requireRoles(["owner", "admin", "manager"]), async (_req, res) => {
+  app2.get("/api/gemini-status", requireRoles(["owner", "admin", "manager"]), async (_req, res) => {
     try {
       const key = await getGeminiApiKey();
       const isConfigured = Boolean(key && key.length > 10);
@@ -306,7 +331,7 @@ async function createApp(options = {}) {
       });
     }
   });
-  app.delete("/api/users/:userId", requireRoles(["owner", "admin"]), async (req, res) => {
+  app2.delete("/api/users/:userId", requireRoles(["owner", "admin"]), async (req, res) => {
     try {
       const result = await deleteManagedUser(res.locals.actor, req.params.userId);
       if (!result.allowed) {
@@ -327,7 +352,7 @@ async function createApp(options = {}) {
       });
     }
   });
-  app.post("/api/save-gemini-key", requireRoles(["owner"]), async (req, res) => {
+  app2.post("/api/save-gemini-key", requireRoles(["owner"]), async (req, res) => {
     try {
       const { apiKey } = req.body;
       if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 10) {
@@ -386,13 +411,13 @@ async function createApp(options = {}) {
     }
   } catch {
   }
-  app.get("/api/google-backup-config", (_req, res) => {
+  app2.get("/api/google-backup-config", (_req, res) => {
     res.json({
       webAppUrl: sharedGoogleBackupUrl,
       sheetUrl: sharedGoogleSheetUrl
     });
   });
-  app.post("/api/google-backup-config", async (req, res) => {
+  app2.post("/api/google-backup-config", async (req, res) => {
     try {
       const { webAppUrl, sheetUrl } = req.body;
       let hasChanged = false;
@@ -434,7 +459,7 @@ async function createApp(options = {}) {
     }
   } catch {
   }
-  app.get("/api/live-state", (req, res) => {
+  app2.get("/api/live-state", (req, res) => {
     const clientVersion = Number(req.query.v) || 0;
     const shouldWait = req.query.wait === "true" || req.query.wait === "1";
     if (clientVersion !== liveHubState.version || liveHubState.version === 0) {
@@ -475,7 +500,7 @@ async function createApp(options = {}) {
       }
     });
   });
-  app.post("/api/live-state", (req, res) => {
+  app2.post("/api/live-state", (req, res) => {
     try {
       const { data } = req.body;
       if (data && typeof data === "object") {
@@ -495,7 +520,7 @@ async function createApp(options = {}) {
       res.status(500).json({ success: false, error: err?.message });
     }
   });
-  app.post("/api/scan-hunters", requireRoles(["owner", "admin", "manager"]), async (req, res) => {
+  app2.post("/api/scan-hunters", requireRoles(["owner", "admin", "manager"]), async (req, res) => {
     try {
       const { imageBase64, imagesBase64 } = req.body;
       const requestLang = req.body?.lang === "en" ? "en" : "th";
@@ -696,8 +721,8 @@ Do not include markdown or explanations. Return pure JSON only.`;
       });
     }
   });
-  app.use(express.static(path.join(process.cwd(), "public")));
-  app.post("/api/save-background", requireRoles(["owner"]), async (req, res) => {
+  app2.use(express.static(path.join(process.cwd(), "public")));
+  app2.post("/api/save-background", requireRoles(["owner"]), async (req, res) => {
     try {
       const { imageBase64 } = req.body;
       if (!imageBase64 || typeof imageBase64 !== "string") {
@@ -745,7 +770,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
     }
     return getStoredDiscordWebhookUrl();
   };
-  app.get("/api/discord-status", requireRoles(["owner", "admin"]), async (_req, res) => {
+  app2.get("/api/discord-status", requireRoles(["owner", "admin"]), async (_req, res) => {
     try {
       const url = await getDiscordWebhookUrl();
       if (!url) {
@@ -758,7 +783,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
       return res.status(500).json({ error: "CONFIG_READ_FAILED", message: "Failed to read Discord configuration." });
     }
   });
-  app.post("/api/save-discord-webhook", requireRoles(["owner", "admin"]), async (req, res) => {
+  app2.post("/api/save-discord-webhook", requireRoles(["owner", "admin"]), async (req, res) => {
     try {
       const { webhookUrl } = req.body;
       const cleanUrl = typeof webhookUrl === "string" ? webhookUrl.trim() : "";
@@ -793,7 +818,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
       return res.status(500).json({ error: "SAVE_FAILED", message: "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 Discord Webhook \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
     }
   });
-  app.post("/api/discord-webhook", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
+  app2.post("/api/discord-webhook", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
     try {
       const { payload } = req.body;
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -921,7 +946,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
       });
     }
   });
-  app.use((err, _req, res, next) => {
+  app2.use((err, _req, res, next) => {
     if (res.headersSent) {
       return next(err);
     }
@@ -950,20 +975,20 @@ Do not include markdown or explanations. Return pure JSON only.`;
       },
       appType: "spa"
     });
-    app.use(vite.middlewares);
+    app2.use(vite.middlewares);
   } else if (options.serveFrontend !== false) {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (_req, res) => {
+    app2.use(express.static(distPath));
+    app2.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
-  return app;
+  return app2;
 }
 async function startServer() {
-  const app = await createApp();
+  const app2 = await createApp();
   const port = Number(process.env.PORT) || 3e3;
-  app.listen(port, "0.0.0.0", () => {
+  app2.listen(port, "0.0.0.0", () => {
     console.log(`Lineage2M Clan Hub server running on http://0.0.0.0:${port}`);
   });
 }
@@ -973,32 +998,14 @@ process.on("unhandledRejection", (reason, promise) => {
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
 });
-var isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(currentFilename);
+var isDirectRun = !process.env.VERCEL && Boolean(process.argv[1]) && path.resolve(process.argv[1]) === path.resolve(currentFilename);
 if (isDirectRun) {
   startServer().catch((err) => console.error("Failed to start server:", err));
 }
 
 // api/index.ts
-var appPromise = null;
-function getApp() {
-  if (!appPromise) {
-    appPromise = createApp({ serveFrontend: false });
-  }
-  return appPromise;
-}
-async function handler(req, res) {
-  try {
-    const app = await getApp();
-    return app(req, res);
-  } catch (err) {
-    console.error("Vercel Serverless Function Handler Error:", err);
-    return res.status(500).json({
-      success: false,
-      error: "SERVERLESS_FUNCTION_ERROR",
-      message: String(err?.message || err)
-    });
-  }
-}
+var app = await createApp({ serveFrontend: false });
+var index_default = app;
 export {
-  handler as default
+  index_default as default
 };

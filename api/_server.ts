@@ -125,8 +125,19 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 
+  // Normalize Vercel incoming rewrite URLs
+  app.use((req, _res, next) => {
+    const rawPath = (req.headers['x-matched-path'] || req.headers['x-invoke-path'] || req.url) as string;
+    if (rawPath && rawPath !== '/api/index' && rawPath !== '/api') {
+      if (!req.url.startsWith('/api') && rawPath.startsWith('/api')) {
+        req.url = rawPath;
+      }
+    }
+    next();
+  });
+
   // Health check
-  app.get("/api/health", (_req, res) => {
+  app.get(["/api/health", "/health", "/api", "/api/index"], (_req, res) => {
     res.json({ status: "ok", timestamp: Date.now() });
   });
 
@@ -919,7 +930,7 @@ process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
 });
 
-const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(currentFilename);
+const isDirectRun = !process.env.VERCEL && Boolean(process.argv[1]) && path.resolve(process.argv[1]) === path.resolve(currentFilename);
 if (isDirectRun) {
   startServer().catch((err) => console.error("Failed to start server:", err));
 }

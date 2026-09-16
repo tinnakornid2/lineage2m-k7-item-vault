@@ -1,42 +1,9 @@
-import { cert, getApps, initializeApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getStorage } from 'firebase-admin/storage';
 import { randomUUID } from 'node:crypto';
 
 const PROJECT_ID = 'hybrid-box-753bd';
 const DATABASE_ID = 'ai-studio-lineage2mk7itemv-4a75381c-cb0d-43f8-9b9b-c337a41dd8b0';
 
-export function getAdminApp() {
-  if (getApps().length) return getApps()[0]!;
-  const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (rawServiceAccount) {
-    try {
-      const serviceAccount = JSON.parse(rawServiceAccount);
-      return initializeApp({ credential: cert(serviceAccount), projectId: PROJECT_ID });
-    } catch (e) {
-      console.warn('Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:', e);
-    }
-  }
-  if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
-    return initializeApp({ projectId: PROJECT_ID });
-  }
-  try {
-    return initializeApp({ projectId: PROJECT_ID });
-  } catch (e) {
-    console.warn('Failed to initializeApp without credentials:', e);
-    return getApps()[0] || ({} as any);
-  }
-}
-
-function getAdminDatabase() {
-  const app = getAdminApp();
-  return process.env.FIRESTORE_EMULATOR_HOST
-    ? getFirestore(app)
-    : getFirestore(app, DATABASE_ID);
-}
-
-export function hasAdminCredentials() {
+export function hasAdminCredentials(): boolean {
   return Boolean(
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
     process.env.FIREBASE_AUTH_EMULATOR_HOST ||
@@ -45,10 +12,69 @@ export function hasAdminCredentials() {
   );
 }
 
-export async function getStoredGeminiApiKey() {
-  if (!hasAdminCredentials()) return '';
+let cachedAdmin: {
+  app: any;
+  auth: any;
+  db: any;
+  storage: any;
+} | null = null;
+
+export async function getAdminSdk() {
+  if (!hasAdminCredentials()) return null;
+  if (cachedAdmin) return cachedAdmin;
+
   try {
-    const snapshot = await getAdminDatabase().collection('app_settings').doc('gemini_ai').get();
+    const { cert, getApps, initializeApp } = await import('firebase-admin/app');
+    const { getAuth } = await import('firebase-admin/auth');
+    const { getFirestore } = await import('firebase-admin/firestore');
+    const { getStorage } = await import('firebase-admin/storage');
+
+    let app = getApps().length ? getApps()[0] : null;
+    if (!app) {
+      const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+      if (rawServiceAccount) {
+        try {
+          const serviceAccount = JSON.parse(rawServiceAccount);
+          app = initializeApp({ credential: cert(serviceAccount), projectId: PROJECT_ID });
+        } catch (e) {
+          console.warn('Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:', e);
+        }
+      } else if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+        app = initializeApp({ projectId: PROJECT_ID });
+      } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        app = initializeApp({ projectId: PROJECT_ID });
+      }
+    }
+
+    if (!app) return null;
+
+    const db = process.env.FIRESTORE_EMULATOR_HOST
+      ? getFirestore(app)
+      : getFirestore(app, DATABASE_ID);
+
+    cachedAdmin = {
+      app,
+      auth: getAuth(app),
+      db,
+      storage: getStorage(app)
+    };
+    return cachedAdmin;
+  } catch (err) {
+    console.warn('Failed to load firebase-admin dynamically:', err);
+    return null;
+  }
+}
+
+export async function getAdminApp() {
+  const sdk = await getAdminSdk();
+  return sdk ? sdk.app : null;
+}
+
+export async function getStoredGeminiApiKey(): Promise<string> {
+  const sdk = await getAdminSdk();
+  if (!sdk) return '';
+  try {
+    const snapshot = await sdk.db.collection('app_settings').doc('gemini_ai').get();
     const apiKey = snapshot.data()?.apiKey;
     return typeof apiKey === 'string' ? apiKey.trim() : '';
   } catch {
@@ -56,13 +82,14 @@ export async function getStoredGeminiApiKey() {
   }
 }
 
-export async function saveStoredGeminiApiKey(apiKey: string, updatedBy: string) {
-  if (!hasAdminCredentials()) {
+export async function saveStoredGeminiApiKey(apiKey: string, updatedBy: string): Promise<void> {
+  const sdk = await getAdminSdk();
+  if (!sdk) {
     console.warn('saveStoredGeminiApiKey skipped: No Firebase Admin credentials in environment.');
     return;
   }
   try {
-    await getAdminDatabase().collection('app_settings').doc('gemini_ai').set({
+    await sdk.db.collection('app_settings').doc('gemini_ai').set({
       apiKey,
       updatedBy,
       updatedAt: Date.now()
@@ -72,10 +99,11 @@ export async function saveStoredGeminiApiKey(apiKey: string, updatedBy: string) 
   }
 }
 
-export async function getStoredDiscordWebhookUrl() {
-  if (!hasAdminCredentials()) return '';
+export async function getStoredDiscordWebhookUrl(): Promise<string> {
+  const sdk = await getAdminSdk();
+  if (!sdk) return '';
   try {
-    const snapshot = await getAdminDatabase().collection('app_settings').doc('discord_secure').get();
+    const snapshot = await sdk.db.collection('app_settings').doc('discord_secure').get();
     const webhookUrl = snapshot.data()?.webhookUrl;
     return typeof webhookUrl === 'string' ? webhookUrl.trim() : '';
   } catch {
@@ -83,13 +111,14 @@ export async function getStoredDiscordWebhookUrl() {
   }
 }
 
-export async function saveStoredDiscordWebhookUrl(webhookUrl: string, updatedBy: string) {
-  if (!hasAdminCredentials()) {
+export async function saveStoredDiscordWebhookUrl(webhookUrl: string, updatedBy: string): Promise<void> {
+  const sdk = await getAdminSdk();
+  if (!sdk) {
     console.warn('saveStoredDiscordWebhookUrl skipped: No Firebase Admin credentials in environment.');
     return;
   }
   try {
-    await getAdminDatabase().collection('app_settings').doc('discord_secure').set({
+    await sdk.db.collection('app_settings').doc('discord_secure').set({
       webhookUrl: webhookUrl.trim(),
       updatedBy,
       updatedAt: Date.now()
@@ -99,29 +128,33 @@ export async function saveStoredDiscordWebhookUrl(webhookUrl: string, updatedBy:
   }
 }
 
-export async function getKnownMemberProfiles() {
-  if (!hasAdminCredentials()) return [];
+export async function getKnownMemberProfiles(): Promise<Array<{ inGameName: string; clan: string; powerLevel: number }>> {
+  const sdk = await getAdminSdk();
+  if (!sdk) return [];
   try {
-    const snapshot = await getAdminDatabase().collection('users').limit(1000).get();
+    const snapshot = await sdk.db.collection('users').limit(1000).get();
     return snapshot.docs
-      .map((document) => document.data())
-      .filter((profile) => profile.status === 'active')
-      .map((profile) => ({
+      .map((document: any) => document.data())
+      .filter((profile: any) => profile && profile.status === 'active')
+      .map((profile: any) => ({
         inGameName: typeof profile.inGameName === 'string' ? profile.inGameName.slice(0, 60) : '',
         clan: typeof profile.clan === 'string' ? profile.clan.slice(0, 60) : '',
         powerLevel: typeof profile.powerLevel === 'number' ? profile.powerLevel : 0
       }))
-      .filter((profile) => profile.inGameName.length > 0);
+      .filter((profile: any) => profile.inGameName.length > 0);
   } catch (err: any) {
     console.warn('Cannot fetch member profiles via Admin SDK:', err?.message || err);
     return [];
   }
 }
 
-export async function uploadBackgroundImage(buffer: Buffer, contentType: string) {
-  const app = getAdminApp();
+export async function uploadBackgroundImage(buffer: Buffer, contentType: string): Promise<string> {
+  const sdk = await getAdminSdk();
+  if (!sdk) {
+    throw new Error('Firebase Admin credentials not configured for image upload.');
+  }
   const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'hybrid-box-753bd.firebasestorage.app';
-  const bucket = getStorage(app).bucket(bucketName);
+  const bucket = sdk.storage.bucket(bucketName);
   const objectName = `app-backgrounds/current-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
   const downloadToken = randomUUID();
   const file = bucket.file(objectName);
@@ -136,7 +169,10 @@ export async function uploadBackgroundImage(buffer: Buffer, contentType: string)
   return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(objectName)}?alt=media&token=${downloadToken}`;
 }
 
-export async function verifyRoleToken(authorization: string | undefined, allowedRoles: string[]) {
+export async function verifyRoleToken(
+  authorization: string | undefined,
+  allowedRoles: string[]
+): Promise<{ uid: string; role: string } | null> {
   const token = authorization?.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
   if (!token) return null;
 
@@ -152,8 +188,10 @@ export async function verifyRoleToken(authorization: string | undefined, allowed
     return null;
   }
 
+  const sdk = await getAdminSdk();
+
   // If no service account, decode JWT payload safely or grant fallback access
-  if (!hasAdminCredentials()) {
+  if (!sdk) {
     try {
       const parts = token.split('.');
       if (parts.length === 3) {
@@ -168,10 +206,8 @@ export async function verifyRoleToken(authorization: string | undefined, allowed
   }
 
   try {
-    const app = getAdminApp();
-    const decoded = await getAuth(app).verifyIdToken(token);
-    const db = getAdminDatabase();
-    const profile = await db.collection('users').doc(decoded.uid).get();
+    const decoded = await sdk.auth.verifyIdToken(token);
+    const profile = await sdk.db.collection('users').doc(decoded.uid).get();
     if (!profile.exists) return { uid: decoded.uid, role: allowedRoles[allowedRoles.length - 1] || 'member' };
     const data = profile.data()!;
     if (data.status !== 'active' || !allowedRoles.includes(data.role)) return null;
@@ -192,15 +228,19 @@ export async function verifyRoleToken(authorization: string | undefined, allowed
   }
 }
 
-export async function deleteManagedUser(actor: { uid: string; role: string }, targetUid: string) {
+export async function deleteManagedUser(
+  actor: { uid: string; role: string },
+  targetUid: string
+): Promise<{ allowed: boolean; reason?: string }> {
   if (!targetUid || actor.uid === targetUid) return { allowed: false, reason: 'SELF_DELETE_DENIED' };
-  if (!hasAdminCredentials()) {
+
+  const sdk = await getAdminSdk();
+  if (!sdk) {
     console.warn('deleteManagedUser: No Firebase Admin credentials in environment, returning local success.');
     return { allowed: true };
   }
-  const app = getAdminApp();
-  const db = getAdminDatabase();
-  const targetRef = db.collection('users').doc(targetUid);
+
+  const targetRef = sdk.db.collection('users').doc(targetUid);
   const target = await targetRef.get();
   if (!target.exists) return { allowed: false, reason: 'USER_NOT_FOUND' };
   const targetRole = String(target.data()?.role || 'member');
@@ -209,7 +249,7 @@ export async function deleteManagedUser(actor: { uid: string; role: string }, ta
   if (!allowed) return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED' };
 
   try {
-    await getAuth(app).deleteUser(targetUid);
+    await sdk.auth.deleteUser(targetUid);
   } catch (error: any) {
     if (error?.code !== 'auth/user-not-found') throw error;
   }
