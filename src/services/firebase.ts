@@ -359,15 +359,24 @@ export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QU
   }
 ];
 
-// LocalStorage caching keys to prevent data loss on quota limits or network errors
+// LocalStorage caching keys to prevent data loss on quota limits or network errors (v2.6.0)
 export const CACHE_KEYS = {
-  USERS: 'l2m_cached_users',
-  VAULT_ITEMS: 'l2m_cached_vault_items',
-  QUEUES: 'l2m_cached_queues',
-  CLANS: 'l2m_cached_clans',
-  DIAMOND_TXS: 'l2m_cached_diamond_txs',
-  QUICK_ITEMS: 'l2m_cached_quick_items'
+  USERS: 'l2m_cached_users_v260',
+  VAULT_ITEMS: 'l2m_cached_vault_items_v260',
+  QUEUES: 'l2m_cached_queues_v260',
+  CLANS: 'l2m_cached_clans_v260',
+  DIAMOND_TXS: 'l2m_cached_diamond_txs_v260',
+  QUICK_ITEMS: 'l2m_cached_quick_items_v260'
 };
+
+// Clean legacy cache keys if present
+if (typeof localStorage !== 'undefined') {
+  try {
+    ['l2m_cached_users', 'l2m_cached_vault_items', 'l2m_cached_queues', 'l2m_cached_clans', 'l2m_cached_diamond_txs', 'l2m_google_backup_cache'].forEach(k => {
+      localStorage.removeItem(k);
+    });
+  } catch (e) {}
+}
 
 function getCachedData<T>(key: string, fallback: T): T {
   try {

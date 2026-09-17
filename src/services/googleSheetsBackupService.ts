@@ -25,7 +25,9 @@ const CONFIG_KEY = 'l2m_google_backup_config';
 const CACHE_KEY = 'l2m_google_backup_cache';
 
 const DEFAULT_CONFIG: GoogleBackupConfig = {
-  webAppUrl: '',
+  webAppUrl: 'https://script.google.com/macros/s/AKfycbzg5w7B-4I-Xvrm0KGkg_ynFbQ1WNUv1KMrfdjxMegeManL-Qzc8BjVm1mRzjSlcwrz1A/exec',
+  sheetUrl: 'https://docs.google.com/spreadsheets/d/1OZLqGcnAKBjilbvUme3OZbLQHNvRgs3MZkXWVl_d0y0/edit',
+  sheetName: 'สเปรดชีตไม่มีชื่อ',
   autoBackupEnabled: true,
   fallbackOnQuotaExceeded: true,
   lastStatus: 'idle',
@@ -36,7 +38,21 @@ export function getGoogleBackupConfig(): GoogleBackupConfig {
   try {
     const raw = localStorage.getItem(CONFIG_KEY);
     if (!raw) return { ...DEFAULT_CONFIG };
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    // Auto-migrate if client has the old legacy URL that times out
+    if (
+      !parsed.webAppUrl ||
+      parsed.webAppUrl.includes('AKfycbyTNRdFleJFRQn8uhs6sCj1WeHlbhtIbc6pcgy2hdp3MJ64qJ9B4BMm6_RHEpwBzvn-')
+    ) {
+      parsed.webAppUrl = DEFAULT_CONFIG.webAppUrl;
+      parsed.sheetUrl = DEFAULT_CONFIG.sheetUrl;
+      parsed.sheetName = DEFAULT_CONFIG.sheetName;
+      localStorage.setItem(CONFIG_KEY, JSON.stringify(parsed));
+      try {
+        localStorage.removeItem(CACHE_KEY);
+      } catch (e) {}
+    }
+    return { ...DEFAULT_CONFIG, ...parsed };
   } catch (err) {
     console.error('Error reading google backup config:', err);
     return { ...DEFAULT_CONFIG };
