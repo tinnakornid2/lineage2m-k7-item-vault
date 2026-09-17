@@ -411,6 +411,7 @@ export function triggerDebouncedAutoBackup(
   payload: BackupDataPayload,
   performedBy: string = 'Auto-Sync'
 ) {
+  if (isApplyingRemoteUpdate) return;
   const config = getGoogleBackupConfig();
   if (!config.webAppUrl || !config.autoBackupEnabled) return;
 
@@ -576,11 +577,40 @@ export function startGoogleRealtimeSync(
       const res = await fetchDataFromGoogleSheets();
       if (res.success && res.data) {
         if (res.data.users?.length || res.data.vaultItems?.length) {
+          // 1. Strict equality check against what was already broadcast or applied
+          const payloadStr = JSON.stringify(res.data);
+          if (payloadStr === lastBroadcastString) {
+            // Data in Google Sheets is completely identical to active live state. Skip to avoid re-renders & flicker!
+            return;
+          }
+
+          // 2. Protect against stale snapshots overwriting higher verified power
+          const incomingUsers = res.data.users || [];
+          if (incomingUsers.length > 0 && lastBroadcastString) {
+            try {
+              const lastData = JSON.parse(lastBroadcastString);
+              const lastUsers = lastData.users || [];
+              if (lastUsers.length > 0) {
+                const incomingPower = incomingUsers.reduce((s: number, u: any) => s + (Number(u.powerLevel) || 0), 0);
+                const lastPower = lastUsers.reduce((s: number, u: any) => s + (Number(u.powerLevel) || 0), 0);
+                // If incoming snapshot has lower total power and fewer or equal members, treat as stale and do not downgrade
+                if (incomingPower < lastPower && incomingUsers.length <= lastUsers.length) {
+                  console.warn('🛡️ Shielded state: Google Sheets snapshot is older than active live state. Skipping overwrite.', {
+                    incomingPower,
+                    lastPower
+                  });
+                  return;
+                }
+              }
+            } catch {}
+          }
+
+          lastBroadcastString = payloadStr;
           isApplyingRemoteUpdate = true;
           onDataChanged(res.data);
           setTimeout(() => {
             isApplyingRemoteUpdate = false;
-          }, 500);
+          }, 800);
         }
       }
     } catch {}

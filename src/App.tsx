@@ -733,6 +733,7 @@ export const App: React.FC = () => {
 
   // Automatic debounced sync to Google Sheets & Drive when data updates
   useEffect(() => {
+    if (getIsApplyingRemoteUpdate()) return;
     if (users.length > 0 || vaultItems.length > 0) {
       if (isQuotaExceeded) {
         setPendingFirebaseSync(true);

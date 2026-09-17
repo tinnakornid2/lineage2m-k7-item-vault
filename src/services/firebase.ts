@@ -425,12 +425,21 @@ export function setOnQuotaExceededListener(cb: (isQuotaExceeded: boolean) => voi
   onQuotaExceededCallback = cb;
 }
 
+let quotaExceededNotified = false;
+
+export function resetQuotaExceededNotified() {
+  quotaExceededNotified = false;
+}
+
 export function notifyQuotaExceeded(err: any) {
   const msg = (err?.message || '').toLowerCase();
   if (msg.includes('quota') || msg.includes('limit exceeded') || err?.code === 'resource-exhausted') {
-    console.warn('⚠️ Firestore Free Tier Read Quota exceeded for today! Operating in offline/cached resilience mode.');
-    if (onQuotaExceededCallback) {
-      onQuotaExceededCallback(true);
+    if (!quotaExceededNotified) {
+      quotaExceededNotified = true;
+      console.warn('⚠️ Firestore Free Tier Read Quota exceeded for today! Operating in offline/cached resilience mode.');
+      if (onQuotaExceededCallback) {
+        onQuotaExceededCallback(true);
+      }
     }
   }
 }
@@ -441,10 +450,12 @@ export function listenToUsers(callback: (users: User[]) => void) {
   const initialUsers = getCachedUsers();
   callback(initialUsers);
 
+  let initialFallbackHandled = false;
   const q = collection(db, USERS_COLLECTION);
   return onSnapshot(
     q,
     (snapshot) => {
+      initialFallbackHandled = true;
       if (snapshot.empty) {
         callback(initialUsers);
         return;
@@ -461,7 +472,10 @@ export function listenToUsers(callback: (users: User[]) => void) {
     (err) => {
       console.warn('Firestore users listener fallback to cached/initial state:', err);
       notifyQuotaExceeded(err);
-      callback(getCachedUsers());
+      if (!initialFallbackHandled) {
+        initialFallbackHandled = true;
+        callback(getCachedUsers());
+      }
     }
   );
 }
@@ -878,6 +892,7 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
   // Immediately emit cached items to prevent screen from showing empty
   callback(latestItems);
 
+  let initialItemsFallbackHandled = false;
   const emitCombinedItems = () => {
     const combinedList = latestItems.map((item) => {
       const claims = latestClaims.filter((claim) => claim.itemId === item.id);
@@ -894,6 +909,7 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
   const unsubItems = onSnapshot(
     collection(db, ITEMS_COLLECTION),
     (snapshot) => {
+      initialItemsFallbackHandled = true;
       if (snapshot.empty) {
         latestItems = INITIAL_VAULT_ITEMS;
         emitCombinedItems();
@@ -919,7 +935,10 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
     (err) => {
       console.warn('Firestore vault items listener fallback to cache:', err);
       notifyQuotaExceeded(err);
-      callback(getCachedVaultItems());
+      if (!initialItemsFallbackHandled) {
+        initialItemsFallbackHandled = true;
+        callback(getCachedVaultItems());
+      }
     }
   );
 
@@ -1119,10 +1138,12 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
   const initialQueues = getCachedQueues();
   callback(initialQueues);
 
+  let initialQueueFallbackHandled = false;
   const q = collection(db, QUEUES_COLLECTION);
   return onSnapshot(
     q,
     (snapshot) => {
+      initialQueueFallbackHandled = true;
       if (snapshot.empty) {
         callback(initialQueues);
         return;
@@ -1144,7 +1165,10 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
     (err) => {
       console.warn('Firestore queue listener fallback to initial/cached queues:', err);
       notifyQuotaExceeded(err);
-      callback(getCachedQueues());
+      if (!initialQueueFallbackHandled) {
+        initialQueueFallbackHandled = true;
+        callback(getCachedQueues());
+      }
     }
   );
 }
@@ -1322,10 +1346,12 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
   const initialClans = getCachedClans();
   callback(initialClans);
 
+  let initialClansFallbackHandled = false;
   const q = collection(db, CLANS_COLLECTION);
   return onSnapshot(
     q,
     (snapshot) => {
+      initialClansFallbackHandled = true;
       if (snapshot.empty) {
         callback(initialClans);
         return;
@@ -1344,7 +1370,10 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
     (err) => {
       console.warn('Firestore clans fallback to cached/initial clans:', err);
       notifyQuotaExceeded(err);
-      callback(getCachedClans());
+      if (!initialClansFallbackHandled) {
+        initialClansFallbackHandled = true;
+        callback(getCachedClans());
+      }
     }
   );
 }
@@ -1399,6 +1428,7 @@ export function listenToDiamondTransactions(
   const initialTxs = getCachedDiamondTransactions();
   callback(initialTxs);
 
+  let initialTxsFallbackHandled = false;
   // Limit to latest transactions to prevent uncontrolled document reads
   const q = query(
     collection(db, VAULT_COLLECTION),
@@ -1408,6 +1438,7 @@ export function listenToDiamondTransactions(
   return onSnapshot(
     q,
     (snapshot) => {
+      initialTxsFallbackHandled = true;
       const records: DiamondVaultRecord[] = [];
       snapshot.forEach((docSnap) => {
         records.push({ ...docSnap.data(), id: docSnap.id } as DiamondVaultRecord);
@@ -1420,7 +1451,10 @@ export function listenToDiamondTransactions(
     (err) => {
       console.warn('Firestore diamond transactions fallback to cache:', err);
       notifyQuotaExceeded(err);
-      callback(getCachedDiamondTransactions());
+      if (!initialTxsFallbackHandled) {
+        initialTxsFallbackHandled = true;
+        callback(getCachedDiamondTransactions());
+      }
     }
   );
 }
