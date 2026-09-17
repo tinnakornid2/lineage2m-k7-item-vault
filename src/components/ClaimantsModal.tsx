@@ -132,7 +132,7 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
 
         {/* Header */}
         <div className="flex items-start gap-3.5 mb-4 pb-4 border-b border-slate-800">
-          <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-[#090e1a] border border-[#d4af37]/40 shrink-0 shadow-md">
+          <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden bg-[#090e1a] border border-[#d4af37]/40 shrink-0 shadow-lg">
             {item.imageUrl ? (
               <img
                 src={item.imageUrl}

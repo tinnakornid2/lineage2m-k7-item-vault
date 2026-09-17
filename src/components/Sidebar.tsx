@@ -31,6 +31,7 @@ import {
 import { ActiveTab, Language, User, ClanGroup, cleanClanName } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { getGoogleBackupConfig } from '../services/googleSheetsBackupService';
 
 export interface SidebarProps {
   currentTab?: ActiveTab;
@@ -115,6 +116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const t = translations[lang];
   const effectiveCurrentTab = currentTab || activeTab || 'dashboard';
+  const isGoogleConnected = Boolean(getGoogleBackupConfig().webAppUrl);
 
   const handleTabSelect = (tab: ActiveTab) => {
     sounds.playClick();
@@ -328,6 +330,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               aria-label={lang === 'th' ? 'สำรองข้อมูล Google Sheets' : 'Google Sheets Backup'}
             >
               <FileSpreadsheet className="w-4 h-4" />
+              {isGoogleConnected && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0c1424] shadow-[0_0_6px_#34d399]" />
+              )}
             </button>
           )}
 
@@ -610,10 +615,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   id="btn-sidebar-power-formula"
                   onClick={() => {
                     sounds.playClick();
-                    onOpenPowerFormula();
+                    handleTabSelect('power_formula');
+                    if (onOpenPowerFormula) onOpenPowerFormula();
                     setIsMobileOpen(false);
                   }}
-                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-slate-800/70 transition-all cursor-pointer mb-1"
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer mb-1 ${
+                    effectiveCurrentTab === 'power_formula'
+                      ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-500/60 font-semibold shadow-inner'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                  }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <Sliders className="size-3.5 text-cyan-400" />
@@ -890,6 +900,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 aria-label={lang === 'th' ? 'สำรองข้อมูล Google Sheets' : 'Google Sheets Backup'}
               >
                 <FileSpreadsheet className="w-4 h-4" />
+                {isGoogleConnected && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0f172a] shadow-[0_0_6px_#34d399]" />
+                )}
               </button>
             )}
 
@@ -930,7 +943,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v2.5.1</span>
+              <span>v2.6.0</span>
             </div>
           </div>
 

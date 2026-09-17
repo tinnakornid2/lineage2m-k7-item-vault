@@ -12,9 +12,14 @@ import {
   Sparkles,
   Move,
   Layers,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Swords,
+  Shield,
   Clock
 } from 'lucide-react';
-import { User, OFFICIAL_CLASSES } from '../types';
+import { User, OFFICIAL_CLASSES, StatCategory } from '../types';
 import { sounds } from '../utils/sound';
 import { getFormulaSettings } from '../services/powerFormulaService';
 
@@ -23,8 +28,8 @@ interface StatComparisonModalProps {
   onClose: () => void;
   user: User | null;
   lang: 'th' | 'en';
-  onApprove: (user: User) => Promise<void>;
-  onOpenReject: (userId: string) => void;
+  onApprove?: (user: User) => Promise<void>;
+  onOpenReject?: (userId: string) => void;
   isProcessing?: boolean;
 }
 
@@ -41,6 +46,10 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
   const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [filterChangedOnly, setFilterChangedOnly] = useState<boolean>(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const positionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,33 +57,34 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
   const formulaConfig = getFormulaSettings();
   const classMap = new Map(OFFICIAL_CLASSES.map((c) => [c.nameEn.toLowerCase(), c]));
 
-  // Reset zoom & pan on open or when user changes
+  // Reset zoom, pan & index on open or when user changes
   useEffect(() => {
     if (isOpen) {
       setScale(1);
       setPosition({ x: 0, y: 0 });
       positionRef.current = { x: 0, y: 0 };
       setFilterChangedOnly(false);
+      setCurrentImageIndex(0);
+      setSearchTerm('');
+      setSelectedCategory('all');
     }
   }, [isOpen, user?.id]);
 
-  // Keyboard shortcut listener
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      } else if (e.key === '+' || e.key === '=') {
-        handleZoomIn();
-      } else if (e.key === '-' || e.key === '_') {
-        handleZoomOut();
-      } else if (e.key === '0') {
-        handleReset();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  // Gather unique screenshots
+  const candidateScreenshots: (string | undefined | null)[] = user
+    ? [
+        user.pendingStatScreenshotUrl,
+        user.statScreenshotUrl,
+        ...(user.screenshots || []),
+        user.screenshotUrl
+      ]
+    : [];
+
+  const uniqueScreenshots = Array.from(
+    new Set(candidateScreenshots.filter((s): s is string => typeof s === 'string' && s.trim().length > 0))
+  );
+
+  const activeScreenshot = uniqueScreenshots[currentImageIndex] || uniqueScreenshots[0] || null;
 
   const handleZoomIn = useCallback(() => {
     sounds.playClick();
@@ -108,6 +118,28 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
     setPosition({ x: 0, y: 0 });
     positionRef.current = { x: 0, y: 0 };
   }, []);
+
+  // Keyboard shortcut listener
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      } else if (e.key === '+' || e.key === '=') {
+        handleZoomIn();
+      } else if (e.key === '-' || e.key === '_') {
+        handleZoomOut();
+      } else if (e.key === '0') {
+        handleReset();
+      } else if (e.key === 'ArrowLeft' && uniqueScreenshots.length > 1) {
+        setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : uniqueScreenshots.length - 1));
+      } else if (e.key === 'ArrowRight' && uniqueScreenshots.length > 1) {
+        setCurrentImageIndex((prev) => (prev < uniqueScreenshots.length - 1 ? prev + 1 : 0));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, handleZoomIn, handleZoomOut, handleReset, uniqueScreenshots.length]);
 
   // Mouse drag & pan
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -152,44 +184,68 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
 
   if (!isOpen || !user) return null;
 
-  const displayScreenshot = user.pendingStatScreenshotUrl || user.statScreenshotUrl;
-  const isPendingNew = !!user.pendingStatScreenshotUrl;
-  const prevPL = user.powerLevel || 0;
-  const nextPL = user.pendingPowerLevel || 0;
-  const diffPL = nextPL - prevPL;
-  const pendingStats = user.pendingStats || {};
-  const pendingSpirits = user.pendingSpiritEnhancements || {};
+  const isPendingNew = !!(
+    user.pendingPowerLevel ||
+    user.pendingStatScreenshotUrl ||
+    (user.pendingStats && Object.keys(user.pendingStats).length > 0)
+  );
 
-  const displayClasses = user.pendingClasses !== undefined && user.pendingClasses !== null
+  const prevPL = user.powerLevel || 0;
+  const nextPL = isPendingNew ? (user.pendingPowerLevel || prevPL) : prevPL;
+  const diffPL = isPendingNew ? nextPL - prevPL : 0;
+
+  const effectiveStats = (isPendingNew && user.pendingStats && Object.keys(user.pendingStats).length > 0)
+    ? user.pendingStats
+    : (user.stats || {});
+  const effectiveSpirits = (isPendingNew && user.pendingSpiritEnhancements && Object.keys(user.pendingSpiritEnhancements).length > 0)
+    ? user.pendingSpiritEnhancements
+    : (user.spiritEnhancements || user.spirits || {});
+
+  const displayClasses = (isPendingNew && user.pendingClasses !== undefined && user.pendingClasses !== null)
     ? user.pendingClasses
     : (user.classes || (user.characterClass ? [user.characterClass] : []));
-  const displayLevel = user.pendingLevel !== undefined && user.pendingLevel !== null
+  const displayLevel = (isPendingNew && user.pendingLevel !== undefined && user.pendingLevel !== null)
     ? user.pendingLevel
     : (user.level || 0);
-  const displayLegendClasses = user.pendingLegendClasses !== undefined && user.pendingLegendClasses !== null
+  const displayLegendClasses = (isPendingNew && user.pendingLegendClasses !== undefined && user.pendingLegendClasses !== null)
     ? user.pendingLegendClasses
     : (user.legendClasses || 0);
-  const displayLegendAgathions = user.pendingLegendAgathions !== undefined && user.pendingLegendAgathions !== null
+  const displayLegendAgathions = (isPendingNew && user.pendingLegendAgathions !== undefined && user.pendingLegendAgathions !== null)
     ? user.pendingLegendAgathions
     : (user.legendAgathions || 0);
 
-  // Filter stats
-  const statList = formulaConfig.stats.filter(
-    (s) => s.isActive && (pendingStats[s.id] !== undefined || s.inputType === 'spirit_card')
-  );
+  // All active stats from formula configuration
+  const statList = formulaConfig.stats.filter((s) => s.isActive);
 
-  const displayedStats = filterChangedOnly
-    ? statList.filter((s) => (pendingStats[s.id] ?? 0) !== (user.stats?.[s.id] ?? 0))
-    : statList;
+  // Changed count when pending
+  const totalChangedCount = isPendingNew
+    ? statList.filter((s) => (user.pendingStats?.[s.id] ?? 0) !== (user.stats?.[s.id] ?? 0)).length
+    : 0;
 
-  const totalChangedCount = statList.filter(
-    (s) => (pendingStats[s.id] ?? 0) !== (user.stats?.[s.id] ?? 0)
-  ).length;
+  // Filtered stats by category, search term, and changed toggle
+  const displayedStats = statList.filter((s) => {
+    if (filterChangedOnly && isPendingNew) {
+      if ((user.pendingStats?.[s.id] ?? 0) === (user.stats?.[s.id] ?? 0)) return false;
+    }
+    if (selectedCategory !== 'all' && s.category !== selectedCategory) {
+      return false;
+    }
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase().trim();
+      const matchLabelTh = s.labelTh.toLowerCase().includes(q);
+      const matchLabelEn = s.labelEn.toLowerCase().includes(q);
+      const matchId = s.id.toLowerCase().includes(q);
+      if (!matchLabelTh && !matchLabelEn && !matchId) return false;
+    }
+    return true;
+  });
+
+  const canShowApprovalActions = isPendingNew && !!onApprove && !!onOpenReject;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-xl animate-fade-in text-slate-100 overflow-hidden select-none">
       {/* ── TOP NAV / HEADER BAR ────────────────────────────────────── */}
-      <div className="h-16 px-4 sm:px-6 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between gap-4 shrink-0 shadow-lg z-20">
+      <div className="h-16 px-4 sm:px-6 border-b border-slate-800 bg-slate-900/95 flex items-center justify-between gap-4 shrink-0 shadow-lg z-20">
         <div className="flex items-center gap-3 min-w-0">
           <div className="size-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold flex items-center justify-center shrink-0 shadow-inner">
             {user.inGameName.charAt(0).toUpperCase()}
@@ -231,14 +287,14 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
             </div>
             <div className="text-[11px] text-slate-400 flex items-center gap-2">
               <span className="text-amber-300 font-semibold">
-                {lang === 'th' ? '🔍 โหมดตรวจสอบเปรียบเทียบรูปภาพกับสเตตัส' : '🔍 Side-by-Side Proof Comparison'}
+                {lang === 'th' ? '🔍 ตรวจสอบรูปภาพเปรียบเทียบกับค่าพลังที่กรอก' : '🔍 Proof Screenshot vs Submitted Stats'}
               </span>
               <span>•</span>
               <span className="text-slate-400">
                 {isPendingNew ? (
-                  <span className="text-amber-400">✨ {lang === 'th' ? 'รูปใหม่ที่แนบมา' : 'New Proof Attached'}</span>
+                  <span className="text-amber-400">⚡ {lang === 'th' ? 'คำขออัปเดตใหม่ (Pending Update)' : 'Pending Update Request'}</span>
                 ) : (
-                  <span className="text-emerald-400">📸 {lang === 'th' ? 'รูปหลักฐานเดิม' : 'Previous Proof'}</span>
+                  <span className="text-emerald-400">✓ {lang === 'th' ? 'สเตตัสที่ยืนยันแล้ว (Verified Stats)' : 'Verified Member Profile'}</span>
                 )}
               </span>
             </div>
@@ -247,14 +303,26 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
 
         {/* Power Level Comparison Badge & Close Button */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="hidden sm:flex items-center gap-2.5 px-3 py-1 rounded-xl bg-slate-950 border border-slate-750">
-            <span className="text-xs text-slate-400 font-mono">{prevPL.toLocaleString()} PL</span>
-            <ArrowRight className="size-3.5 text-slate-500" />
-            <span className="text-sm font-black text-amber-400 font-mono">⚡ {nextPL.toLocaleString()} PL</span>
-            {diffPL > 0 && (
-              <span className="text-xs font-bold text-emerald-400 font-mono bg-emerald-500/15 px-1.5 py-0.2 rounded border border-emerald-500/30">
-                (+{diffPL.toLocaleString()})
-              </span>
+          <div className="hidden sm:flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl bg-slate-950 border border-slate-750">
+            {isPendingNew ? (
+              <>
+                <span className="text-xs text-slate-400 font-mono">{prevPL.toLocaleString()} PL</span>
+                <ArrowRight className="size-3.5 text-slate-500" />
+                <span className="text-sm font-black text-amber-400 font-mono">⚡ {nextPL.toLocaleString()} PL</span>
+                {diffPL > 0 && (
+                  <span className="text-xs font-bold text-emerald-400 font-mono bg-emerald-500/15 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                    (+{diffPL.toLocaleString()})
+                  </span>
+                )}
+              </>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-400">{lang === 'th' ? 'ค่าพลังปัจจุบัน:' : 'Power Level:'}</span>
+                <span className="text-sm font-black text-amber-400 font-mono">⚡ {prevPL.toLocaleString()} PL</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                  VERIFIED
+                </span>
+              </div>
             )}
           </div>
 
@@ -347,6 +415,39 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
             </button>
           </div>
 
+          {/* Floating Multi-Screenshot Navigation Bar (Top Right) */}
+          {uniqueScreenshots.length > 1 && (
+            <div className="absolute top-4 right-4 z-30 flex items-center gap-1.5 p-1.5 rounded-2xl bg-slate-900/90 border border-slate-700 shadow-2xl backdrop-blur-md">
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : uniqueScreenshots.length - 1));
+                }}
+                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition cursor-pointer"
+                title={lang === 'th' ? 'รูปก่อนหน้า (←)' : 'Previous image (←)'}
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+
+              <span className="text-xs font-mono font-bold text-amber-300 px-2">
+                📷 {currentImageIndex + 1} / {uniqueScreenshots.length}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  setCurrentImageIndex((prev) => (prev < uniqueScreenshots.length - 1 ? prev + 1 : 0));
+                }}
+                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition cursor-pointer"
+                title={lang === 'th' ? 'รูปถัดไป (→)' : 'Next image (→)'}
+              >
+                <ChevronRight className="size-4" />
+              </button>
+            </div>
+          )}
+
           {/* Bottom Hint Indicator */}
           <div className="absolute bottom-4 left-4 z-30 px-3 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400 flex items-center gap-2 backdrop-blur-sm pointer-events-none">
             <Move className="size-3.5 text-amber-400" />
@@ -373,7 +474,7 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
                 : 'cursor-default'
             }`}
           >
-            {displayScreenshot ? (
+            {activeScreenshot ? (
               <div
                 style={{
                   transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
@@ -383,7 +484,7 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
                 className="max-w-full max-h-full flex items-center justify-center p-4 pointer-events-none"
               >
                 <img
-                  src={displayScreenshot}
+                  src={activeScreenshot}
                   alt="Proof Screenshot"
                   className="max-w-[95vw] max-h-[85vh] object-contain rounded-xl shadow-2xl pointer-events-none border border-slate-800"
                   draggable={false}
@@ -397,8 +498,8 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
                 </div>
                 <p className="text-xs text-slate-400">
                   {lang === 'th'
-                    ? 'สมาชิกส่งคำขออัปเดตสเตตัสมาโดยไม่ได้แนบภาพหน้าจอ'
-                    : 'This update request was submitted without screenshot proof.'}
+                    ? 'สมาชิกรายนี้ยังไม่มีการอัปโหลดภาพสเตตัสในระบบ'
+                    : 'This member has not attached any proof screenshot.'}
                 </p>
               </div>
             )}
@@ -406,58 +507,135 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
         </div>
 
         {/* ═══ RIGHT PANEL: SUBMITTED STATS COMPARISON (30% - 35%) ════ */}
-        <div className="w-full lg:w-[420px] xl:w-[460px] bg-slate-900 flex flex-col shrink-0 h-full overflow-hidden shadow-2xl">
+        <div className="w-full lg:w-[440px] xl:w-[480px] bg-slate-900 flex flex-col shrink-0 h-full overflow-hidden shadow-2xl">
           {/* Panel Header & Filter Controls */}
-          <div className="p-4 border-b border-slate-800 space-y-3 bg-slate-900/90">
+          <div className="p-4 border-b border-slate-800 space-y-3 bg-slate-900/95">
             <div className="flex items-center justify-between">
               <div className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                 <Layers className="size-4 text-amber-400" />
-                <span>{lang === 'th' ? 'สเตตัสที่ขออัปเดต' : 'Submitted Stats'}</span>
+                <span>
+                  {isPendingNew
+                    ? (lang === 'th' ? 'สเตตัสที่ขออัปเดต' : 'Submitted Stats')
+                    : (lang === 'th' ? 'สเตตัสตัวละครที่กรอก' : 'Character Stats')}
+                </span>
               </div>
               <span className="text-[11px] font-mono text-slate-400">
-                {statList.length} {lang === 'th' ? 'รายการ' : 'fields'}
+                {displayedStats.length} / {statList.length} {lang === 'th' ? 'รายการ' : 'fields'}
               </span>
             </div>
 
-            {/* Filter Toggle: All vs Changed Only */}
-            <div className="flex items-center gap-2 p-1 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="size-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder={lang === 'th' ? 'ค้นหาสเตตัส (เช่น โจมตี, ป้องกัน, แม่นยำ)...' : 'Search stats (e.g. atk, def)...'}
+                className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-400"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                >
+                  <X className="size-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Filter Toggle: All vs Changed Only (When pending) or Category Filters */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs custom-scrollbar">
               <button
                 type="button"
                 onClick={() => {
                   sounds.playClick();
+                  setSelectedCategory('all');
                   setFilterChangedOnly(false);
                 }}
-                className={`flex-1 py-1.5 rounded-lg font-semibold transition cursor-pointer text-center ${
-                  !filterChangedOnly
-                    ? 'bg-slate-800 text-amber-300 font-bold shadow'
-                    : 'text-slate-400 hover:text-slate-200'
+                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer shrink-0 ${
+                  selectedCategory === 'all' && !filterChangedOnly
+                    ? 'bg-amber-500 text-slate-950 font-bold shadow'
+                    : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {lang === 'th' ? 'ทั้งหมด' : 'All'} ({statList.length})
+                {lang === 'th' ? 'ทั้งหมด' : 'All'}
               </button>
+
+              {isPendingNew && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playClick();
+                    setFilterChangedOnly(!filterChangedOnly);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer shrink-0 flex items-center gap-1 ${
+                    filterChangedOnly
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow'
+                      : 'bg-slate-950 border border-slate-800 text-amber-400 hover:text-amber-300'
+                  }`}
+                >
+                  <Sparkles className="size-3" />
+                  <span>{lang === 'th' ? 'เฉพาะที่เปลี่ยน' : 'Changed'}</span>
+                  <span className="px-1.5 py-0.2 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-mono font-bold">
+                    {totalChangedCount}
+                  </span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => {
                   sounds.playClick();
-                  setFilterChangedOnly(true);
+                  setSelectedCategory('attack');
+                  setFilterChangedOnly(false);
                 }}
-                className={`flex-1 py-1.5 rounded-lg font-semibold transition cursor-pointer text-center flex items-center justify-center gap-1.5 ${
-                  filterChangedOnly
-                    ? 'bg-amber-500 text-slate-950 font-bold shadow'
-                    : 'text-amber-400 hover:text-amber-300'
+                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer shrink-0 ${
+                  selectedCategory === 'attack'
+                    ? 'bg-rose-500 text-white font-bold shadow'
+                    : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Sparkles className="size-3" />
-                <span>{lang === 'th' ? 'เฉพาะที่เปลี่ยน' : 'Changed'}</span>
-                <span className="px-1.5 py-0.2 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-mono font-bold">
-                  {totalChangedCount}
-                </span>
+                {lang === 'th' ? 'โจมตี' : 'Attack'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  setSelectedCategory('defense');
+                  setFilterChangedOnly(false);
+                }}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer shrink-0 ${
+                  selectedCategory === 'defense'
+                    ? 'bg-blue-500 text-white font-bold shadow'
+                    : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {lang === 'th' ? 'ป้องกัน' : 'Defense'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  setSelectedCategory('spirits');
+                  setFilterChangedOnly(false);
+                }}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer shrink-0 ${
+                  selectedCategory === 'spirits'
+                    ? 'bg-purple-500 text-white font-bold shadow'
+                    : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {lang === 'th' ? 'วิญญาณ' : 'Spirits'}
               </button>
             </div>
           </div>
 
           {/* Stats List (Scrollable) */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
+          <div className="flex-1 overflow-y-auto p-4 space-y-2.5 custom-scrollbar">
             {/* Character Info Card */}
             <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
@@ -484,89 +662,108 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
             </div>
 
             {/* List of Stat Inputs */}
-            {displayedStats.map((s) => {
-              const val = pendingStats[s.id] ?? 0;
-              const prevVal = user.stats?.[s.id] ?? 0;
-              const isChanged = val !== prevVal;
-              const enh = pendingSpirits[s.id];
+            {displayedStats.length === 0 ? (
+              <div className="p-6 text-center text-slate-500 text-xs">
+                {lang === 'th' ? 'ไม่พบสเตตัสที่ตรงกับคำค้นหา' : 'No stats match the filter criteria'}
+              </div>
+            ) : (
+              displayedStats.map((s) => {
+                const val = effectiveStats[s.id] ?? 0;
+                const prevVal = user.stats?.[s.id] ?? 0;
+                const isChanged = isPendingNew && val !== prevVal;
+                const enh = effectiveSpirits[s.id];
 
-              return (
-                <div
-                  key={s.id}
-                  className={`p-3 rounded-xl border transition ${
-                    isChanged
-                      ? 'bg-amber-500/10 border-amber-500/50 shadow-md ring-1 ring-amber-500/30'
-                      : 'bg-slate-950/70 border-slate-800/80 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-white truncate" title={s.labelTh}>
-                        {lang === 'th' ? s.labelTh : s.labelEn}
-                      </div>
-                      <div className="text-[10px] text-slate-400 truncate">
-                        {lang === 'th' ? s.labelEn : s.labelTh}
-                      </div>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <div className="flex items-center gap-2 justify-end">
-                        {isChanged && prevVal > 0 && (
-                          <span className="text-[11px] text-slate-500 line-through font-mono">
-                            {prevVal}
-                          </span>
-                        )}
-                        <span className={`font-mono font-bold text-sm ${isChanged ? 'text-amber-300' : 'text-slate-100'}`}>
-                          {val}
-                          {s.inputType === 'percentage' && '%'}
-                        </span>
-                      </div>
-
-                      {s.inputType === 'spirit_card' && enh !== undefined && (
-                        <div
-                          className="mt-0.5 inline-block px-1.5 py-0.2 rounded text-[10px] font-bold"
-                          style={{
-                            color: s.spiritConfig?.accentColor || '#3b82f6',
-                            backgroundColor: `${s.spiritConfig?.accentColor || '#3b82f6'}22`
-                          }}
-                        >
-                          {enh === 0 ? 'Tier 0' : `+${enh}`}
+                return (
+                  <div
+                    key={s.id}
+                    className={`p-3 rounded-xl border transition ${
+                      isChanged
+                        ? 'bg-amber-500/10 border-amber-500/50 shadow-md ring-1 ring-amber-500/30'
+                        : 'bg-slate-950/70 border-slate-800/80 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-white truncate" title={s.labelTh}>
+                          {lang === 'th' ? s.labelTh : s.labelEn}
                         </div>
-                      )}
+                        <div className="text-[10px] text-slate-400 truncate">
+                          {lang === 'th' ? s.labelEn : s.labelTh}
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="flex items-center gap-2 justify-end">
+                          {isChanged && prevVal > 0 && (
+                            <span className="text-[11px] text-slate-500 line-through font-mono">
+                              {prevVal}
+                            </span>
+                          )}
+                          <span className={`font-mono font-bold text-sm ${isChanged ? 'text-amber-300' : 'text-slate-100'}`}>
+                            {val}
+                            {s.inputType === 'percentage' && '%'}
+                          </span>
+                        </div>
+
+                        {s.inputType === 'spirit_card' && enh !== undefined && (
+                          <div
+                            className="mt-0.5 inline-block px-1.5 py-0.2 rounded text-[10px] font-bold"
+                            style={{
+                              color: s.spiritConfig?.accentColor || '#3b82f6',
+                              backgroundColor: `${s.spiritConfig?.accentColor || '#3b82f6'}22`
+                            }}
+                          >
+                            {enh === 0 ? 'Tier 0' : `+${enh}`}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
 
           {/* Bottom Sticky Action Footer */}
-          <div className="p-4 border-t border-slate-800 bg-slate-950/90 flex items-center justify-between gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onOpenReject(user.id);
-              }}
-              disabled={isProcessing}
-              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold transition cursor-pointer"
-            >
-              <XCircle className="size-4" />
-              <span>{lang === 'th' ? 'ปฏิเสธ (Reject)' : 'Reject'}</span>
-            </button>
+          <div className="p-4 border-t border-slate-800 bg-slate-950/95 flex items-center justify-between gap-3 shrink-0">
+            {canShowApprovalActions ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenReject(user.id);
+                  }}
+                  disabled={isProcessing}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold transition cursor-pointer"
+                >
+                  <XCircle className="size-4" />
+                  <span>{lang === 'th' ? 'ปฏิเสธ (Reject)' : 'Reject'}</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={async () => {
-                await onApprove(user);
-                onClose();
-              }}
-              disabled={isProcessing}
-              className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:brightness-110 text-white text-xs font-bold shadow-xl shadow-emerald-600/30 transition cursor-pointer"
-            >
-              <CheckCircle2 className="size-4" />
-              <span>{lang === 'th' ? 'อนุมัติสเตตัส' : 'Approve'}</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await onApprove(user);
+                    onClose();
+                  }}
+                  disabled={isProcessing}
+                  className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:brightness-110 text-white text-xs font-bold shadow-xl shadow-emerald-600/30 transition cursor-pointer"
+                >
+                  <CheckCircle2 className="size-4" />
+                  <span>{lang === 'th' ? 'อนุมัติสเตตัส' : 'Approve'}</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-bold transition cursor-pointer border border-slate-700 flex items-center justify-center gap-2"
+              >
+                <X className="size-4" />
+                <span>{lang === 'th' ? 'ปิดหน้าต่างตรวจสอบ (Esc)' : 'Close Inspector (Esc)'}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

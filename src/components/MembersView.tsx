@@ -18,12 +18,14 @@ import {
   LayoutGrid,
   List,
   Loader2,
-  KeyRound
+  Camera,
+  ZoomIn
 } from 'lucide-react';
 import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, OFFICIAL_CLASSES, cleanClanName, ClanGroup } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { canChangePassword } from '../services/firebase';
+import { StatComparisonModal } from './StatComparisonModal';
 
 interface MembersViewProps {
   lang: Language;
@@ -42,6 +44,7 @@ interface MembersViewProps {
   onChangePassword?: (user: User) => void;
   onOpenBulkSwap?: () => void;
   onOpenStatApproval?: () => void;
+  onViewImageZoom?: (url: string, title?: string, images?: string[], currentIndex?: number) => void;
 }
 
 export const MembersView: React.FC<MembersViewProps> = ({
@@ -60,7 +63,8 @@ export const MembersView: React.FC<MembersViewProps> = ({
   onDeleteMember,
   onChangePassword,
   onOpenBulkSwap,
-  onOpenStatApproval
+  onOpenStatApproval,
+  onViewImageZoom
 }) => {
   const t = translations[lang];
   const isOwner = currentUser?.role === 'owner';
@@ -72,6 +76,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [memberToDelete, setMemberToDelete] = useState<User | null>(null);
   const [processingMemberId, setProcessingMemberId] = useState<string | null>(null);
+  const [inspectingUser, setInspectingUser] = useState<User | null>(null);
 
   const canDeleteMember = (mem: User) => {
     if (!currentUser) return false;
@@ -609,16 +614,26 @@ export const MembersView: React.FC<MembersViewProps> = ({
                           </div>
 
                           <div className="flex items-center gap-1 shrink-0">
-                            {canChangePassword(currentUser, mem) && onChangePassword && (
+                            {isAdminOrOwner && (
                               <button
+                                type="button"
+                                disabled={!mem.statScreenshotUrl && !mem.pendingStatScreenshotUrl && (!mem.screenshots || mem.screenshots.length === 0)}
                                 onClick={() => {
                                   sounds.playClick();
-                                  onChangePassword(mem);
+                                  setInspectingUser(mem);
                                 }}
-                                className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800 transition-all cursor-pointer"
-                                title={lang === 'th' ? `เปลี่ยนรหัสผ่าน (${mem.inGameName})` : `Change Password (${mem.inGameName})`}
+                                className={`p-1.5 rounded-lg border transition-all ${
+                                  mem.statScreenshotUrl || mem.pendingStatScreenshotUrl || (mem.screenshots && mem.screenshots.length > 0)
+                                    ? 'text-sky-300 hover:text-white bg-sky-500/15 hover:bg-sky-500/30 border-sky-500/40 hover:border-sky-400 cursor-pointer shadow-sm hover:scale-105 active:scale-95'
+                                    : 'text-slate-700 bg-slate-900/30 border-slate-800/40 cursor-not-allowed opacity-35'
+                                }`}
+                                title={
+                                  mem.statScreenshotUrl || mem.pendingStatScreenshotUrl || (mem.screenshots && mem.screenshots.length > 0)
+                                    ? (lang === 'th' ? `ดูรูปสกรีนช็อตเทียบค่าพลัง (${mem.inGameName})` : `View Stat Proof & Values (${mem.inGameName})`)
+                                    : (lang === 'th' ? 'ไม่มีรูปสกรีนช็อต' : 'No screenshot attached')
+                                }
                               >
-                                <KeyRound className="w-3 h-3" />
+                                <Camera className="w-3 h-3" />
                               </button>
                             )}
 
@@ -784,19 +799,29 @@ export const MembersView: React.FC<MembersViewProps> = ({
                             {isAdminOrOwner && (
                               <td className="py-2.5 px-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
-                                  {canChangePassword(currentUser, mem) && onChangePassword && (
-                                    <button
-                                      id={`btn-change-password-${mem.id}`}
-                                      onClick={() => {
-                                        sounds.playClick();
-                                        onChangePassword(mem);
-                                      }}
-                                      className="p-1.5 rounded-lg bg-[#162235] hover:bg-[#1f314d] text-amber-300 hover:text-white border border-amber-500/40 hover:border-amber-400 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
-                                      title={lang === 'th' ? `เปลี่ยนรหัสผ่าน (${mem.inGameName})` : `Change Password (${mem.inGameName})`}
-                                    >
-                                      <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                                    </button>
-                                  )}
+                                  {/* View Stat Screenshot for Owner and Admin */}
+                                  <button
+                                    type="button"
+                                    id={`btn-view-screenshot-${mem.id}`}
+                                    disabled={!mem.statScreenshotUrl && !mem.pendingStatScreenshotUrl && (!mem.screenshots || mem.screenshots.length === 0)}
+                                    onClick={() => {
+                                      sounds.playClick();
+                                      setInspectingUser(mem);
+                                    }}
+                                    className={`p-1.5 rounded-lg border transition-all shadow-sm ${
+                                      mem.statScreenshotUrl || mem.pendingStatScreenshotUrl || (mem.screenshots && mem.screenshots.length > 0)
+                                        ? 'bg-sky-500/15 hover:bg-sky-500/30 text-sky-300 hover:text-white border-sky-500/40 hover:border-sky-400 cursor-pointer hover:scale-105 active:scale-95'
+                                        : 'bg-slate-900/30 text-slate-600 border-slate-800/40 cursor-not-allowed opacity-35'
+                                    }`}
+                                    title={
+                                      mem.statScreenshotUrl || mem.pendingStatScreenshotUrl || (mem.screenshots && mem.screenshots.length > 0)
+                                        ? (lang === 'th' ? `ดูรูปสกรีนช็อตเทียบค่าพลัง (${mem.inGameName})` : `View Stat Proof & Values (${mem.inGameName})`)
+                                        : (lang === 'th' ? 'ไม่มีรูปสกรีนช็อต' : 'No screenshot attached')
+                                    }
+                                  >
+                                    <Camera className="w-3.5 h-3.5" />
+                                  </button>
+
                                   {canEditMember(mem) && (
                                     <button
                                       id={`btn-edit-member-${mem.id}`}
@@ -1000,6 +1025,41 @@ export const MembersView: React.FC<MembersViewProps> = ({
                 </div>
               )}
 
+              {/* Member Stat Screenshot Preview (for Owner & Admin) */}
+              {editingUser && (editingUser.statScreenshotUrl || editingUser.pendingStatScreenshotUrl || (editingUser.screenshots && editingUser.screenshots.length > 0)) && (
+                <div className="p-3 rounded-xl bg-[#090d16] border border-slate-700/80 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-200">
+                    <span className="flex items-center gap-1.5">
+                      <Camera className="w-3.5 h-3.5 text-sky-400" />
+                      <span>{lang === 'th' ? 'รูปสกรีนช็อตสเตตัส' : 'Stat Proof Screenshot'}</span>
+                    </span>
+                    {editingUser.pendingStatScreenshotUrl && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                        {lang === 'th' ? 'รออนุมัติ' : 'Pending Review'}
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    onClick={() => {
+                      sounds.playClick();
+                      setInspectingUser(editingUser);
+                    }}
+                    className="relative rounded-lg overflow-hidden border border-slate-700 hover:border-sky-400 cursor-zoom-in group max-h-48 flex items-center justify-center bg-black/80 shadow-md transition-all"
+                    title={lang === 'th' ? 'คลิกดูรูปเทียบค่าพลัง' : 'Click to inspect proof vs stats'}
+                  >
+                    <img
+                      src={editingUser.statScreenshotUrl || editingUser.pendingStatScreenshotUrl || (editingUser.screenshots && editingUser.screenshots[0])}
+                      alt="Stat Proof"
+                      className="max-h-44 w-auto object-contain rounded group-hover:scale-[1.02] transition-transform"
+                    />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 text-xs text-white font-bold transition-opacity">
+                      <ZoomIn className="w-4 h-4 text-sky-300" />
+                      <span>{lang === 'th' ? 'คลิกดูรูปเทียบค่าพลัง' : 'Click to inspect proof vs stats'}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Change Password Option */}
               {editingUser && canChangePassword(currentUser, editingUser) && onChangePassword && (
                 <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
@@ -1016,7 +1076,6 @@ export const MembersView: React.FC<MembersViewProps> = ({
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 text-[#f5d77f] text-xs font-semibold transition cursor-pointer"
                   >
-                    <KeyRound className="w-3.5 h-3.5 text-[#d4af37]" />
                     <span>{t.editPassword}</span>
                   </button>
                 </div>
@@ -1102,6 +1161,23 @@ export const MembersView: React.FC<MembersViewProps> = ({
         </div>
       )}
 
+      {/* Side-by-Side Stat Proof & Values Comparison Modal */}
+      {inspectingUser && (
+        <StatComparisonModal
+          isOpen={!!inspectingUser}
+          onClose={() => setInspectingUser(null)}
+          user={inspectingUser}
+          lang={lang}
+          onApprove={onApproveCpUpdate ? async (u) => {
+            await onApproveCpUpdate(u.id);
+            setInspectingUser(null);
+          } : undefined}
+          onOpenReject={onRejectCpUpdate ? async (userId) => {
+            setInspectingUser(null);
+            await onRejectCpUpdate(userId);
+          } : undefined}
+        />
+      )}
     </div>
   );
 };

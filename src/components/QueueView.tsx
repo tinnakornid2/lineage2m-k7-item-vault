@@ -483,7 +483,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                     <img
                       src={qi.imageUrl}
                       alt={qi.name}
-                      className="w-6 h-6 rounded object-cover border border-slate-600 shrink-0"
+                      className="w-8 h-8 rounded-lg object-cover border border-slate-600 shrink-0 shadow-sm"
                     />
                     <span className="font-semibold">{qi.name}</span>
                     <span className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-slate-800 text-amber-300 border border-slate-700">
@@ -635,17 +635,17 @@ export const QueueView: React.FC<QueueViewProps> = ({
                           onViewImageZoom(queue.imageUrl!, queue.name);
                         }
                       }}
-                      className="shrink-0 group relative overflow-hidden rounded-lg border border-slate-700 hover:border-[#d4af37] transition-colors cursor-pointer"
+                      className="shrink-0 group relative overflow-hidden rounded-xl border border-slate-700 hover:border-[#d4af37] transition-colors cursor-pointer shadow-md"
                       title={lang === 'th' ? 'คลิกเพื่อดูรูปขยาย' : 'Click to zoom image'}
                     >
                       <img
                         src={queue.imageUrl}
                         alt={queue.name}
-                        className="w-11 h-11 object-cover group-hover:scale-105 transition-transform"
+                        className="w-14 h-14 object-cover group-hover:scale-105 transition-transform"
                       />
                     </button>
                   ) : (
-                    <div className="w-11 h-11 rounded-lg bg-[#141b2b] border border-dashed border-slate-700 flex items-center justify-center text-[9px] text-slate-500 text-center p-1 shrink-0">
+                    <div className="w-14 h-14 rounded-xl bg-[#141b2b] border border-dashed border-slate-700 flex items-center justify-center text-[9px] text-slate-500 text-center p-1 shrink-0">
                       {t.waitingForImage}
                     </div>
                   )}
@@ -953,11 +953,11 @@ export const QueueView: React.FC<QueueViewProps> = ({
                         <img
                           src={queue.imageUrl}
                           alt={queue.name}
-                          className="w-14 h-14 object-cover border border-slate-700 group-hover:border-[#d4af37] transition-colors rounded-lg shadow-sm shrink-0"
+                          className="w-16 h-16 object-cover border border-slate-700 group-hover:border-[#d4af37] transition-colors rounded-xl shadow-md shrink-0"
                         />
                       </button>
                     ) : (
-                      <div className="w-14 h-14 rounded-lg bg-[#141b2b] border border-dashed border-slate-700 flex items-center justify-center text-[10px] text-slate-400 text-center p-1.5 shrink-0">
+                      <div className="w-16 h-16 rounded-xl bg-[#141b2b] border border-dashed border-slate-700 flex items-center justify-center text-[10px] text-slate-400 text-center p-1.5 shrink-0">
                         {t.waitingForImage}
                       </div>
                     )}

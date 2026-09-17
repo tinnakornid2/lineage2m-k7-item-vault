@@ -1,23 +1,24 @@
 /**
  * ==============================================================================
- * LINEAGE2M CLAN HUB - GOOGLE SHEETS & DRIVE DATABASE ENGINE
+ * LINEAGE2M CLAN HUB - GOOGLE SHEETS & DRIVE DUAL-SYNC DATABASE ENGINE
  * ==============================================================================
- * เจ้าของระบบ: Eloni / Lineage2M Clan Hub
- * ฟังก์ชัน:
- * 1. รับ-ส่งข้อมูล JSON ระหว่าง Web App กับ Google Sheets (Members, Items, Queues, Diamonds, Clans)
- * 2. สำรองประวัติไฟล์ JSON ลงโฟลเดอร์ Google Drive "L2M_ClanHub_Backups"
- * 3. รับอัปโหลดรูปภาพ (Base64) ไปบันทึกลงโฟลเดอร์ Google Drive "L2M_Item_Images" และคืนค่า Direct URL
- * 4. ทำงานได้ฟรี 100% ไม่มีลิมิต Document Read รายวันแบบ Firestore
+ * วิธีใช้งาน:
+ * 1. สร้าง Google Sheets ใหม่ใน Google Drive
+ * 2. ไปที่เมนู "ส่วนขยาย" (Extensions) > "Apps Script"
+ * 3. ลบโค้ดเดิมทั้งหมด แล้ววางโค้ดชุดนี้ลงไปใน Code.gs
+ * 4. กดปุ่ม "ทำให้ใช้งานได้" (Deploy) > "การทำให้ใช้งานได้ใหม่" (New deployment)
+ *    - ชนิด: เว็บแอป (Web App)
+ *    - คำอธิบาย: Lineage2M Clan Hub Dual Sync
+ *    - ดำเนินการในฐานะ: ฉัน (Me)
+ *    - ผู้มีสิทธิ์เข้าถึง: ทุกคน (Anyone)  <--- สำคัญมาก!
+ * 5. คัดลอก Web App URL (ขึ้นต้นด้วย https://script.google.com/macros/s/...)
+ *    ไปวางในหน้าต่าง "Google Drive & Sheets Backup" ในเว็บ Clan Hub
  * ==============================================================================
- */
-
-export const GOOGLE_APPS_SCRIPT_CODE = `/**
- * LINEAGE2M CLAN HUB - GOOGLE SHEETS & DRIVE BACKUP ENGINE
- * Deploy as: Web App (Execute as: Me, Who has access: Anyone)
  */
 
 const FOLDER_BACKUPS = "L2M_ClanHub_Backups";
 const FOLDER_IMAGES = "L2M_Item_Images";
+const MAX_CELL_CHARS = 45000;
 
 // 1. GET Request Handler (Ping, Fetch All Data)
 function doGet(e) {
@@ -154,7 +155,7 @@ function doPost(e) {
         return jsonResponse({ status: "error", message: "Missing base64Data" });
       }
 
-      const cleanBase64 = base64Data.replace(/^data:image\\/[a-z]+;base64,/, "");
+      const cleanBase64 = base64Data.replace(/^data:image\/[a-z]+;base64,/, "");
       const decodedBytes = Utilities.base64Decode(cleanBase64);
       const blob = Utilities.newBlob(decodedBytes, mimeType, fileName);
 
@@ -210,8 +211,6 @@ function getLatestBackupFile(folder) {
   return latestFile;
 }
 
-const MAX_CELL_CHARS = 45000;
-
 function writeSheetData(ss, sheetName, items) {
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
@@ -248,7 +247,7 @@ function writeSheetData(ss, sheetName, items) {
         strVal = String(val);
       }
 
-      // ป้องกัน Google Sheets ข้อผิดพลาด "อินพุตเกินจำนวนอักขระสูงสุด 50000 ตัวที่อนุญาตในเซลล์เดียว"
+      // ป้องกันข้อผิดพลาดเกิน 50,000 ตัวอักษรต่อ 1 เซลล์ของ Google Sheets
       if (strVal.length > MAX_CELL_CHARS) {
         if (strVal.startsWith("data:image/") || strVal.includes(";base64,")) {
           strVal = "[Image Data Stored in Google Drive Backup JSON]";
@@ -310,4 +309,3 @@ function appendSheetLog(ss, sheetName, logItems) {
     sheet.appendRow(row);
   }
 }
-`;

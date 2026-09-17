@@ -588,7 +588,7 @@ export const QuickItemModal: React.FC<QuickItemModalProps> = ({
                           <img
                             src={item.imageUrl}
                             alt={item.name}
-                            className="w-11 h-11 rounded-lg object-cover border border-slate-700/80 shadow-md group-hover:scale-105 transition-transform"
+                            className="w-14 h-14 rounded-xl object-cover border border-slate-700/80 shadow-md group-hover:scale-105 transition-transform"
                           />
                           <span
                             className={`absolute -bottom-1 -right-1 text-[8px] font-bold px-1 rounded border uppercase ${getRarityBadge(

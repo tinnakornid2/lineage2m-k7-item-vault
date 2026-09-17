@@ -764,7 +764,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               <img
                                 src={item.imageUrl}
                                 alt={item.name}
-                                className="w-4 h-4 rounded object-cover border border-slate-700 shrink-0"
+                                className="w-7 h-7 rounded-lg object-cover border border-slate-700 shrink-0 shadow-sm"
                               />
                               <span className="text-slate-100 font-medium truncate text-[11px]">{item.name}</span>
                               <span className="text-[9px] font-bold font-mono px-1 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
@@ -1002,7 +1002,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             sounds.playClick();
                             onViewImage?.(item.imageUrl, item.name);
                           }}
-                          className="w-7 h-7 sm:w-8 sm:h-8 rounded-md overflow-hidden border border-slate-700 group-hover/item:border-sky-400 shrink-0 cursor-pointer shadow-sm relative transition-all"
+                          className="w-10 h-10 sm:w-11 sm:h-11 rounded-lg overflow-hidden border border-slate-700 group-hover/item:border-sky-400 shrink-0 cursor-pointer shadow-sm relative transition-all"
                           title={t.zoomImage}
                         >
                           <img
@@ -1270,7 +1270,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         onViewImage?.(item.imageUrl, item.name);
                       }}
                       title={t.zoomImage}
-                      className={`relative w-11 h-11 rounded-lg overflow-hidden border bg-[#080d18] cursor-pointer shadow-sm group-hover:scale-105 transition-transform block shrink-0 ${getRarityBorder(
+                      className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border bg-[#080d18] cursor-pointer shadow-md group-hover:scale-105 transition-transform block shrink-0 ${getRarityBorder(
                         item.rarity
                       )}`}
                     >

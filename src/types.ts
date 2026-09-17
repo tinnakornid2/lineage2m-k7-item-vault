@@ -303,7 +303,7 @@ export function isUserStatsPending(user?: User | null): boolean {
   return false;
 }
 
-export type ActiveTab = 'dashboard' | 'vault' | 'queue' | 'all_members' | 'clans' | 'bulk_swap' | 'my_stats' | 'stat_approvals';
+export type ActiveTab = 'dashboard' | 'vault' | 'queue' | 'all_members' | 'clans' | 'bulk_swap' | 'my_stats' | 'stat_approvals' | 'power_formula';
 
 export type Language = 'th' | 'en';
 

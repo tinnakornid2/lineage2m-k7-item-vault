@@ -1,4 +1,4 @@
-import { User, VaultItem, QueueItem, ClanGroup, DiamondVaultRecord } from '../types';
+import { User, VaultItem, QueueItem, ClanGroup, DiamondVaultRecord, FormulaSettings } from '../types';
 
 export interface GoogleBackupConfig {
   webAppUrl: string;
@@ -18,6 +18,7 @@ export interface BackupDataPayload {
   clans: ClanGroup[];
   diamondLogs: DiamondVaultRecord[];
   vaultBalance: number;
+  formulaSettings?: FormulaSettings;
 }
 
 const CONFIG_KEY = 'l2m_google_backup_config';
@@ -114,7 +115,7 @@ export async function testGoogleSheetsConnection(webAppUrl: string): Promise<{
   }
 
   try {
-    const pingUrl = `${webAppUrl.trim()}${webAppUrl.includes('?') ? '&' : '?'}action=ping&_t=${Date.now()}`;
+    const pingUrl = `${webAppUrl.trim()}${webAppUrl.includes('?') ? '&' : '?'}action=ping`;
     const response = await fetch(pingUrl, {
       method: 'GET',
       mode: 'cors',
@@ -188,7 +189,8 @@ export async function backupAllDataToGoogleSheets(
         vaultItems: payload.vaultItems,
         queueItems: payload.queueItems,
         clans: payload.clans,
-        diamondLogs: payload.diamondLogs
+        diamondLogs: payload.diamondLogs,
+        formulaSettings: payload.formulaSettings
       }
     };
 
@@ -266,7 +268,7 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
   }
 
   try {
-    const fetchUrl = `${webAppUrl}${webAppUrl.includes('?') ? '&' : '?'}action=fetch_all&_t=${Date.now()}`;
+    const fetchUrl = `${webAppUrl}${webAppUrl.includes('?') ? '&' : '?'}action=fetch_all`;
     const response = await fetch(fetchUrl, {
       method: 'GET',
       mode: 'cors',
@@ -286,7 +288,8 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
         queueItems: Array.isArray(json.data.queueItems) ? json.data.queueItems : [],
         clans: Array.isArray(json.data.clans) ? json.data.clans : [],
         diamondLogs: Array.isArray(json.data.diamondLogs) ? json.data.diamondLogs : [],
-        vaultBalance: Number(json.vaultBalance || 0)
+        vaultBalance: Number(json.vaultBalance || 0),
+        formulaSettings: json.data.formulaSettings || undefined
       };
 
       return {

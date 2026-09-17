@@ -84,7 +84,7 @@ import {
   testFirestoreHealth
 } from './services/firebase';
 import { calculateDiamondNetChange, computeTotalVaultBalance } from './utils/diamondHelper';
-import { setInMemoryFormulaSettings } from './services/powerFormulaService';
+import { setInMemoryFormulaSettings, getFormulaSettings, saveFormulaSettings } from './services/powerFormulaService';
 
 import { Sidebar } from './components/Sidebar';
 import { AnnouncementBar } from './components/AnnouncementBar';
@@ -122,7 +122,7 @@ import {
   BackgroundConfig,
   DEFAULT_BG_CONFIG
 } from './components/BackgroundSettingsModal';
-import { PowerFormulaSettingsModal } from './components/PowerFormulaSettingsModal';
+import { PowerFormulaView } from './components/PowerFormulaView';
 
 import { DashboardView } from './components/DashboardView';
 import { VaultView } from './components/VaultView';
@@ -164,7 +164,8 @@ export const App: React.FC = () => {
     'clans',
     'bulk_swap',
     'my_stats',
-    'stat_approvals'
+    'stat_approvals',
+    'power_formula'
   ];
 
   const getInitialTab = (): ActiveTab => {
@@ -299,7 +300,6 @@ export const App: React.FC = () => {
   } | null>(null);
 
   // 5c. Kain7 Power Formula State
-  const [isPowerFormulaOpen, setIsPowerFormulaOpen] = useState(false);
   const [selectedClanScope, setSelectedClanScope] = useState<string>('all');
 
   // 5d. In-App Notification Center State (Admin & Owner)
@@ -477,12 +477,17 @@ export const App: React.FC = () => {
 
   // Real-time detection of new claims to alert Admin & Owner
   const previousClaimKeysRef = useRef<Set<string> | null>(null);
+  const pageLoadedAtRef = useRef(Date.now());
+  const hasInitializedClaimsRef = useRef(false);
 
   useEffect(() => {
     const currentClaimKeys = new Set<string>();
     const currentClaimsList: { item: VaultItem; claimant: Claimant }[] = [];
 
     vaultItems.forEach((item) => {
+      // Ignore distributed items: distributed items must never trigger claim notifications!
+      if (item.status === 'distributed') return;
+
       (item.claimants || []).forEach((c) => {
         const key = `${item.id}_${c.userId || c.inGameName}_${c.claimedAt || 0}`;
         currentClaimKeys.add(key);
@@ -490,20 +495,30 @@ export const App: React.FC = () => {
       });
     });
 
-    // Initial load: record existing claims without playing chime
+    // Initial load: record existing claims without playing chime or showing toast
+    if (!hasInitializedClaimsRef.current) {
+      if (vaultItems.length > 0) {
+        previousClaimKeysRef.current = currentClaimKeys;
+        hasInitializedClaimsRef.current = true;
+      }
+      return;
+    }
+
     if (previousClaimKeysRef.current === null) {
       previousClaimKeysRef.current = currentClaimKeys;
       return;
     }
 
-    // Only notify Admin or Owner when another user submits a claim
+    // Only notify Admin or Owner when another user submits a fresh claim in real-time
     const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
     if (isPrivileged) {
       const newClaims = currentClaimsList.filter(
         ({ item, claimant }) =>
           !previousClaimKeysRef.current!.has(
             `${item.id}_${claimant.userId || claimant.inGameName}_${claimant.claimedAt || 0}`
-          ) && claimant.userId !== currentUser?.id
+          ) &&
+          claimant.userId !== currentUser?.id &&
+          (claimant.claimedAt || 0) >= pageLoadedAtRef.current - 2000
       );
 
       if (newClaims.length > 0) {
@@ -728,7 +743,8 @@ export const App: React.FC = () => {
         queueItems,
         clans,
         diamondLogs,
-        vaultBalance
+        vaultBalance,
+        formulaSettings: getFormulaSettings()
       });
     }
   }, [users, vaultItems, queueItems, clans, diamondLogs, vaultBalance, isQuotaExceeded]);
@@ -746,7 +762,8 @@ export const App: React.FC = () => {
           queueItems,
           clans,
           diamondLogs,
-          vaultBalance
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
         },
         currentUser?.inGameName || currentUser?.username || 'Member'
       );
@@ -782,6 +799,9 @@ export const App: React.FC = () => {
         }
         if (Array.isArray(incomingData.diamondLogs)) {
           setDiamondLogs(incomingData.diamondLogs);
+        }
+        if (incomingData.formulaSettings) {
+          saveFormulaSettings(incomingData.formulaSettings);
         }
       });
     } else {
@@ -2520,7 +2540,7 @@ export const App: React.FC = () => {
         activeTab={activeTab}
         onTabChange={(tab) => {
           sounds.playClick();
-          if (!canAccessAdminFeatures && (tab === 'vault' || tab === 'bulk_swap' || tab === 'stat_approvals')) {
+          if (!canAccessAdminFeatures && (tab === 'vault' || tab === 'bulk_swap' || tab === 'stat_approvals' || tab === 'power_formula')) {
             setActiveTab('dashboard');
             return;
           }
@@ -2547,7 +2567,7 @@ export const App: React.FC = () => {
         onOpenRequestCp={() => setActiveTab('my_stats')}
         onOpenMyStats={() => setActiveTab('my_stats')}
         onOpenChangePassword={currentUser ? () => setPasswordTargetUser(currentUser) : undefined}
-        onOpenPowerFormula={() => setIsPowerFormulaOpen(true)}
+        onOpenPowerFormula={() => setActiveTab('power_formula')}
         onOpenBulkSwap={() => setActiveTab('bulk_swap')}
         onOpenStatApproval={() => setActiveTab('stat_approvals')}
         pendingStatApprovalCount={users.filter((u) => u.pendingPowerLevel && u.pendingPowerLevel > 0).length}
@@ -2663,6 +2683,9 @@ export const App: React.FC = () => {
             onDeleteMember={handleDeleteMember}
             onChangePassword={(user) => setPasswordTargetUser(user)}
             onOpenStatApproval={() => setActiveTab('stat_approvals')}
+            onViewImageZoom={(url, title, images, currentIndex) =>
+              setImageViewerData({ url, title, images, currentIndex })
+            }
           />
         )}
 
@@ -2735,6 +2758,28 @@ export const App: React.FC = () => {
             onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
             showToast={showToast}
           />
+        )}
+
+        {activeTab === 'power_formula' && canAccessAdminFeatures && (
+          <PowerFormulaView
+            lang={lang}
+            showToast={showToast}
+            onNavigateTab={(tab) => setActiveTab(tab)}
+          />
+        )}
+
+        {activeTab === 'power_formula' && !canAccessAdminFeatures && (
+          <div className="p-8 text-center bg-slate-900/80 rounded-2xl border border-slate-800">
+            <p className="text-slate-300 font-semibold mb-4">
+              {lang === 'th' ? 'หน้านี้สำหรับ Admin และ Owner เท่านั้น' : 'This page is restricted to Admin and Owner.'}
+            </p>
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#aa841c] text-slate-950 font-bold text-xs cursor-pointer"
+            >
+              {lang === 'th' ? 'กลับไปหน้าหลัก' : 'Go to Dashboard'}
+            </button>
+          </div>
         )}
       </main>
 
@@ -2947,7 +2992,8 @@ export const App: React.FC = () => {
           queueItems,
           clans,
           diamondLogs,
-          vaultBalance
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
         }}
         onDataRestored={(restored) => {
           if (restored.users && restored.users.length > 0) setUsers(restored.users);
@@ -2955,19 +3001,12 @@ export const App: React.FC = () => {
           if (restored.queueItems) setQueueItems(restored.queueItems);
           if (restored.clans && restored.clans.length > 0) setClans(restored.clans);
           if (restored.diamondLogs) setDiamondLogs(restored.diamondLogs);
+          if (restored.formulaSettings) saveFormulaSettings(restored.formulaSettings);
         }}
         showToast={showToast}
       />
 
-      {/* 5. POWER FORMULA & CLAN MANAGEMENT MODALS */}
-      {isPowerFormulaOpen && canAccessAdminFeatures && (
-        <PowerFormulaSettingsModal
-          isOpen={isPowerFormulaOpen}
-          onClose={() => setIsPowerFormulaOpen(false)}
-          lang={lang}
-          showToast={showToast}
-        />
-      )}
+
 
       {/* Global Fullscreen Image Viewer Modal */}
       {imageViewerData && (

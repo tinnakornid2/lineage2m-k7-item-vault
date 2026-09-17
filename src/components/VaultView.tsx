@@ -1256,7 +1256,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     <img
                       src={qi.imageUrl}
                       alt={qi.name}
-                      className="w-9 h-9 rounded-lg object-cover border border-slate-700 group-hover:border-[#d4af37]/80 group-hover:scale-105 transition-all"
+                      className="w-11 h-11 rounded-lg object-cover border border-slate-700 group-hover:border-[#d4af37]/80 group-hover:scale-105 transition-all"
                     />
                     <div className="pr-1">
                       <div className="text-xs font-bold text-slate-200 group-hover:text-white truncate max-w-[130px]">
@@ -1342,11 +1342,11 @@ export const VaultView: React.FC<VaultViewProps> = ({
                   title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูป' : 'Click to choose or Ctrl + V to paste'}
                 >
                   {itemImagePreview ? (
-                    <div className="relative w-full h-28 rounded-lg overflow-hidden border border-slate-700">
+                    <div className="relative w-full h-36 rounded-xl overflow-hidden border border-slate-700 bg-black/40">
                       <img
                         src={itemImagePreview}
                         alt="preview"
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain p-1"
                       />
                       <label
                         htmlFor="file-item-image-replace"
@@ -2479,7 +2479,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                             onViewImageZoom(item.imageUrl, item.name);
                           }}
                           title={t.zoomImage}
-                          className="w-12 h-12 rounded-lg overflow-hidden border border-slate-700 hover:border-[#38bdf8] bg-slate-900 shrink-0 cursor-pointer group/itemimg relative transition-all hover:scale-105 block"
+                          className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border border-slate-700 hover:border-[#38bdf8] bg-slate-900 shrink-0 cursor-pointer group/itemimg relative transition-all hover:scale-105 block shadow-md"
                         >
                           <img
                             src={item.imageUrl}
@@ -2925,7 +2925,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
             {/* Modal Header */}
             <div className="p-4 border-b border-slate-800 bg-[#070b14] flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-12 h-12 rounded-lg overflow-hidden border border-slate-700 bg-slate-900 shrink-0">
+                <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-700 bg-slate-900 shrink-0 shadow-md">
                   <img
                     src={viewingDistributedHuntersItem.imageUrl}
                     alt={viewingDistributedHuntersItem.name}

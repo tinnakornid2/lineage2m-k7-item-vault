@@ -149,10 +149,10 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
               <img
                 src={item.imageUrl}
                 alt={item.name}
-                className="w-12 h-12 rounded-lg object-contain bg-black/60 p-1 shrink-0 border border-slate-700"
+                className="w-16 h-16 rounded-xl object-contain bg-black/60 p-1 shrink-0 border border-slate-700 shadow-md"
               />
             ) : (
-              <div className="w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center text-lg shrink-0">
+              <div className="w-16 h-16 rounded-xl bg-slate-800 flex items-center justify-center text-xl shrink-0">
                 ⚔️
               </div>
             )}

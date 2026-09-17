@@ -407,7 +407,7 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
                     <img
                       src={imagePreview}
                       alt="Item Preview"
-                      className="w-full h-32 object-cover rounded-lg"
+                      className="w-full h-40 object-contain bg-black/40 rounded-lg p-1"
                     />
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1 transition-opacity">
                       <label
