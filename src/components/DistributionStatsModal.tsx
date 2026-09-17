@@ -37,7 +37,7 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
 
   // Filter only distributed items
   const distributedItems = useMemo(
-    () => vaultItems.filter((item) => item.status === 'distributed'),
+    () => vaultItems.filter((item) => item.status === 'distributed' || Boolean(item.distributedTo?.name || item.distributedTo?.userId)),
     [vaultItems]
   );
 

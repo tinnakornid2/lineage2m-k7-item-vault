@@ -590,6 +590,14 @@ async function createApp(options = {}) {
     try {
       const { data } = req.body;
       if (data && typeof data === "object") {
+        if (Array.isArray(data.vaultItems)) {
+          data.vaultItems = data.vaultItems.map((item) => {
+            if (item && item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
+              return { ...item, status: "distributed" };
+            }
+            return item;
+          });
+        }
         liveHubState = {
           data,
           updatedAt: Date.now(),

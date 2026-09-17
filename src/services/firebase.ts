@@ -404,7 +404,13 @@ export function getCachedUsers(): User[] {
 }
 
 export function getCachedVaultItems(): VaultItem[] {
-  return getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, INITIAL_VAULT_ITEMS);
+  const items = getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, INITIAL_VAULT_ITEMS);
+  return items.map((item) => {
+    if (item && item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
+      return { ...item, status: 'distributed' };
+    }
+    return item;
+  });
 }
 
 export function getCachedClans(): ClanGroup[] {
@@ -927,6 +933,9 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
         if (item.distributedTo?.clan) {
           item.distributedTo.clan = cleanClanName(item.distributedTo.clan);
         }
+        if (item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
+          item.status = 'distributed';
+        }
         items.push(item);
       });
       latestItems = items;
@@ -1101,7 +1110,7 @@ export async function clearDistributedVaultItemsDoc(): Promise<number> {
   let count = 0;
   snap.forEach((docSnap) => {
     const data = docSnap.data();
-    if (data.status === 'distributed') {
+    if (data.status === 'distributed' || Boolean(data.distributedTo?.name || data.distributedTo?.userId)) {
       batch.delete(docSnap.ref);
       count++;
     }
@@ -1110,7 +1119,7 @@ export async function clearDistributedVaultItemsDoc(): Promise<number> {
     await batch.commit();
     await Promise.all(
       snap.docs
-        .filter((itemDoc) => itemDoc.data().status === 'distributed')
+        .filter((itemDoc) => itemDoc.data().status === 'distributed' || Boolean(itemDoc.data().distributedTo?.name || itemDoc.data().distributedTo?.userId))
         .map((itemDoc) => deleteClaimsForItem(itemDoc.id))
     );
   }

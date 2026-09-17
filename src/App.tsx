@@ -421,7 +421,7 @@ export const App: React.FC = () => {
     // 1. Claim alerts from vault items (Auto-omits distributed items)
     vaultItems.forEach((item) => {
       // Auto-remove distributed items: distributed items must not show claim notifications!
-      if (item.status === 'distributed') return;
+      if (item.status === 'distributed' || Boolean(item.distributedTo?.name || item.distributedTo?.userId)) return;
 
       (item.claimants || []).forEach((c) => {
         const claimantId = c.userId || c.inGameName;
@@ -486,7 +486,7 @@ export const App: React.FC = () => {
 
     vaultItems.forEach((item) => {
       // Ignore distributed items: distributed items must never trigger claim notifications!
-      if (item.status === 'distributed') return;
+      if (item.status === 'distributed' || Boolean(item.distributedTo?.name || item.distributedTo?.userId)) return;
 
       (item.claimants || []).forEach((c) => {
         const key = `${item.id}_${c.userId || c.inGameName}_${c.claimedAt || 0}`;
@@ -2467,9 +2467,16 @@ export const App: React.FC = () => {
     }
   };
 
-  // Available items to show on Dashboard (status === 'available') filtered by Clan Scope
+  // Helper to determine if an item is distributed (bulletproof safeguard against status mismatch)
+  const isItemDistributed = (item: VaultItem) => {
+    if (item.status === 'distributed') return true;
+    if (item.distributedTo && Boolean(item.distributedTo.name || item.distributedTo.userId)) return true;
+    return false;
+  };
+
+  // Available items to show on Dashboard (status === 'available' and not distributed) filtered by Clan Scope
   const availableDashboardItems = useMemo(() => {
-    const available = vaultItems.filter((i) => i.status === 'available');
+    const available = vaultItems.filter((i) => i.status === 'available' && !isItemDistributed(i));
     if (!selectedClanScope || selectedClanScope === 'all') return available;
     const scope = cleanClanName(selectedClanScope).toLowerCase();
     return available.filter((item) =>
@@ -2620,7 +2627,7 @@ export const App: React.FC = () => {
             onDeleteItem={handleDeleteVaultItem}
             onEditItem={(item) => setEditingVaultItem(item)}
             allMembers={users}
-            distributedItems={vaultItems.filter((i) => i.status === 'distributed')}
+            distributedItems={vaultItems.filter((i) => isItemDistributed(i))}
             clans={clans}
             onBroadcastToDiscord={handleBroadcastItemToDiscord}
             isQuotaExceeded={isQuotaExceeded}
@@ -2943,7 +2950,7 @@ export const App: React.FC = () => {
         lang={lang}
         currentUser={currentUser}
         vaultItemsCount={availableDashboardItems.length}
-        distributedItemsCount={vaultItems.filter((i) => i.status === 'distributed').length}
+        distributedItemsCount={vaultItems.filter((i) => isItemDistributed(i)).length}
         queuesCount={queueItems.length}
         diamondLogsCount={diamondLogs.length}
       />

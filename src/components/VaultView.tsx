@@ -1124,7 +1124,9 @@ export const VaultView: React.FC<VaultViewProps> = ({
     return Array.from(clanSet);
   }, [hunters]);
 
-  const distributedItems = vaultItems.filter((i) => i.status === 'distributed');
+  const distributedItems = vaultItems.filter(
+    (i) => i.status === 'distributed' || Boolean(i.distributedTo?.name || i.distributedTo?.userId)
+  );
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">

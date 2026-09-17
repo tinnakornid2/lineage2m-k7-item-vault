@@ -173,6 +173,19 @@ export async function testGoogleSheetsConnection(webAppUrl: string): Promise<{
 }
 
 /**
+ * Bulletproof normalizer: ensure any item that has a recipient is marked distributed
+ */
+export const normalizeVaultItemsList = <T extends { status?: string; distributedTo?: any }>(items: T[]): T[] => {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => {
+    if (item && item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
+      return { ...item, status: 'distributed' };
+    }
+    return item;
+  });
+};
+
+/**
  * Backup all Clan Hub data to Google Sheets & Drive
  */
 export async function backupAllDataToGoogleSheets(
@@ -202,7 +215,7 @@ export async function backupAllDataToGoogleSheets(
       vaultBalance: payload.vaultBalance,
       data: {
         users: payload.users,
-        vaultItems: payload.vaultItems,
+        vaultItems: normalizeVaultItemsList(payload.vaultItems),
         queueItems: payload.queueItems,
         clans: payload.clans,
         diamondLogs: payload.diamondLogs,
@@ -300,7 +313,7 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
     if (json.status === 'success' && json.data) {
       const parsedData: BackupDataPayload = {
         users: Array.isArray(json.data.users) ? json.data.users : [],
-        vaultItems: Array.isArray(json.data.vaultItems) ? json.data.vaultItems : [],
+        vaultItems: normalizeVaultItemsList(Array.isArray(json.data.vaultItems) ? json.data.vaultItems : []),
         queueItems: Array.isArray(json.data.queueItems) ? json.data.queueItems : [],
         clans: Array.isArray(json.data.clans) ? json.data.clans : [],
         diamondLogs: Array.isArray(json.data.diamondLogs) ? json.data.diamondLogs : [],
@@ -325,9 +338,13 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed.data) {
+          const cachedData: BackupDataPayload = {
+            ...parsed.data,
+            vaultItems: normalizeVaultItemsList(parsed.data.vaultItems || [])
+          };
           return {
             success: true,
-            data: parsed.data,
+            data: cachedData,
             message: 'Loaded from local backup cache (Google Sheets connection failed).'
           };
         }
