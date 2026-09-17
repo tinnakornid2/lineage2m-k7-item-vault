@@ -1531,7 +1531,7 @@ export const REAL_BACKUP_MEMBERS: User[] = [
       "Archer"
     ],
     "id": "user_1789485356313_jmhp",
-    "clan": "VOLTZ",
+    "clan": "VoltZ",
     "inGameName": "ThaiTu",
     "username": "Estexu11"
   },
@@ -3371,7 +3371,7 @@ export const REAL_BACKUP_QUEUES: QueueItem[] = [
         "userId": "user_1789485356313_jmhp",
         "status": "pending",
         "powerLevel": 0,
-        "clan": "VOLTZ",
+        "clan": "VoltZ",
         "name": "ThaiTu",
         "id": "qm_1789486730227_9rcy"
       },
@@ -3445,7 +3445,7 @@ export const REAL_BACKUP_QUEUES: QueueItem[] = [
         "status": "pending",
         "userId": "user_1789485356313_jmhp",
         "powerLevel": 0,
-        "clan": "VOLTZ",
+        "clan": "VoltZ",
         "id": "qm_1789486739712_mrh0",
         "name": "ThaiTu"
       },
@@ -3532,7 +3532,7 @@ export const REAL_BACKUP_VAULT_ITEMS: VaultItem[] = [
     "paymentStatus": "paid",
     "hunters": [
       {
-        "clan": "VOLTZ",
+        "clan": "VoltZ",
         "name": "ThaiTu"
       },
       {

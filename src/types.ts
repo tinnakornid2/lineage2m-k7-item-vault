@@ -254,7 +254,9 @@ export const OFFICIAL_CLANS: ClanGroup[] = [
  */
 export function cleanClanName(clan?: string | null): string {
   if (!clan || typeof clan !== 'string') return '';
-  return clan.replace(/^clan:\s*/i, '').trim();
+  const cleaned = clan.replace(/^clan:\s*/i, '').trim();
+  if (cleaned.toLowerCase() === 'voltz') return 'VoltZ';
+  return cleaned;
 }
 
 /**
