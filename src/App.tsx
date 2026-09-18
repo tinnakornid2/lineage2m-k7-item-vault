@@ -74,10 +74,15 @@ import {
   INITIAL_CLANS,
   DEFAULT_OWNER,
   getCachedUsers,
+  setCachedUsers,
   getCachedVaultItems,
+  setCachedVaultItems,
   getCachedClans,
+  setCachedClans,
   getCachedQueues,
+  setCachedQueues,
   getCachedDiamondTransactions,
+  setCachedDiamondTransactions,
   setOnQuotaExceededListener,
   syncBackupToFirestore,
   forceCheckAndFetchFirestore,
@@ -745,10 +750,44 @@ export const App: React.FC = () => {
         clans,
         diamondLogs,
         vaultBalance,
-        formulaSettings: getFormulaSettings()
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
       });
     }
-  }, [users, vaultItems, queueItems, clans, diamondLogs, vaultBalance, isQuotaExceeded]);
+  }, [users, vaultItems, queueItems, clans, diamondLogs, vaultBalance, isQuotaExceeded, announcementSettings, bgConfig, discordSettings]);
+
+  // Keep local cache in sync whenever core collections update (survives quota limits and offline refreshes)
+  useEffect(() => {
+    if (vaultItems.length > 0) {
+      setCachedVaultItems(vaultItems);
+    }
+  }, [vaultItems]);
+
+  useEffect(() => {
+    if (users.length > 0) {
+      setCachedUsers(users);
+    }
+  }, [users]);
+
+  useEffect(() => {
+    if (queueItems.length > 0) {
+      setCachedQueues(queueItems);
+    }
+  }, [queueItems]);
+
+  useEffect(() => {
+    if (clans.length > 0) {
+      setCachedClans(clans);
+    }
+  }, [clans]);
+
+  useEffect(() => {
+    if (diamondLogs.length > 0) {
+      setCachedDiamondTransactions(diamondLogs);
+    }
+  }, [diamondLogs]);
 
   // Real-time live relay broadcast: whenever state changes locally, immediately notify all other clan members (debounced 300ms)
   useEffect(() => {
@@ -764,14 +803,17 @@ export const App: React.FC = () => {
           clans,
           diamondLogs,
           vaultBalance,
-          formulaSettings: getFormulaSettings()
+          formulaSettings: getFormulaSettings(),
+          announcementSettings,
+          backgroundSettings: bgConfig,
+          discordSettings
         },
         currentUser?.inGameName || currentUser?.username || 'Member'
       );
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [users, vaultItems, queueItems, clans, diamondLogs, vaultBalance]);
+  }, [users, vaultItems, queueItems, clans, diamondLogs, vaultBalance, announcementSettings, bgConfig, discordSettings]);
 
   // Real-time live synchronization engine when in failover mode (or Quota Exceeded)
   useEffect(() => {
@@ -790,7 +832,25 @@ export const App: React.FC = () => {
           }
         }
         if (Array.isArray(incomingData.vaultItems)) {
-          setVaultItems(incomingData.vaultItems);
+          setVaultItems((prev) => {
+            const prevMap = new Map<string, VaultItem>(prev.map((i) => [i.id, i]));
+            // Shield distributed items from being flipped back to available if done locally
+            const resolvedIncoming = (incomingData.vaultItems as VaultItem[]).map((incItem: VaultItem) => {
+              const local = prevMap.get(incItem.id);
+              if (local && local.status === 'distributed' && incItem.status === 'available') {
+                return local;
+              }
+              return incItem;
+            });
+            const incomingIds = new Set<string>(resolvedIncoming.map((i: VaultItem) => i.id));
+            // Keep items created locally within the last 10 minutes that haven't hit the incoming snapshot yet
+            const pendingLocalItems = prev.filter(
+              (it) => !incomingIds.has(it.id) && Date.now() - (it.createdAt || 0) < 600000
+            );
+            const merged: VaultItem[] = [...pendingLocalItems, ...resolvedIncoming];
+            setCachedVaultItems(merged);
+            return merged;
+          });
         }
         if (Array.isArray(incomingData.queueItems)) {
           setQueueItems(incomingData.queueItems);
@@ -803,6 +863,21 @@ export const App: React.FC = () => {
         }
         if (incomingData.formulaSettings) {
           saveFormulaSettings(incomingData.formulaSettings);
+        }
+        if (incomingData.announcementSettings) {
+          setAnnouncementSettings(incomingData.announcementSettings);
+          try {
+            localStorage.setItem('k7_announcement_config', JSON.stringify(incomingData.announcementSettings));
+          } catch {}
+        }
+        if (incomingData.backgroundSettings) {
+          setBgConfig(incomingData.backgroundSettings);
+          try {
+            localStorage.setItem('k7_bg_config', JSON.stringify(incomingData.backgroundSettings));
+          } catch {}
+        }
+        if (incomingData.discordSettings) {
+          setDiscordSettings(incomingData.discordSettings);
         }
       });
     } else {
@@ -839,7 +914,17 @@ export const App: React.FC = () => {
               vaultItems,
               queueItems,
               clans,
-              diamondLogs
+              diamondLogs,
+              formulaSettings: getFormulaSettings(),
+              announcementSettings,
+              backgroundSettings: bgConfig ? {
+                imageUrl: bgConfig.imageUrl,
+                brightness: bgConfig.brightness,
+                blur: bgConfig.blur,
+                vignetteOpacity: bgConfig.vignetteOpacity,
+                updatedBy: currentUser?.inGameName || 'Owner'
+              } : undefined,
+              discordSettings
             });
             if (syncRes.success) {
               setPendingFirebaseSync(false);
@@ -1084,6 +1169,22 @@ export const App: React.FC = () => {
         'error'
       );
     }
+    triggerDebouncedAutoBackup(
+      {
+        users,
+        vaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings: newSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Admin',
+      true
+    );
   };
 
   const handleSaveDiscordSettings = async (newSettings: DiscordSettings) => {
@@ -1101,6 +1202,22 @@ export const App: React.FC = () => {
         'error'
       );
     }
+    triggerDebouncedAutoBackup(
+      {
+        users,
+        vaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings: newSettings
+      },
+      currentUser?.inGameName || 'Admin',
+      true
+    );
   };
 
   // Broadcast single vault item to Discord (Owner only) - Opens template picker modal
@@ -1222,34 +1339,81 @@ export const App: React.FC = () => {
   const handleCreateVaultItem = async (
     itemData: Omit<VaultItem, 'id' | 'createdAt' | 'status' | 'claimants'>
   ) => {
-    const createdItem = await addVaultItemDoc({
-      ...itemData,
-      status: 'available',
-      claimants: []
-    });
+    try {
+      const createdItem = await addVaultItemDoc({
+        ...itemData,
+        status: 'available',
+        claimants: []
+      });
 
-    if (discordSettings?.enabled && discordSettings.notifyOnNewItem) {
-      sendDiscordNotification(discordSettings, 'new_item', {
-        item: createdItem,
-        actorName: currentUser?.inGameName || currentUser?.username || 'Admin',
-        lang,
-        template: discordSettings?.messageTemplate || 'neon_glow'
-      }).then((res) => {
-        if (res.success) {
-          showToast(
-            lang === 'th'
-              ? `📢 ส่งแจ้งเตือน [${createdItem.name}] เข้า Discord เรียบร้อยแล้ว!`
-              : `📢 Sent [${createdItem.name}] alert to Discord!`,
-            'info'
-          );
-        }
-      }).catch((err) => console.warn('Discord notification error:', err));
+      // 1. Optimistic UI update immediately so user sees the new item instantly
+      let nextVaultItems: VaultItem[] = [];
+      setVaultItems((prev) => {
+        nextVaultItems = [createdItem, ...prev.filter((i) => i.id !== createdItem.id)];
+        setCachedVaultItems(nextVaultItems);
+        return nextVaultItems;
+      });
+
+      sounds.playSuccess();
+      showToast(
+        lang === 'th'
+          ? `เพิ่มไอเทม [${createdItem.name}] เข้าคลังเรียบร้อยแล้ว!`
+          : `Added [${createdItem.name}] to vault successfully!`,
+        'success'
+      );
+
+      // 2. Immediate dual-cloud sync to Google Sheets & Drive (failover backup)
+      triggerDebouncedAutoBackup(
+        {
+          users,
+          vaultItems: nextVaultItems.length > 0 ? nextVaultItems : [createdItem, ...vaultItems],
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
+        },
+        currentUser?.inGameName || currentUser?.username || 'Admin',
+        true
+      );
+
+      // 3. Discord notification if enabled (Rule 5: English 100%)
+      if (discordSettings?.enabled && discordSettings.notifyOnNewItem) {
+        sendDiscordNotification(discordSettings, 'new_item', {
+          item: createdItem,
+          actorName: currentUser?.inGameName || currentUser?.username || 'Admin',
+          lang,
+          template: discordSettings?.messageTemplate || 'neon_glow'
+        }).then((res) => {
+          if (res.success) {
+            showToast(
+              lang === 'th'
+                ? `📢 ส่งแจ้งเตือน [${createdItem.name}] เข้า Discord เรียบร้อยแล้ว!`
+                : `📢 Sent [${createdItem.name}] alert to Discord!`,
+              'info'
+            );
+          }
+        }).catch((err) => console.warn('Discord notification error:', err));
+      }
+    } catch (err: any) {
+      console.error('Failed to create vault item:', err);
+      sounds.playError();
+      showToast(
+        lang === 'th'
+          ? `เกิดข้อผิดพลาดในการเพิ่มไอเทม: ${err?.message || 'Unknown error'}`
+          : `Failed to add item: ${err?.message || 'Unknown error'}`,
+        'error'
+      );
     }
   };
 
   const handleDeleteVaultItem = async (itemId: string) => {
     sounds.playClick();
-    setVaultItems((prev) => prev.filter((i) => i.id !== itemId));
+    setVaultItems((prev) => {
+      const next = prev.filter((i) => i.id !== itemId);
+      setCachedVaultItems(next);
+      return next;
+    });
     try {
       await deleteVaultItemDoc(itemId);
       showToast(lang === 'th' ? 'ลบรายการสำเร็จ' : 'Item deleted', 'info');
@@ -1325,11 +1489,13 @@ export const App: React.FC = () => {
     const updatedClaimants = [...(item.claimants || []), newClaimant];
 
     // Optimistic local state update
-    setVaultItems((prev) =>
-      prev.map((it) =>
+    setVaultItems((prev) => {
+      const next = prev.map((it) =>
         it.id === itemId ? { ...it, claimants: updatedClaimants } : it
-      )
-    );
+      );
+      setCachedVaultItems(next);
+      return next;
+    });
 
     try {
       await updateVaultItemDoc(itemId, { claimants: updatedClaimants });
@@ -1339,11 +1505,13 @@ export const App: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to update claim in Firestore:', err);
-      setVaultItems((prev) =>
-        prev.map((it) =>
+      setVaultItems((prev) => {
+        const next = prev.map((it) =>
           it.id === itemId ? { ...it, claimants: item.claimants } : it
-        )
-      );
+        );
+        setCachedVaultItems(next);
+        return next;
+      });
     }
   };
 
@@ -1378,11 +1546,13 @@ export const App: React.FC = () => {
     });
 
     // 1. Optimistic UI update immediately
-    setVaultItems((prev) =>
-      prev.map((it) =>
+    setVaultItems((prev) => {
+      const next = prev.map((it) =>
         it.id === itemId ? { ...it, claimants: updatedClaimants } : it
-      )
-    );
+      );
+      setCachedVaultItems(next);
+      return next;
+    });
 
     if (claimantsTargetItem && claimantsTargetItem.id === itemId) {
       setClaimantsTargetItem({
@@ -1401,11 +1571,13 @@ export const App: React.FC = () => {
     } catch (err) {
       console.error('Failed to unclaim item in Firestore:', err);
       // Revert if error
-      setVaultItems((prev) =>
-        prev.map((it) =>
+      setVaultItems((prev) => {
+        const next = prev.map((it) =>
           it.id === itemId ? { ...it, claimants: item.claimants } : it
-        )
-      );
+        );
+        setCachedVaultItems(next);
+        return next;
+      });
     }
   };
 
@@ -1414,12 +1586,29 @@ export const App: React.FC = () => {
     itemId: string,
     updates: Partial<VaultItem>
   ) => {
+    let nextVaultItems: VaultItem[] = [];
+    setVaultItems((prev) => {
+      nextVaultItems = prev.map((it) => (it.id === itemId ? { ...it, ...updates } : it));
+      setCachedVaultItems(nextVaultItems);
+      return nextVaultItems;
+    });
+
     try {
       await updateVaultItemDoc(itemId, updates);
       showToast(
         lang === 'th' ? 'อัปเดตข้อมูลไอเทมเรียบร้อยแล้ว' : 'Item updated successfully',
         'success'
       );
+
+      triggerDebouncedAutoBackup({
+        users,
+        vaultItems: nextVaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings()
+      });
     } catch (err: any) {
       console.error('Error updating vault item:', err);
       showToast(
@@ -1461,9 +1650,10 @@ export const App: React.FC = () => {
         paymentStatus: initialPaymentStatus
       });
 
-      // Optimistic update local vaultItems
-      setVaultItems((prev) =>
-        prev.map((i) =>
+      // Optimistic update local vaultItems and persist cache
+      let nextVaultItems: VaultItem[] = [];
+      setVaultItems((prev) => {
+        nextVaultItems = prev.map((i) =>
           i.id === itemId
             ? {
                 ...i,
@@ -1473,7 +1663,24 @@ export const App: React.FC = () => {
                 paymentStatus: initialPaymentStatus
               }
             : i
-        )
+        );
+        setCachedVaultItems(nextVaultItems);
+        return nextVaultItems;
+      });
+
+      // Dual-cloud failover: Immediately back up to Google Sheets & Drive
+      triggerDebouncedAutoBackup(
+        {
+          users,
+          vaultItems: nextVaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
+        },
+        currentUser?.inGameName || currentUser?.username || 'Admin',
+        true
       );
 
       // Send Discord notification if enabled
@@ -1529,8 +1736,8 @@ export const App: React.FC = () => {
     const now = Date.now();
 
     // Optimistic update
-    setVaultItems((prev) =>
-      prev.map((i) => {
+    setVaultItems((prev) => {
+      const next = prev.map((i) => {
         if (i.id !== item.id) return i;
         const updatedDistributedTo = i.distributedTo
           ? {
@@ -1547,8 +1754,10 @@ export const App: React.FC = () => {
           paidBy: isPaid ? actorName : undefined,
           distributedTo: updatedDistributedTo
         };
-      })
-    );
+      });
+      setCachedVaultItems(next);
+      return next;
+    });
 
     try {
       await confirmVaultItemPayment(item.id, actorName, targetStatus);
@@ -1571,12 +1780,36 @@ export const App: React.FC = () => {
   const handleCreateQueueItem = async (
     itemData: Omit<QueueItem, 'id' | 'createdAt'>
   ) => {
-    await addQueueItemDoc(itemData);
+    try {
+      const createdQueue = await addQueueItemDoc(itemData);
+      setQueueItems((prev) => {
+        const next = [createdQueue, ...prev.filter((q) => q.id !== createdQueue.id)];
+        setCachedQueues(next);
+        return next;
+      });
+      sounds.playSuccess();
+      showToast(
+        lang === 'th'
+          ? `เพิ่มคิว [${createdQueue.name}] สำเร็จแล้ว!`
+          : `Added queue [${createdQueue.name}] successfully!`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Failed to add queue item:', err);
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการสร้างคิว' : 'Failed to create queue',
+        'error'
+      );
+    }
   };
 
   const handleDeleteQueueItem = async (queueId: string) => {
     sounds.playClick();
-    setQueueItems((prev) => prev.filter((q) => q.id !== queueId));
+    setQueueItems((prev) => {
+      const next = prev.filter((q) => q.id !== queueId);
+      setCachedQueues(next);
+      return next;
+    });
     try {
       await deleteQueueItemDoc(queueId);
       showToast(lang === 'th' ? 'ลบคิวสำเร็จ' : 'Queue deleted', 'info');
@@ -1587,9 +1820,11 @@ export const App: React.FC = () => {
 
   const handleUpdateQueueMembers = async (queueId: string, members: QueueMember[]) => {
     // 1. Optimistic UI update immediately
-    setQueueItems((prev) =>
-      prev.map((q) => (q.id === queueId ? { ...q, queueList: members } : q))
-    );
+    setQueueItems((prev) => {
+      const next = prev.map((q) => (q.id === queueId ? { ...q, queueList: members } : q));
+      setCachedQueues(next);
+      return next;
+    });
     // 2. Persist in Firestore
     try {
       await updateQueueItemDoc(queueId, { queueList: members });
@@ -1645,14 +1880,15 @@ export const App: React.FC = () => {
     localStorage.setItem('k7_bg_config', JSON.stringify(newConfig));
 
     if (syncGlobally && isOwner) {
+      const bgPayload = {
+        imageUrl: newConfig.imageUrl,
+        brightness: newConfig.brightness,
+        blur: newConfig.blur,
+        vignetteOpacity: newConfig.vignetteOpacity,
+        updatedBy: currentUser?.inGameName || 'Owner'
+      };
       try {
-        await saveBackgroundSettingsDoc({
-          imageUrl: newConfig.imageUrl,
-          brightness: newConfig.brightness,
-          blur: newConfig.blur,
-          vignetteOpacity: newConfig.vignetteOpacity,
-          updatedBy: currentUser?.inGameName || 'Owner'
-        });
+        await saveBackgroundSettingsDoc(bgPayload);
         showToast(
           lang === 'th'
             ? 'ซิงค์ภาพพื้นหลังไปยังสมาชิกทุกคนในกิลด์เรียบร้อยแล้ว!'
@@ -1662,6 +1898,23 @@ export const App: React.FC = () => {
       } catch (err) {
         console.error('Failed to sync background settings to Firestore:', err);
       }
+
+      triggerDebouncedAutoBackup(
+        {
+          users,
+          vaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings(),
+          announcementSettings,
+          backgroundSettings: bgPayload,
+          discordSettings
+        },
+        currentUser?.inGameName || 'Owner',
+        true
+      );
     }
   };
 

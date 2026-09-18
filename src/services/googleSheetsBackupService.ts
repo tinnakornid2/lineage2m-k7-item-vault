@@ -1,4 +1,14 @@
-import { User, VaultItem, QueueItem, ClanGroup, DiamondVaultRecord, FormulaSettings } from '../types';
+import {
+  User,
+  VaultItem,
+  QueueItem,
+  ClanGroup,
+  DiamondVaultRecord,
+  FormulaSettings,
+  AnnouncementSettings,
+  BackgroundSettingsData,
+  DiscordSettings
+} from '../types';
 
 export interface GoogleBackupConfig {
   webAppUrl: string;
@@ -19,6 +29,10 @@ export interface BackupDataPayload {
   diamondLogs: DiamondVaultRecord[];
   vaultBalance: number;
   formulaSettings?: FormulaSettings;
+  announcementSettings?: AnnouncementSettings | null;
+  backgroundSettings?: BackgroundSettingsData | null;
+  discordSettings?: DiscordSettings | null;
+  googleBackupConfig?: Partial<GoogleBackupConfig> | null;
 }
 
 const CONFIG_KEY = 'l2m_google_backup_config';
@@ -219,7 +233,11 @@ export async function backupAllDataToGoogleSheets(
         queueItems: payload.queueItems,
         clans: payload.clans,
         diamondLogs: payload.diamondLogs,
-        formulaSettings: payload.formulaSettings
+        formulaSettings: payload.formulaSettings,
+        announcementSettings: payload.announcementSettings,
+        backgroundSettings: payload.backgroundSettings,
+        discordSettings: payload.discordSettings,
+        googleBackupConfig: payload.googleBackupConfig
       }
     };
 
@@ -426,7 +444,8 @@ let debounceTimer: any = null;
  */
 export function triggerDebouncedAutoBackup(
   payload: BackupDataPayload,
-  performedBy: string = 'Auto-Sync'
+  performedBy: string = 'Auto-Sync',
+  immediate: boolean = false
 ) {
   if (isApplyingRemoteUpdate) return;
   const config = getGoogleBackupConfig();
@@ -434,9 +453,10 @@ export function triggerDebouncedAutoBackup(
 
   if (debounceTimer) {
     clearTimeout(debounceTimer);
+    debounceTimer = null;
   }
 
-  debounceTimer = setTimeout(() => {
+  const runBackup = () => {
     backupAllDataToGoogleSheets(payload, performedBy)
       .then(res => {
         if (res.success) {
@@ -444,7 +464,13 @@ export function triggerDebouncedAutoBackup(
         }
       })
       .catch(err => console.warn('Auto backup skipped or failed:', err));
-  }, 10000);
+  };
+
+  if (immediate) {
+    runBackup();
+  } else {
+    debounceTimer = setTimeout(runBackup, 10000);
+  }
 }
 
 /**

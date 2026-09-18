@@ -318,6 +318,15 @@ export interface AnnouncementSettings {
   updatedAt?: number;
 }
 
+export interface BackgroundSettingsData {
+  imageUrl: string;
+  brightness: number;
+  blur: number;
+  vignetteOpacity: number;
+  updatedBy?: string;
+  updatedAt?: number;
+}
+
 export type DiscordMentionType = 'none' | 'everyone' | 'role';
 export type DiscordMessageTemplate = 'neon_glow' | 'war_horn' | 'clan_market' | 'crystal_minimal';
 

@@ -67,6 +67,9 @@ function doGet(e) {
         queueItems: readSheetData(ss, "Queues"),
         clans: readSheetData(ss, "Clans"),
         diamondLogs: readSheetData(ss, "ClanDiamonds"),
+        announcementSettings: (readSheetData(ss, "Announcement") || [])[0] || null,
+        backgroundSettings: (readSheetData(ss, "Background") || [])[0] || null,
+        discordSettings: (readSheetData(ss, "DiscordSettings") || [])[0] || null,
         backupLog: readSheetData(ss, "BackupLog"),
         updatedAt: new Date().toISOString()
       };
@@ -114,6 +117,15 @@ function doPost(e) {
       if (Array.isArray(data.diamondLogs)) writeSheetData(ss, "ClanDiamonds", data.diamondLogs);
       if (data.formulaSettings && Array.isArray(data.formulaSettings.stats)) {
         writeSheetData(ss, "PowerFormula", data.formulaSettings.stats);
+      }
+      if (data.announcementSettings) {
+        writeSheetData(ss, "Announcement", [data.announcementSettings]);
+      }
+      if (data.backgroundSettings) {
+        writeSheetData(ss, "Background", [data.backgroundSettings]);
+      }
+      if (data.discordSettings) {
+        writeSheetData(ss, "DiscordSettings", [data.discordSettings]);
       }
 
       // 2. Log Backup Record

@@ -403,6 +403,10 @@ export function getCachedUsers(): User[] {
   return getCachedData<User[]>(CACHE_KEYS.USERS, INITIAL_MEMBERS);
 }
 
+export function setCachedUsers(users: User[]): void {
+  setCachedData(CACHE_KEYS.USERS, users);
+}
+
 export function getCachedVaultItems(): VaultItem[] {
   const items = getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, INITIAL_VAULT_ITEMS);
   return items.map((item) => {
@@ -413,16 +417,32 @@ export function getCachedVaultItems(): VaultItem[] {
   });
 }
 
+export function setCachedVaultItems(items: VaultItem[]): void {
+  setCachedData(CACHE_KEYS.VAULT_ITEMS, items);
+}
+
 export function getCachedClans(): ClanGroup[] {
   return getCachedData<ClanGroup[]>(CACHE_KEYS.CLANS, INITIAL_CLANS);
+}
+
+export function setCachedClans(clans: ClanGroup[]): void {
+  setCachedData(CACHE_KEYS.CLANS, clans);
 }
 
 export function getCachedQueues(): QueueItem[] {
   return getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, INITIAL_QUEUES);
 }
 
+export function setCachedQueues(queues: QueueItem[]): void {
+  setCachedData(CACHE_KEYS.QUEUES, queues);
+}
+
 export function getCachedDiamondTransactions(): DiamondVaultRecord[] {
   return getCachedData<DiamondVaultRecord[]>(CACHE_KEYS.DIAMOND_TXS, REAL_BACKUP_DIAMOND_TXS || []);
+}
+
+export function setCachedDiamondTransactions(records: DiamondVaultRecord[]): void {
+  setCachedData(CACHE_KEYS.DIAMOND_TXS, records);
 }
 
 let onQuotaExceededCallback: ((isQuotaExceeded: boolean) => void) | null = null;
@@ -1044,13 +1064,9 @@ export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>)
   try {
     await setDoc(doc(db, ITEMS_COLLECTION, newId), cleanItem);
   } catch (err: any) {
-    console.error('Failed to setDoc in addVaultItemDoc:', err);
+    console.warn('Notice: Failed to setDoc in addVaultItemDoc (failover to local cache & Google Sheets):', err);
     notifyQuotaExceeded(err);
-    const msg = (err?.message || '').toLowerCase();
-    if (msg.includes('quota') || msg.includes('resource-exhausted') || err?.code === 'resource-exhausted') {
-      return fullItem;
-    }
-    throw err;
+    return fullItem;
   }
   return fullItem;
 }
@@ -1061,13 +1077,9 @@ export async function updateVaultItemDoc(itemId: string, updates: Partial<VaultI
     const cleanUpdates = sanitizeForFirestore(updates);
     await updateDoc(ref, cleanUpdates);
   } catch (err: any) {
-    console.error('Failed to update vault item doc in Firestore:', err);
+    console.warn('Notice: Failed to update vault item doc in Firestore (failover mode):', err);
     notifyQuotaExceeded(err);
-    const msg = (err?.message || '').toLowerCase();
-    if (msg.includes('quota') || msg.includes('resource-exhausted') || err?.code === 'resource-exhausted') {
-      return;
-    }
-    throw err;
+    return;
   }
 }
 
@@ -1089,17 +1101,15 @@ export async function confirmVaultItemPayment(
 
 export async function deleteVaultItemDoc(itemId: string) {
   try {
-    await deleteClaimsForItem(itemId);
+    try {
+      await deleteClaimsForItem(itemId);
+    } catch {}
     const ref = doc(db, ITEMS_COLLECTION, itemId);
     await deleteDoc(ref);
   } catch (err: any) {
-    console.error('Failed to delete vault item doc in Firestore:', err);
+    console.warn('Notice: Failed to delete vault item doc in Firestore (failover mode):', err);
     notifyQuotaExceeded(err);
-    const msg = (err?.message || '').toLowerCase();
-    if (msg.includes('quota') || msg.includes('resource-exhausted') || err?.code === 'resource-exhausted') {
-      return;
-    }
-    throw err;
+    return;
   }
 }
 
@@ -1196,9 +1206,10 @@ export async function addQueueItemDoc(item: Omit<QueueItem, 'id' | 'createdAt'>)
   const cleanQueue = sanitizeForFirestore(fullQueue);
   try {
     await setDoc(doc(db, QUEUES_COLLECTION, newId), cleanQueue);
-  } catch (err) {
-    console.error('Failed to setDoc in addQueueItemDoc:', err);
-    throw err;
+  } catch (err: any) {
+    console.warn('Notice: Failed to setDoc in addQueueItemDoc (failover mode):', err);
+    notifyQuotaExceeded(err);
+    return fullQueue;
   }
   return fullQueue;
 }
@@ -1208,9 +1219,10 @@ export async function updateQueueItemDoc(queueId: string, updates: Partial<Queue
     const ref = doc(db, QUEUES_COLLECTION, queueId);
     const cleanUpdates = sanitizeForFirestore(updates);
     await updateDoc(ref, cleanUpdates);
-  } catch (err) {
-    console.error('Failed to update queue item doc in Firestore:', err);
-    throw err;
+  } catch (err: any) {
+    console.warn('Notice: Failed to update queue item doc in Firestore (failover mode):', err);
+    notifyQuotaExceeded(err);
+    return;
   }
 }
 
@@ -1218,9 +1230,10 @@ export async function deleteQueueItemDoc(queueId: string) {
   try {
     const ref = doc(db, QUEUES_COLLECTION, queueId);
     await deleteDoc(ref);
-  } catch (err) {
-    console.error('Failed to delete queue item doc in Firestore:', err);
-    throw err;
+  } catch (err: any) {
+    console.warn('Notice: Failed to delete queue item doc in Firestore (failover mode):', err);
+    notifyQuotaExceeded(err);
+    return;
   }
 }
 
@@ -1543,6 +1556,11 @@ export function listenToBackgroundSettings(
 }
 
 export async function saveBackgroundSettingsDoc(settings: BackgroundSettingsData) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('k7_bg_config', JSON.stringify(settings));
+    }
+  } catch {}
   const cleanData = sanitizeForFirestore({
     ...settings,
     updatedAt: Date.now()
@@ -1550,9 +1568,9 @@ export async function saveBackgroundSettingsDoc(settings: BackgroundSettingsData
   try {
     const ref = doc(db, APP_SETTINGS_COLLECTION, 'background');
     await setDoc(ref, cleanData, { merge: true });
-  } catch (err) {
-    console.error('Failed to save background settings to Firestore:', err);
-    throw err;
+  } catch (err: any) {
+    console.warn('Notice: Failed to save background settings to Firestore (saved locally):', err);
+    notifyQuotaExceeded(err);
   }
 }
 
@@ -1572,19 +1590,37 @@ export function listenToAnnouncementSettings(
     ref,
     (docSnap) => {
       if (docSnap.exists()) {
-        callback(docSnap.data() as AnnouncementSettings);
+        const data = docSnap.data() as AnnouncementSettings;
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('k7_announcement_config', JSON.stringify(data));
+          }
+        } catch {}
+        callback(data);
       } else {
         callback(DEFAULT_ANNOUNCEMENT);
       }
     },
     (err) => {
       console.warn('Firestore announcement sync notice:', err);
-      callback(DEFAULT_ANNOUNCEMENT);
+      let cached: AnnouncementSettings | null = null;
+      try {
+        if (typeof localStorage !== 'undefined') {
+          const raw = localStorage.getItem('k7_announcement_config');
+          if (raw) cached = JSON.parse(raw);
+        }
+      } catch {}
+      callback(cached || DEFAULT_ANNOUNCEMENT);
     }
   );
 }
 
 export async function saveAnnouncementSettingsDoc(settings: AnnouncementSettings) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('k7_announcement_config', JSON.stringify(settings));
+    }
+  } catch {}
   const cleanData = sanitizeForFirestore({
     ...settings,
     updatedAt: Date.now()
@@ -1592,9 +1628,9 @@ export async function saveAnnouncementSettingsDoc(settings: AnnouncementSettings
   try {
     const ref = doc(db, APP_SETTINGS_COLLECTION, 'announcement');
     await setDoc(ref, cleanData, { merge: true });
-  } catch (err) {
-    console.error('Failed to save announcement to Firestore:', err);
-    throw err;
+  } catch (err: any) {
+    console.warn('Notice: Failed to save announcement to Firestore (saved locally):', err);
+    notifyQuotaExceeded(err);
   }
 }
 
@@ -1662,6 +1698,12 @@ export function listenToDiscordSettings(
 
 export async function saveDiscordSettingsDoc(settings: DiscordSettings) {
   const targetWebhook = typeof settings.webhookUrl === 'string' ? settings.webhookUrl.trim() : '';
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('vault_discord_webhook_url', targetWebhook);
+      localStorage.setItem('vault_discord_settings', JSON.stringify(settings));
+    } catch {}
+  }
   const cleanData = sanitizeForFirestore({
     ...settings,
     webhookUrl: targetWebhook,
@@ -1670,14 +1712,9 @@ export async function saveDiscordSettingsDoc(settings: DiscordSettings) {
   try {
     const ref = doc(db, APP_SETTINGS_COLLECTION, 'discord');
     await setDoc(ref, cleanData, { merge: true });
-    if (typeof window !== 'undefined' && targetWebhook) {
-      try {
-        localStorage.setItem('vault_discord_webhook_url', targetWebhook);
-      } catch {}
-    }
-  } catch (err) {
-    console.error('Failed to save discord settings to Firestore:', err);
-    throw err;
+  } catch (err: any) {
+    console.warn('Notice: Failed to save discord settings to Firestore (saved locally):', err);
+    notifyQuotaExceeded(err);
   }
 }
 
@@ -1840,9 +1877,9 @@ export async function saveFormulaSettingsDoc(settings: FormulaSettings) {
   try {
     const ref = doc(db, APP_SETTINGS_COLLECTION, 'power_formula');
     await setDoc(ref, cleanData, { merge: true });
-  } catch (err) {
-    console.error('Failed to save power_formula to Firestore:', err);
-    throw err;
+  } catch (err: any) {
+    console.warn('Notice: Failed to save power_formula to Firestore (saved locally):', err);
+    notifyQuotaExceeded(err);
   }
 }
 
@@ -1887,6 +1924,10 @@ export async function syncBackupToFirestore(payload: {
   queueItems?: QueueItem[];
   clans?: ClanGroup[];
   diamondLogs?: DiamondVaultRecord[];
+  formulaSettings?: FormulaSettings;
+  announcementSettings?: AnnouncementSettings | null;
+  backgroundSettings?: BackgroundSettingsData | null;
+  discordSettings?: DiscordSettings | null;
 }): Promise<{ success: boolean; message: string; writtenCount: number }> {
   try {
     let writtenCount = 0;
@@ -1918,6 +1959,22 @@ export async function syncBackupToFirestore(payload: {
     }
     if (payload.diamondLogs && payload.diamondLogs.length > 0) {
       await writeInBatches(payload.diamondLogs, VAULT_COLLECTION);
+    }
+    if (payload.formulaSettings) {
+      await saveFormulaSettingsDoc(payload.formulaSettings);
+      writtenCount++;
+    }
+    if (payload.announcementSettings) {
+      await saveAnnouncementSettingsDoc(payload.announcementSettings);
+      writtenCount++;
+    }
+    if (payload.backgroundSettings) {
+      await saveBackgroundSettingsDoc(payload.backgroundSettings);
+      writtenCount++;
+    }
+    if (payload.discordSettings) {
+      await saveDiscordSettingsDoc(payload.discordSettings);
+      writtenCount++;
     }
 
     return {
