@@ -407,18 +407,228 @@ export function setCachedUsers(users: User[]): void {
   setCachedData(CACHE_KEYS.USERS, users);
 }
 
+export const DELETED_VAULT_ITEMS_KEY = 'k7_deleted_vault_item_ids';
+export const DELETED_QUEUE_ITEMS_KEY = 'k7_deleted_queue_item_ids';
+
+const TOMBSTONE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+
+function getDeletedIdsMap(key: string): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return {};
+    const now = Date.now();
+    const clean: Record<string, number> = {};
+    let changed = false;
+    for (const [id, ts] of Object.entries(parsed)) {
+      if (typeof ts === 'number' && now - ts < TOMBSTONE_MAX_AGE_MS) {
+        clean[id] = ts;
+      } else {
+        changed = true;
+      }
+    }
+    if (changed) {
+      localStorage.setItem(key, JSON.stringify(clean));
+    }
+    return clean;
+  } catch {
+    return {};
+  }
+}
+
+function saveDeletedIdsMap(key: string, map: Record<string, number>): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(map));
+  } catch {}
+}
+
+export function getDeletedVaultItemIds(): Set<string> {
+  return new Set(Object.keys(getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY)));
+}
+
+export function markVaultItemAsDeleted(id: string): void {
+  if (!id) return;
+  const map = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
+  map[id] = Date.now();
+  saveDeletedIdsMap(DELETED_VAULT_ITEMS_KEY, map);
+  const currentCached = getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, []);
+  if (currentCached.some((i) => i.id === id)) {
+    setCachedData(CACHE_KEYS.VAULT_ITEMS, currentCached.filter((i) => i.id !== id));
+  }
+}
+
+export function unmarkVaultItemAsDeleted(id: string): void {
+  if (!id) return;
+  const map = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
+  if (id in map) {
+    delete map[id];
+    saveDeletedIdsMap(DELETED_VAULT_ITEMS_KEY, map);
+  }
+}
+
+export function getDeletedQueueItemIds(): Set<string> {
+  return new Set(Object.keys(getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY)));
+}
+
+export function markQueueItemAsDeleted(id: string): void {
+  if (!id) return;
+  const map = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
+  map[id] = Date.now();
+  saveDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY, map);
+  const currentCached = getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, []);
+  if (currentCached.some((q) => q.id === id)) {
+    setCachedData(CACHE_KEYS.QUEUES, currentCached.filter((q) => q.id !== id));
+  }
+}
+
+export function unmarkQueueItemAsDeleted(id: string): void {
+  if (!id) return;
+  const map = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
+  if (id in map) {
+    delete map[id];
+    saveDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY, map);
+  }
+}
+
+/**
+ * Smart merge function for Vault Items:
+ * - Filters out any items whose IDs are marked as deleted in tombstones
+ * - Keeps locally created items even if remote snapshot has not yet included them (NO 10-minute timer expiration!)
+ * - Shields 'distributed' status so stale remote snapshots cannot flip distributed items back to 'available'
+ * - Deduplicates claimants and preserves attachments
+ */
+export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultItem[]): VaultItem[] {
+  const deletedIds = getDeletedVaultItemIds();
+  const currentMap = new Map<string, VaultItem>();
+  for (const item of (currentItems || [])) {
+    if (item && item.id && !deletedIds.has(item.id)) {
+      currentMap.set(item.id, item);
+    }
+  }
+
+  const incomingMap = new Map<string, VaultItem>();
+  for (const item of (incomingItems || [])) {
+    if (item && item.id && !deletedIds.has(item.id)) {
+      incomingMap.set(item.id, item);
+    }
+  }
+
+  const allIds = new Set([...currentMap.keys(), ...incomingMap.keys()]);
+  const result: VaultItem[] = [];
+
+  for (const id of allIds) {
+    if (deletedIds.has(id)) continue;
+    const local = currentMap.get(id);
+    const incoming = incomingMap.get(id);
+
+    if (local && !incoming) {
+      result.push(local);
+    } else if (!local && incoming) {
+      result.push(incoming);
+    } else if (local && incoming) {
+      const isDistributed =
+        local.status === 'distributed' ||
+        incoming.status === 'distributed' ||
+        Boolean(local.distributedTo?.name || local.distributedTo?.userId || incoming.distributedTo?.name || incoming.distributedTo?.userId);
+      const status = isDistributed ? 'distributed' : (incoming.status || local.status);
+      const distributedTo = local.distributedTo || incoming.distributedTo;
+      const paymentStatus = local.paymentStatus || incoming.paymentStatus || distributedTo?.paymentStatus;
+
+      // Merge claimants deduplicated
+      const claimantsMap = new Map<string, Claimant>();
+      for (const c of (incoming.claimants || [])) {
+        const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
+        claimantsMap.set(key, c);
+      }
+      for (const c of (local.claimants || [])) {
+        const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
+        claimantsMap.set(key, c);
+      }
+
+      const hunterScreenshots = (local.hunterScreenshots && local.hunterScreenshots.length > 0)
+        ? local.hunterScreenshots
+        : (incoming.hunterScreenshots || []);
+
+      const receiptImages = (local.receiptImages && local.receiptImages.length > 0)
+        ? local.receiptImages
+        : (incoming.receiptImages || []);
+
+      result.push({
+        ...incoming,
+        ...local,
+        status,
+        distributedTo,
+        paymentStatus,
+        claimants: Array.from(claimantsMap.values()),
+        hunterScreenshots,
+        receiptImages
+      });
+    }
+  }
+
+  result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return result;
+}
+
+export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: QueueItem[]): QueueItem[] {
+  const deletedIds = getDeletedQueueItemIds();
+  const currentMap = new Map<string, QueueItem>();
+  for (const q of (currentQueues || [])) {
+    if (q && q.id && !deletedIds.has(q.id)) {
+      currentMap.set(q.id, q);
+    }
+  }
+
+  const incomingMap = new Map<string, QueueItem>();
+  for (const q of (incomingQueues || [])) {
+    if (q && q.id && !deletedIds.has(q.id)) {
+      incomingMap.set(q.id, q);
+    }
+  }
+
+  const allIds = new Set([...currentMap.keys(), ...incomingMap.keys()]);
+  const result: QueueItem[] = [];
+
+  for (const id of allIds) {
+    if (deletedIds.has(id)) continue;
+    const local = currentMap.get(id);
+    const incoming = incomingMap.get(id);
+
+    if (local && !incoming) {
+      result.push(local);
+    } else if (!local && incoming) {
+      result.push(incoming);
+    } else if (local && incoming) {
+      result.push({
+        ...incoming,
+        ...local,
+        queueList: (local.queueList && local.queueList.length > 0) ? local.queueList : (incoming.queueList || [])
+      });
+    }
+  }
+
+  result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return result;
+}
+
 export function getCachedVaultItems(): VaultItem[] {
   const items = getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, INITIAL_VAULT_ITEMS);
-  return items.map((item) => {
-    if (item && item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
-      return { ...item, status: 'distributed' };
-    }
-    return item;
-  });
+  const deletedIds = getDeletedVaultItemIds();
+  return items
+    .filter((item) => item && item.id && !deletedIds.has(item.id))
+    .map((item) => {
+      if (item && item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
+        return { ...item, status: 'distributed' };
+      }
+      return item;
+    });
 }
 
 export function setCachedVaultItems(items: VaultItem[]): void {
-  setCachedData(CACHE_KEYS.VAULT_ITEMS, items);
+  const deletedIds = getDeletedVaultItemIds();
+  const filtered = (items || []).filter((i) => i && i.id && !deletedIds.has(i.id));
+  setCachedData(CACHE_KEYS.VAULT_ITEMS, filtered);
 }
 
 export function getCachedClans(): ClanGroup[] {
@@ -430,11 +640,15 @@ export function setCachedClans(clans: ClanGroup[]): void {
 }
 
 export function getCachedQueues(): QueueItem[] {
-  return getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, INITIAL_QUEUES);
+  const queues = getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, INITIAL_QUEUES);
+  const deletedIds = getDeletedQueueItemIds();
+  return queues.filter((q) => q && q.id && !deletedIds.has(q.id));
 }
 
 export function setCachedQueues(queues: QueueItem[]): void {
-  setCachedData(CACHE_KEYS.QUEUES, queues);
+  const deletedIds = getDeletedQueueItemIds();
+  const filtered = (queues || []).filter((q) => q && q.id && !deletedIds.has(q.id));
+  setCachedData(CACHE_KEYS.QUEUES, filtered);
 }
 
 export function getCachedDiamondTransactions(): DiamondVaultRecord[] {
@@ -920,7 +1134,9 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
 
   let initialItemsFallbackHandled = false;
   const emitCombinedItems = () => {
-    const combinedList = latestItems.map((item) => {
+    const cached = getCachedVaultItems();
+    const mergedList = mergeVaultItems(cached, latestItems);
+    const combinedList = mergedList.map((item) => {
       const claims = latestClaims.filter((claim) => claim.itemId === item.id);
       const combined = [...(item.claimants || []), ...claims];
       const deduplicated = combined.filter((claim, index, all) =>
@@ -928,7 +1144,7 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
       );
       return { ...item, claimants: deduplicated };
     });
-    setCachedData(CACHE_KEYS.VAULT_ITEMS, combinedList);
+    setCachedVaultItems(combinedList);
     callback(combinedList);
   };
 
@@ -937,7 +1153,8 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
     (snapshot) => {
       initialItemsFallbackHandled = true;
       if (snapshot.empty) {
-        latestItems = INITIAL_VAULT_ITEMS;
+        const cached = getCachedVaultItems();
+        latestItems = cached.length > 0 ? cached : INITIAL_VAULT_ITEMS;
         emitCombinedItems();
         return;
       }
@@ -1042,6 +1259,7 @@ async function deleteClaimsForItem(itemId: string) {
 
 export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>) {
   const newId = 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+  unmarkVaultItemAsDeleted(newId);
   // Ensure screenshots don't exceed Firestore 1MB limits
   let safeScreenshots = item.hunterScreenshots || [];
   if (safeScreenshots.length > 5) {
@@ -1060,6 +1278,11 @@ export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>)
   if (fullItem.distributedTo?.clan) {
     fullItem.distributedTo.clan = cleanClanName(fullItem.distributedTo.clan);
   }
+
+  // Optimistically store in local cache so listeners and merge helpers keep it safe immediately
+  const currentCached = getCachedVaultItems();
+  setCachedVaultItems([fullItem, ...currentCached.filter((i) => i.id !== newId)]);
+
   const cleanItem = sanitizeForFirestore(fullItem);
   try {
     await setDoc(doc(db, ITEMS_COLLECTION, newId), cleanItem);
@@ -1100,6 +1323,7 @@ export async function confirmVaultItemPayment(
 }
 
 export async function deleteVaultItemDoc(itemId: string) {
+  markVaultItemAsDeleted(itemId);
   try {
     try {
       await deleteClaimsForItem(itemId);
@@ -1115,41 +1339,73 @@ export async function deleteVaultItemDoc(itemId: string) {
 
 // Owner Clear & Reset Functions for Vault Items
 export async function clearDistributedVaultItemsDoc(): Promise<number> {
-  const snap = await getDocs(collection(db, ITEMS_COLLECTION));
-  const batch = writeBatch(db);
-  let count = 0;
-  snap.forEach((docSnap) => {
-    const data = docSnap.data();
-    if (data.status === 'distributed' || Boolean(data.distributedTo?.name || data.distributedTo?.userId)) {
-      batch.delete(docSnap.ref);
-      count++;
+  const cached = getCachedVaultItems();
+  const cachedDistributedIds = cached
+    .filter((i) => i.status === 'distributed' || Boolean(i.distributedTo?.name || i.distributedTo?.userId))
+    .map((i) => i.id);
+
+  let firestoreCount = 0;
+  const deletedFirestoreIds: string[] = [];
+  try {
+    const snap = await getDocs(collection(db, ITEMS_COLLECTION));
+    const batch = writeBatch(db);
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data.status === 'distributed' || Boolean(data.distributedTo?.name || data.distributedTo?.userId)) {
+        batch.delete(docSnap.ref);
+        deletedFirestoreIds.push(docSnap.id);
+        firestoreCount++;
+      }
+    });
+    if (firestoreCount > 0) {
+      await batch.commit();
+      await Promise.all(
+        snap.docs
+          .filter((itemDoc) => itemDoc.data().status === 'distributed' || Boolean(itemDoc.data().distributedTo?.name || itemDoc.data().distributedTo?.userId))
+          .map((itemDoc) => deleteClaimsForItem(itemDoc.id))
+      );
     }
-  });
-  if (count > 0) {
-    await batch.commit();
-    await Promise.all(
-      snap.docs
-        .filter((itemDoc) => itemDoc.data().status === 'distributed' || Boolean(itemDoc.data().distributedTo?.name || itemDoc.data().distributedTo?.userId))
-        .map((itemDoc) => deleteClaimsForItem(itemDoc.id))
-    );
+  } catch (err) {
+    console.warn('clearDistributedVaultItemsDoc firestore failover:', err);
   }
-  return count;
+
+  const allDeleted = Array.from(new Set([...cachedDistributedIds, ...deletedFirestoreIds]));
+  for (const id of allDeleted) {
+    markVaultItemAsDeleted(id);
+  }
+  setCachedVaultItems(cached.filter((i) => !allDeleted.includes(i.id)));
+  return Math.max(firestoreCount, allDeleted.length);
 }
 
 export async function clearAllVaultItemsDoc(): Promise<number> {
-  const snap = await getDocs(collection(db, ITEMS_COLLECTION));
-  const batch = writeBatch(db);
-  let count = 0;
-  snap.forEach((docSnap) => {
-    batch.delete(docSnap.ref);
-    count++;
-  });
-  if (count > 0) {
-    await batch.commit();
-    const claims = await getDocs(collection(db, ITEM_CLAIMS_COLLECTION));
-    await Promise.all(claims.docs.map((claimDoc) => deleteDoc(claimDoc.ref)));
+  const cached = getCachedVaultItems();
+  const cachedIds = cached.map((i) => i.id);
+
+  let firestoreCount = 0;
+  const deletedFirestoreIds: string[] = [];
+  try {
+    const snap = await getDocs(collection(db, ITEMS_COLLECTION));
+    const batch = writeBatch(db);
+    snap.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+      deletedFirestoreIds.push(docSnap.id);
+      firestoreCount++;
+    });
+    if (firestoreCount > 0) {
+      await batch.commit();
+      const claims = await getDocs(collection(db, ITEM_CLAIMS_COLLECTION));
+      await Promise.all(claims.docs.map((claimDoc) => deleteDoc(claimDoc.ref)));
+    }
+  } catch (err) {
+    console.warn('clearAllVaultItemsDoc firestore failover:', err);
   }
-  return count;
+
+  const allDeleted = Array.from(new Set([...cachedIds, ...deletedFirestoreIds]));
+  for (const id of allDeleted) {
+    markVaultItemAsDeleted(id);
+  }
+  setCachedVaultItems([]);
+  return Math.max(firestoreCount, allDeleted.length);
 }
 
 // 3. Queue Items Firestore functions
@@ -1164,7 +1420,8 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
     (snapshot) => {
       initialQueueFallbackHandled = true;
       if (snapshot.empty) {
-        callback(initialQueues);
+        const cached = getCachedQueues();
+        callback(cached.length > 0 ? cached : initialQueues);
         return;
       }
       const queues: QueueItem[] = [];
@@ -1178,8 +1435,10 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
         }
         queues.push(qItem);
       });
-      setCachedData(CACHE_KEYS.QUEUES, queues);
-      callback(queues);
+      const cached = getCachedQueues();
+      const merged = mergeQueueItems(cached, queues);
+      setCachedQueues(merged);
+      callback(merged);
     },
     (err) => {
       console.warn('Firestore queue listener fallback to initial/cached queues:', err);
@@ -1194,6 +1453,7 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
 
 export async function addQueueItemDoc(item: Omit<QueueItem, 'id' | 'createdAt'>) {
   const newId = 'queue_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+  unmarkQueueItemAsDeleted(newId);
   const fullQueue: QueueItem = {
     ...item,
     queueList: (item.queueList || []).map((qm) => ({
@@ -1203,6 +1463,10 @@ export async function addQueueItemDoc(item: Omit<QueueItem, 'id' | 'createdAt'>)
     id: newId,
     createdAt: Date.now()
   };
+
+  const currentCached = getCachedQueues();
+  setCachedQueues([fullQueue, ...currentCached.filter((q) => q.id !== newId)]);
+
   const cleanQueue = sanitizeForFirestore(fullQueue);
   try {
     await setDoc(doc(db, QUEUES_COLLECTION, newId), cleanQueue);
@@ -1227,6 +1491,7 @@ export async function updateQueueItemDoc(queueId: string, updates: Partial<Queue
 }
 
 export async function deleteQueueItemDoc(queueId: string) {
+  markQueueItemAsDeleted(queueId);
   try {
     const ref = doc(db, QUEUES_COLLECTION, queueId);
     await deleteDoc(ref);
@@ -1238,17 +1503,30 @@ export async function deleteQueueItemDoc(queueId: string) {
 }
 
 export async function clearAllQueuesDoc(): Promise<number> {
-  const snap = await getDocs(collection(db, QUEUES_COLLECTION));
-  const batch = writeBatch(db);
-  let count = 0;
-  snap.forEach((docSnap) => {
-    batch.delete(docSnap.ref);
-    count++;
-  });
-  if (count > 0) {
-    await batch.commit();
+  const cached = getCachedQueues();
+  let firestoreCount = 0;
+  const deletedFirestoreIds: string[] = [];
+  try {
+    const snap = await getDocs(collection(db, QUEUES_COLLECTION));
+    const batch = writeBatch(db);
+    snap.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+      deletedFirestoreIds.push(docSnap.id);
+      firestoreCount++;
+    });
+    if (firestoreCount > 0) {
+      await batch.commit();
+    }
+  } catch (err) {
+    console.warn('clearAllQueuesDoc firestore failover:', err);
   }
-  return count;
+
+  const allDeleted = Array.from(new Set([...cached.map((q) => q.id), ...deletedFirestoreIds]));
+  for (const id of allDeleted) {
+    markQueueItemAsDeleted(id);
+  }
+  setCachedQueues([]);
+  return Math.max(firestoreCount, allDeleted.length);
 }
 
 export async function clearDiamondTransactionsDoc(): Promise<number> {
@@ -1266,6 +1544,13 @@ export async function clearDiamondTransactionsDoc(): Promise<number> {
 }
 
 export async function resetToDefaultVaultDataDoc(): Promise<void> {
+  try {
+    localStorage.removeItem(DELETED_VAULT_ITEMS_KEY);
+    localStorage.removeItem(DELETED_QUEUE_ITEMS_KEY);
+    setCachedVaultItems(INITIAL_VAULT_ITEMS);
+    setCachedQueues(INITIAL_QUEUES);
+  } catch {}
+
   // 1. Delete all current items
   const itemsSnap = await getDocs(collection(db, ITEMS_COLLECTION));
   const batch1 = writeBatch(db);
@@ -1996,6 +2281,24 @@ export async function syncBackupToFirestore(payload: {
     if (payload.discordSettings) {
       await saveDiscordSettingsDoc(payload.discordSettings);
       writtenCount++;
+    }
+
+    // Clean up any deleted tombstone items from Firestore as well
+    const deletedVaultIds = Array.from(getDeletedVaultItemIds());
+    if (deletedVaultIds.length > 0) {
+      for (const delId of deletedVaultIds) {
+        try {
+          await deleteDoc(doc(db, ITEMS_COLLECTION, delId));
+        } catch {}
+      }
+    }
+    const deletedQueueIds = Array.from(getDeletedQueueItemIds());
+    if (deletedQueueIds.length > 0) {
+      for (const delId of deletedQueueIds) {
+        try {
+          await deleteDoc(doc(db, QUEUES_COLLECTION, delId));
+        } catch {}
+      }
     }
 
     return {

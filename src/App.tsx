@@ -87,7 +87,13 @@ import {
   setOnQuotaExceededListener,
   syncBackupToFirestore,
   forceCheckAndFetchFirestore,
-  testFirestoreHealth
+  testFirestoreHealth,
+  mergeVaultItems,
+  mergeQueueItems,
+  markVaultItemAsDeleted,
+  unmarkVaultItemAsDeleted,
+  markQueueItemAsDeleted,
+  unmarkQueueItemAsDeleted
 } from './services/firebase';
 import { calculateDiamondNetChange, computeTotalVaultBalance } from './utils/diamondHelper';
 import { setInMemoryFormulaSettings, getFormulaSettings, saveFormulaSettings } from './services/powerFormulaService';
@@ -256,8 +262,20 @@ export const App: React.FC = () => {
         if (json.modified && json.data) {
           setLastBroadcastPayload(json.data);
           if (Array.isArray(json.data.users) && json.data.users.length > 0) setUsers(json.data.users);
-          if (Array.isArray(json.data.vaultItems)) setVaultItems(json.data.vaultItems);
-          if (Array.isArray(json.data.queueItems)) setQueueItems(json.data.queueItems);
+          if (Array.isArray(json.data.vaultItems)) {
+            setVaultItems((prev) => {
+              const merged = mergeVaultItems(prev, json.data.vaultItems);
+              setCachedVaultItems(merged);
+              return merged;
+            });
+          }
+          if (Array.isArray(json.data.queueItems)) {
+            setQueueItems((prev) => {
+              const merged = mergeQueueItems(prev, json.data.queueItems);
+              setCachedQueues(merged);
+              return merged;
+            });
+          }
           if (Array.isArray(json.data.clans) && json.data.clans.length > 0) setClans(json.data.clans);
           if (Array.isArray(json.data.diamondLogs)) setDiamondLogs(json.data.diamondLogs);
         }
@@ -272,8 +290,20 @@ export const App: React.FC = () => {
           fetchDataFromGoogleSheets().then((res) => {
             if (res.success && res.data) {
               if (res.data.users && res.data.users.length > 0) setUsers(res.data.users);
-              if (res.data.vaultItems && res.data.vaultItems.length > 0) setVaultItems(res.data.vaultItems);
-              if (res.data.queueItems) setQueueItems(res.data.queueItems);
+              if (res.data.vaultItems && res.data.vaultItems.length > 0) {
+                setVaultItems((prev) => {
+                  const merged = mergeVaultItems(prev, res.data.vaultItems);
+                  setCachedVaultItems(merged);
+                  return merged;
+                });
+              }
+              if (res.data.queueItems) {
+                setQueueItems((prev) => {
+                  const merged = mergeQueueItems(prev, res.data.queueItems);
+                  setCachedQueues(merged);
+                  return merged;
+                });
+              }
               if (res.data.clans && res.data.clans.length > 0) setClans(res.data.clans);
               if (res.data.diamondLogs) setDiamondLogs(res.data.diamondLogs);
             }
@@ -672,12 +702,20 @@ export const App: React.FC = () => {
 
     const unsubVault = listenToVaultItems((items) => {
       if (items && items.length > 0) {
-        setVaultItems(items);
+        setVaultItems((prev) => {
+          const merged = mergeVaultItems(prev, items);
+          setCachedVaultItems(merged);
+          return merged;
+        });
       }
     });
     const unsubQueue = listenToQueueItems((items) => {
       if (items && items.length > 0) {
-        setQueueItems(items);
+        setQueueItems((prev) => {
+          const merged = mergeQueueItems(prev, items);
+          setCachedQueues(merged);
+          return merged;
+        });
       }
     });
     const unsubQuick = listenToQuickItems((items) => {
@@ -834,27 +872,17 @@ export const App: React.FC = () => {
         }
         if (Array.isArray(incomingData.vaultItems)) {
           setVaultItems((prev) => {
-            const prevMap = new Map<string, VaultItem>(prev.map((i) => [i.id, i]));
-            // Shield distributed items from being flipped back to available if done locally
-            const resolvedIncoming = (incomingData.vaultItems as VaultItem[]).map((incItem: VaultItem) => {
-              const local = prevMap.get(incItem.id);
-              if (local && local.status === 'distributed' && incItem.status === 'available') {
-                return local;
-              }
-              return incItem;
-            });
-            const incomingIds = new Set<string>(resolvedIncoming.map((i: VaultItem) => i.id));
-            // Keep items created locally within the last 10 minutes that haven't hit the incoming snapshot yet
-            const pendingLocalItems = prev.filter(
-              (it) => !incomingIds.has(it.id) && Date.now() - (it.createdAt || 0) < 600000
-            );
-            const merged: VaultItem[] = [...pendingLocalItems, ...resolvedIncoming];
+            const merged = mergeVaultItems(prev, incomingData.vaultItems);
             setCachedVaultItems(merged);
             return merged;
           });
         }
         if (Array.isArray(incomingData.queueItems)) {
-          setQueueItems(incomingData.queueItems);
+          setQueueItems((prev) => {
+            const merged = mergeQueueItems(prev, incomingData.queueItems);
+            setCachedQueues(merged);
+            return merged;
+          });
         }
         if (Array.isArray(incomingData.clans) && incomingData.clans.length > 0) {
           setClans(incomingData.clans);
@@ -941,8 +969,20 @@ export const App: React.FC = () => {
             const cloudRes = await forceCheckAndFetchFirestore();
             if (cloudRes.success && cloudRes.data) {
               if (cloudRes.data.users && cloudRes.data.users.length > 0) setUsers(cloudRes.data.users);
-              if (cloudRes.data.vaultItems && cloudRes.data.vaultItems.length > 0) setVaultItems(cloudRes.data.vaultItems);
-              if (cloudRes.data.queueItems) setQueueItems(cloudRes.data.queueItems);
+              if (cloudRes.data.vaultItems && cloudRes.data.vaultItems.length > 0) {
+                setVaultItems((prev) => {
+                  const merged = mergeVaultItems(prev, cloudRes.data.vaultItems);
+                  setCachedVaultItems(merged);
+                  return merged;
+                });
+              }
+              if (cloudRes.data.queueItems) {
+                setQueueItems((prev) => {
+                  const merged = mergeQueueItems(prev, cloudRes.data.queueItems);
+                  setCachedQueues(merged);
+                  return merged;
+                });
+              }
               if (cloudRes.data.clans && cloudRes.data.clans.length > 0) setClans(cloudRes.data.clans);
               if (cloudRes.data.diamondLogs) setDiamondLogs(cloudRes.data.diamondLogs);
             }
@@ -1359,6 +1399,9 @@ export const App: React.FC = () => {
         claimants: []
       });
 
+      unmarkVaultItemAsDeleted(createdItem.id);
+      setPendingFirebaseSync(true);
+
       // 1. Optimistic UI update immediately so user sees the new item instantly
       let nextVaultItems: VaultItem[] = [];
       setVaultItems((prev) => {
@@ -1366,6 +1409,20 @@ export const App: React.FC = () => {
         setCachedVaultItems(nextVaultItems);
         return nextVaultItems;
       });
+
+      // Instant live state broadcast (< 20ms) to ensure server relay and all clan tabs have the new item
+      broadcastLiveState(
+        {
+          users,
+          vaultItems: nextVaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
+        },
+        currentUser?.inGameName || currentUser?.username || 'Admin'
+      );
 
       sounds.playSuccess();
       showToast(
@@ -1422,11 +1479,28 @@ export const App: React.FC = () => {
 
   const handleDeleteVaultItem = async (itemId: string) => {
     sounds.playClick();
+    markVaultItemAsDeleted(itemId);
+    setPendingFirebaseSync(true);
+    let nextVaultItems: VaultItem[] = [];
     setVaultItems((prev) => {
-      const next = prev.filter((i) => i.id !== itemId);
-      setCachedVaultItems(next);
-      return next;
+      nextVaultItems = prev.filter((i) => i.id !== itemId);
+      setCachedVaultItems(nextVaultItems);
+      return nextVaultItems;
     });
+
+    broadcastLiveState(
+      {
+        users,
+        vaultItems: nextVaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings()
+      },
+      currentUser?.inGameName || currentUser?.username || 'Admin'
+    );
+
     try {
       await deleteVaultItemDoc(itemId);
       showToast(lang === 'th' ? 'ลบรายการสำเร็จ' : 'Item deleted', 'info');
@@ -1613,6 +1687,19 @@ export const App: React.FC = () => {
         'success'
       );
 
+      broadcastLiveState(
+        {
+          users,
+          vaultItems: nextVaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
+        },
+        currentUser?.inGameName || currentUser?.username || 'Admin'
+      );
+
       triggerDebouncedAutoBackup({
         users,
         vaultItems: nextVaultItems,
@@ -1680,6 +1767,20 @@ export const App: React.FC = () => {
         setCachedVaultItems(nextVaultItems);
         return nextVaultItems;
       });
+
+      // Broadcast immediately to live relay server (< 20ms) so all screens stay in sync
+      broadcastLiveState(
+        {
+          users,
+          vaultItems: nextVaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
+        },
+        currentUser?.inGameName || currentUser?.username || 'Admin'
+      );
 
       // Dual-cloud failover: Immediately back up to Google Sheets & Drive
       triggerDebouncedAutoBackup(
@@ -1749,6 +1850,7 @@ export const App: React.FC = () => {
     const now = Date.now();
 
     // Optimistic update
+    let nextVaultItems: VaultItem[] = [];
     setVaultItems((prev) => {
       const next = prev.map((i) => {
         if (i.id !== item.id) return i;
@@ -1768,9 +1870,23 @@ export const App: React.FC = () => {
           distributedTo: updatedDistributedTo
         };
       });
+      nextVaultItems = next;
       setCachedVaultItems(next);
       return next;
     });
+
+    broadcastLiveState(
+      {
+        users,
+        vaultItems: nextVaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings()
+      },
+      actorName
+    );
 
     try {
       await confirmVaultItemPayment(item.id, actorName, targetStatus);
@@ -1795,11 +1911,28 @@ export const App: React.FC = () => {
   ) => {
     try {
       const createdQueue = await addQueueItemDoc(itemData);
+      unmarkQueueItemAsDeleted(createdQueue.id);
+      setPendingFirebaseSync(true);
+      let nextQueues: QueueItem[] = [];
       setQueueItems((prev) => {
-        const next = [createdQueue, ...prev.filter((q) => q.id !== createdQueue.id)];
-        setCachedQueues(next);
-        return next;
+        nextQueues = [createdQueue, ...prev.filter((q) => q.id !== createdQueue.id)];
+        setCachedQueues(nextQueues);
+        return nextQueues;
       });
+
+      broadcastLiveState(
+        {
+          users,
+          vaultItems,
+          queueItems: nextQueues,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
+        },
+        currentUser?.inGameName || currentUser?.username || 'Admin'
+      );
+
       sounds.playSuccess();
       showToast(
         lang === 'th'
@@ -1818,11 +1951,28 @@ export const App: React.FC = () => {
 
   const handleDeleteQueueItem = async (queueId: string) => {
     sounds.playClick();
+    markQueueItemAsDeleted(queueId);
+    setPendingFirebaseSync(true);
+    let nextQueues: QueueItem[] = [];
     setQueueItems((prev) => {
-      const next = prev.filter((q) => q.id !== queueId);
-      setCachedQueues(next);
-      return next;
+      nextQueues = prev.filter((q) => q.id !== queueId);
+      setCachedQueues(nextQueues);
+      return nextQueues;
     });
+
+    broadcastLiveState(
+      {
+        users,
+        vaultItems,
+        queueItems: nextQueues,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings()
+      },
+      currentUser?.inGameName || currentUser?.username || 'Admin'
+    );
+
     try {
       await deleteQueueItemDoc(queueId);
       showToast(lang === 'th' ? 'ลบคิวสำเร็จ' : 'Queue deleted', 'info');
@@ -1833,11 +1983,26 @@ export const App: React.FC = () => {
 
   const handleUpdateQueueMembers = async (queueId: string, members: QueueMember[]) => {
     // 1. Optimistic UI update immediately
+    let nextQueues: QueueItem[] = [];
     setQueueItems((prev) => {
-      const next = prev.map((q) => (q.id === queueId ? { ...q, queueList: members } : q));
-      setCachedQueues(next);
-      return next;
+      nextQueues = prev.map((q) => (q.id === queueId ? { ...q, queueList: members } : q));
+      setCachedQueues(nextQueues);
+      return nextQueues;
     });
+
+    broadcastLiveState(
+      {
+        users,
+        vaultItems,
+        queueItems: nextQueues,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings()
+      },
+      currentUser?.inGameName || currentUser?.username || 'Admin'
+    );
+
     // 2. Persist in Firestore
     try {
       await updateQueueItemDoc(queueId, { queueList: members });
@@ -3271,11 +3436,32 @@ export const App: React.FC = () => {
         }}
         onDataRestored={(restored) => {
           if (restored.users && restored.users.length > 0) setUsers(restored.users);
-          if (restored.vaultItems && restored.vaultItems.length > 0) setVaultItems(restored.vaultItems);
-          if (restored.queueItems) setQueueItems(restored.queueItems);
+          if (restored.vaultItems && restored.vaultItems.length > 0) {
+            restored.vaultItems.forEach((i) => unmarkVaultItemAsDeleted(i.id));
+            setVaultItems(restored.vaultItems);
+            setCachedVaultItems(restored.vaultItems);
+          }
+          if (restored.queueItems) {
+            restored.queueItems.forEach((q) => unmarkQueueItemAsDeleted(q.id));
+            setQueueItems(restored.queueItems);
+            setCachedQueues(restored.queueItems);
+          }
           if (restored.clans && restored.clans.length > 0) setClans(restored.clans);
           if (restored.diamondLogs) setDiamondLogs(restored.diamondLogs);
           if (restored.formulaSettings) saveFormulaSettings(restored.formulaSettings);
+
+          broadcastLiveState(
+            {
+              users: (restored.users && restored.users.length > 0) ? restored.users : users,
+              vaultItems: (restored.vaultItems && restored.vaultItems.length > 0) ? restored.vaultItems : vaultItems,
+              queueItems: restored.queueItems || queueItems,
+              clans: (restored.clans && restored.clans.length > 0) ? restored.clans : clans,
+              diamondLogs: restored.diamondLogs || diamondLogs,
+              vaultBalance,
+              formulaSettings: restored.formulaSettings || getFormulaSettings()
+            },
+            currentUser?.inGameName || currentUser?.username || 'Owner'
+          );
         }}
         showToast={showToast}
       />
