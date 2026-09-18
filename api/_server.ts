@@ -758,19 +758,31 @@ Do not include markdown or explanations. Return pure JSON only.`;
         await saveStoredDiscordWebhookUrl('', res.locals.actor?.uid || 'owner');
         return res.json({ success: true, message: 'ลบการตั้งค่า Discord Webhook เรียบร้อยแล้ว / Discord Webhook removed.' });
       }
-      if (!cleanUrl.startsWith("https://discord.com/api/webhooks/") && !cleanUrl.startsWith("https://discordapp.com/api/webhooks/")) {
+      // Lenient and robust Discord webhook URL validation:
+      // Accepts discord.com, discordapp.com, canary.discord.com, ptb.discord.com, www.discord.com
+      const webhookPattern = /(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)?discord(?:app)?\.com\/api\/webhooks\/([0-9]+)\/([A-Za-z0-9_\-]+)/i;
+      const match = cleanUrl.match(webhookPattern);
+      if (!match) {
         return res.status(400).json({
           error: "INVALID_WEBHOOK_URL",
-          message: "รูปแบบ Webhook URL ไม่ถูกต้อง ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/"
+          message: "รูปแบบ Webhook URL ไม่ถูกต้อง ต้องเป็นลิงก์ Discord Webhook เช่น https://discord.com/api/webhooks/..."
         });
       }
-      diskDiscordWebhookUrl = cleanUrl;
-      process.env.DISCORD_WEBHOOK_URL = cleanUrl;
+
+      // Standardize clean URL
+      const normalizedWebhookUrl = `https://discord.com/api/webhooks/${match[1]}/${match[2]}`;
+
+      diskDiscordWebhookUrl = normalizedWebhookUrl;
+      process.env.DISCORD_WEBHOOK_URL = normalizedWebhookUrl;
       try {
-        fs.writeFileSync(DISCORD_CONFIG_FILE, JSON.stringify({ webhookUrl: cleanUrl }, null, 2), 'utf-8');
+        fs.writeFileSync(DISCORD_CONFIG_FILE, JSON.stringify({ webhookUrl: normalizedWebhookUrl }, null, 2), 'utf-8');
       } catch {}
-      await saveStoredDiscordWebhookUrl(cleanUrl, res.locals.actor?.uid || 'owner');
-      return res.json({ success: true, message: 'บันทึก Discord Webhook สำเร็จ / Discord Webhook saved successfully.' });
+      await saveStoredDiscordWebhookUrl(normalizedWebhookUrl, res.locals.actor?.uid || 'owner');
+      return res.json({
+        success: true,
+        message: 'บันทึก Discord Webhook สำเร็จ / Discord Webhook saved successfully.',
+        webhookUrl: normalizedWebhookUrl
+      });
     } catch (err: any) {
       console.error('Failed to save discord webhook:', err);
       return res.status(500).json({ error: 'SAVE_FAILED', message: 'บันทึก Discord Webhook ไม่สำเร็จ' });

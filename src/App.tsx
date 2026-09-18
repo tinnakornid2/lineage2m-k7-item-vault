@@ -45,6 +45,7 @@ import {
   saveAnnouncementSettingsDoc,
   listenToDiscordSettings,
   saveDiscordSettingsDoc,
+  getCachedDiscordSettings,
   addVaultItemDoc,
   updateVaultItemDoc,
   deleteVaultItemDoc,
@@ -1218,6 +1219,18 @@ export const App: React.FC = () => {
       currentUser?.inGameName || 'Admin',
       true
     );
+    broadcastLiveState({
+      users,
+      vaultItems,
+      queueItems,
+      clans,
+      diamondLogs,
+      vaultBalance,
+      formulaSettings: getFormulaSettings(),
+      announcementSettings,
+      backgroundSettings: bgConfig,
+      discordSettings: newSettings
+    });
   };
 
   // Broadcast single vault item to Discord (Owner only) - Opens template picker modal
@@ -3211,7 +3224,7 @@ export const App: React.FC = () => {
       <DiscordWebhookModal
         isOpen={showDiscordModal && isOwner}
         onClose={() => setShowDiscordModal(false)}
-        settings={discordSettings}
+        settings={discordSettings || getCachedDiscordSettings()}
         onSaveSettings={handleSaveDiscordSettings}
         currentUser={currentUser}
         lang={lang}

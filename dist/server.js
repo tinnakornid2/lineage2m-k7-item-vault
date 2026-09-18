@@ -86,8 +86,11 @@ async function getStoredDiscordWebhookUrl() {
   const sdk = await getAdminSdk();
   if (!sdk) return "";
   try {
-    const snapshot = await sdk.db.collection("app_settings").doc("discord_secure").get();
-    const webhookUrl = snapshot.data()?.webhookUrl;
+    const snapshot = await Promise.race([
+      sdk.db.collection("app_settings").doc("discord_secure").get(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore read timeout")), 2500))
+    ]);
+    const webhookUrl = snapshot?.data()?.webhookUrl;
     return typeof webhookUrl === "string" ? webhookUrl.trim() : "";
   } catch {
     return "";
@@ -100,11 +103,14 @@ async function saveStoredDiscordWebhookUrl(webhookUrl, updatedBy) {
     return;
   }
   try {
-    await sdk.db.collection("app_settings").doc("discord_secure").set({
-      webhookUrl: webhookUrl.trim(),
-      updatedBy,
-      updatedAt: Date.now()
-    }, { merge: true });
+    await Promise.race([
+      sdk.db.collection("app_settings").doc("discord_secure").set({
+        webhookUrl: webhookUrl.trim(),
+        updatedBy,
+        updatedAt: Date.now()
+      }, { merge: true }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore write timeout")), 2500))
+    ]);
   } catch (err) {
     console.warn("Cannot save stored discord webhook via Admin SDK:", err?.message || err);
   }
@@ -173,12 +179,24 @@ async function verifyRoleToken(authorization, allowedRoles) {
     return { uid: "auth-user", role: allowedRoles[0] };
   }
   try {
-    const decoded = await sdk.auth.verifyIdToken(token);
-    const profile = await sdk.db.collection("users").doc(decoded.uid).get();
-    if (!profile.exists) return { uid: decoded.uid, role: allowedRoles[allowedRoles.length - 1] || "member" };
+    const decoded = await Promise.race([
+      sdk.auth.verifyIdToken(token),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Auth verifyIdToken timeout")), 2500))
+    ]);
+    const profile = await Promise.race([
+      sdk.db.collection("users").doc(decoded.uid).get(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore user profile timeout")), 2500))
+    ]).catch(() => null);
+    if (!profile || !profile.exists) {
+      return { uid: decoded.uid, role: allowedRoles[allowedRoles.length - 1] || "member" };
+    }
     const data = profile.data();
-    if (data.status !== "active" || !allowedRoles.includes(data.role)) return null;
-    return { uid: decoded.uid, role: data.role };
+    const userRole = String(data.role || "").toLowerCase();
+    const normalizedAllowed = allowedRoles.map((r) => r.toLowerCase());
+    if (data.status === "suspended" || !normalizedAllowed.includes(userRole)) {
+      return null;
+    }
+    return { uid: decoded.uid, role: userRole };
   } catch (err) {
     console.warn("verifyRoleToken verification notice:", err);
     try {
@@ -897,20 +915,27 @@ Do not include markdown or explanations. Return pure JSON only.`;
         await saveStoredDiscordWebhookUrl("", res.locals.actor?.uid || "owner");
         return res.json({ success: true, message: "\u0E25\u0E1A\u0E01\u0E32\u0E23\u0E15\u0E31\u0E49\u0E07\u0E04\u0E48\u0E32 Discord Webhook \u0E40\u0E23\u0E35\u0E22\u0E1A\u0E23\u0E49\u0E2D\u0E22\u0E41\u0E25\u0E49\u0E27 / Discord Webhook removed." });
       }
-      if (!cleanUrl.startsWith("https://discord.com/api/webhooks/") && !cleanUrl.startsWith("https://discordapp.com/api/webhooks/")) {
+      const webhookPattern = /(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)?discord(?:app)?\.com\/api\/webhooks\/([0-9]+)\/([A-Za-z0-9_\-]+)/i;
+      const match = cleanUrl.match(webhookPattern);
+      if (!match) {
         return res.status(400).json({
           error: "INVALID_WEBHOOK_URL",
-          message: "\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A Webhook URL \u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 \u0E15\u0E49\u0E2D\u0E07\u0E02\u0E36\u0E49\u0E19\u0E15\u0E49\u0E19\u0E14\u0E49\u0E27\u0E22 https://discord.com/api/webhooks/"
+          message: "\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A Webhook URL \u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 \u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E25\u0E34\u0E07\u0E01\u0E4C Discord Webhook \u0E40\u0E0A\u0E48\u0E19 https://discord.com/api/webhooks/..."
         });
       }
-      diskDiscordWebhookUrl = cleanUrl;
-      process.env.DISCORD_WEBHOOK_URL = cleanUrl;
+      const normalizedWebhookUrl = `https://discord.com/api/webhooks/${match[1]}/${match[2]}`;
+      diskDiscordWebhookUrl = normalizedWebhookUrl;
+      process.env.DISCORD_WEBHOOK_URL = normalizedWebhookUrl;
       try {
-        fs.writeFileSync(DISCORD_CONFIG_FILE, JSON.stringify({ webhookUrl: cleanUrl }, null, 2), "utf-8");
+        fs.writeFileSync(DISCORD_CONFIG_FILE, JSON.stringify({ webhookUrl: normalizedWebhookUrl }, null, 2), "utf-8");
       } catch {
       }
-      await saveStoredDiscordWebhookUrl(cleanUrl, res.locals.actor?.uid || "owner");
-      return res.json({ success: true, message: "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 Discord Webhook \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 / Discord Webhook saved successfully." });
+      await saveStoredDiscordWebhookUrl(normalizedWebhookUrl, res.locals.actor?.uid || "owner");
+      return res.json({
+        success: true,
+        message: "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 Discord Webhook \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 / Discord Webhook saved successfully.",
+        webhookUrl: normalizedWebhookUrl
+      });
     } catch (err) {
       console.error("Failed to save discord webhook:", err);
       return res.status(500).json({ error: "SAVE_FAILED", message: "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 Discord Webhook \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });

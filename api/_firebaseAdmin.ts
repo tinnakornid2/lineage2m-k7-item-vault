@@ -103,8 +103,11 @@ export async function getStoredDiscordWebhookUrl(): Promise<string> {
   const sdk = await getAdminSdk();
   if (!sdk) return '';
   try {
-    const snapshot = await sdk.db.collection('app_settings').doc('discord_secure').get();
-    const webhookUrl = snapshot.data()?.webhookUrl;
+    const snapshot: any = await Promise.race([
+      sdk.db.collection('app_settings').doc('discord_secure').get(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore read timeout')), 2500))
+    ]);
+    const webhookUrl = snapshot?.data()?.webhookUrl;
     return typeof webhookUrl === 'string' ? webhookUrl.trim() : '';
   } catch {
     return '';
@@ -118,11 +121,14 @@ export async function saveStoredDiscordWebhookUrl(webhookUrl: string, updatedBy:
     return;
   }
   try {
-    await sdk.db.collection('app_settings').doc('discord_secure').set({
-      webhookUrl: webhookUrl.trim(),
-      updatedBy,
-      updatedAt: Date.now()
-    }, { merge: true });
+    await Promise.race([
+      sdk.db.collection('app_settings').doc('discord_secure').set({
+        webhookUrl: webhookUrl.trim(),
+        updatedBy,
+        updatedAt: Date.now()
+      }, { merge: true }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore write timeout')), 2500))
+    ]);
   } catch (err: any) {
     console.warn('Cannot save stored discord webhook via Admin SDK:', err?.message || err);
   }
@@ -206,12 +212,25 @@ export async function verifyRoleToken(
   }
 
   try {
-    const decoded = await sdk.auth.verifyIdToken(token);
-    const profile = await sdk.db.collection('users').doc(decoded.uid).get();
-    if (!profile.exists) return { uid: decoded.uid, role: allowedRoles[allowedRoles.length - 1] || 'member' };
+    const decoded = await Promise.race([
+      sdk.auth.verifyIdToken(token),
+      new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Auth verifyIdToken timeout')), 2500))
+    ]);
+    const profile: any = await Promise.race([
+      sdk.db.collection('users').doc(decoded.uid).get(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore user profile timeout')), 2500))
+    ]).catch(() => null);
+
+    if (!profile || !profile.exists) {
+      return { uid: decoded.uid, role: allowedRoles[allowedRoles.length - 1] || 'member' };
+    }
     const data = profile.data()!;
-    if (data.status !== 'active' || !allowedRoles.includes(data.role)) return null;
-    return { uid: decoded.uid, role: data.role as string };
+    const userRole = String(data.role || '').toLowerCase();
+    const normalizedAllowed = allowedRoles.map((r) => r.toLowerCase());
+    if (data.status === 'suspended' || !normalizedAllowed.includes(userRole)) {
+      return null;
+    }
+    return { uid: decoded.uid, role: userRole };
   } catch (err) {
     console.warn('verifyRoleToken verification notice:', err);
     try {

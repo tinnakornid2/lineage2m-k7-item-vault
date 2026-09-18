@@ -273,57 +273,71 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setIsSaving(true);
     sounds.playClick();
+    setTestResult(null);
 
     try {
+      const rawInput = webhookUrlInput.trim();
+      let normalizedInput = rawInput;
+      if (rawInput) {
+        const webhookPattern = /(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)?discord(?:app)?\.com\/api\/webhooks\/([0-9]+)\/([A-Za-z0-9_\-]+)/i;
+        const match = rawInput.match(webhookPattern);
+        if (match) {
+          normalizedInput = `https://discord.com/api/webhooks/${match[1]}/${match[2]}`;
+        }
+      }
+
       const activeUrl =
-        webhookUrlInput.trim() ||
+        normalizedInput ||
         (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '') ||
         settings?.webhookUrl ||
         '';
 
-      // 1. If user entered a new Webhook URL, save it to secure backend
-      if (webhookUrlInput.trim()) {
-        const token = await getCurrentUserIdToken();
-        const res = await fetch('/api/save-discord-webhook', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {})
-          },
-          body: JSON.stringify({ webhookUrl: webhookUrlInput.trim() })
-        });
-        const resText = await res.text();
-        let data: any = {};
-        try {
-          data = JSON.parse(resText);
-        } catch {
-          data = { message: resText || `Server error (${res.status})` };
-        }
-        if (!res.ok) {
-          throw new Error(data.message || (lang === 'th' ? 'บันทึก Webhook URL ไม่สำเร็จ' : 'Failed to save Webhook URL'));
-        }
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('vault_discord_webhook_url', webhookUrlInput.trim());
-        }
-        setServerStatus({
-          configured: true,
-          maskedUrl:
-            webhookUrlInput.length > 35
-              ? `${webhookUrlInput.slice(0, 33)}...${webhookUrlInput.slice(-4)}`
-              : webhookUrlInput
-        });
-        setWebhookUrlInput('');
+      // Always save active URL to local storage immediately
+      if (typeof window !== 'undefined' && activeUrl) {
+        localStorage.setItem('vault_discord_webhook_url', activeUrl);
       }
 
-      // 2. Save settings to Firestore
+      // 1. If user entered a new Webhook URL, save it to backend server asynchronously (non-blocking)
+      if (normalizedInput) {
+        try {
+          const token = await getCurrentUserIdToken();
+          const res = await fetch('/api/save-discord-webhook', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ webhookUrl: normalizedInput })
+          });
+          if (res.ok) {
+            setServerStatus({
+              configured: true,
+              maskedUrl:
+                normalizedInput.length > 35
+                  ? `${normalizedInput.slice(0, 33)}...${normalizedInput.slice(-4)}`
+                  : normalizedInput
+            });
+            setWebhookUrlInput('');
+          }
+        } catch (serverErr) {
+          console.warn('Notice: Backend discord webhook sync skipped/failed:', serverErr);
+        }
+      }
+
+      // 2. Prepare clean settings object
       const cleanRoleId = mentionRoleId.trim().replace(/\D/g, '');
+      let cleanAppBaseUrl = appBaseUrl.trim();
+      if (cleanAppBaseUrl && !cleanAppBaseUrl.startsWith('http://') && !cleanAppBaseUrl.startsWith('https://')) {
+        cleanAppBaseUrl = `https://${cleanAppBaseUrl}`;
+      }
+
       const updated: DiscordSettings = {
         webhookUrl: activeUrl,
-        appBaseUrl: appBaseUrl.trim(),
+        appBaseUrl: cleanAppBaseUrl,
         enabled,
         notifyOnNewItem,
         notifyOnDistribute,
@@ -336,14 +350,21 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
         updatedAt: Date.now()
       };
 
+      // Always save to localStorage immediately
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('vault_discord_settings', JSON.stringify(updated));
+      }
+
+      // 3. Save settings via onSaveSettings (Firestore, Google Sheets, React state)
       await onSaveSettings(updated);
       sounds.playSuccess();
       onClose();
     } catch (err: any) {
+      console.error('Save discord settings error:', err);
       sounds.playError();
       setTestResult({
         success: false,
-        message: err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการบันทึก' : 'Failed to save settings')
+        message: err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการบันทึกการตั้งค่า' : 'Failed to save settings')
       });
     } finally {
       setIsSaving(false);
@@ -391,7 +412,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSave} className="p-4 sm:p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+        <form noValidate onSubmit={handleSave} className="p-4 sm:p-5 space-y-4 max-h-[75vh] overflow-y-auto">
           
           {/* Main Master Switch */}
           <div className="p-3.5 rounded-xl bg-[#090f1b] border border-slate-800 flex items-center justify-between">
@@ -447,7 +468,11 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
             )}
 
             <input
-              type="url"
+              type="text"
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck="false"
               value={webhookUrlInput}
               onChange={(e) => setWebhookUrlInput(e.target.value)}
               placeholder="https://discord.com/api/webhooks/..."
@@ -476,7 +501,11 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
               </button>
             </div>
             <input
-              type="url"
+              type="text"
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck="false"
               value={appBaseUrl}
               onChange={(e) => setAppBaseUrl(e.target.value)}
               placeholder="https://your-domain.vercel.app"
@@ -880,29 +909,42 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
           </div>
 
           {/* Action Footer */}
-          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={() => {
-                sounds.playClick();
-                onClose();
-              }}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
-            >
-              {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5865F2] to-[#4752c4] hover:brightness-110 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-[#5865F2]/20 cursor-pointer disabled:opacity-50"
-            >
-              <Check className="w-4 h-4" />
-              <span>
-                {isSaving
-                  ? (lang === 'th' ? 'กำลังบันทึก...' : 'Saving...')
-                  : (lang === 'th' ? 'บันทึกการตั้งค่า' : 'Save Settings')}
-              </span>
-            </button>
+          <div className="space-y-3 pt-3 border-t border-slate-800">
+            {testResult && !testResult.success && (
+              <div className="p-3 rounded-xl text-xs flex items-start gap-2 bg-rose-950/70 border border-rose-800 text-rose-300 animate-in fade-in duration-200">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="font-bold">{lang === 'th' ? 'เกิดข้อผิดพลาด' : 'Error Occurred'}</div>
+                  <div className="text-[11px] text-rose-200/90">{testResult.message}</div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  onClose();
+                }}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer transition-colors"
+              >
+                {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave()}
+                disabled={isSaving}
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5865F2] to-[#4752c4] hover:brightness-110 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-[#5865F2]/20 cursor-pointer disabled:opacity-50 transition-all active:scale-95"
+              >
+                <Check className="w-4 h-4" />
+                <span>
+                  {isSaving
+                    ? (lang === 'th' ? 'กำลังบันทึก...' : 'Saving...')
+                    : (lang === 'th' ? 'บันทึกการตั้งค่า' : 'Save Settings')}
+                </span>
+              </button>
+            </div>
           </div>
 
         </form>

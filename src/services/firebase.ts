@@ -1646,9 +1646,30 @@ export const DEFAULT_DISCORD_SETTINGS: DiscordSettings = {
   botName: 'K7-Vault Alert'
 };
 
+export function getCachedDiscordSettings(): DiscordSettings {
+  let cached: DiscordSettings = { ...DEFAULT_DISCORD_SETTINGS };
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('vault_discord_settings');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        cached = { ...DEFAULT_DISCORD_SETTINGS, ...parsed };
+      }
+      const localWebhook = localStorage.getItem('vault_discord_webhook_url') || '';
+      if (localWebhook && !cached.webhookUrl) {
+        cached.webhookUrl = localWebhook;
+      }
+    } catch {}
+  }
+  return cached;
+}
+
 export function listenToDiscordSettings(
   callback: (settings: DiscordSettings | null) => void
 ) {
+  // 1. Immediately emit cached settings so UI never starts as unconfigured/disabled
+  callback(getCachedDiscordSettings());
+
   const ref = doc(db, APP_SETTINGS_COLLECTION, 'discord');
   return onSnapshot(
     ref,
@@ -1668,30 +1689,25 @@ export function listenToDiscordSettings(
             localStorage.setItem('vault_discord_webhook_url', effectiveWebhook);
           } catch {}
         }
-        callback({
+        const full: DiscordSettings = {
           ...DEFAULT_DISCORD_SETTINGS,
           ...data,
           webhookUrl: effectiveWebhook
-        });
+        };
+        try {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('vault_discord_settings', JSON.stringify(full));
+          }
+        } catch {}
+        callback(full);
       } else {
-        callback({
-          ...DEFAULT_DISCORD_SETTINGS,
-          webhookUrl: localWebhook
-        });
+        callback(getCachedDiscordSettings());
       }
     },
     (err) => {
       console.warn('Firestore discord settings sync notice:', err);
-      let localWebhook = '';
-      if (typeof window !== 'undefined') {
-        try {
-          localWebhook = localStorage.getItem('vault_discord_webhook_url') || '';
-        } catch {}
-      }
-      callback({
-        ...DEFAULT_DISCORD_SETTINGS,
-        webhookUrl: localWebhook
-      });
+      notifyQuotaExceeded(err);
+      callback(getCachedDiscordSettings());
     }
   );
 }
@@ -1700,8 +1716,13 @@ export async function saveDiscordSettingsDoc(settings: DiscordSettings) {
   const targetWebhook = typeof settings.webhookUrl === 'string' ? settings.webhookUrl.trim() : '';
   if (typeof window !== 'undefined') {
     try {
-      localStorage.setItem('vault_discord_webhook_url', targetWebhook);
-      localStorage.setItem('vault_discord_settings', JSON.stringify(settings));
+      if (targetWebhook) {
+        localStorage.setItem('vault_discord_webhook_url', targetWebhook);
+      }
+      localStorage.setItem('vault_discord_settings', JSON.stringify({
+        ...settings,
+        webhookUrl: targetWebhook
+      }));
     } catch {}
   }
   const cleanData = sanitizeForFirestore({
