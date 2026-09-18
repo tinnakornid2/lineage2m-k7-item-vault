@@ -527,7 +527,9 @@ export const PowerFormulaSettingsModal: React.FC<PowerFormulaSettingsModalProps>
                             {editingStatId === stat.id ? (
                               <div className="space-y-1.5 py-1 min-w-[200px]">
                                 <div>
-                                  <label className="text-[10px] text-amber-400 block font-mono">ชื่อภาษาไทย (TH):</label>
+                                  <label className="text-[10px] text-amber-400 block font-mono">
+                                    {lang === 'th' ? 'ชื่อภาษาไทย (TH):' : 'Thai Name (TH):'}
+                                  </label>
                                   <input
                                     type="text"
                                     value={editLabelTh}
@@ -541,7 +543,9 @@ export const PowerFormulaSettingsModal: React.FC<PowerFormulaSettingsModalProps>
                                   />
                                 </div>
                                 <div>
-                                  <label className="text-[10px] text-slate-400 block font-mono">ชื่อภาษาอังกฤษ (EN):</label>
+                                  <label className="text-[10px] text-slate-400 block font-mono">
+                                    {lang === 'th' ? 'ชื่อภาษาอังกฤษ (EN):' : 'English Name (EN):'}
+                                  </label>
                                   <input
                                     type="text"
                                     value={editLabelEn}

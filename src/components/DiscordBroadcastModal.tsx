@@ -184,10 +184,10 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
                 <span>{th ? 'เลือกแม่แบบข้อความ (มีสีตัวอักษร):' : 'Choose Message Template (With Font Colors):'}</span>
               </label>
               <div className="flex items-center gap-1 text-[9px]">
-                <span className="text-amber-400 font-bold">🟨 ทอง</span>
-                <span className="text-[#b55aff] font-bold">🟪 ม่วง</span>
-                <span className="text-rose-400 font-bold">🟥 แดง</span>
-                <span className="text-cyan-400 font-bold">🟦 ฟ้า</span>
+                <span className="text-amber-400 font-bold">🟨 {th ? 'ทอง' : 'Gold'}</span>
+                <span className="text-[#b55aff] font-bold">🟪 {th ? 'ม่วง' : 'Purple'}</span>
+                <span className="text-rose-400 font-bold">🟥 {th ? 'แดง' : 'Red'}</span>
+                <span className="text-cyan-400 font-bold">🟦 {th ? 'ฟ้า' : 'Cyan'}</span>
               </div>
             </div>
 

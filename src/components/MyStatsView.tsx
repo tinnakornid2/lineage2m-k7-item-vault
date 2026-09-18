@@ -1011,7 +1011,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                 <div className="md:col-span-5 space-y-1.5">
                   <label className="block font-semibold text-zinc-200 text-xs">
                     <span>Class</span>{' '}
-                    <span className="text-zinc-400 font-normal text-[11px] opacity-80">(คลาส)</span>{' '}
+                    <span className="text-zinc-400 font-normal text-[11px] opacity-80">{lang === 'th' ? '(คลาส)' : '(Class)'}</span>{' '}
                     <span className="font-normal text-zinc-400">(multi)</span>
                   </label>
                   <div className="space-y-1.5 bg-zinc-900/70 p-2 border border-zinc-700 rounded-xl max-h-48 overflow-y-auto custom-scrollbar">
@@ -1057,7 +1057,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                   <div className="p-3 rounded-xl bg-zinc-900/70 border border-zinc-700 flex flex-col justify-between">
                     <label className="block mb-2 font-semibold text-zinc-300 text-xs leading-snug">
                       <span>Level</span>{' '}
-                      <span className="text-zinc-400 font-normal text-[11px] opacity-80">(เลเวล)</span>
+                      <span className="text-zinc-400 font-normal text-[11px] opacity-80">{lang === 'th' ? '(เลเวล)' : '(Level)'}</span>
                     </label>
                     <input
                       type="number"
@@ -1077,7 +1077,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                   <div className="p-3 rounded-xl bg-zinc-900/70 border border-zinc-700 flex flex-col justify-between">
                     <label className="block mb-2 font-semibold text-zinc-300 text-xs leading-snug">
                       <span>Legend Classes</span>{' '}
-                      <span className="text-zinc-400 font-normal text-[11px] opacity-80">(คลาสตำนาน)</span>
+                      <span className="text-zinc-400 font-normal text-[11px] opacity-80">{lang === 'th' ? '(คลาสตำนาน)' : '(Legendary Class)'}</span>
                     </label>
                     <input
                       type="number"
@@ -1096,7 +1096,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                   <div className="p-3 rounded-xl bg-zinc-900/70 border border-zinc-700 flex flex-col justify-between">
                     <label className="block mb-2 font-semibold text-zinc-300 text-xs leading-snug">
                       <span>Legend Agathions</span>{' '}
-                      <span className="text-zinc-400 font-normal text-[11px] opacity-80">(อากาธีออนตำนาน)</span>
+                      <span className="text-zinc-400 font-normal text-[11px] opacity-80">{lang === 'th' ? '(อากาธีออนตำนาน)' : '(Legendary Agathion)'}</span>
                     </label>
                     <input
                       type="number"
@@ -1317,7 +1317,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                           <div className="col-span-4 space-y-1">
                             <label className="block text-[11px] font-semibold text-zinc-300">
                               <span>Level</span>{' '}
-                              <span className="text-zinc-400 font-normal text-[10px] opacity-80">(เลเวล)</span>
+                              <span className="text-zinc-400 font-normal text-[10px] opacity-80">{lang === 'th' ? '(เลเวล)' : '(Level)'}</span>
                             </label>
                             <input
                               type="number"
@@ -1334,7 +1334,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                           <div className="col-span-8 space-y-1">
                             <label className="block text-[11px] font-semibold text-zinc-300">
                               <span>Enhancement</span>{' '}
-                              <span className="text-zinc-400 font-normal text-[10px] opacity-80">(ขั้นตีบวก)</span>
+                              <span className="text-zinc-400 font-normal text-[10px] opacity-80">{lang === 'th' ? '(ขั้นตีบวก)' : '(Enchant)'}</span>
                             </label>
                             <div className="grid grid-cols-4 gap-1.5">
                               {[0, 1, 2, 3].map((tier) => {

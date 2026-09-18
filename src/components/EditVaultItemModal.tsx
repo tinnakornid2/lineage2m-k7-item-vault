@@ -572,10 +572,10 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
                     onChange={(e) => setRarity(e.target.value as ItemRarity)}
                     className="w-full px-2 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs focus:border-[#d4af37] focus:outline-none cursor-pointer"
                   >
-                    <option value="RARE">RARE (ฟ้า)</option>
-                    <option value="EPIC">EPIC (แดง)</option>
-                    <option value="LAGEND">LAGEND (ม่วง)</option>
-                    <option value="MYTHIC">MYTHIC (ทอง)</option>
+                    <option value="RARE">{lang === 'th' ? 'RARE (ฟ้า)' : 'RARE (Blue)'}</option>
+                    <option value="EPIC">{lang === 'th' ? 'EPIC (แดง)' : 'EPIC (Red)'}</option>
+                    <option value="LAGEND">{lang === 'th' ? 'LEGEND (ม่วง)' : 'LEGEND (Purple)'}</option>
+                    <option value="MYTHIC">{lang === 'th' ? 'MYTHIC (ทอง)' : 'MYTHIC (Gold)'}</option>
                   </select>
                 </div>
               </div>

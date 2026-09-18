@@ -945,11 +945,11 @@ export async function registerUserDoc(data: {
   // 2. Try Firestore setDoc with timeout & quota safeguard
   try {
     const cleanUser = sanitizeForFirestore(newUser);
-    const firestorePromise = setDoc(doc(db, USERS_COLLECTION, newId), cleanUser);
-    await Promise.race([
-      firestorePromise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('firestore-timeout')), 2500))
-    ]);
+    await safeFirestoreWrite(
+      setDoc(doc(db, USERS_COLLECTION, newId), cleanUser),
+      1200,
+      'addUserDoc'
+    );
   } catch (error: any) {
     console.warn('Direct Firestore registration save notice (operating in resilient offline/live mode):', error?.code || error?.message);
     notifyQuotaExceeded(error);
@@ -1495,9 +1495,9 @@ export async function clearAllVaultItemsDoc(): Promise<number> {
       firestoreCount++;
     });
     if (firestoreCount > 0) {
-      await batch.commit();
+      await safeFirestoreWrite(batch.commit(), 2000, 'clearAllVaultItems_batchCommit');
       const claims = await getDocs(collection(db, ITEM_CLAIMS_COLLECTION));
-      await Promise.all(claims.docs.map((claimDoc) => deleteDoc(claimDoc.ref)));
+      await Promise.all(claims.docs.map((claimDoc) => safeFirestoreWrite(deleteDoc(claimDoc.ref), 1200, 'clearAllVaultItems_deleteClaimDoc')));
     }
   } catch (err) {
     console.warn('clearAllVaultItemsDoc firestore failover:', err);
@@ -1641,7 +1641,7 @@ export async function clearDiamondTransactionsDoc(): Promise<number> {
     count++;
   });
   if (count > 0) {
-    await batch.commit();
+    await safeFirestoreWrite(batch.commit(), 2000, 'clearAllQueues_batchCommit');
   }
   return count;
 }
@@ -1658,29 +1658,29 @@ export async function resetToDefaultVaultDataDoc(): Promise<void> {
   const itemsSnap = await getDocs(collection(db, ITEMS_COLLECTION));
   const batch1 = writeBatch(db);
   itemsSnap.forEach((docSnap) => batch1.delete(docSnap.ref));
-  await batch1.commit();
+  await safeFirestoreWrite(batch1.commit(), 2000, 'resetDefaults_batch1');
   const claimsSnap = await getDocs(collection(db, ITEM_CLAIMS_COLLECTION));
-  await Promise.all(claimsSnap.docs.map((claimDoc) => deleteDoc(claimDoc.ref)));
+  await Promise.all(claimsSnap.docs.map((claimDoc) => safeFirestoreWrite(deleteDoc(claimDoc.ref), 1200, 'resetDefaults_deleteClaims')));
 
   // 2. Re-seed default items
   const batch2 = writeBatch(db);
   for (const item of INITIAL_VAULT_ITEMS) {
     batch2.set(doc(db, ITEMS_COLLECTION, item.id), item);
   }
-  await batch2.commit();
+  await safeFirestoreWrite(batch2.commit(), 2000, 'resetDefaults_batch2');
 
   // 3. Delete all current queues
   const queuesSnap = await getDocs(collection(db, QUEUES_COLLECTION));
   const batch3 = writeBatch(db);
   queuesSnap.forEach((docSnap) => batch3.delete(docSnap.ref));
-  await batch3.commit();
+  await safeFirestoreWrite(batch3.commit(), 2000, 'resetDefaults_batch3');
 
   // 4. Re-seed default queues
   const batch4 = writeBatch(db);
   for (const q of INITIAL_QUEUES) {
     batch4.set(doc(db, QUEUES_COLLECTION, q.id), q);
   }
-  await batch4.commit();
+  await safeFirestoreWrite(batch4.commit(), 2000, 'resetDefaults_batch4');
 }
 
 // 4. Quick Items Firestore functions
@@ -2292,7 +2292,7 @@ export async function resetAllUserStatsDoc(): Promise<number> {
     count++;
   });
   if (count > 0) {
-    await batch.commit();
+    await safeFirestoreWrite(batch.commit(), 3000, 'restoreCloudFromSnapshot_batchCommit');
   }
   return count;
 }
@@ -2322,7 +2322,7 @@ export async function syncBackupToFirestore(payload: {
           const cleanItem = sanitizeForFirestore(item);
           batch.set(doc(db, collectionName, item.id), cleanItem, { merge: true });
         }
-        await batch.commit();
+        await safeFirestoreWrite(batch.commit(), 2500, 'syncBackupToFirestore_batchCommit');
         writtenCount += chunk.length;
       }
     };
@@ -2364,7 +2364,7 @@ export async function syncBackupToFirestore(payload: {
     if (deletedVaultIds.length > 0) {
       for (const delId of deletedVaultIds) {
         try {
-          await deleteDoc(doc(db, ITEMS_COLLECTION, delId));
+          await safeFirestoreWrite(deleteDoc(doc(db, ITEMS_COLLECTION, delId)), 1200, 'syncBackup_deleteVaultItem');
         } catch {}
       }
     }
@@ -2372,7 +2372,7 @@ export async function syncBackupToFirestore(payload: {
     if (deletedQueueIds.length > 0) {
       for (const delId of deletedQueueIds) {
         try {
-          await deleteDoc(doc(db, QUEUES_COLLECTION, delId));
+          await safeFirestoreWrite(deleteDoc(doc(db, QUEUES_COLLECTION, delId)), 1200, 'syncBackup_deleteQueueItem');
         } catch {}
       }
     }
