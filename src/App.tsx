@@ -46,6 +46,7 @@ import {
   listenToDiscordSettings,
   saveDiscordSettingsDoc,
   getCachedDiscordSettings,
+  DEFAULT_DISCORD_SETTINGS,
   addVaultItemDoc,
   updateVaultItemDoc,
   deleteVaultItemDoc,
@@ -1510,12 +1511,24 @@ export const App: React.FC = () => {
       );
 
       // 3. Discord notification if enabled (Rule 5: English 100%)
-      if (discordSettings?.enabled && discordSettings.notifyOnNewItem) {
-        sendDiscordNotification(discordSettings, 'new_item', {
+      const activeDiscord = discordSettings || getCachedDiscordSettings();
+      const localWebhookUrl = (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '');
+      const effectiveWebhookUrl = activeDiscord?.webhookUrl || localWebhookUrl;
+      const isDiscordActive = Boolean(activeDiscord?.enabled || effectiveWebhookUrl);
+
+      if (isDiscordActive && (activeDiscord?.notifyOnNewItem ?? true)) {
+        const payloadSettings: DiscordSettings = {
+          ...DEFAULT_DISCORD_SETTINGS,
+          ...activeDiscord,
+          enabled: true,
+          webhookUrl: effectiveWebhookUrl
+        };
+        sendDiscordNotification(payloadSettings, 'new_item', {
           item: createdItem,
           actorName: currentUser?.inGameName || currentUser?.username || 'Admin',
           lang,
-          template: discordSettings?.messageTemplate || 'neon_glow'
+          template: activeDiscord?.messageTemplate || 'neon_glow',
+          webhookUrl: effectiveWebhookUrl
         }).then((res) => {
           if (res.success) {
             showToast(
@@ -1524,6 +1537,8 @@ export const App: React.FC = () => {
                 : `📢 Sent [${createdItem.name}] alert to Discord!`,
               'info'
             );
+          } else {
+            console.warn('Discord notification notice:', res.message);
           }
         }).catch((err) => console.warn('Discord notification error:', err));
       }
@@ -1859,12 +1874,24 @@ export const App: React.FC = () => {
         true
       );
 
-      // Send Discord notification if enabled
-      if (targetItem && discordSettings?.enabled && discordSettings.notifyOnDistribute) {
-        sendDiscordNotification(discordSettings, 'distribute', {
+      // Send Discord notification if enabled (Rule 5: English 100%)
+      const activeDistDiscord = discordSettings || getCachedDiscordSettings();
+      const localDistWebhookUrl = (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '');
+      const effectiveDistWebhookUrl = activeDistDiscord?.webhookUrl || localDistWebhookUrl;
+      const isDistDiscordActive = Boolean(activeDistDiscord?.enabled || effectiveDistWebhookUrl);
+
+      if (targetItem && isDistDiscordActive && (activeDistDiscord?.notifyOnDistribute ?? true)) {
+        const payloadSettings: DiscordSettings = {
+          ...DEFAULT_DISCORD_SETTINGS,
+          ...activeDistDiscord,
+          enabled: true,
+          webhookUrl: effectiveDistWebhookUrl
+        };
+        sendDiscordNotification(payloadSettings, 'distribute', {
           item: { ...targetItem, status: 'distributed', distributedTo: distributedPayload, paymentStatus: initialPaymentStatus },
           distributeInfo: distributedPayload,
-          actorName: currentUser?.inGameName || currentUser?.username || 'Admin'
+          actorName: currentUser?.inGameName || currentUser?.username || 'Admin',
+          webhookUrl: effectiveDistWebhookUrl
         }).catch((err) => console.warn('Discord notification error on distribute:', err));
       }
 

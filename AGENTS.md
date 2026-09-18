@@ -85,3 +85,18 @@
    - **รูปภาพไอเทมจริง (Thumbnail):** ต้องแสดงรูปไอเทมจริงที่อัปโหลด/ใส่ URL ไว้ที่มุมขวาบนของการ์ด Discord (ห้ามนำรูปไอคอนตัวอย่างมาทับเด็ดขาด)
    - **ข้อความแจ้งผลการแจกไอเทม (Distribution):** ใช้ภาษาอังกฤษ 100% (`🏆 Item Distribution Result!`, `Congratulations to **Name** of **Clan**, who received this item!`, ฟิลด์ Recipient, Rarity, Item Value, Distributed by)
 
+---
+
+## 6. สถาปัตยกรรม Zero-Downtime และกฎ Firestore Quota (`safeFirestoreWrite`)
+
+**สำคัญมาก:** อ่านรายละเอียดเชิงลึกและไดอะแกรมสถาปัตยกรรม 5 ชั้นที่ [ARCHITECTURE_AND_RESILIENCE.md](file:///d:/Anti%20webapp/ARCHITECTURE_AND_RESILIENCE.md)
+1. **ห้ามเรียก `await setDoc()`, `await updateDoc()` หรือ `await deleteDoc()` โดยไม่มี Timeout Guard เด็ดขาด:**
+   - เมื่อโควต้าฟรีรายวันของ Firestore เต็ม (`RESOURCE_EXHAUSTED`) คำสั่ง write จะค้างรอ retry นาน 30–60 วินาที ทำให้ปุ่มกดในแอพ (เช่น ปุ่มบันทึกการตั้งค่า หรือปุ่มเพิ่มไอเทม) ค้างอยู่ที่ `"กำลังบันทึก..."` หรือ `"กำลังโหลด..."`
+   - ต้องครอบด้วย `safeFirestoreWrite(promise, 1200, opName)` เสมอ เพื่อให้คำสั่ง resolve ภายใน 1.2 วินาที
+2. **ลำดับการบันทึกข้อมูล (Failover Priority):**
+   - ต้องทำ **Optimistic Update** ใน React State (< 1ms)
+   - บันทึกลง LocalStorage (`setCachedVaultItems`, `setCachedUsers`, `setCachedDiscordSettings`) ทันที
+   - ยิงบรอดแคสต์ข้ามเครื่องผ่าน Live State Relay Server (`/api/live-state`) ทันที
+   - สำรองข้อมูลอัตโนมัติลง Google Sheets / Drive
+   - พยายามเขียนลง Firestore ผ่าน `safeFirestoreWrite` โดยไม่ให้ขัดขวางการทำงานของผู้ใช้
+

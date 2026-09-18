@@ -203,7 +203,10 @@ export async function sendDiscordNotification(
   const th = lang === 'th';
   const template = data?.template || settings.messageTemplate || 'neon_glow';
 
-  if (!settings.enabled) {
+  const localWebhook = typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '';
+  const effectiveWebhook = data?.webhookUrl?.trim() || settings.webhookUrl?.trim() || localWebhook;
+
+  if (!settings.enabled && !data?.webhookUrl && !localWebhook) {
     return { success: false, message: th ? 'ปิดการใช้งาน Discord Webhook อยู่' : 'Discord Webhook is disabled' };
   }
 
@@ -432,7 +435,7 @@ export async function sendDiscordNotification(
     }
   }
 
-  const candidateWebhookUrl = data?.webhookUrl?.trim() || settings.webhookUrl?.trim() || '';
+  const candidateWebhookUrl = effectiveWebhook || '';
   let serverErrorMessage = '';
 
   // 1. Try local/backend proxy first (avoids CORS and uploads binary attachments cleanly)

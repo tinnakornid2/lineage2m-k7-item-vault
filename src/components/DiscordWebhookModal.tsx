@@ -301,18 +301,22 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
         localStorage.setItem('vault_discord_webhook_url', activeUrl);
       }
 
-      // 1. If user entered a new Webhook URL, save it to backend server asynchronously (non-blocking)
+      // 1. If user entered a new Webhook URL, save it to backend server asynchronously with timeout guard
       if (normalizedInput) {
         try {
           const token = await getCurrentUserIdToken();
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2000);
           const res = await fetch('/api/save-discord-webhook', {
             method: 'POST',
+            signal: controller.signal,
             headers: {
               'Content-Type': 'application/json',
               ...(token ? { Authorization: `Bearer ${token}` } : {})
             },
             body: JSON.stringify({ webhookUrl: normalizedInput })
           });
+          clearTimeout(timeoutId);
           if (res.ok) {
             setServerStatus({
               configured: true,

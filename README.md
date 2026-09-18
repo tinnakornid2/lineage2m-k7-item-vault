@@ -1,17 +1,35 @@
-# ⚔️ Lineage2M Clan Hub & Boss Item Vault (v2.6.0)
+# ⚔️ Lineage2M Clan Hub & Boss Item Vault (v2.7.0)
 
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.6.0 — อัปเดตล่าสุด)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.7.0 — อัปเดตล่าสุด)**  
 > ระบบบริหารจัดการกิลด์ คลังไอเทมบอส คิวไอเทม สแกนสลิปผู้ล่าด้วย AI จัดการรหัสผ่านตามสิทธิ์ ติดตามสถานะชำระเงิน ฐานข้อมูลสำรอง Google Sheets Zero-Downtime และแจ้งเตือน Discord ANSI Colors & Templates แบบ Real-time
 
 ---
 
 ## 📖 คู่มือนักพัฒนาและการส่งมอบงาน (Developer Handover Guide)
 > 👉 **[อ่านคู่มือสถาปัตยกรรมและการส่งมอบงานฉบับเต็มได้ที่ DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)**  
-> สรุปโครงสร้างระบบ สถาปัตยกรรม Zero-Downtime สิทธิ์ผู้ใช้งาน กฎ 5 ข้อ และแนวทางการพัฒนาต่อยอดโดยไม่ต้องไล่อ่านโค้ดเองทั้งหมด
+> 👉 **[อ่านคู่มือ Zero-Downtime Architecture & Resilience ได้ที่ ARCHITECTURE_AND_RESILIENCE.md](ARCHITECTURE_AND_RESILIENCE.md)**  
+> สรุปโครงสร้างระบบ สถาปัตยกรรม Zero-Downtime สิทธิ์ผู้ใช้งาน กฎความปลอดภัย และแนวทางการพัฒนาต่อยอดโดยระบบไม่พัง
 
 ---
 
-## ✨ ฟีเจอร์ใหม่ล่าสุดใน v2.6.0 (What's New in v2.6.0)
+## ✨ ฟีเจอร์ใหม่ล่าสุดใน v2.7.0 (What's New in v2.7.0)
+
+- 📊 **จำกัดการแสดงผล 5 รายการแรก พร้อมปุ่มกดดูทั้งหมด (Dashboard 5-Item View All Toggles):**
+  - **My Clan Status (สถานะแคลนของฉัน):** ทั้งส่วนคิวรอรับไอเทม (`userQueues`) และรายการเคลมไอเทม (`userActiveClaims`) แสดงเริ่มต้น 5 รายการแรก พร้อมปุ่มสลับ "ดูทั้งหมด / View All" และ "แสดงแค่ 5 รายการแรก / Show 5 Items Only"
+  - **Top Power Leaderboard (อันดับค่าพลัง):** แสดง 5 อันดับแรกเริ่มต้น พร้อมป้ายนับจำนวน และปุ่ม "ดูทั้งหมด / View All"
+  - **Recent Distributions (ประวัติการแจกไอเทมล่าสุด):** แสดง 5 รายการแจกล่าสุดเริ่มต้น พร้อมปุ่ม "ดูทั้งหมด / View All"
+  - รองรับระบบสองภาษา (ไทย/อังกฤษ) 100% ตามกฎ Rule 1
+- ⚡ **ระบบเขียนข้อมูล Firestore แบบ Zero-Hang (`safeFirestoreWrite`):**
+  - ครอบคำสั่ง Write ทุกคำสั่งด้วย 1,200ms Timeout Guard ป้องกันปุ่มค้างที่ "กำลังบันทึก..." หรือ "กำลังโหลด..." เมื่อโควต้า Firestore เต็ม (`RESOURCE_EXHAUSTED`)
+  - ซิงค์ลง LocalStorage, Live State Relay, และ Google Sheets อัตโนมัติทันที
+- 📢 **ระบบแจ้งเตือน Discord อัตโนมัติและคงทน (Discord Auto-Post Resilience):**
+  - แก้ไขปัญหาปุ่มบันทึกการตั้งค่า Webhook ค้าง
+  - แจ้งเตือนไอเทมใหม่เข้าคลังและการแจกของลง Discord อัตโนมัติ 100% แม้ Firestore ติดลิมิต
+  - คงรูปแบบ Option 1 ANSI Code Block 2 บรรทัด ฟอนต์มีสี และรูปไอเทมจริงขวาบนตาม Rule 5
+- 📚 **คู่มือสถาปัตยกรรมความคงทนฉบับสมบูรณ์ ([ARCHITECTURE_AND_RESILIENCE.md](ARCHITECTURE_AND_RESILIENCE.md)):**
+  - รวบรวมแนวทาง 5-Tier Failover Hierarchy, กฎ Firestore Quota, และคู่มือนักพัฒนาทุกคน
+
+---
 
 - 🛡️ **ระบบสำรองข้อมูลคู่ขนาน Google Sheets & Drive Database (Zero-Downtime Architecture):**
   - **ทำงานต่อเนื่อง 100% แม้ Firebase ติดโควต้าฟรี (Automatic Failover):** สลับมาใช้ Google Sheets และ Local Relay ทันที ไม่สะดุด ไม่ขึ้นจอขาว

@@ -1028,18 +1028,21 @@ export const VaultView: React.FC<VaultViewProps> = ({
       // Ensure strict deduplication before creating item
       const { unique: deduplicatedFinalHunters } = deduplicateHunterList(hunters);
 
-      await onCreateVaultItem({
-        name: name.trim(),
-        price: Number(price) || 0,
-        quantity: Math.max(1, Number(quantity) || 1),
-        minPowerLevel: Number(minPowerLevel) || 0,
-        rarity,
-        imageUrl:
-          itemImageUrl ||
-          'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=400&auto=format&fit=crop&q=80',
-        hunters: deduplicatedFinalHunters,
-        hunterScreenshots
-      });
+      await Promise.race([
+        onCreateVaultItem({
+          name: name.trim(),
+          price: Number(price) || 0,
+          quantity: Math.max(1, Number(quantity) || 1),
+          minPowerLevel: Number(minPowerLevel) || 0,
+          rarity,
+          imageUrl:
+            itemImageUrl ||
+            'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=400&auto=format&fit=crop&q=80',
+          hunters: deduplicatedFinalHunters,
+          hunterScreenshots
+        }),
+        new Promise((resolve) => setTimeout(resolve, 3500))
+      ]);
 
       // Save item name to localStorage
       try {

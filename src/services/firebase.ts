@@ -684,6 +684,30 @@ export function notifyQuotaExceeded(err: any) {
   }
 }
 
+/**
+ * Safe Firestore write helper that races with a timeout to guarantee
+ * zero-freeze UI under free-tier quota exhaustion (RESOURCE_EXHAUSTED).
+ */
+export async function safeFirestoreWrite<T>(
+  writeOperation: Promise<T>,
+  timeoutMs: number = 1200,
+  operationName: string = 'Firestore write'
+): Promise<T | null> {
+  try {
+    const res = await Promise.race([
+      writeOperation,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`firestore-timeout: ${operationName}`)), timeoutMs)
+      )
+    ]);
+    return res;
+  } catch (err: any) {
+    console.warn(`Safe firestore notice (${operationName}):`, err?.message || err);
+    notifyQuotaExceeded(err);
+    return null;
+  }
+}
+
 // 1. Users Firestore functions
 export function listenToUsers(callback: (users: User[]) => void) {
   // Immediately provide cached or fallback users to prevent screen from showing empty
@@ -728,15 +752,10 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
       sanitizedUpdates.clan = cleanClanName(sanitizedUpdates.clan);
     }
     const cleanUpdates = sanitizeForFirestore(sanitizedUpdates);
-    await updateDoc(ref, cleanUpdates);
+    await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateUserDoc');
   } catch (err: any) {
-    console.error('Failed to update user:', err);
+    console.warn('Notice: Failed to update user in Firestore (saved locally):', err);
     notifyQuotaExceeded(err);
-    const msg = (err?.message || '').toLowerCase();
-    if (msg.includes('quota') || msg.includes('resource-exhausted') || err?.code === 'resource-exhausted') {
-      return;
-    }
-    throw err;
   }
 }
 
@@ -793,10 +812,14 @@ export async function changeUserPassword(targetUserId: string, newPassword: stri
   if (isOwnerTarget) {
     try {
       localStorage.setItem('k7_owner_custom_pass', newPassword);
-      await setDoc(doc(db, 'app_settings', 'owner_auth'), {
-        password: newPassword,
-        updatedAt: Date.now()
-      }, { merge: true });
+      await safeFirestoreWrite(
+        setDoc(doc(db, 'app_settings', 'owner_auth'), {
+          password: newPassword,
+          updatedAt: Date.now()
+        }, { merge: true }),
+        1200,
+        'owner_auth_setDoc'
+      );
     } catch (e) {
       console.warn('Owner auth settings sync notice:', e);
     }
@@ -1268,18 +1291,26 @@ function itemClaimDocumentId(itemId: string, userId: string) {
 
 export async function addItemClaimDoc(itemId: string, claimant: Claimant) {
   const claim = sanitizeForFirestore({ ...claimant, itemId });
-  await setDoc(doc(db, ITEM_CLAIMS_COLLECTION, itemClaimDocumentId(itemId, claimant.userId)), claim);
+  await safeFirestoreWrite(
+    setDoc(doc(db, ITEM_CLAIMS_COLLECTION, itemClaimDocumentId(itemId, claimant.userId)), claim),
+    1200,
+    'addItemClaimDoc'
+  );
 
   // Backward compatibility: Keep claimants array on the item document updated
   try {
     const itemRef = doc(db, ITEMS_COLLECTION, itemId);
-    const itemSnap = await getDoc(itemRef);
-    if (itemSnap.exists()) {
+    const itemSnap = await safeFirestoreWrite(getDoc(itemRef), 1200, 'addItemClaimDoc_getDoc');
+    if (itemSnap && itemSnap.exists()) {
       const existing = (itemSnap.data().claimants || []) as Claimant[];
       if (!existing.some((c) => c.userId === claimant.userId)) {
-        await updateDoc(itemRef, {
-          claimants: [...existing, sanitizeForFirestore(claimant)]
-        });
+        await safeFirestoreWrite(
+          updateDoc(itemRef, {
+            claimants: [...existing, sanitizeForFirestore(claimant)]
+          }),
+          1200,
+          'addItemClaimDoc_updateDoc'
+        );
       }
     }
   } catch (err) {
@@ -1288,18 +1319,26 @@ export async function addItemClaimDoc(itemId: string, claimant: Claimant) {
 }
 
 export async function deleteItemClaimDoc(itemId: string, userId: string) {
-  await deleteDoc(doc(db, ITEM_CLAIMS_COLLECTION, itemClaimDocumentId(itemId, userId)));
+  await safeFirestoreWrite(
+    deleteDoc(doc(db, ITEM_CLAIMS_COLLECTION, itemClaimDocumentId(itemId, userId))),
+    1200,
+    'deleteItemClaimDoc'
+  );
 
   // Backward compatibility: Remove from claimants array on the item document
   try {
     const itemRef = doc(db, ITEMS_COLLECTION, itemId);
-    const itemSnap = await getDoc(itemRef);
-    if (itemSnap.exists()) {
+    const itemSnap = await safeFirestoreWrite(getDoc(itemRef), 1200, 'deleteItemClaimDoc_getDoc');
+    if (itemSnap && itemSnap.exists()) {
       const existing = (itemSnap.data().claimants || []) as Claimant[];
       const filtered = existing.filter((c) => c.userId !== userId);
-      await updateDoc(itemRef, {
-        claimants: filtered
-      });
+      await safeFirestoreWrite(
+        updateDoc(itemRef, {
+          claimants: filtered
+        }),
+        1200,
+        'deleteItemClaimDoc_updateDoc'
+      );
     }
   } catch (err) {
     console.warn('Notice: deleted from item_claims; item claimants array sync warning:', err);
@@ -1307,10 +1346,18 @@ export async function deleteItemClaimDoc(itemId: string, userId: string) {
 }
 
 async function deleteClaimsForItem(itemId: string) {
-  const claims = await getDocs(
-    query(collection(db, ITEM_CLAIMS_COLLECTION), where('itemId', '==', itemId))
+  const claims = await safeFirestoreWrite(
+    getDocs(query(collection(db, ITEM_CLAIMS_COLLECTION), where('itemId', '==', itemId))),
+    1200,
+    'deleteClaimsForItem_getDocs'
   );
-  await Promise.all(claims.docs.map((claimDoc) => deleteDoc(claimDoc.ref)));
+  if (claims && !claims.empty) {
+    await Promise.all(
+      claims.docs.map((claimDoc) =>
+        safeFirestoreWrite(deleteDoc(claimDoc.ref), 1200, 'deleteClaimDoc')
+      )
+    );
+  }
 }
 
 export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>) {
@@ -1340,13 +1387,11 @@ export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>)
   setCachedVaultItems([fullItem, ...currentCached.filter((i) => i.id !== newId)]);
 
   const cleanItem = sanitizeForFirestore(fullItem);
-  try {
-    await setDoc(doc(db, ITEMS_COLLECTION, newId), cleanItem);
-  } catch (err: any) {
-    console.warn('Notice: Failed to setDoc in addVaultItemDoc (failover to local cache & Google Sheets):', err);
-    notifyQuotaExceeded(err);
-    return fullItem;
-  }
+  await safeFirestoreWrite(
+    setDoc(doc(db, ITEMS_COLLECTION, newId), cleanItem),
+    1200,
+    'addVaultItemDoc'
+  );
   return fullItem;
 }
 
@@ -1354,7 +1399,7 @@ export async function updateVaultItemDoc(itemId: string, updates: Partial<VaultI
   try {
     const ref = doc(db, ITEMS_COLLECTION, itemId);
     const cleanUpdates = sanitizeForFirestore(updates);
-    await updateDoc(ref, cleanUpdates);
+    await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateVaultItemDoc');
   } catch (err: any) {
     console.warn('Notice: Failed to update vault item doc in Firestore (failover mode):', err);
     notifyQuotaExceeded(err);
@@ -1382,10 +1427,10 @@ export async function deleteVaultItemDoc(itemId: string) {
   markVaultItemAsDeleted(itemId);
   try {
     try {
-      await deleteClaimsForItem(itemId);
+      safeFirestoreWrite(deleteClaimsForItem(itemId), 1200, 'deleteClaimsForItem');
     } catch {}
     const ref = doc(db, ITEMS_COLLECTION, itemId);
-    await deleteDoc(ref);
+    await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteVaultItemDoc');
   } catch (err: any) {
     console.warn('Notice: Failed to delete vault item doc in Firestore (failover mode):', err);
     notifyQuotaExceeded(err);
@@ -1403,23 +1448,25 @@ export async function clearDistributedVaultItemsDoc(): Promise<number> {
   let firestoreCount = 0;
   const deletedFirestoreIds: string[] = [];
   try {
-    const snap = await getDocs(collection(db, ITEMS_COLLECTION));
-    const batch = writeBatch(db);
-    snap.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (data.status === 'distributed' || Boolean(data.distributedTo?.name || data.distributedTo?.userId)) {
-        batch.delete(docSnap.ref);
-        deletedFirestoreIds.push(docSnap.id);
-        firestoreCount++;
+    const snap = await safeFirestoreWrite(getDocs(collection(db, ITEMS_COLLECTION)), 2000, 'clearDistributed_getDocs');
+    if (snap) {
+      const batch = writeBatch(db);
+      snap.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.status === 'distributed' || Boolean(data.distributedTo?.name || data.distributedTo?.userId)) {
+          batch.delete(docSnap.ref);
+          deletedFirestoreIds.push(docSnap.id);
+          firestoreCount++;
+        }
+      });
+      if (firestoreCount > 0) {
+        await safeFirestoreWrite(batch.commit(), 2000, 'clearDistributed_commit');
+        await Promise.all(
+          snap.docs
+            .filter((itemDoc) => itemDoc.data().status === 'distributed' || Boolean(itemDoc.data().distributedTo?.name || itemDoc.data().distributedTo?.userId))
+            .map((itemDoc) => deleteClaimsForItem(itemDoc.id))
+        );
       }
-    });
-    if (firestoreCount > 0) {
-      await batch.commit();
-      await Promise.all(
-        snap.docs
-          .filter((itemDoc) => itemDoc.data().status === 'distributed' || Boolean(itemDoc.data().distributedTo?.name || itemDoc.data().distributedTo?.userId))
-          .map((itemDoc) => deleteClaimsForItem(itemDoc.id))
-      );
     }
   } catch (err) {
     console.warn('clearDistributedVaultItemsDoc firestore failover:', err);
@@ -1524,13 +1571,11 @@ export async function addQueueItemDoc(item: Omit<QueueItem, 'id' | 'createdAt'>)
   setCachedQueues([fullQueue, ...currentCached.filter((q) => q.id !== newId)]);
 
   const cleanQueue = sanitizeForFirestore(fullQueue);
-  try {
-    await setDoc(doc(db, QUEUES_COLLECTION, newId), cleanQueue);
-  } catch (err: any) {
-    console.warn('Notice: Failed to setDoc in addQueueItemDoc (failover mode):', err);
-    notifyQuotaExceeded(err);
-    return fullQueue;
-  }
+  await safeFirestoreWrite(
+    setDoc(doc(db, QUEUES_COLLECTION, newId), cleanQueue),
+    1200,
+    'addQueueItemDoc'
+  );
   return fullQueue;
 }
 
@@ -1538,7 +1583,7 @@ export async function updateQueueItemDoc(queueId: string, updates: Partial<Queue
   try {
     const ref = doc(db, QUEUES_COLLECTION, queueId);
     const cleanUpdates = sanitizeForFirestore(updates);
-    await updateDoc(ref, cleanUpdates);
+    await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateQueueItemDoc');
   } catch (err: any) {
     console.warn('Notice: Failed to update queue item doc in Firestore (failover mode):', err);
     notifyQuotaExceeded(err);
@@ -1550,7 +1595,7 @@ export async function deleteQueueItemDoc(queueId: string) {
   markQueueItemAsDeleted(queueId);
   try {
     const ref = doc(db, QUEUES_COLLECTION, queueId);
-    await deleteDoc(ref);
+    await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteQueueItemDoc');
   } catch (err: any) {
     console.warn('Notice: Failed to delete queue item doc in Firestore (failover mode):', err);
     notifyQuotaExceeded(err);
@@ -1563,15 +1608,17 @@ export async function clearAllQueuesDoc(): Promise<number> {
   let firestoreCount = 0;
   const deletedFirestoreIds: string[] = [];
   try {
-    const snap = await getDocs(collection(db, QUEUES_COLLECTION));
-    const batch = writeBatch(db);
-    snap.forEach((docSnap) => {
-      batch.delete(docSnap.ref);
-      deletedFirestoreIds.push(docSnap.id);
-      firestoreCount++;
-    });
-    if (firestoreCount > 0) {
-      await batch.commit();
+    const snap = await safeFirestoreWrite(getDocs(collection(db, QUEUES_COLLECTION)), 2000, 'clearAllQueues_getDocs');
+    if (snap) {
+      const batch = writeBatch(db);
+      snap.forEach((docSnap) => {
+        batch.delete(docSnap.ref);
+        deletedFirestoreIds.push(docSnap.id);
+        firestoreCount++;
+      });
+      if (firestoreCount > 0) {
+        await safeFirestoreWrite(batch.commit(), 2000, 'clearAllQueues_commit');
+      }
     }
   } catch (err) {
     console.warn('clearAllQueuesDoc firestore failover:', err);
@@ -1669,22 +1716,20 @@ export async function addQuickItemDoc(item: Omit<QuickItem, 'id' | 'createdAt'>)
     imageUrl: (item.imageUrl && item.imageUrl.trim().length > 0) ? item.imageUrl : fallbackImg,
     createdAt: Date.now()
   };
-  try {
-    await setDoc(doc(db, QUICK_ITEMS_COLLECTION, newId), fullItem);
-  } catch (err) {
-    console.error('Firestore setDoc error in addQuickItemDoc:', err);
-    throw err;
-  }
+  await safeFirestoreWrite(
+    setDoc(doc(db, QUICK_ITEMS_COLLECTION, newId), fullItem),
+    1200,
+    'addQuickItemDoc'
+  );
   return fullItem;
 }
 
 export async function deleteQuickItemDoc(itemId: string) {
   try {
     const ref = doc(db, QUICK_ITEMS_COLLECTION, itemId);
-    await deleteDoc(ref);
+    await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteQuickItemDoc');
   } catch (err) {
     console.error('Firestore deleteDoc error in deleteQuickItemDoc:', err);
-    throw err;
   }
 }
 
@@ -1697,10 +1742,9 @@ export async function updateQuickItemDoc(itemId: string, updates: Partial<Omit<Q
     if (updates.imageUrl !== undefined && updates.imageUrl.trim().length > 0) {
       cleanUpdates.imageUrl = updates.imageUrl;
     }
-    await updateDoc(ref, cleanUpdates);
+    await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateQuickItemDoc');
   } catch (err) {
     console.error('Firestore updateDoc error in updateQuickItemDoc:', err);
-    throw err;
   }
 }
 
@@ -1750,12 +1794,11 @@ export async function addClanDoc(clan: { name: string; color?: string; order?: n
     order: clan.order ?? 99
   };
   const cleanClan = sanitizeForFirestore(fullClan);
-  try {
-    await setDoc(doc(db, CLANS_COLLECTION, newId), cleanClan);
-  } catch (err) {
-    console.error('Failed to setDoc in addClanDoc:', err);
-    throw err;
-  }
+  await safeFirestoreWrite(
+    setDoc(doc(db, CLANS_COLLECTION, newId), cleanClan),
+    1200,
+    'addClanDoc'
+  );
   return fullClan;
 }
 
@@ -1766,20 +1809,18 @@ export async function updateClanDoc(clanId: string, updates: Partial<ClanGroup>)
       ...updates,
       ...(updates.name ? { name: cleanClanName(updates.name) } : {})
     });
-    await setDoc(ref, sanitized, { merge: true });
+    await safeFirestoreWrite(setDoc(ref, sanitized, { merge: true }), 1200, 'updateClanDoc');
   } catch (err) {
     console.error('Failed to update clan doc:', err);
-    throw err;
   }
 }
 
 export async function deleteClanDoc(clanId: string) {
   try {
     const ref = doc(db, CLANS_COLLECTION, clanId);
-    await deleteDoc(ref);
+    await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteClanDoc');
   } catch (err) {
     console.error('Failed to delete clan doc:', err);
-    throw err;
   }
 }
 
@@ -1830,37 +1871,37 @@ export async function addDiamondTransactionDoc(record: Omit<DiamondVaultRecord, 
     timestamp: Date.now()
   };
   const cleanRecord = sanitizeForFirestore(fullRecord);
-  try {
-    await setDoc(doc(db, VAULT_COLLECTION, newId), cleanRecord);
-  } catch (err: any) {
-    console.error('Failed to setDoc in addDiamondTransactionDoc:', err);
-    notifyQuotaExceeded(err);
-    const msg = (err?.message || '').toLowerCase();
-    if (msg.includes('quota') || msg.includes('resource-exhausted') || err?.code === 'resource-exhausted') {
-      return fullRecord;
-    }
-    throw err;
-  }
+  await safeFirestoreWrite(
+    setDoc(doc(db, VAULT_COLLECTION, newId), cleanRecord),
+    1200,
+    'addDiamondTransactionDoc'
+  );
   return fullRecord;
 }
 
 export async function updateDiamondTransactionNoteDoc(recordId: string, note: string): Promise<void> {
   try {
-    await updateDoc(doc(db, VAULT_COLLECTION, recordId), {
-      note: note || ''
-    });
+    await safeFirestoreWrite(
+      updateDoc(doc(db, VAULT_COLLECTION, recordId), {
+        note: note || ''
+      }),
+      1200,
+      'updateDiamondTransactionNoteDoc'
+    );
   } catch (err) {
     console.error('Failed to updateDiamondTransactionNoteDoc:', err);
-    throw err;
   }
 }
 
 export async function deleteDiamondTransactionDoc(recordId: string): Promise<void> {
   try {
-    await deleteDoc(doc(db, VAULT_COLLECTION, recordId));
+    await safeFirestoreWrite(
+      deleteDoc(doc(db, VAULT_COLLECTION, recordId)),
+      1200,
+      'deleteDiamondTransactionDoc'
+    );
   } catch (err) {
     console.error('Failed to deleteDiamondTransactionDoc:', err);
-    throw err;
   }
 }
 
@@ -1906,13 +1947,8 @@ export async function saveBackgroundSettingsDoc(settings: BackgroundSettingsData
     ...settings,
     updatedAt: Date.now()
   });
-  try {
-    const ref = doc(db, APP_SETTINGS_COLLECTION, 'background');
-    await setDoc(ref, cleanData, { merge: true });
-  } catch (err: any) {
-    console.warn('Notice: Failed to save background settings to Firestore (saved locally):', err);
-    notifyQuotaExceeded(err);
-  }
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'background');
+  await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveBackgroundSettingsDoc');
 }
 
 // 8. Guild Ticker Announcement (Running Text at Top of App)
@@ -1966,13 +2002,8 @@ export async function saveAnnouncementSettingsDoc(settings: AnnouncementSettings
     ...settings,
     updatedAt: Date.now()
   });
-  try {
-    const ref = doc(db, APP_SETTINGS_COLLECTION, 'announcement');
-    await setDoc(ref, cleanData, { merge: true });
-  } catch (err: any) {
-    console.warn('Notice: Failed to save announcement to Firestore (saved locally):', err);
-    notifyQuotaExceeded(err);
-  }
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'announcement');
+  await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveAnnouncementSettingsDoc');
 }
 
 // 9. Discord Webhook Integration Settings
@@ -2071,13 +2102,8 @@ export async function saveDiscordSettingsDoc(settings: DiscordSettings) {
     webhookUrl: targetWebhook,
     updatedAt: Date.now()
   });
-  try {
-    const ref = doc(db, APP_SETTINGS_COLLECTION, 'discord');
-    await setDoc(ref, cleanData, { merge: true });
-  } catch (err: any) {
-    console.warn('Notice: Failed to save discord settings to Firestore (saved locally):', err);
-    notifyQuotaExceeded(err);
-  }
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'discord');
+  await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveDiscordSettingsDoc');
 }
 
 // 10. Guild Character Classes (Dynamic Management for Owner)
@@ -2129,13 +2155,8 @@ export async function saveCharacterClassesDoc(classes: string[], updatedBy?: str
     updatedAt: Date.now(),
     updatedBy: updatedBy || 'Owner'
   });
-  try {
-    const ref = doc(db, APP_SETTINGS_COLLECTION, 'character_classes');
-    await setDoc(ref, cleanData, { merge: true });
-  } catch (err) {
-    console.error('Failed to save character classes to Firestore:', err);
-    throw err;
-  }
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'character_classes');
+  await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveCharacterClassesDoc');
 }
 
 // Secrets must never be compiled into the public browser bundle.
@@ -2194,11 +2215,15 @@ export function listenToGeminiAiSettings(
 export async function saveGeminiAiSettingsDoc(apiKey: string, updatedBy?: string) {
   const cleanKey = apiKey.trim();
   const ref = doc(db, APP_SETTINGS_COLLECTION, 'gemini_ai');
-  await setDoc(ref, {
-    apiKey: cleanKey,
-    updatedAt: Date.now(),
-    updatedBy: updatedBy || 'owner'
-  }, { merge: true });
+  await safeFirestoreWrite(
+    setDoc(ref, {
+      apiKey: cleanKey,
+      updatedAt: Date.now(),
+      updatedBy: updatedBy || 'owner'
+    }, { merge: true }),
+    1200,
+    'saveGeminiAiSettingsDoc'
+  );
 
   if (typeof window !== 'undefined') {
     try {
@@ -2236,13 +2261,8 @@ export async function saveFormulaSettingsDoc(settings: FormulaSettings) {
     ...settings,
     updatedAt: Date.now()
   });
-  try {
-    const ref = doc(db, APP_SETTINGS_COLLECTION, 'power_formula');
-    await setDoc(ref, cleanData, { merge: true });
-  } catch (err: any) {
-    console.warn('Notice: Failed to save power_formula to Firestore (saved locally):', err);
-    notifyQuotaExceeded(err);
-  }
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'power_formula');
+  await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveFormulaSettingsDoc');
 }
 
 export async function resetAllUserStatsDoc(): Promise<number> {
