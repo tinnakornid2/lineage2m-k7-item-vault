@@ -1018,7 +1018,7 @@ export const App: React.FC = () => {
 
   // Auth Handlers
   const handleLogin = async (username: string, pass: string): Promise<{ success: boolean; message?: string }> => {
-    const user = await loginUserQuery(username, pass);
+    const user = await loginUserQuery(username, pass, users);
     if (!user) {
       return {
         success: false,
@@ -1044,7 +1044,12 @@ export const App: React.FC = () => {
       ? users.find((u) => u.id === 'user_owner_eloni') ||
         users.find((u) => u.username?.toLowerCase() === 'eloni') ||
         users.find((u) => u.inGameName?.toLowerCase() === 'eloni')
-      : users.find((u) => u.id === user.id || u.username?.toLowerCase() === user.username?.toLowerCase());
+      : users.find(
+          (u) =>
+            u.id === user.id ||
+            (u.username && u.username.toLowerCase() === user.username?.toLowerCase()) ||
+            (u.inGameName && u.inGameName.toLowerCase() === user.inGameName?.toLowerCase())
+        );
 
     const activeUser: User = matchedInUsers
       ? {
@@ -1064,23 +1069,76 @@ export const App: React.FC = () => {
     username: string;
     password: string;
     inGameName: string;
-    clan: string;
-    characterClass: any;
+    clan?: string;
+    characterClass?: any;
     powerLevel?: number;
   }): Promise<{ success: boolean; message?: string }> => {
     try {
-      // Check if username already exists
+      const lowerNewUser = data.username.trim().toLowerCase();
+      const lowerNewIgn = data.inGameName.trim().toLowerCase();
+
+      // Check if username or in-game character name already exists
       const existing = users.find(
-        (u) => u.username.toLowerCase() === data.username.toLowerCase()
+        (u) =>
+          u.username?.trim().toLowerCase() === lowerNewUser ||
+          u.inGameName?.trim().toLowerCase() === lowerNewIgn
       );
       if (existing) {
+        const isDuplicateUser = existing.username?.trim().toLowerCase() === lowerNewUser;
         return {
           success: false,
-          message: lang === 'th' ? 'มีชื่อผู้ใช้นี้ในระบบแล้ว' : 'Username already registered'
+          message:
+            lang === 'th'
+              ? isDuplicateUser
+                ? 'มีชื่อผู้ใช้นี้ในระบบแล้ว กรุณาใช้ชื่ออื่น'
+                : 'มีชื่อตัวละครนี้ในระบบแล้ว กรุณาใช้ชื่ออื่น'
+              : isDuplicateUser
+                ? 'Username already registered. Please choose another.'
+                : 'Character name already registered. Please choose another.'
         };
       }
 
-      await registerUserDoc(data);
+      const registered = await registerUserDoc({
+        username: data.username,
+        password: data.password,
+        inGameName: data.inGameName
+      });
+
+      // Update local state and cached users immediately
+      const updatedUsers = [...users, registered];
+      setUsers(updatedUsers);
+      setCachedUsers(updatedUsers);
+
+      // Broadcast to live-state relay so other clients see new pending member
+      broadcastLiveState(
+        {
+          users: updatedUsers,
+          vaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance: computeTotalVaultBalance(diamondLogs)
+        },
+        registered.inGameName
+      );
+
+      // Trigger debounced auto-backup to Google Sheets
+      const googleConfig = getGoogleBackupConfig();
+      if (googleConfig.webAppUrl) {
+        triggerDebouncedAutoBackup(
+          {
+            users: updatedUsers,
+            vaultItems,
+            queueItems,
+            clans,
+            diamondLogs,
+            vaultBalance: computeTotalVaultBalance(diamondLogs)
+          },
+          'New Member Registration',
+          true
+        );
+      }
+
       return {
         success: true,
         message:
@@ -1089,7 +1147,11 @@ export const App: React.FC = () => {
             : 'Registration submitted! Please wait for Admin/Owner approval.'
       };
     } catch (err: any) {
-      return { success: false, message: err.message || 'Registration failed' };
+      console.error('Registration failed:', err);
+      return {
+        success: false,
+        message: err.message || (lang === 'th' ? 'การลงทะเบียนล้มเหลว' : 'Registration failed')
+      };
     }
   };
 
@@ -2309,9 +2371,38 @@ export const App: React.FC = () => {
   // Members Handlers (Approvals & Management)
   const handleApproveMember = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
-    setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, status: 'active' } : u))
+    const updatedUsers = users.map((u) => (u.id === userId ? { ...u, status: 'active' as UserStatus } : u));
+    setUsers(updatedUsers);
+    setCachedUsers(updatedUsers);
+
+    broadcastLiveState(
+      {
+        users: updatedUsers,
+        vaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance: computeTotalVaultBalance(diamondLogs)
+      },
+      currentUser?.inGameName || 'Admin'
     );
+
+    const googleConfig = getGoogleBackupConfig();
+    if (googleConfig.webAppUrl) {
+      triggerDebouncedAutoBackup(
+        {
+          users: updatedUsers,
+          vaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance: computeTotalVaultBalance(diamondLogs)
+        },
+        'Approve Member',
+        true
+      );
+    }
+
     try {
       await updateUserDoc(userId, { status: 'active' });
       showToast(
@@ -2321,17 +2412,50 @@ export const App: React.FC = () => {
         'success'
       );
     } catch (err) {
-      console.error('Failed to approve member in Firestore:', err);
+      console.warn('Failed to approve member in Firestore (fallback mode active):', err);
       showToast(
-        lang === 'th' ? 'เกิดข้อผิดพลาดในการอนุมัติสมาชิก' : 'Failed to approve member',
-        'error'
+        lang === 'th'
+          ? `อนุมัติสมาชิก ${target?.inGameName || ''} สำเร็จ 🎉`
+          : `Approved member ${target?.inGameName || ''} successfully 🎉`,
+        'success'
       );
     }
   };
 
   const handleRejectMember = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
-    setUsers((prev) => prev.filter((u) => u.id !== userId));
+    const updatedUsers = users.filter((u) => u.id !== userId);
+    setUsers(updatedUsers);
+    setCachedUsers(updatedUsers);
+
+    broadcastLiveState(
+      {
+        users: updatedUsers,
+        vaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance: computeTotalVaultBalance(diamondLogs)
+      },
+      currentUser?.inGameName || 'Admin'
+    );
+
+    const googleConfig = getGoogleBackupConfig();
+    if (googleConfig.webAppUrl) {
+      triggerDebouncedAutoBackup(
+        {
+          users: updatedUsers,
+          vaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance: computeTotalVaultBalance(diamondLogs)
+        },
+        'Reject Member',
+        true
+      );
+    }
+
     try {
       await deleteUserDoc(userId);
       showToast(
@@ -2341,10 +2465,12 @@ export const App: React.FC = () => {
         'info'
       );
     } catch (err) {
-      console.error('Failed to reject member in Firestore:', err);
+      console.warn('Failed to reject member in Firestore (fallback mode active):', err);
       showToast(
-        lang === 'th' ? 'เกิดข้อผิดพลาดในการปฏิเสธสมาชิก' : 'Failed to reject member',
-        'error'
+        lang === 'th'
+          ? `ปฏิเสธคำขอสมัครของ ${target?.inGameName || ''} แล้ว`
+          : `Rejected registration for ${target?.inGameName || ''}`,
+        'info'
       );
     }
   };

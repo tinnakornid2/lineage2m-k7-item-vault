@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Lock,
-  User,
+  User as UserIcon,
   Shield,
   Swords,
   CheckCircle2,
@@ -15,7 +15,7 @@ import {
   Users,
   Zap
 } from 'lucide-react';
-import { Language } from '../types';
+import { Language, User, ClanGroup } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { registrationErrorMessage, validateRegistration } from '../utils/registration';
@@ -31,6 +31,8 @@ interface LoginScreenProps {
     password: string;
     inGameName: string;
   }) => Promise<{ success: boolean; message?: string }>;
+  users?: User[];
+  clans?: ClanGroup[];
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
@@ -39,7 +41,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   soundEnabled,
   onToggleSound,
   onLogin,
-  onRegister
+  onRegister,
+  users = [],
+  clans = []
 }) => {
   const t = translations[lang];
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -80,8 +84,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       } else {
         sounds.playClaim();
       }
-    } catch {
-      setLoginError(t.error);
+    } catch (err: any) {
+      setLoginError(err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ' : 'Login failed. Please try again.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -129,8 +133,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       } else {
         setRegError(result.message || t.error);
       }
-    } catch {
-      setRegError(t.error);
+    } catch (err: any) {
+      setRegError(err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการลงทะเบียน' : 'Registration failed. Please try again.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -276,10 +280,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               {/* Username Input */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  {t.username}
+                  {lang === 'th' ? 'ชื่อผู้ใช้ หรือ ชื่อตัวละครในเกม (IGN)' : 'Username or In-Game Name (IGN)'}
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     id="input-login-username"
                     type="text"
@@ -292,7 +296,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                         handleLoginSubmit(e);
                       }
                     }}
-                    placeholder={lang === 'th' ? 'กรอกชื่อผู้ใช้...' : 'Enter username...'}
+                    placeholder={lang === 'th' ? 'กรอกชื่อผู้ใช้ หรือชื่อตัวละคร (IGN)...' : 'Enter username or character name...'}
                     className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-[#090d16] border border-slate-700/80 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none transition-all placeholder:text-slate-600 shadow-inner"
                     autoComplete="username"
                   />

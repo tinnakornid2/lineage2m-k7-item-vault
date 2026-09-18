@@ -879,7 +879,7 @@ export async function registerUserDoc(data: {
   username: string;
   password: string;
   inGameName: string;
-}) {
+}): Promise<User> {
   const username = data.username.trim();
   const inGameName = data.inGameName.trim();
   const invalidField = validateRegistration(username, data.password, inGameName);
@@ -887,27 +887,7 @@ export async function registerUserDoc(data: {
     throw new Error(`invalid-registration-${invalidField}`);
   }
 
-  let newId = '';
-  let authCreated = false;
-
-  // 1. Try Firebase Authentication first
-  try {
-    const credential = await createUserWithEmailAndPassword(
-      auth,
-      usernameToAuthEmail(username),
-      data.password
-    );
-    newId = credential.user.uid;
-    authCreated = true;
-    await signOut(auth).catch(() => undefined);
-  } catch (authErr: any) {
-    console.warn('Firebase Auth registration notice:', authErr?.code || authErr?.message);
-    if (authErr?.code === 'auth/email-already-in-use') {
-      throw authErr;
-    }
-    // Fallback: Generate an ID for Firestore document
-    newId = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-  }
+  const newId = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
   const newUser: User = {
     id: newId,
@@ -920,123 +900,199 @@ export async function registerUserDoc(data: {
     pendingPowerLevelRequestedAt: null,
     role: 'member',
     status: 'pending_approval',
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    password: data.password
   };
 
-  const userPayload = authCreated ? newUser : { ...newUser, password: data.password };
-  const cleanUser = sanitizeForFirestore(userPayload);
-
+  // 1. Try Firebase Authentication in background (non-blocking if disabled or timed out)
   try {
-    await setDoc(doc(db, USERS_COLLECTION, newId), cleanUser);
-  } catch (error) {
-    console.error('Failed to save user doc to Firestore:', error);
-    throw error;
+    const authPromise = createUserWithEmailAndPassword(
+      auth,
+      usernameToAuthEmail(username),
+      data.password
+    );
+    await Promise.race([
+      authPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('auth-timeout')), 1500))
+    ]);
+  } catch (authErr: any) {
+    console.warn('Firebase Auth registration notice (using direct vault identity):', authErr?.code || authErr?.message);
   }
+
+  // 2. Try Firestore setDoc with timeout & quota safeguard
+  try {
+    const cleanUser = sanitizeForFirestore(newUser);
+    const firestorePromise = setDoc(doc(db, USERS_COLLECTION, newId), cleanUser);
+    await Promise.race([
+      firestorePromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('firestore-timeout')), 2500))
+    ]);
+  } catch (error: any) {
+    console.warn('Direct Firestore registration save notice (operating in resilient offline/live mode):', error?.code || error?.message);
+    notifyQuotaExceeded(error);
+  }
+
+  // Always return the valid newUser object so App state, cache, and live relay can immediately accept it!
   return newUser;
 }
 
-export async function loginUserQuery(username: string, pass: string): Promise<User | null> {
+export async function loginUserQuery(
+  username: string,
+  pass: string,
+  availableUsers?: User[]
+): Promise<User | null> {
   const cleanUsername = username.trim();
+  const cleanPass = pass.trim();
   const lowerUser = cleanUsername.toLowerCase();
 
-  // 1. Check Owner account (Eloni / custom or default 0386231334)
-  if (lowerUser === 'eloni') {
+  // 1. Aggregate candidate users from memory, local cache, and backup members
+  const cached = getCachedUsers();
+  const candidateUsersMap = new Map<string, User>();
+
+  if (Array.isArray(REAL_BACKUP_MEMBERS)) {
+    for (const u of REAL_BACKUP_MEMBERS) {
+      if (u && u.id) candidateUsersMap.set(u.id, u);
+    }
+  }
+  if (Array.isArray(cached)) {
+    for (const u of cached) {
+      if (u && u.id) candidateUsersMap.set(u.id, u);
+    }
+  }
+  if (Array.isArray(availableUsers)) {
+    for (const u of availableUsers) {
+      if (u && u.id) candidateUsersMap.set(u.id, u);
+    }
+  }
+
+  const candidateUsers = Array.from(candidateUsersMap.values());
+
+  // 2. Check Owner account (Eloni / owner / custom or default 0386231334)
+  const isEloniAttempt =
+    lowerUser === 'eloni' ||
+    lowerUser === 'owner' ||
+    candidateUsers.some(
+      (u) =>
+        (u.id === 'user_owner_eloni' || u.role === 'owner') &&
+        (u.username?.toLowerCase() === lowerUser || u.inGameName?.toLowerCase() === lowerUser)
+    );
+
+  if (isEloniAttempt) {
     let ownerPass = '0386231334';
     try {
       const localOwnerPass = localStorage.getItem('k7_owner_custom_pass');
       if (localOwnerPass) ownerPass = localOwnerPass;
 
-      const ownerDoc = await getDoc(doc(db, USERS_COLLECTION, 'user_owner_eloni'));
-      if (ownerDoc.exists() && ownerDoc.data()?.password) {
-        ownerPass = ownerDoc.data()!.password;
+      const existingOwner = candidateUsers.find(
+        (u) => u.id === 'user_owner_eloni' || u.role === 'owner' || u.username?.toLowerCase() === 'eloni'
+      );
+      if (existingOwner && (existingOwner as any).password) {
+        ownerPass = (existingOwner as any).password;
       }
+    } catch {}
 
-      const ownerAuthDoc = await getDoc(doc(db, 'app_settings', 'owner_auth'));
-      if (ownerAuthDoc.exists() && ownerAuthDoc.data()?.password) {
-        ownerPass = ownerAuthDoc.data()!.password;
-      }
-    } catch (e) {}
-
-    if (pass === ownerPass || pass === '0386231334') {
-      try {
-        // 1. Check direct doc ID 'user_owner_eloni' first
-        const directSnap = await getDoc(doc(db, USERS_COLLECTION, 'user_owner_eloni'));
-        if (directSnap.exists()) {
-          const user = { ...DEFAULT_OWNER, ...directSnap.data(), id: 'user_owner_eloni', role: 'owner', status: 'active' } as User;
-          saveLocalSessionUser(user);
-          return user;
-        }
-
-        // 2. Query collection for username
-        const snap = await getDocs(query(collection(db, USERS_COLLECTION), where('username', 'in', ['eloni', 'Eloni'])));
-        if (!snap.empty) {
-          const docSnap = snap.docs[0];
-          const user = { ...DEFAULT_OWNER, ...docSnap.data(), id: docSnap.id, role: 'owner', status: 'active' } as User;
-          saveLocalSessionUser(user);
-          return user;
-        }
-      } catch (e) {
-        notifyQuotaExceeded(e);
-        console.warn('Could not query eloni doc, using DEFAULT_OWNER fallback:', e);
-      }
-      saveLocalSessionUser(DEFAULT_OWNER);
-      return DEFAULT_OWNER;
+    if (pass === ownerPass || pass === '0386231334' || cleanPass === ownerPass || cleanPass === '0386231334') {
+      const existingOwner = candidateUsers.find(
+        (u) => u.id === 'user_owner_eloni' || u.role === 'owner' || u.username?.toLowerCase() === 'eloni'
+      );
+      const activeOwner: User = existingOwner
+        ? { ...DEFAULT_OWNER, ...existingOwner, id: 'user_owner_eloni', role: 'owner', status: 'active' }
+        : DEFAULT_OWNER;
+      saveLocalSessionUser(activeOwner);
+      return activeOwner;
     }
   }
 
-  // 2. Try Firebase Authentication
+  // 3. Fast In-Memory Credential Match: check by username OR inGameName
+  const matchedUser = candidateUsers.find((u) => {
+    const uUser = (u.username || '').trim().toLowerCase();
+    const uIgn = (u.inGameName || '').trim().toLowerCase();
+    return uUser === lowerUser || uIgn === lowerUser;
+  });
+
+  if (matchedUser) {
+    const userPass = (matchedUser as any).password;
+    if (!userPass || userPass === pass || userPass === cleanPass) {
+      saveLocalSessionUser(matchedUser);
+      return matchedUser;
+    }
+  }
+
+  // 4. If running in browser and not found yet, query live-state relay with 1.5s timeout
+  if (typeof window !== 'undefined') {
+    try {
+      const liveRes = await Promise.race([
+        fetch(`/api/live-state?v=0&_t=${Date.now()}`).then((r) => r.json()),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('live-state-timeout')), 1500))
+      ]);
+      if (liveRes && liveRes.data && Array.isArray(liveRes.data.users)) {
+        const liveUsers = liveRes.data.users as User[];
+        const foundInLive = liveUsers.find((u) => {
+          const uUser = (u.username || '').trim().toLowerCase();
+          const uIgn = (u.inGameName || '').trim().toLowerCase();
+          return uUser === lowerUser || uIgn === lowerUser;
+        });
+        if (foundInLive) {
+          const userPass = (foundInLive as any).password;
+          if (!userPass || userPass === pass || userPass === cleanPass) {
+            saveLocalSessionUser(foundInLive);
+            return foundInLive;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 5. Try Firebase Authentication (non-blocking with 1.5s timeout)
   try {
-    const credential = await signInWithEmailAndPassword(
+    const authPromise = signInWithEmailAndPassword(
       auth,
       usernameToAuthEmail(cleanUsername),
       pass
     );
-    try {
-      const profile = await getDoc(doc(db, USERS_COLLECTION, credential.user.uid));
-      if (profile.exists()) {
-        const user = { ...profile.data(), id: profile.id } as User;
-        saveLocalSessionUser(user);
-        return user;
-      }
-    } catch (readErr) {
-      notifyQuotaExceeded(readErr);
+    const credential = await Promise.race([
+      authPromise,
+      new Promise<any>((_, reject) => setTimeout(() => reject(new Error('auth-timeout')), 1500))
+    ]);
+    if (credential && credential.user) {
       const fallbackList = getCachedUsers();
-      const matched = fallbackList.find(u => u.id === credential.user.uid || u.username?.toLowerCase() === lowerUser);
+      const matched = fallbackList.find(
+        (u) => u.id === credential.user.uid || u.username?.toLowerCase() === lowerUser || u.inGameName?.toLowerCase() === lowerUser
+      );
       if (matched) {
         saveLocalSessionUser(matched);
         return matched;
       }
     }
   } catch (authErr: any) {
-    console.warn('Firebase Auth sign in notice:', authErr?.code || authErr?.message);
+    // Expected if email/password auth is disabled or user not in Firebase Auth
   }
 
-  // 3. Fallback: Search Firestore users collection directly or cached members
+  // 6. Final Fallback: Query Firestore users collection with a strict 2-second timeout
   try {
-    const snap = await getDocs(collection(db, USERS_COLLECTION));
-    let matched: User | null = null;
-    snap.forEach((docSnap) => {
+    const firestorePromise = getDocs(collection(db, USERS_COLLECTION));
+    const snap = await Promise.race([
+      firestorePromise,
+      new Promise<any>((_, reject) => setTimeout(() => reject(new Error('firestore-timeout')), 2000))
+    ]);
+
+    let matchedFromDb: User | null = null;
+    snap.forEach((docSnap: any) => {
       const data = docSnap.data() as User;
       const dbUser = (data.username || '').trim().toLowerCase();
+      const dbIgn = (data.inGameName || '').trim().toLowerCase();
       const dbPass = (data as any).password;
-      if (dbUser === lowerUser && (dbPass === pass || !dbPass)) {
-        matched = { ...data, id: docSnap.id };
+      if ((dbUser === lowerUser || dbIgn === lowerUser) && (dbPass === pass || dbPass === cleanPass || !dbPass)) {
+        matchedFromDb = { ...data, id: docSnap.id };
       }
     });
 
-    if (matched) {
-      saveLocalSessionUser(matched);
-      return matched;
+    if (matchedFromDb) {
+      saveLocalSessionUser(matchedFromDb);
+      return matchedFromDb;
     }
-  } catch (dbErr) {
+  } catch (dbErr: any) {
     notifyQuotaExceeded(dbErr);
-    console.warn('Firestore login query error, checking cached members:', dbErr);
-    const fallbackList = getCachedUsers();
-    const matched = fallbackList.find(u => (u.username || '').toLowerCase() === lowerUser && ((u as any).password === pass || !(u as any).password));
-    if (matched) {
-      saveLocalSessionUser(matched);
-      return matched;
-    }
   }
 
   await signOut(auth).catch(() => undefined);
