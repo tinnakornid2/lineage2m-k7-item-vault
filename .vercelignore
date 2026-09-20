@@ -1,0 +1,8 @@
+backups/
+data/hub-live-state.json
+src/data/offlineMembersData.ts
+tests/
+work/
+*.log
+.env*
+firebase-service-account*.json

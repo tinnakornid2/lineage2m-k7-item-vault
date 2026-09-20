@@ -1,6 +1,8 @@
 import {
   User,
   VaultItem,
+  QuickItem,
+  GeneralItem,
   QueueItem,
   ClanGroup,
   DiamondVaultRecord,
@@ -24,6 +26,8 @@ export interface GoogleBackupConfig {
 export interface BackupDataPayload {
   users: User[];
   vaultItems: VaultItem[];
+  quickItems?: QuickItem[];
+  generalItems?: GeneralItem[];
   queueItems: QueueItem[];
   clans: ClanGroup[];
   diamondLogs: DiamondVaultRecord[];
@@ -33,6 +37,16 @@ export interface BackupDataPayload {
   backgroundSettings?: BackgroundSettingsData | null;
   discordSettings?: DiscordSettings | null;
   googleBackupConfig?: Partial<GoogleBackupConfig> | null;
+}
+
+function sanitizePayloadForGoogle(payload: BackupDataPayload): BackupDataPayload {
+  return {
+    ...payload,
+    users: payload.users.map(({ password: _password, ...user }) => user as User),
+    discordSettings: payload.discordSettings
+      ? { ...payload.discordSettings, webhookUrl: '' }
+      : payload.discordSettings
+  };
 }
 
 const CONFIG_KEY = 'l2m_google_backup_config';
@@ -223,21 +237,24 @@ export async function backupAllDataToGoogleSheets(
   saveGoogleBackupConfig({ lastStatus: 'syncing', lastMessage: 'Backing up data...' });
 
   try {
+    const safePayload = sanitizePayloadForGoogle(payload);
     const postBody = {
       action: 'backup_all',
       performedBy,
       vaultBalance: payload.vaultBalance,
       data: {
-        users: payload.users,
-        vaultItems: normalizeVaultItemsList(payload.vaultItems),
-        queueItems: payload.queueItems,
-        clans: payload.clans,
-        diamondLogs: payload.diamondLogs,
-        formulaSettings: payload.formulaSettings,
-        announcementSettings: payload.announcementSettings,
-        backgroundSettings: payload.backgroundSettings,
-        discordSettings: payload.discordSettings,
-        googleBackupConfig: payload.googleBackupConfig
+        users: safePayload.users,
+        vaultItems: normalizeVaultItemsList(safePayload.vaultItems),
+        quickItems: safePayload.quickItems || [],
+        generalItems: safePayload.generalItems || [],
+        queueItems: safePayload.queueItems,
+        clans: safePayload.clans,
+        diamondLogs: safePayload.diamondLogs,
+        formulaSettings: safePayload.formulaSettings,
+        announcementSettings: safePayload.announcementSettings,
+        backgroundSettings: safePayload.backgroundSettings,
+        discordSettings: safePayload.discordSettings,
+        googleBackupConfig: safePayload.googleBackupConfig
       }
     };
 
@@ -270,7 +287,7 @@ export async function backupAllDataToGoogleSheets(
       // Cache snapshot locally as emergency fast fallback
       try {
         localStorage.setItem(CACHE_KEY, JSON.stringify({
-          data: payload,
+          data: safePayload,
           timestamp: now
         }));
       } catch (e) {}
@@ -332,6 +349,8 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
       const parsedData: BackupDataPayload = {
         users: Array.isArray(json.data.users) ? json.data.users : [],
         vaultItems: normalizeVaultItemsList(Array.isArray(json.data.vaultItems) ? json.data.vaultItems : []),
+        quickItems: Array.isArray(json.data.quickItems) ? json.data.quickItems : [],
+        generalItems: Array.isArray(json.data.generalItems) ? json.data.generalItems : [],
         queueItems: Array.isArray(json.data.queueItems) ? json.data.queueItems : [],
         clans: Array.isArray(json.data.clans) ? json.data.clans : [],
         diamondLogs: Array.isArray(json.data.diamondLogs) ? json.data.diamondLogs : [],

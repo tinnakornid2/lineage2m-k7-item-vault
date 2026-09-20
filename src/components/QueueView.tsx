@@ -27,12 +27,14 @@ import {
   QueueItem,
   QueueMember,
   QuickItem,
+  GeneralItem,
   User,
   cleanClanName,
   DEFAULT_CLAN
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { GeneralItemQueueCard } from './GeneralItemQueueCard';
 
 interface QueueViewProps {
   lang: Language;
@@ -40,6 +42,10 @@ interface QueueViewProps {
   allMembers: User[];
   queueItems: QueueItem[];
   quickItems: QuickItem[];
+  generalItems: GeneralItem[];
+  onAddGeneralItem: (item: Omit<GeneralItem, 'id' | 'createdAt'>) => Promise<void>;
+  onUpdateGeneralItem: (id: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => Promise<void>;
+  onDeleteGeneralItem: (id: string) => Promise<void>;
   onOpenQuickItemsModal?: () => void;
   onCreateQueueItem: (item: Omit<QueueItem, 'id' | 'createdAt'>) => Promise<void>;
   onDeleteQueueItem: (queueId: string) => Promise<void>;
@@ -56,6 +62,10 @@ export const QueueView: React.FC<QueueViewProps> = ({
   allMembers,
   queueItems,
   quickItems,
+  generalItems,
+  onAddGeneralItem,
+  onUpdateGeneralItem,
+  onDeleteGeneralItem,
   onOpenQuickItemsModal,
   onCreateQueueItem,
   onDeleteQueueItem,
@@ -349,9 +359,17 @@ export const QueueView: React.FC<QueueViewProps> = ({
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
+      <nav className="flex flex-wrap gap-2 rounded-2xl border border-slate-800 bg-[#090e18] p-2" aria-label={lang === 'th' ? 'เมนูจัดการคิว' : 'Queue management menu'}>
+        <a href="#general-item-queue" className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2 text-xs font-black text-white shadow-lg">{lang === 'th' ? 'คิวไอเทมทั่วไป' : 'General Item Queue'}</a>
+        <a href="#boss-item-queue" className="rounded-xl border border-[#d4af37]/40 bg-[#171d29] px-4 py-2 text-xs font-black text-[#f5d77f]">{lang === 'th' ? 'คิวไอเทมบอส' : 'Boss Item Queue'}</a>
+      </nav>
+
+      <div id="general-item-queue" className="scroll-mt-24">
+        <GeneralItemQueueCard lang={lang} currentUser={currentUser} items={generalItems} onAdd={onAddGeneralItem} onUpdate={onUpdateGeneralItem} onDelete={onDeleteGeneralItem} />
+      </div>
       
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div id="boss-item-queue" className="flex scroll-mt-24 flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#c99a22]">
             {t.queueTitle}
@@ -480,11 +498,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                     onClick={() => handleApplyQuickItem(qi)}
                     className="text-xs px-2.5 py-1.5 rounded-lg bg-[#111827] hover:bg-[#1e293b] border border-slate-700/80 hover:border-[#d4af37]/60 text-slate-200 hover:text-white flex items-center gap-2 shrink-0 transition-all shadow-sm cursor-pointer"
                   >
-                    <img
-                      src={qi.imageUrl}
-                      alt={qi.name}
-                      className="w-8 h-8 rounded-lg object-cover border border-slate-600 shrink-0 shadow-sm"
-                    />
+                    {qi.imageUrl ? <img src={qi.imageUrl} alt={qi.name} className="w-8 h-8 rounded-lg object-cover border border-slate-600 shrink-0 shadow-sm" /> : <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-800"><Sparkles className="h-4 w-4 text-[#f5d77f]" /></span>}
                     <span className="font-semibold">{qi.name}</span>
                     <span className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-slate-800 text-amber-300 border border-slate-700">
                       {qi.rarity}

@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   Crown,
   CheckCircle,
-  Sparkles,
   Layers,
   Users,
   Gem,
@@ -20,7 +19,6 @@ import {
   clearAllVaultItemsDoc,
   clearAllQueuesDoc,
   clearDiamondTransactionsDoc,
-  resetToDefaultVaultDataDoc,
   resetAllUserStatsDoc
 } from '../services/firebase';
 
@@ -40,7 +38,6 @@ type ResetTarget =
   | 'clear_all_vault'
   | 'clear_queues'
   | 'clear_diamond_logs'
-  | 'restore_defaults'
   | 'reset_all_user_stats';
 
 export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
@@ -69,7 +66,6 @@ export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
   const requiresTypeConfirm =
     selectedTarget === 'clear_all_vault' ||
     selectedTarget === 'clear_queues' ||
-    selectedTarget === 'restore_defaults' ||
     selectedTarget === 'reset_all_user_stats';
 
   const isConfirmValid = !requiresTypeConfirm || confirmText.trim().toUpperCase() === 'RESET';
@@ -122,13 +118,6 @@ export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
           lang === 'th'
             ? `ล้างประวัติธุรกรรมกล่องเพชรเรียบร้อย (${affectedCount} รายการ)`
             : `Cleared all ${affectedCount} diamond vault transaction logs successfully`
-        );
-      } else if (selectedTarget === 'restore_defaults') {
-        await resetToDefaultVaultDataDoc();
-        setResultMessage(
-          lang === 'th'
-            ? 'รีเซ็ตคืนค่าตัวอย่างไอเทมและคิวเริ่มต้นสำเร็จเรียบร้อย!'
-            : 'Default sample items and queues restored successfully!'
         );
       } else if (selectedTarget === 'reset_all_user_stats') {
         affectedCount = await resetAllUserStatsDoc();
@@ -407,49 +396,6 @@ export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
             />
           </div>
 
-          {/* Option 5: Restore Default Sample Data */}
-          <div
-            id="opt-restore-defaults"
-            onClick={() => {
-              sounds.playClick();
-              setSelectedTarget('restore_defaults');
-              setResultMessage(null);
-            }}
-            className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start justify-between gap-3 ${
-              selectedTarget === 'restore_defaults'
-                ? 'bg-[#1b263b] border-blue-400 text-white shadow-md'
-                : 'bg-[#0d121e] border-slate-800 text-slate-300 hover:bg-[#151c2c]'
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              <div
-                className={`p-2 rounded-lg shrink-0 mt-0.5 ${
-                  selectedTarget === 'restore_defaults'
-                    ? 'bg-blue-500/20 text-blue-300'
-                    : 'bg-slate-800 text-slate-400'
-                }`}
-              >
-                <RotateCcw className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-xs font-bold flex items-center gap-2 text-blue-300">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>{t.restoreDefaultSampleOption}</span>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  {t.restoreDefaultSampleOptionDesc}
-                </p>
-              </div>
-            </div>
-            <input
-              type="radio"
-              name="resetTarget"
-              checked={selectedTarget === 'restore_defaults'}
-              onChange={() => setSelectedTarget('restore_defaults')}
-              className="mt-1 accent-blue-400 cursor-pointer"
-            />
-          </div>
-
           {/* Option 6: Reset All Member Stats & Proof Screenshots */}
           <div
             id="opt-reset-all-user-stats"
@@ -543,16 +489,10 @@ export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
             className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
               selectedTarget === 'clear_distributed' || selectedTarget === 'clear_diamond_logs'
                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-slate-950'
-                : selectedTarget === 'restore_defaults'
-                ? 'bg-gradient-to-r from-blue-600 to-cyan-600 hover:brightness-110 text-white'
                 : 'bg-gradient-to-r from-red-600 via-red-700 to-rose-800 hover:brightness-110 text-white shadow-red-950/50'
             }`}
           >
-            {selectedTarget === 'restore_defaults' ? (
-              <RotateCcw className="w-4 h-4" />
-            ) : (
-              <Trash2 className="w-4 h-4" />
-            )}
+            <Trash2 className="w-4 h-4" />
             <span>
               {isProcessing ? t.loading : t.confirmActionBtn}
             </span>

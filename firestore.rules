@@ -165,6 +165,45 @@ service cloud.firestore {
       allow create, update, delete: if isAdminOrOwner();
     }
 
+    function validGeneralItem(data) {
+      return data.keys().hasOnly([
+          'id', 'name', 'imageUrl', 'price', 'quantity', 'minPowerLevel',
+          'rarity', 'queueList', 'receiptHistory', 'createdAt'
+        ])
+        && data.keys().hasAll([
+          'id', 'name', 'imageUrl', 'price', 'quantity', 'minPowerLevel',
+          'rarity', 'queueList', 'receiptHistory', 'createdAt'
+        ])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 120
+        && data.imageUrl is string && data.imageUrl.size() <= 800000
+        && data.price is number && data.price >= 0 && data.price <= 1000000000
+        && data.quantity is number && data.quantity >= 1 && data.quantity <= 1000000
+        && data.minPowerLevel is number && data.minPowerLevel >= 0 && data.minPowerLevel <= 1000000000
+        && data.rarity in ['RARE', 'EPIC', 'LAGEND', 'MYTHIC']
+        && data.queueList is list && data.queueList.size() <= 500
+        && data.receiptHistory is list && data.receiptHistory.size() <= 1000
+        && data.createdAt is number && data.createdAt > 0;
+    }
+
+    match /general_items/{itemId} {
+      allow read: if isActiveUser();
+      allow create: if isAdminOrOwner()
+        && request.resource.data.id == itemId
+        && validGeneralItem(request.resource.data);
+      allow delete: if isAdminOrOwner();
+      allow update: if validGeneralItem(request.resource.data)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (isAdminOrOwner()
+        || (isActiveUser()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList'])
+          && request.resource.data.receiptHistory == resource.data.receiptHistory
+          && request.resource.data.name == resource.data.name
+          && request.resource.data.imageUrl == resource.data.imageUrl
+          && request.resource.data.createdAt == resource.data.createdAt));
+    }
+
     match /clans/{clanId} {
       allow read: if isActiveUser();
       allow create, update, delete: if isAdminOrOwner();

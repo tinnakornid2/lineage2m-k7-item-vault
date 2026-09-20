@@ -42,6 +42,8 @@ import {
   ItemRarity,
   Language,
   QueueItem,
+  QuickItem,
+  GeneralItem,
   User,
   VaultItem,
   ClanGroup,
@@ -52,6 +54,7 @@ import {
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { calculateDiamondNetChange } from '../utils/diamondHelper';
+import { GeneralItemQueueCard } from './GeneralItemQueueCard';
 
 interface DashboardViewProps {
   lang: Language;
@@ -61,6 +64,10 @@ interface DashboardViewProps {
   onOpenVaultModal: () => void;
   availableItems: VaultItem[];
   queueItems: QueueItem[];
+  generalItems?: GeneralItem[];
+  onAddGeneralItem?: (item: Omit<GeneralItem, 'id' | 'createdAt'>) => Promise<void>;
+  onUpdateGeneralItem?: (id: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => Promise<void>;
+  onDeleteGeneralItem?: (id: string) => Promise<void>;
   allMembers?: User[];
   distributedItems?: VaultItem[];
   clans?: ClanGroup[];
@@ -89,6 +96,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenVaultModal,
   availableItems,
   queueItems,
+  generalItems = [],
+  onAddGeneralItem,
+  onUpdateGeneralItem,
+  onDeleteGeneralItem,
   allMembers = [],
   distributedItems = [],
   clans = [],
@@ -1654,6 +1665,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         )}
       </section>
+
+      {onAddGeneralItem && onUpdateGeneralItem && onDeleteGeneralItem && (
+        <GeneralItemQueueCard
+          lang={lang}
+          currentUser={currentUser}
+          items={generalItems}
+          onAdd={onAddGeneralItem}
+          onUpdate={onUpdateGeneralItem}
+          onDelete={onDeleteGeneralItem}
+        />
+      )}
 
       {/* 3. ITEM QUEUE PREVIEW (คิวไอเทมบนแดชบอร์ด - แสดงทุกรายการ) */}
       <section className="space-y-4">

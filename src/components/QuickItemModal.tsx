@@ -30,17 +30,6 @@ interface QuickItemModalProps {
   initialEditItem?: QuickItem | null;
 }
 
-const PRESET_ICONS = [
-  { name: 'Sword', labelTh: 'ดาบ', url: 'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=300&auto=format&fit=crop&q=80' },
-  { name: 'Armor', labelTh: 'เกราะ', url: 'https://images.unsplash.com/photo-1514539079130-25950c84af65?w=300&auto=format&fit=crop&q=80' },
-  { name: 'Ring', labelTh: 'แหวน', url: 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=300&auto=format&fit=crop&q=80' },
-  { name: 'Helmet', labelTh: 'หมวก', url: 'https://images.unsplash.com/photo-1533158307587-828f0a76ef96?w=300&auto=format&fit=crop&q=80' },
-  { name: 'Shield', labelTh: 'โล่', url: 'https://images.unsplash.com/photo-1618336753974-aae8e04506aa?w=300&auto=format&fit=crop&q=80' },
-  { name: 'Scroll', labelTh: 'คัมภีร์', url: 'https://images.unsplash.com/photo-1583847268964-b28dc8f51f92?w=300&auto=format&fit=crop&q=80' },
-  { name: 'Potion', labelTh: 'น้ำยา', url: 'https://images.unsplash.com/photo-1514733670139-4d87a1941d55?w=300&auto=format&fit=crop&q=80' },
-  { name: 'Staff', labelTh: 'คฑา', url: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=300&auto=format&fit=crop&q=80' },
-];
-
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -209,12 +198,6 @@ export const QuickItemModal: React.FC<QuickItemModalProps> = ({
     };
   }, [isOpen]);
 
-  const handleSelectPreset = (url: string) => {
-    sounds.playClick();
-    setImagePreview(url);
-    setImageUrl(url);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -226,7 +209,7 @@ export const QuickItemModal: React.FC<QuickItemModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      const finalImage = imageUrl?.trim() || editingItem?.imageUrl || PRESET_ICONS[0].url;
+      const finalImage = imageUrl?.trim() || editingItem?.imageUrl || '';
       if (editingItem) {
         // Edit Mode
         if (onUpdateQuickItem) {
@@ -418,44 +401,6 @@ export const QuickItemModal: React.FC<QuickItemModalProps> = ({
                   </div>
                 </div>
 
-                {/* Preset Icons Selection */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-semibold text-slate-300">
-                      {lang === 'th' ? 'เลือกไอคอนสำเร็จรูป หรืออัปโหลดรูปภาพ' : 'Choose Preset Icon or Upload'}
-                    </label>
-                    <span className="text-[10px] text-slate-400">
-                      {lang === 'th' ? '(คลิกเพื่อเลือกทันที)' : '(Click to select)'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar">
-                    {PRESET_ICONS.map((preset) => {
-                      const isSelected = imagePreview === preset.url;
-                      return (
-                        <button
-                          key={preset.name}
-                          type="button"
-                          onClick={() => handleSelectPreset(preset.url)}
-                          className={`group relative flex flex-col items-center gap-1 p-1.5 rounded-xl border transition-all shrink-0 cursor-pointer ${
-                            isSelected
-                              ? 'bg-[#d4af37]/20 border-[#d4af37] shadow-[0_0_12px_rgba(212,175,55,0.4)]'
-                              : 'bg-[#0b111e] border-slate-800 hover:border-slate-600 hover:bg-[#121c30]'
-                          }`}
-                        >
-                          <img
-                            src={preset.url}
-                            alt={preset.name}
-                            className="w-10 h-10 rounded-lg object-cover border border-slate-700/80 group-hover:scale-105 transition-transform"
-                          />
-                          <span className="text-[9px] font-medium text-slate-300 whitespace-nowrap">
-                            {lang === 'th' ? preset.labelTh : preset.name}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
                 {/* Image Upload & Submit Row */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1">
                   <div className="flex items-center gap-3">
@@ -585,11 +530,7 @@ export const QuickItemModal: React.FC<QuickItemModalProps> = ({
                       {/* Left: Thumbnail & Details */}
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         <div className="relative shrink-0">
-                          <img
-                            src={item.imageUrl}
-                            alt={item.name}
-                            className="w-14 h-14 rounded-xl object-cover border border-slate-700/80 shadow-md group-hover:scale-105 transition-transform"
-                          />
+                          {item.imageUrl ? <img src={item.imageUrl} alt={item.name} className="w-14 h-14 rounded-xl object-cover border border-slate-700/80 shadow-md group-hover:scale-105 transition-transform" /> : <span className="flex h-14 w-14 items-center justify-center rounded-xl border border-slate-700 bg-slate-800"><Sparkles className="h-5 w-5 text-[#f5d77f]" /></span>}
                           <span
                             className={`absolute -bottom-1 -right-1 text-[8px] font-bold px-1 rounded border uppercase ${getRarityBadge(
                               item.rarity

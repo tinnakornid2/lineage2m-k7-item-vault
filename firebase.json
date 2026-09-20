@@ -6,6 +6,7 @@
     "singleProjectMode": true
   },
   "firestore": {
+    "database": "ai-studio-lineage2mclanhub-4a1794d8-f944-422f-945e-56c12057ad13",
     "rules": "firestore.rules"
   }
 }

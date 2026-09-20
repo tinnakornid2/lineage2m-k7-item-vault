@@ -49,6 +49,7 @@ import {
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { scanHuntersLocally } from '../services/localOcrService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { DistributionStatsModal } from './DistributionStatsModal';
 import { GeminiKeyModal } from './GeminiKeyModal';
@@ -710,9 +711,19 @@ export const VaultView: React.FC<VaultViewProps> = ({
           data = null;
         }
 
-      // Process resulting data safely. Gemini credentials remain backend-only.
-      if (!data) {
-        throw new Error('AI_SERVER_CONNECT_ERROR');
+      // Free local OCR fallback: runs in the browser and consumes no Google quota.
+      if (!data?.success) {
+        setOcrStatusText(lang === 'th' ? 'Google ไม่พร้อมใช้งาน กำลังใช้ OCR ฟรีบนเครื่อง...' : 'Google unavailable. Running free on-device OCR...');
+        const localHunters = await scanHuntersLocally(base64Images, allMembers);
+        const grouped = new Map<string, string[]>();
+        localHunters.forEach((hunter) => grouped.set(hunter.clan, [...(grouped.get(hunter.clan) || []), hunter.name]));
+        data = {
+          success: true,
+          localOcr: true,
+          detectedClanGroups: [...grouped.entries()].map(([clanName, members]) => ({ clanName, members })),
+          rawNames: localHunters.map((hunter) => hunter.name),
+          duplicatesFilteredCount: 0
+        };
       }
 
       if (data.error === 'MISSING_API_KEY') {
@@ -1182,8 +1193,27 @@ export const VaultView: React.FC<VaultViewProps> = ({
         </div>
       </div>
 
+      {/* Fast workflow overview */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <button type="button" onClick={() => setVaultSubTab('create')} className="rounded-2xl border border-emerald-500/25 bg-gradient-to-br from-emerald-950/45 to-slate-950 p-4 text-left transition hover:border-emerald-400/60">
+          <div className="text-xs font-bold text-emerald-300">{lang === 'th' ? 'พร้อมแจก' : 'Available'}</div>
+          <div className="mt-1 text-2xl font-black text-white">{vaultItems.filter((item) => item.status === 'available').length}</div>
+          <div className="mt-1 text-[11px] text-slate-400">{lang === 'th' ? 'เพิ่มไอเทมหรือจัดการรายการปัจจุบัน' : 'Add or manage current items'}</div>
+        </button>
+        <button type="button" onClick={() => setVaultSubTab('create')} className="rounded-2xl border border-cyan-500/25 bg-gradient-to-br from-cyan-950/45 to-slate-950 p-4 text-left transition hover:border-cyan-400/60">
+          <div className="text-xs font-bold text-cyan-300">{lang === 'th' ? 'ควิกไอเทม' : 'Quick presets'}</div>
+          <div className="mt-1 text-2xl font-black text-white">{quickItems.length}</div>
+          <div className="mt-1 text-[11px] text-slate-400">{lang === 'th' ? 'เลือกเพื่อกรอกข้อมูลไอเทมอย่างรวดเร็ว' : 'Fill item details instantly'}</div>
+        </button>
+        <button type="button" onClick={() => setVaultSubTab('distributed')} className="rounded-2xl border border-violet-500/25 bg-gradient-to-br from-violet-950/45 to-slate-950 p-4 text-left transition hover:border-violet-400/60">
+          <div className="text-xs font-bold text-violet-300">{lang === 'th' ? 'แจกแล้ว' : 'Distributed'}</div>
+          <div className="mt-1 text-2xl font-black text-white">{distributedItems.length}</div>
+          <div className="mt-1 text-[11px] text-slate-400">{lang === 'th' ? 'ดูประวัติ ผู้รับ และหลักฐานย้อนหลัง' : 'Review recipients and evidence'}</div>
+        </button>
+      </div>
+
       {/* Sub-Tabs: Add/Active Item Form VS Distributed Archive */}
-      <div className="flex items-center gap-2 p-1 rounded-xl bg-[#0b0e17] border border-slate-800/80 w-fit">
+      <div className="sticky top-2 z-20 flex w-fit items-center gap-2 rounded-xl border border-slate-700/80 bg-[#0b0e17]/95 p-1 shadow-xl backdrop-blur">
         <button
           onClick={() => {
             sounds.playClick();
@@ -1258,11 +1288,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     onClick={() => handleApplyQuickItem(qi)}
                     className="flex items-center gap-2.5 p-2 rounded-xl bg-[#11192a]/90 hover:bg-[#18233a] border border-slate-700/80 hover:border-[#d4af37] transition-all shrink-0 text-left shadow-md hover:shadow-[#d4af37]/10 group cursor-pointer"
                   >
-                    <img
-                      src={qi.imageUrl}
-                      alt={qi.name}
-                      className="w-11 h-11 rounded-lg object-cover border border-slate-700 group-hover:border-[#d4af37]/80 group-hover:scale-105 transition-all"
-                    />
+                    {qi.imageUrl ? <img src={qi.imageUrl} alt={qi.name} className="w-11 h-11 rounded-lg object-cover border border-slate-700 group-hover:border-[#d4af37]/80 group-hover:scale-105 transition-all" /> : <span className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-700 bg-slate-800"><Sparkles className="h-5 w-5 text-[#f5d77f]" /></span>}
                     <div className="pr-1">
                       <div className="text-xs font-bold text-slate-200 group-hover:text-white truncate max-w-[130px]">
                         {qi.name}

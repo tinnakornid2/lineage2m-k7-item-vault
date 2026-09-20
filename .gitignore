@@ -12,15 +12,13 @@ coverage/
 *.zip
 scratch/
 backups/*
-!backups/complete_snapshot_v2.1.0.json
-!backups/complete_snapshot_v2.2.0.json
-!backups/complete_snapshot_v2.3.0.json
-!backups/complete_snapshot_v2.4.0.json
-!backups/complete_snapshot_v2.5.0.json
-!backups/complete_snapshot_v2.5.1.json
-!backups/complete_snapshot_v2.6.0.json
-!backups/complete_snapshot_latest.json
 secrets/
 data/
+src/data/offlineMembersData.ts
+api/index.js
+work/
+firebase-service-account*.json
+*.k7backup
 
 .vercel
+.clasp.json

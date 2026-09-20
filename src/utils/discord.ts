@@ -250,7 +250,6 @@ export async function sendDiscordNotification(
 
     payload = {
       username: settings.botName || 'Lineage 2M Clan Hub',
-      avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
       embeds: [
         {
           title: '🔔 Discord Webhook Test Successful!',
@@ -330,7 +329,6 @@ export async function sendDiscordNotification(
     payload = {
       content: `${mentionPrefix}⚔️ **New Boss Item Added to Vault!**`.trim(),
       username: settings.botName || 'Lineage 2M Clan Hub',
-      avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
       allowed_mentions: allowedMentions,
       embeds: [
         {
@@ -373,7 +371,6 @@ export async function sendDiscordNotification(
 
     payload = {
       username: settings.botName || 'Lineage 2M Clan Hub',
-      avatar_url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=128&auto=format&fit=crop&q=80',
       embeds: [
         {
           title: `🏆 Item Distribution Result! [${displayRarity}] ${item.name}`,

@@ -10,6 +10,7 @@ import {
   QueueItem,
   QueueMember,
   QuickItem,
+  GeneralItem,
   User,
   VaultItem,
   Claimant,
@@ -37,6 +38,7 @@ import {
   listenToVaultItems,
   listenToQueueItems,
   listenToQuickItems,
+  listenToGeneralItems,
   listenToClans,
   listenToDiamondTransactions,
   listenToBackgroundSettings,
@@ -56,6 +58,9 @@ import {
   addQuickItemDoc,
   updateQuickItemDoc,
   deleteQuickItemDoc,
+  addGeneralItemDoc,
+  updateGeneralItemDoc,
+  deleteGeneralItemDoc,
   addClanDoc,
   updateClanDoc,
   deleteClanDoc,
@@ -118,6 +123,7 @@ import { GeminiKeyModal } from './components/GeminiKeyModal';
 import { GoogleDriveBackupModal } from './components/GoogleDriveBackupModal';
 import {
   triggerDebouncedAutoBackup,
+  backupAllDataToGoogleSheets,
   fetchDataFromGoogleSheets,
   getGoogleBackupConfig,
   setPendingFirebaseSync,
@@ -247,14 +253,29 @@ export const App: React.FC = () => {
   const [vaultItems, setVaultItems] = useState<VaultItem[]>(() => getCachedVaultItems());
   const [queueItems, setQueueItems] = useState<QueueItem[]>(() => getCachedQueues());
   const [quickItems, setQuickItems] = useState<QuickItem[]>(INITIAL_QUICK_ITEMS);
+  const [generalItems, setGeneralItems] = useState<GeneralItem[]>([]);
   const [clans, setClans] = useState<ClanGroup[]>(() => getCachedClans());
   const [diamondLogs, setDiamondLogs] = useState<DiamondVaultRecord[]>(() => getCachedDiamondTransactions());
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
   const [showGoogleBackupModal, setShowGoogleBackupModal] = useState(false);
 
   useEffect(() => {
-    // Automatically load the Owner's shared Google Sheets database URL for all members
-    initSharedGoogleBackupConfig();
+    // Always hydrate from the durable Google snapshot first. Firestore listeners
+    // then replace it with newer cloud values when that service is available.
+    let cancelled = false;
+    (async () => {
+      await initSharedGoogleBackupConfig();
+      const google = await fetchDataFromGoogleSheets();
+      if (cancelled || !google.success || !google.data) return;
+      const data = google.data;
+      if (data.users?.length) setUsers((prev) => prev.length ? prev : data.users);
+      if (data.vaultItems?.length) setVaultItems((prev) => prev.length ? prev : data.vaultItems);
+      if (data.queueItems?.length) setQueueItems((prev) => prev.length ? prev : data.queueItems);
+      if (data.quickItems?.length) setQuickItems((prev) => prev.length ? prev : data.quickItems || []);
+      if (data.generalItems?.length) setGeneralItems((prev) => prev.length ? prev : data.generalItems || []);
+      if (data.clans?.length) setClans((prev) => prev.length ? prev : data.clans);
+      if (data.diamondLogs?.length) setDiamondLogs((prev) => prev.length ? prev : data.diamondLogs);
+    })().catch(console.warn);
 
     // Proactively load active live relay state from server if available
     fetch(`/api/live-state?v=0&_t=${Date.now()}`)
@@ -312,6 +333,7 @@ export const App: React.FC = () => {
         }
       }
     });
+    return () => { cancelled = true; };
   }, []);
 
   // 5. Modals State
@@ -653,6 +675,9 @@ export const App: React.FC = () => {
 
   // Firestore Subscriptions (run once on mount)
   useEffect(() => {
+    // Avoid wasteful unauthenticated reads, and stop listeners immediately
+    // while quota failover is active. Google becomes the live source then.
+    if (!currentUser || isQuotaExceeded) return;
     const unsubUsers = listenToUsers((updatedUsers) => {
       // Ensure Eloni is always owner in the users list
       const normalizedUsers = updatedUsers.map((u) => {
@@ -724,6 +749,7 @@ export const App: React.FC = () => {
         setQuickItems(items);
       }
     });
+    const unsubGeneral = listenToGeneralItems(setGeneralItems);
     const unsubClans = listenToClans((clanList) => {
       const validClans = clanList.filter((c) => !isNoClan(c.name));
       if (validClans && validClans.length > 0) {
@@ -762,6 +788,7 @@ export const App: React.FC = () => {
       unsubVault();
       unsubQueue();
       unsubQuick();
+      unsubGeneral();
       unsubClans();
       unsubDiamonds();
       unsubBg();
@@ -769,7 +796,7 @@ export const App: React.FC = () => {
       unsubDiscord();
       unsubFormula();
     };
-  }, []);
+  }, [currentUser?.id, isQuotaExceeded]);
 
   // Calculate Diamond Vault / Clan Fund Balance (Memoized directly from real transaction records)
   const vaultBalance = useMemo(() => {
@@ -786,6 +813,8 @@ export const App: React.FC = () => {
       triggerDebouncedAutoBackup({
         users,
         vaultItems,
+        quickItems,
+        generalItems,
         queueItems,
         clans,
         diamondLogs,
@@ -796,7 +825,7 @@ export const App: React.FC = () => {
         discordSettings
       });
     }
-  }, [users, vaultItems, queueItems, clans, diamondLogs, vaultBalance, isQuotaExceeded, announcementSettings, bgConfig, discordSettings]);
+  }, [users, vaultItems, quickItems, generalItems, queueItems, clans, diamondLogs, vaultBalance, isQuotaExceeded, announcementSettings, bgConfig, discordSettings]);
 
   // Keep local cache in sync whenever core collections update (survives quota limits and offline refreshes)
   useEffect(() => {
@@ -839,6 +868,8 @@ export const App: React.FC = () => {
         {
           users,
           vaultItems,
+          quickItems,
+          generalItems,
           queueItems,
           clans,
           diamondLogs,
@@ -853,7 +884,7 @@ export const App: React.FC = () => {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [users, vaultItems, queueItems, clans, diamondLogs, vaultBalance, announcementSettings, bgConfig, discordSettings]);
+  }, [users, vaultItems, quickItems, generalItems, queueItems, clans, diamondLogs, vaultBalance, announcementSettings, bgConfig, discordSettings]);
 
   // Real-time live synchronization engine when in failover mode (or Quota Exceeded)
   useEffect(() => {
@@ -877,6 +908,12 @@ export const App: React.FC = () => {
             setCachedVaultItems(merged);
             return merged;
           });
+        }
+        if (Array.isArray(incomingData.quickItems)) {
+          setQuickItems(incomingData.quickItems);
+        }
+        if (Array.isArray(incomingData.generalItems)) {
+          setGeneralItems(incomingData.generalItems);
         }
         if (Array.isArray(incomingData.queueItems)) {
           setQueueItems((prev) => {
@@ -943,6 +980,8 @@ export const App: React.FC = () => {
               users,
               vaultItems,
               queueItems,
+              quickItems,
+              generalItems,
               clans,
               diamondLogs,
               formulaSettings: getFormulaSettings(),
@@ -984,6 +1023,8 @@ export const App: React.FC = () => {
                   return merged;
                 });
               }
+              if (cloudRes.data.quickItems) setQuickItems(cloudRes.data.quickItems);
+              if (cloudRes.data.generalItems) setGeneralItems(cloudRes.data.generalItems);
               if (cloudRes.data.clans && cloudRes.data.clans.length > 0) setClans(cloudRes.data.clans);
               if (cloudRes.data.diamondLogs) setDiamondLogs(cloudRes.data.diamondLogs);
             }
@@ -1002,8 +1043,8 @@ export const App: React.FC = () => {
       }
     };
 
-    // 1. Probe every 60 seconds
-    const interval = setInterval(checkRecoveryAndAutoSync, 60000);
+    // Probe every 5 minutes to avoid consuming Firestore reads while quota is exhausted.
+    const interval = setInterval(checkRecoveryAndAutoSync, 300000);
 
     // 2. Also probe immediately on window focus
     const handleFocus = () => {
@@ -1015,7 +1056,7 @@ export const App: React.FC = () => {
       clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [isQuotaExceeded, users, vaultItems, queueItems, clans, diamondLogs, lang]);
+  }, [isQuotaExceeded, users, vaultItems, queueItems, quickItems, generalItems, clans, diamondLogs, lang]);
 
   // Auth Handlers
   const handleLogin = async (username: string, pass: string): Promise<{ success: boolean; message?: string }> => {
@@ -2101,13 +2142,22 @@ export const App: React.FC = () => {
   };
 
   // Quick Items Handlers
+  const saveFailoverSnapshot = async (nextQuickItems: QuickItem[], nextGeneralItems: GeneralItem[], reason: string) => {
+    setPendingFirebaseSync(true);
+    return backupAllDataToGoogleSheets({
+      users, vaultItems, quickItems: nextQuickItems, generalItems: nextGeneralItems,
+      queueItems, clans, diamondLogs, vaultBalance,
+      formulaSettings: getFormulaSettings(), announcementSettings,
+      backgroundSettings: bgConfig, discordSettings
+    }, reason);
+  };
+
   const handleAddQuickItem = async (item: Omit<QuickItem, 'id' | 'createdAt'>) => {
     const tempId = 'qi_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-    const fallbackImg = 'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=300&auto=format&fit=crop&q=80';
     const optimisticItem: QuickItem = {
       ...item,
       id: tempId,
-      imageUrl: (item.imageUrl && item.imageUrl.trim().length > 0) ? item.imageUrl : fallbackImg,
+      imageUrl: item.imageUrl?.trim() || '',
       createdAt: Date.now()
     };
     // 1. Optimistic update
@@ -2119,25 +2169,71 @@ export const App: React.FC = () => {
       setQuickItems((prev) => prev.map((q) => (q.id === tempId ? saved : q)));
     } catch (err) {
       console.error('Failed to add quick item to Firestore:', err);
-      // Keep optimistic item in UI so user does not lose their creation
+      const fallbackItems = [optimisticItem, ...quickItems];
+      const googleResult = await saveFailoverSnapshot(fallbackItems, generalItems, 'Quick Item Failover');
+      if (!googleResult.success) {
+        setQuickItems((prev) => prev.filter((q) => q.id !== tempId));
+        throw err;
+      }
     }
   };
 
   const handleUpdateQuickItem = async (itemId: string, updates: Partial<Omit<QuickItem, 'id' | 'createdAt'>>) => {
-    setQuickItems((prev) => prev.map((q) => (q.id === itemId ? { ...q, ...updates } : q)));
+    const nextItems = quickItems.map((q) => (q.id === itemId ? { ...q, ...updates } : q));
+    setQuickItems(nextItems);
     try {
       await updateQuickItemDoc(itemId, updates);
     } catch (err) {
       console.error('Failed to update quick item in Firestore:', err);
+      const googleResult = await saveFailoverSnapshot(nextItems, generalItems, 'Quick Item Update Failover');
+      if (!googleResult.success) throw err;
     }
   };
 
   const handleDeleteQuickItem = async (itemId: string) => {
-    setQuickItems((prev) => prev.filter((q) => q.id !== itemId));
+    const nextItems = quickItems.filter((q) => q.id !== itemId);
+    setQuickItems(nextItems);
     try {
       await deleteQuickItemDoc(itemId);
     } catch (err) {
       console.error('Failed to delete quick item in Firestore:', err);
+      const googleResult = await saveFailoverSnapshot(nextItems, generalItems, 'Quick Item Delete Failover');
+      if (!googleResult.success) throw err;
+    }
+  };
+
+  const handleAddGeneralItem = async (item: Omit<GeneralItem, 'id' | 'createdAt'>) => {
+    try {
+      const saved = await addGeneralItemDoc(item);
+      setGeneralItems((prev) => [saved, ...prev.filter((entry) => entry.id !== saved.id)]);
+    } catch (err) {
+      const fallback: GeneralItem = { ...item, id: `gi_${Date.now()}_google`, createdAt: Date.now() };
+      const nextItems = [fallback, ...generalItems];
+      const result = await saveFailoverSnapshot(quickItems, nextItems, 'General Item Failover');
+      if (!result.success) throw err;
+      setGeneralItems(nextItems);
+    }
+  };
+
+  const handleUpdateGeneralItem = async (itemId: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => {
+    const nextItems = generalItems.map((entry) => entry.id === itemId ? { ...entry, ...updates } : entry);
+    setGeneralItems(nextItems);
+    try {
+      await updateGeneralItemDoc(itemId, updates);
+    } catch (err) {
+      const result = await saveFailoverSnapshot(quickItems, nextItems, 'General Item Update Failover');
+      if (!result.success) throw err;
+    }
+  };
+
+  const handleDeleteGeneralItem = async (itemId: string) => {
+    const nextItems = generalItems.filter((entry) => entry.id !== itemId);
+    setGeneralItems(nextItems);
+    try {
+      await deleteGeneralItemDoc(itemId);
+    } catch (err) {
+      const result = await saveFailoverSnapshot(quickItems, nextItems, 'General Item Delete Failover');
+      if (!result.success) throw err;
     }
   };
 
@@ -3197,6 +3293,10 @@ export const App: React.FC = () => {
             onOpenVaultModal={() => setShowVaultModal(true)}
             availableItems={availableDashboardItems}
             queueItems={queueItems}
+            generalItems={generalItems}
+            onAddGeneralItem={handleAddGeneralItem}
+            onUpdateGeneralItem={handleUpdateGeneralItem}
+            onDeleteGeneralItem={handleDeleteGeneralItem}
             onClaimItem={handleClaimItem}
             onUnclaimItem={handleUnclaimItem}
             onViewClaimants={(item) => setClaimantsTargetItem(item)}
@@ -3246,6 +3346,10 @@ export const App: React.FC = () => {
             allMembers={users}
             queueItems={queueItems}
             quickItems={quickItems}
+            generalItems={generalItems}
+            onAddGeneralItem={handleAddGeneralItem}
+            onUpdateGeneralItem={handleUpdateGeneralItem}
+            onDeleteGeneralItem={handleDeleteGeneralItem}
             onOpenQuickItemsModal={() => setShowQuickItemsModal(true)}
             onCreateQueueItem={handleCreateQueueItem}
             onDeleteQueueItem={handleDeleteQueueItem}

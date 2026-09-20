@@ -36,6 +36,7 @@ import {
   VaultItem,
   Claimant,
   QuickItem,
+  GeneralItem,
   QueueItem,
   DiamondVault,
   DiamondVaultRecord,
@@ -46,13 +47,12 @@ import {
   cleanClanName,
   DEFAULT_CLAN
 } from '../types';
-import {
-  REAL_BACKUP_MEMBERS,
-  REAL_BACKUP_CLANS,
-  REAL_BACKUP_QUEUES,
-  REAL_BACKUP_VAULT_ITEMS,
-  REAL_BACKUP_DIAMOND_TXS
-} from '../data/offlineMembersData';
+// Production data must come from Firestore/Google, never bundled snapshots.
+const REAL_BACKUP_MEMBERS: User[] = [];
+const REAL_BACKUP_CLANS: ClanGroup[] = [];
+const REAL_BACKUP_QUEUES: QueueItem[] = [];
+const REAL_BACKUP_VAULT_ITEMS: VaultItem[] = [];
+const REAL_BACKUP_DIAMOND_TXS: DiamondVaultRecord[] = [];
 
 const firebaseConfig = {
   apiKey: firebaseConfigData.apiKey,
@@ -128,6 +128,7 @@ export const USERS_COLLECTION = 'users';
 export const ITEMS_COLLECTION = 'items';
 export const ITEM_CLAIMS_COLLECTION = 'item_claims';
 export const QUICK_ITEMS_COLLECTION = 'quick_items';
+export const GENERAL_ITEMS_COLLECTION = 'general_items';
 export const QUEUES_COLLECTION = 'item_queues';
 export const VAULT_COLLECTION = 'diamond_vault';
 export const CLANS_COLLECTION = 'clans';
@@ -218,37 +219,7 @@ export const INITIAL_CLANS: ClanGroup[] = (REAL_BACKUP_CLANS && REAL_BACKUP_CLAN
       { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2, enabled: true }
     ];
 
-export const INITIAL_QUICK_ITEMS: QuickItem[] = [
-  {
-    id: 'qi_1',
-    name: "Archangel's Sword",
-    rarity: 'MYTHIC',
-    imageUrl: 'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=300&auto=format&fit=crop&q=80',
-    createdAt: Date.now(),
-  },
-  {
-    id: 'qi_2',
-    name: 'Dainsleif Dual Blade',
-    rarity: 'LAGEND',
-    quantity: 1,
-    imageUrl: 'https://images.unsplash.com/photo-1589241062272-c0a000072dfa?w=300&auto=format&fit=crop&q=80',
-    createdAt: Date.now(),
-  },
-  {
-    id: 'qi_3',
-    name: 'Dragonic Bow',
-    rarity: 'EPIC',
-    imageUrl: 'https://images.unsplash.com/photo-1514539079130-25950c84af65?w=300&auto=format&fit=crop&q=80',
-    createdAt: Date.now(),
-  },
-  {
-    id: 'qi_4',
-    name: 'Tateossian Ring',
-    rarity: 'RARE',
-    imageUrl: 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=300&auto=format&fit=crop&q=80',
-    createdAt: Date.now(),
-  }
-];
+export const INITIAL_QUICK_ITEMS: QuickItem[] = [];
 
 export const INITIAL_VAULT_ITEMS: VaultItem[] = (REAL_BACKUP_VAULT_ITEMS && REAL_BACKUP_VAULT_ITEMS.length > 0)
   ? REAL_BACKUP_VAULT_ITEMS
@@ -359,22 +330,26 @@ export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QU
   }
 ];
 
-// LocalStorage caching keys to prevent data loss on quota limits or network errors (v2.6.0)
+const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
+const CACHE_SCHEMA_VERSION = '2.7.7-dual-cloud';
 export const CACHE_KEYS = {
-  USERS: 'l2m_cached_users_v260',
-  VAULT_ITEMS: 'l2m_cached_vault_items_v260',
-  QUEUES: 'l2m_cached_queues_v260',
-  CLANS: 'l2m_cached_clans_v260',
-  DIAMOND_TXS: 'l2m_cached_diamond_txs_v260',
-  QUICK_ITEMS: 'l2m_cached_quick_items_v260'
+  USERS: 'l2m_cached_users_v271',
+  VAULT_ITEMS: 'l2m_cached_vault_items_v271',
+  QUEUES: 'l2m_cached_queues_v271',
+  CLANS: 'l2m_cached_clans_v271',
+  DIAMOND_TXS: 'l2m_cached_diamond_txs_v271',
+  QUICK_ITEMS: 'l2m_cached_quick_items_v271'
 };
 
 // Clean legacy cache keys if present
 if (typeof localStorage !== 'undefined') {
   try {
-    ['l2m_cached_users', 'l2m_cached_vault_items', 'l2m_cached_queues', 'l2m_cached_clans', 'l2m_cached_diamond_txs', 'l2m_google_backup_cache'].forEach(k => {
-      localStorage.removeItem(k);
-    });
+    if (localStorage.getItem(CACHE_SCHEMA_KEY) !== CACHE_SCHEMA_VERSION) {
+      Object.keys(localStorage).filter((key) => key.startsWith('l2m_cached_')).forEach((key) => localStorage.removeItem(key));
+      ['l2m_google_backup_cache', 'l2m_recent_item_names', 'k7_active_session_user', 'k7_logged_user']
+        .forEach((key) => localStorage.removeItem(key));
+      localStorage.setItem(CACHE_SCHEMA_KEY, CACHE_SCHEMA_VERSION);
+    }
   } catch (e) {}
 }
 
@@ -400,7 +375,7 @@ function setCachedData<T>(key: string, data: T): void {
 }
 
 export function getCachedUsers(): User[] {
-  return getCachedData<User[]>(CACHE_KEYS.USERS, INITIAL_MEMBERS);
+  return getCachedData<User[]>(CACHE_KEYS.USERS, []);
 }
 
 export function setCachedUsers(users: User[]): void {
@@ -613,7 +588,7 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
 }
 
 export function getCachedVaultItems(): VaultItem[] {
-  const items = getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, INITIAL_VAULT_ITEMS);
+  const items = getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, []);
   const deletedIds = getDeletedVaultItemIds();
   return items
     .filter((item) => item && item.id && !deletedIds.has(item.id))
@@ -632,7 +607,7 @@ export function setCachedVaultItems(items: VaultItem[]): void {
 }
 
 export function getCachedClans(): ClanGroup[] {
-  return getCachedData<ClanGroup[]>(CACHE_KEYS.CLANS, INITIAL_CLANS);
+  return getCachedData<ClanGroup[]>(CACHE_KEYS.CLANS, []);
 }
 
 export function setCachedClans(clans: ClanGroup[]): void {
@@ -640,7 +615,7 @@ export function setCachedClans(clans: ClanGroup[]): void {
 }
 
 export function getCachedQueues(): QueueItem[] {
-  const queues = getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, INITIAL_QUEUES);
+  const queues = getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, []);
   const deletedIds = getDeletedQueueItemIds();
   return queues.filter((q) => q && q.id && !deletedIds.has(q.id));
 }
@@ -652,7 +627,7 @@ export function setCachedQueues(queues: QueueItem[]): void {
 }
 
 export function getCachedDiamondTransactions(): DiamondVaultRecord[] {
-  return getCachedData<DiamondVaultRecord[]>(CACHE_KEYS.DIAMOND_TXS, REAL_BACKUP_DIAMOND_TXS || []);
+  return getCachedData<DiamondVaultRecord[]>(CACHE_KEYS.DIAMOND_TXS, []);
 }
 
 export function setCachedDiamondTransactions(records: DiamondVaultRecord[]): void {
@@ -721,7 +696,8 @@ export function listenToUsers(callback: (users: User[]) => void) {
     (snapshot) => {
       initialFallbackHandled = true;
       if (snapshot.empty) {
-        callback(initialUsers);
+        setCachedData(CACHE_KEYS.USERS, []);
+        callback([]);
         return;
       }
       const users: User[] = [];
@@ -1035,7 +1011,7 @@ export async function loginUserQuery(
 
   if (matchedUser) {
     const userPass = (matchedUser as any).password;
-    if (!userPass || userPass === pass || userPass === cleanPass) {
+    if (userPass && (userPass === pass || userPass === cleanPass)) {
       saveLocalSessionUser(matchedUser);
       return matchedUser;
     }
@@ -1057,7 +1033,7 @@ export async function loginUserQuery(
         });
         if (foundInLive) {
           const userPass = (foundInLive as any).password;
-          if (!userPass || userPass === pass || userPass === cleanPass) {
+          if (userPass && (userPass === pass || userPass === cleanPass)) {
             saveLocalSessionUser(foundInLive);
             return foundInLive;
           }
@@ -1105,7 +1081,7 @@ export async function loginUserQuery(
       const dbUser = (data.username || '').trim().toLowerCase();
       const dbIgn = (data.inGameName || '').trim().toLowerCase();
       const dbPass = (data as any).password;
-      if ((dbUser === lowerUser || dbIgn === lowerUser) && (dbPass === pass || dbPass === cleanPass || !dbPass)) {
+      if ((dbUser === lowerUser || dbIgn === lowerUser) && dbPass && (dbPass === pass || dbPass === cleanPass)) {
         matchedFromDb = { ...data, id: docSnap.id };
       }
     });
@@ -1232,8 +1208,8 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
     (snapshot) => {
       initialItemsFallbackHandled = true;
       if (snapshot.empty) {
-        const cached = getCachedVaultItems();
-        latestItems = cached.length > 0 ? cached : INITIAL_VAULT_ITEMS;
+        latestItems = [];
+        setCachedVaultItems([]);
         emitCombinedItems();
         return;
       }
@@ -1254,6 +1230,7 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
         }
         items.push(item);
       });
+      setCachedVaultItems(items);
       latestItems = items;
       emitCombinedItems();
     },
@@ -1523,8 +1500,8 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
     (snapshot) => {
       initialQueueFallbackHandled = true;
       if (snapshot.empty) {
-        const cached = getCachedQueues();
-        callback(cached.length > 0 ? cached : initialQueues);
+        setCachedQueues([]);
+        callback([]);
         return;
       }
       const queues: QueueItem[] = [];
@@ -1538,10 +1515,8 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
         }
         queues.push(qItem);
       });
-      const cached = getCachedQueues();
-      const merged = mergeQueueItems(cached, queues);
-      setCachedQueues(merged);
-      callback(merged);
+      setCachedQueues(queues);
+      callback(queues);
     },
     (err) => {
       console.warn('Firestore queue listener fallback to initial/cached queues:', err);
@@ -1646,53 +1621,12 @@ export async function clearDiamondTransactionsDoc(): Promise<number> {
   return count;
 }
 
-export async function resetToDefaultVaultDataDoc(): Promise<void> {
-  try {
-    localStorage.removeItem(DELETED_VAULT_ITEMS_KEY);
-    localStorage.removeItem(DELETED_QUEUE_ITEMS_KEY);
-    setCachedVaultItems(INITIAL_VAULT_ITEMS);
-    setCachedQueues(INITIAL_QUEUES);
-  } catch {}
-
-  // 1. Delete all current items
-  const itemsSnap = await getDocs(collection(db, ITEMS_COLLECTION));
-  const batch1 = writeBatch(db);
-  itemsSnap.forEach((docSnap) => batch1.delete(docSnap.ref));
-  await safeFirestoreWrite(batch1.commit(), 2000, 'resetDefaults_batch1');
-  const claimsSnap = await getDocs(collection(db, ITEM_CLAIMS_COLLECTION));
-  await Promise.all(claimsSnap.docs.map((claimDoc) => safeFirestoreWrite(deleteDoc(claimDoc.ref), 1200, 'resetDefaults_deleteClaims')));
-
-  // 2. Re-seed default items
-  const batch2 = writeBatch(db);
-  for (const item of INITIAL_VAULT_ITEMS) {
-    batch2.set(doc(db, ITEMS_COLLECTION, item.id), item);
-  }
-  await safeFirestoreWrite(batch2.commit(), 2000, 'resetDefaults_batch2');
-
-  // 3. Delete all current queues
-  const queuesSnap = await getDocs(collection(db, QUEUES_COLLECTION));
-  const batch3 = writeBatch(db);
-  queuesSnap.forEach((docSnap) => batch3.delete(docSnap.ref));
-  await safeFirestoreWrite(batch3.commit(), 2000, 'resetDefaults_batch3');
-
-  // 4. Re-seed default queues
-  const batch4 = writeBatch(db);
-  for (const q of INITIAL_QUEUES) {
-    batch4.set(doc(db, QUEUES_COLLECTION, q.id), q);
-  }
-  await safeFirestoreWrite(batch4.commit(), 2000, 'resetDefaults_batch4');
-}
-
 // 4. Quick Items Firestore functions
 export function listenToQuickItems(callback: (items: QuickItem[]) => void) {
   const q = collection(db, QUICK_ITEMS_COLLECTION);
   return onSnapshot(
     q,
     (snapshot) => {
-      if (snapshot.empty) {
-        callback([]);
-        return;
-      }
       const items: QuickItem[] = [];
       snapshot.forEach((docSnap) => {
         items.push({ ...docSnap.data(), id: docSnap.id } as QuickItem);
@@ -1708,43 +1642,115 @@ export function listenToQuickItems(callback: (items: QuickItem[]) => void) {
 
 export async function addQuickItemDoc(item: Omit<QuickItem, 'id' | 'createdAt'>) {
   const newId = 'qi_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-  const fallbackImg = 'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=300&auto=format&fit=crop&q=80';
   const fullItem: QuickItem = {
     id: newId,
     name: item.name ? item.name.trim() : 'Unknown Item',
     rarity: item.rarity || 'LAGEND',
-    imageUrl: (item.imageUrl && item.imageUrl.trim().length > 0) ? item.imageUrl : fallbackImg,
+    imageUrl: item.imageUrl?.trim() || '',
+    quantity: Math.max(1, item.quantity || 1),
     createdAt: Date.now()
   };
-  await safeFirestoreWrite(
-    setDoc(doc(db, QUICK_ITEMS_COLLECTION, newId), fullItem),
-    1200,
-    'addQuickItemDoc'
-  );
+  try {
+    await setDoc(doc(db, QUICK_ITEMS_COLLECTION, newId), fullItem);
+  } catch (err) {
+    notifyQuotaExceeded(err);
+    throw err;
+  }
   return fullItem;
 }
 
 export async function deleteQuickItemDoc(itemId: string) {
   try {
     const ref = doc(db, QUICK_ITEMS_COLLECTION, itemId);
-    await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteQuickItemDoc');
+    await deleteDoc(ref);
   } catch (err) {
+    notifyQuotaExceeded(err);
     console.error('Firestore deleteDoc error in deleteQuickItemDoc:', err);
+    throw err;
   }
 }
 
 export async function updateQuickItemDoc(itemId: string, updates: Partial<Omit<QuickItem, 'id' | 'createdAt'>>) {
   try {
     const ref = doc(db, QUICK_ITEMS_COLLECTION, itemId);
-    const cleanUpdates: any = {};
+    const cleanUpdates: any = sanitizeForFirestore(updates);
     if (updates.name !== undefined) cleanUpdates.name = updates.name.trim();
-    if (updates.rarity !== undefined) cleanUpdates.rarity = updates.rarity;
-    if (updates.imageUrl !== undefined && updates.imageUrl.trim().length > 0) {
-      cleanUpdates.imageUrl = updates.imageUrl;
+    if (updates.imageUrl !== undefined) {
+      if (updates.imageUrl.trim().length > 0) cleanUpdates.imageUrl = updates.imageUrl;
+      else delete cleanUpdates.imageUrl;
     }
-    await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateQuickItemDoc');
+    await updateDoc(ref, cleanUpdates);
   } catch (err) {
+    notifyQuotaExceeded(err);
     console.error('Firestore updateDoc error in updateQuickItemDoc:', err);
+    throw err;
+  }
+}
+
+export function listenToGeneralItems(callback: (items: GeneralItem[]) => void) {
+  return onSnapshot(collection(db, GENERAL_ITEMS_COLLECTION), (snapshot) => {
+    const items: GeneralItem[] = [];
+    snapshot.forEach((entry) => {
+      const data = entry.data() as Partial<GeneralItem>;
+      items.push({
+        ...data,
+        id: entry.id,
+        name: data.name || 'Unknown Item',
+        imageUrl: data.imageUrl || '',
+        price: Math.max(0, data.price || 0),
+        quantity: Math.max(1, data.quantity || 1),
+        minPowerLevel: Math.max(0, data.minPowerLevel || 0),
+        rarity: data.rarity || 'RARE',
+        queueList: Array.isArray(data.queueList) ? data.queueList : [],
+        receiptHistory: Array.isArray(data.receiptHistory) ? data.receiptHistory : [],
+        createdAt: data.createdAt || Date.now()
+      });
+    });
+    callback(items.sort((a, b) => b.createdAt - a.createdAt));
+  }, (err) => {
+    console.warn('Firestore general items fallback:', err);
+    callback([]);
+  });
+}
+
+export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdAt'>) {
+  const id = 'gi_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+  const fullItem: GeneralItem = {
+    ...item,
+    id,
+    name: item.name.trim(),
+    price: Math.max(0, item.price || 0),
+    quantity: Math.max(1, item.quantity || 1),
+    minPowerLevel: Math.max(0, item.minPowerLevel || 0),
+    rarity: item.rarity || 'RARE',
+    queueList: [],
+    receiptHistory: [],
+    createdAt: Date.now()
+  };
+  try {
+    await setDoc(doc(db, GENERAL_ITEMS_COLLECTION, id), sanitizeForFirestore(fullItem));
+  } catch (err) {
+    notifyQuotaExceeded(err);
+    throw err;
+  }
+  return fullItem;
+}
+
+export async function updateGeneralItemDoc(itemId: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) {
+  try {
+    await updateDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId), sanitizeForFirestore(updates));
+  } catch (err) {
+    notifyQuotaExceeded(err);
+    throw err;
+  }
+}
+
+export async function deleteGeneralItemDoc(itemId: string) {
+  try {
+    await deleteDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId));
+  } catch (err) {
+    notifyQuotaExceeded(err);
+    throw err;
   }
 }
 
@@ -1760,7 +1766,8 @@ export function listenToClans(callback: (clans: ClanGroup[]) => void) {
     (snapshot) => {
       initialClansFallbackHandled = true;
       if (snapshot.empty) {
-        callback(initialClans);
+        setCachedData(CACHE_KEYS.CLANS, []);
+        callback([]);
         return;
       }
       const clans: ClanGroup[] = [];
@@ -2304,6 +2311,8 @@ export async function syncBackupToFirestore(payload: {
   users?: User[];
   vaultItems?: VaultItem[];
   queueItems?: QueueItem[];
+  quickItems?: QuickItem[];
+  generalItems?: GeneralItem[];
   clans?: ClanGroup[];
   diamondLogs?: DiamondVaultRecord[];
   formulaSettings?: FormulaSettings;
@@ -2322,7 +2331,9 @@ export async function syncBackupToFirestore(payload: {
           const cleanItem = sanitizeForFirestore(item);
           batch.set(doc(db, collectionName, item.id), cleanItem, { merge: true });
         }
-        await safeFirestoreWrite(batch.commit(), 2500, 'syncBackupToFirestore_batchCommit');
+        // Recovery must fail loudly if Firestore rejects a batch. Swallowing this
+        // error would incorrectly report that Google and Firestore are in sync.
+        await batch.commit();
         writtenCount += chunk.length;
       }
     };
@@ -2335,6 +2346,12 @@ export async function syncBackupToFirestore(payload: {
     }
     if (payload.queueItems && payload.queueItems.length > 0) {
       await writeInBatches(payload.queueItems, QUEUES_COLLECTION);
+    }
+    if (payload.quickItems && payload.quickItems.length > 0) {
+      await writeInBatches(payload.quickItems, QUICK_ITEMS_COLLECTION);
+    }
+    if (payload.generalItems && payload.generalItems.length > 0) {
+      await writeInBatches(payload.generalItems, GENERAL_ITEMS_COLLECTION);
     }
     if (payload.clans && payload.clans.length > 0) {
       await writeInBatches(payload.clans, CLANS_COLLECTION);
@@ -2402,16 +2419,20 @@ export async function forceCheckAndFetchFirestore(): Promise<{
     users: User[];
     vaultItems: VaultItem[];
     queueItems: QueueItem[];
+    quickItems: QuickItem[];
+    generalItems: GeneralItem[];
     clans: ClanGroup[];
     diamondLogs: DiamondVaultRecord[];
   };
   message: string;
 }> {
   try {
-    const [usersSnap, itemsSnap, queuesSnap, clansSnap, vaultSnap] = await Promise.all([
+    const [usersSnap, itemsSnap, queuesSnap, quickSnap, generalSnap, clansSnap, vaultSnap] = await Promise.all([
       getDocs(collection(db, USERS_COLLECTION)),
       getDocs(collection(db, ITEMS_COLLECTION)),
       getDocs(collection(db, QUEUES_COLLECTION)),
+      getDocs(collection(db, QUICK_ITEMS_COLLECTION)),
+      getDocs(collection(db, GENERAL_ITEMS_COLLECTION)),
       getDocs(collection(db, CLANS_COLLECTION)),
       getDocs(collection(db, VAULT_COLLECTION))
     ]);
@@ -2429,6 +2450,12 @@ export async function forceCheckAndFetchFirestore(): Promise<{
     const queueItems: QueueItem[] = [];
     queuesSnap.forEach((d) => queueItems.push({ ...d.data(), id: d.id } as QueueItem));
 
+    const quickItems: QuickItem[] = [];
+    quickSnap.forEach((d) => quickItems.push({ ...d.data(), id: d.id } as QuickItem));
+
+    const generalItems: GeneralItem[] = [];
+    generalSnap.forEach((d) => generalItems.push({ ...d.data(), id: d.id } as GeneralItem));
+
     const clans: ClanGroup[] = [];
     clansSnap.forEach((d) => clans.push({ ...d.data(), id: d.id } as ClanGroup));
 
@@ -2441,7 +2468,7 @@ export async function forceCheckAndFetchFirestore(): Promise<{
 
     return {
       success: true,
-      data: { users, vaultItems, queueItems, clans, diamondLogs },
+      data: { users, vaultItems, queueItems, quickItems, generalItems, clans, diamondLogs },
       message: 'Firebase Firestore is back online and all cloud data was retrieved successfully!'
     };
   } catch (err: any) {

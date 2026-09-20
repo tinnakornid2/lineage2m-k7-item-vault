@@ -1,10 +1,11 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "2.7.0",
+  "version": "2.7.7",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "node scripts/dev-emulator.mjs",
+    "dev:production": "tsx server.ts",
     "dev:emulator": "node scripts/dev-emulator.mjs",
     "emulators": "firebase emulators:start --only auth,firestore",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore.rules.test.mjs\"",
@@ -29,6 +30,7 @@
     "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "tesseract.js": "^6.0.1",
     "vite": "^6.2.3"
   },
   "devDependencies": {

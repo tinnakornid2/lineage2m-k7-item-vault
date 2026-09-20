@@ -65,6 +65,8 @@ function doGet(e) {
       const data = {
         users: readSheetData(ss, "Members"),
         vaultItems: readSheetData(ss, "VaultItems"),
+        quickItems: readSheetData(ss, "QuickItems"),
+        generalItems: readSheetData(ss, "GeneralItems"),
         queueItems: readSheetData(ss, "Queues"),
         clans: readSheetData(ss, "Clans"),
         diamondLogs: readSheetData(ss, "ClanDiamonds"),
@@ -110,6 +112,8 @@ function doPost(e) {
       // 1. Write to Sheets with safe cell limits (under 50,000 characters per cell)
       if (Array.isArray(data.users)) writeSheetData(ss, "Members", data.users);
       if (Array.isArray(data.vaultItems)) writeSheetData(ss, "VaultItems", data.vaultItems);
+      if (Array.isArray(data.quickItems)) writeSheetData(ss, "QuickItems", data.quickItems);
+      if (Array.isArray(data.generalItems)) writeSheetData(ss, "GeneralItems", data.generalItems);
       if (Array.isArray(data.queueItems)) writeSheetData(ss, "Queues", data.queueItems);
       if (Array.isArray(data.clans)) writeSheetData(ss, "Clans", data.clans);
       if (Array.isArray(data.diamondLogs)) writeSheetData(ss, "ClanDiamonds", data.diamondLogs);
@@ -123,6 +127,8 @@ function doPost(e) {
         triggeredBy: payload.performedBy || "System",
         usersCount: data.users ? data.users.length : 0,
         vaultItemsCount: data.vaultItems ? data.vaultItems.length : 0,
+        quickItemsCount: data.quickItems ? data.quickItems.length : 0,
+        generalItemsCount: data.generalItems ? data.generalItems.length : 0,
         diamondBalance: payload.vaultBalance || 0
       }];
       appendSheetLog(ss, "BackupLog", logEntry);

@@ -139,6 +139,32 @@ export interface QuickItem {
   createdAt: number;
 }
 
+export interface GeneralItem {
+  id: string;
+  name: string;
+  imageUrl: string;
+  price: number;
+  quantity: number;
+  minPowerLevel: number;
+  rarity: ItemRarity;
+  queueList: QueueMember[];
+  receiptHistory: GeneralItemReceipt[];
+  createdAt: number;
+}
+
+export interface GeneralItemReceipt {
+  id: string;
+  userId?: string;
+  name: string;
+  clan: string;
+  quantity: number;
+  receiptImages: string[];
+  note?: string;
+  deliveredAt: number;
+  deliveredBy: string;
+  updatedAt?: number;
+}
+
 export interface HunterRecord {
   name: string;
   clan: string;
