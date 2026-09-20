@@ -47,8 +47,9 @@ import {
   cleanClanName,
   DEFAULT_CLAN
 } from '../types';
-// Production data must come from Firestore/Google, never bundled snapshots.
-const REAL_BACKUP_MEMBERS: User[] = [];
+import { LEAN_OFFLINE_MEMBERS } from '../data/offlineMembersFallback';
+// Production data comes from Firestore/Google Sheets, with offline fallback for authentication
+const REAL_BACKUP_MEMBERS: User[] = LEAN_OFFLINE_MEMBERS;
 const REAL_BACKUP_CLANS: ClanGroup[] = [];
 const REAL_BACKUP_QUEUES: QueueItem[] = [];
 const REAL_BACKUP_VAULT_ITEMS: VaultItem[] = [];
@@ -331,7 +332,7 @@ export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QU
 ];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.7.8-dual-cloud';
+const CACHE_SCHEMA_VERSION = '2.7.9-dual-cloud';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -342,13 +343,25 @@ export const CACHE_KEYS = {
   GENERAL_ITEMS: 'l2m_cached_general_items_v271'
 };
 
-// Clean legacy cache keys if present
+// Clean legacy cache keys if present - NEVER remove active session or current version data
 if (typeof localStorage !== 'undefined') {
   try {
     if (localStorage.getItem(CACHE_SCHEMA_KEY) !== CACHE_SCHEMA_VERSION) {
-      Object.keys(localStorage).filter((key) => key.startsWith('l2m_cached_')).forEach((key) => localStorage.removeItem(key));
-      ['l2m_google_backup_cache', 'l2m_recent_item_names', 'k7_active_session_user', 'k7_logged_user']
-        .forEach((key) => localStorage.removeItem(key));
+      const LEGACY_KEYS = [
+        'l2m_cached_users',
+        'l2m_cached_vault_items',
+        'l2m_cached_queues',
+        'l2m_cached_clans',
+        'l2m_cached_diamond_txs',
+        'l2m_cached_quick_items',
+        'l2m_cached_users_v260',
+        'l2m_cached_vault_items_v260',
+        'l2m_cached_queues_v260',
+        'l2m_cached_clans_v260',
+        'l2m_cached_diamond_txs_v260',
+        'l2m_cached_quick_items_v260'
+      ];
+      LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
       localStorage.setItem(CACHE_SCHEMA_KEY, CACHE_SCHEMA_VERSION);
     }
   } catch (e) {}
@@ -376,7 +389,19 @@ function setCachedData<T>(key: string, data: T): void {
 }
 
 export function getCachedUsers(): User[] {
-  return getCachedData<User[]>(CACHE_KEYS.USERS, []);
+  const cached = getCachedData<User[]>(CACHE_KEYS.USERS, []);
+  if (cached && cached.length > 0) return cached;
+  // If no cached users in CACHE_KEYS, check Google Sheets cache in localStorage
+  try {
+    const googleCache = localStorage.getItem('l2m_google_backup_cache');
+    if (googleCache) {
+      const parsed = JSON.parse(googleCache);
+      if (parsed?.data?.users && Array.isArray(parsed.data.users) && parsed.data.users.length > 0) {
+        return parsed.data.users;
+      }
+    }
+  } catch {}
+  return INITIAL_MEMBERS;
 }
 
 export function setCachedUsers(users: User[]): void {
@@ -1006,6 +1031,17 @@ export async function loginUserQuery(
       if (u && u.id) candidateUsersMap.set(u.id, u);
     }
   }
+  try {
+    const googleCache = localStorage.getItem('l2m_google_backup_cache');
+    if (googleCache) {
+      const parsed = JSON.parse(googleCache);
+      if (parsed?.data?.users && Array.isArray(parsed.data.users)) {
+        for (const u of parsed.data.users) {
+          if (u && u.id && !candidateUsersMap.has(u.id)) candidateUsersMap.set(u.id, u);
+        }
+      }
+    }
+  } catch {}
   if (Array.isArray(availableUsers)) {
     for (const u of availableUsers) {
       if (u && u.id) candidateUsersMap.set(u.id, u);
@@ -1065,7 +1101,8 @@ export async function loginUserQuery(
     }
   }
 
-  // 4. If running in browser and not found yet, query live-state relay with 1.5s timeout
+  // 4. Query live-state relay with 1.5s timeout and keep liveUsers for profile resolution
+  let liveUsers: User[] = [];
   if (typeof window !== 'undefined') {
     try {
       const liveRes = await Promise.race([
@@ -1073,7 +1110,7 @@ export async function loginUserQuery(
         new Promise<any>((_, reject) => setTimeout(() => reject(new Error('live-state-timeout')), 1500))
       ]);
       if (liveRes && liveRes.data && Array.isArray(liveRes.data.users)) {
-        const liveUsers = liveRes.data.users as User[];
+        liveUsers = liveRes.data.users as User[];
         const foundInLive = liveUsers.find((u) => {
           const uUser = (u.username || '').trim().toLowerCase();
           const uIgn = (u.inGameName || '').trim().toLowerCase();
@@ -1090,7 +1127,7 @@ export async function loginUserQuery(
     } catch {}
   }
 
-  // 5. Try Firebase Authentication (non-blocking with 1.5s timeout)
+  // 5. Try Firebase Authentication (non-blocking with 2s timeout)
   try {
     const authPromise = signInWithEmailAndPassword(
       auth,
@@ -1099,17 +1136,48 @@ export async function loginUserQuery(
     );
     const credential = await Promise.race([
       authPromise,
-      new Promise<any>((_, reject) => setTimeout(() => reject(new Error('auth-timeout')), 1500))
+      new Promise<any>((_, reject) => setTimeout(() => reject(new Error('auth-timeout')), 2000))
     ]);
     if (credential && credential.user) {
-      const fallbackList = getCachedUsers();
-      const matched = fallbackList.find(
-        (u) => u.id === credential.user.uid || u.username?.toLowerCase() === lowerUser || u.inGameName?.toLowerCase() === lowerUser
+      // Authenticated via Firebase Auth! Locate or reconstruct full user profile:
+      const searchPool = [...liveUsers, ...candidateUsers, ...getCachedUsers()];
+      let matched = searchPool.find(
+        (u) =>
+          u.id === credential.user.uid ||
+          (u.username && u.username.trim().toLowerCase() === lowerUser) ||
+          (u.inGameName && u.inGameName.trim().toLowerCase() === lowerUser)
       );
-      if (matched) {
-        saveLocalSessionUser(matched);
-        return matched;
+
+      // If not in pool, try fetching directly from Firestore by UID
+      if (!matched) {
+        try {
+          const directDoc = await Promise.race([
+            getDoc(doc(db, USERS_COLLECTION, credential.user.uid)),
+            new Promise<any>((_, reject) => setTimeout(() => reject(new Error('directDoc timeout')), 1500))
+          ]);
+          if (directDoc && directDoc.exists()) {
+            matched = { ...directDoc.data(), id: directDoc.id } as User;
+          }
+        } catch {}
       }
+
+      // If still not matched, construct a valid User profile
+      if (!matched) {
+        matched = {
+          id: credential.user.uid,
+          username: cleanUsername,
+          inGameName: cleanUsername,
+          role: 'member',
+          clan: DEFAULT_CLAN,
+          powerLevel: 0,
+          status: 'active',
+          verified: false,
+          createdAt: Date.now()
+        };
+      }
+
+      saveLocalSessionUser(matched);
+      return matched;
     }
   } catch (authErr: any) {
     // Expected if email/password auth is disabled or user not in Firebase Auth

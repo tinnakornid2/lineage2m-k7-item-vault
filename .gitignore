@@ -12,8 +12,7 @@ coverage/
 *.zip
 scratch/
 backups/*
-secrets/
-data/
+/data/
 src/data/offlineMembersData.ts
 api/index.js
 work/
