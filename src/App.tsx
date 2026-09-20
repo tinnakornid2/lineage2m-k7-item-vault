@@ -90,6 +90,10 @@ import {
   setCachedQueues,
   getCachedDiamondTransactions,
   setCachedDiamondTransactions,
+  getCachedQuickItems,
+  setCachedQuickItems,
+  getCachedGeneralItems,
+  setCachedGeneralItems,
   setOnQuotaExceededListener,
   syncBackupToFirestore,
   forceCheckAndFetchFirestore,
@@ -857,6 +861,18 @@ export const App: React.FC = () => {
       setCachedDiamondTransactions(diamondLogs);
     }
   }, [diamondLogs]);
+
+  useEffect(() => {
+    if (quickItems.length > 0) {
+      setCachedQuickItems(quickItems);
+    }
+  }, [quickItems]);
+
+  useEffect(() => {
+    if (generalItems.length > 0) {
+      setCachedGeneralItems(generalItems);
+    }
+  }, [generalItems]);
 
   // Real-time live relay broadcast: whenever state changes locally, immediately notify all other clan members (debounced 300ms)
   useEffect(() => {

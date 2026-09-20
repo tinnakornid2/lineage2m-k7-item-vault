@@ -331,14 +331,15 @@ export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QU
 ];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.7.7-dual-cloud';
+const CACHE_SCHEMA_VERSION = '2.7.8-dual-cloud';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
   QUEUES: 'l2m_cached_queues_v271',
   CLANS: 'l2m_cached_clans_v271',
   DIAMOND_TXS: 'l2m_cached_diamond_txs_v271',
-  QUICK_ITEMS: 'l2m_cached_quick_items_v271'
+  QUICK_ITEMS: 'l2m_cached_quick_items_v271',
+  GENERAL_ITEMS: 'l2m_cached_general_items_v271'
 };
 
 // Clean legacy cache keys if present
@@ -380,6 +381,22 @@ export function getCachedUsers(): User[] {
 
 export function setCachedUsers(users: User[]): void {
   setCachedData(CACHE_KEYS.USERS, users);
+}
+
+export function getCachedQuickItems(): QuickItem[] {
+  return getCachedData<QuickItem[]>(CACHE_KEYS.QUICK_ITEMS, []);
+}
+
+export function setCachedQuickItems(items: QuickItem[]): void {
+  setCachedData(CACHE_KEYS.QUICK_ITEMS, items || []);
+}
+
+export function getCachedGeneralItems(): GeneralItem[] {
+  return getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
+}
+
+export function setCachedGeneralItems(items: GeneralItem[]): void {
+  setCachedData(CACHE_KEYS.GENERAL_ITEMS, items || []);
 }
 
 export const DELETED_VAULT_ITEMS_KEY = 'k7_deleted_vault_item_ids';
@@ -683,6 +700,31 @@ export async function safeFirestoreWrite<T>(
   }
 }
 
+/**
+ * Safe Firestore write helper that races with a timeout to guarantee
+ * zero-freeze UI under free-tier quota exhaustion (RESOURCE_EXHAUSTED),
+ * and throws an error so handlers can immediately trigger secondary cloud failover (e.g. Google Sheets).
+ */
+export async function safeFirestoreWriteOrThrow<T>(
+  writeOperation: Promise<T>,
+  timeoutMs: number = 1200,
+  operationName: string = 'Firestore write'
+): Promise<T> {
+  try {
+    const res = await Promise.race([
+      writeOperation,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`firestore-timeout: ${operationName}`)), timeoutMs)
+      )
+    ]);
+    return res;
+  } catch (err: any) {
+    console.warn(`Safe firestore notice (${operationName}):`, err?.message || err);
+    notifyQuotaExceeded(err);
+    throw err;
+  }
+}
+
 // 1. Users Firestore functions
 export function listenToUsers(callback: (users: User[]) => void) {
   // Immediately provide cached or fallback users to prevent screen from showing empty
@@ -886,10 +928,29 @@ export async function registerUserDoc(data: {
     throw new Error(`invalid-registration-${invalidField}`);
   }
 
-  const newId = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  const fallbackId = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  let resolvedId = fallbackId;
+
+  // 1. Try Firebase Authentication in background (non-blocking if disabled or timed out)
+  try {
+    const authPromise = createUserWithEmailAndPassword(
+      auth,
+      usernameToAuthEmail(username),
+      data.password
+    );
+    const cred = await Promise.race([
+      authPromise,
+      new Promise<any>((_, reject) => setTimeout(() => reject(new Error('auth-timeout')), 1500))
+    ]);
+    if (cred && cred.user && cred.user.uid) {
+      resolvedId = cred.user.uid;
+    }
+  } catch (authErr: any) {
+    console.warn('Firebase Auth registration notice (using direct vault identity):', authErr?.code || authErr?.message);
+  }
 
   const newUser: User = {
-    id: newId,
+    id: resolvedId,
     username,
     inGameName,
     clan: 'no-clan',
@@ -903,26 +964,13 @@ export async function registerUserDoc(data: {
     password: data.password
   };
 
-  // 1. Try Firebase Authentication in background (non-blocking if disabled or timed out)
-  try {
-    const authPromise = createUserWithEmailAndPassword(
-      auth,
-      usernameToAuthEmail(username),
-      data.password
-    );
-    await Promise.race([
-      authPromise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('auth-timeout')), 1500))
-    ]);
-  } catch (authErr: any) {
-    console.warn('Firebase Auth registration notice (using direct vault identity):', authErr?.code || authErr?.message);
-  }
-
   // 2. Try Firestore setDoc with timeout & quota safeguard
+  // Conform strictly to firestore.rules: exclude plaintext password and ensure request.auth.uid == userId
   try {
-    const cleanUser = sanitizeForFirestore(newUser);
+    const { password: _password, ...firestoreUser } = newUser;
+    const cleanUser = sanitizeForFirestore(firestoreUser);
     await safeFirestoreWrite(
-      setDoc(doc(db, USERS_COLLECTION, newId), cleanUser),
+      setDoc(doc(db, USERS_COLLECTION, resolvedId), cleanUser),
       1200,
       'addUserDoc'
     );
@@ -1623,19 +1671,29 @@ export async function clearDiamondTransactionsDoc(): Promise<number> {
 
 // 4. Quick Items Firestore functions
 export function listenToQuickItems(callback: (items: QuickItem[]) => void) {
+  const initialItems = getCachedQuickItems();
+  callback(initialItems);
+
+  let initialFallbackHandled = false;
   const q = collection(db, QUICK_ITEMS_COLLECTION);
   return onSnapshot(
     q,
     (snapshot) => {
+      initialFallbackHandled = true;
       const items: QuickItem[] = [];
       snapshot.forEach((docSnap) => {
         items.push({ ...docSnap.data(), id: docSnap.id } as QuickItem);
       });
+      setCachedQuickItems(items);
       callback(items);
     },
     (err) => {
       console.warn('Firestore quick items fallback:', err);
-      callback([]);
+      notifyQuotaExceeded(err);
+      if (!initialFallbackHandled) {
+        initialFallbackHandled = true;
+        callback(getCachedQuickItems());
+      }
     }
   );
 }
@@ -1650,45 +1708,45 @@ export async function addQuickItemDoc(item: Omit<QuickItem, 'id' | 'createdAt'>)
     quantity: Math.max(1, item.quantity || 1),
     createdAt: Date.now()
   };
-  try {
-    await setDoc(doc(db, QUICK_ITEMS_COLLECTION, newId), fullItem);
-  } catch (err) {
-    notifyQuotaExceeded(err);
-    throw err;
-  }
+  await safeFirestoreWriteOrThrow(
+    setDoc(doc(db, QUICK_ITEMS_COLLECTION, newId), fullItem),
+    1200,
+    'addQuickItemDoc'
+  );
   return fullItem;
 }
 
 export async function deleteQuickItemDoc(itemId: string) {
-  try {
-    const ref = doc(db, QUICK_ITEMS_COLLECTION, itemId);
-    await deleteDoc(ref);
-  } catch (err) {
-    notifyQuotaExceeded(err);
-    console.error('Firestore deleteDoc error in deleteQuickItemDoc:', err);
-    throw err;
-  }
+  const ref = doc(db, QUICK_ITEMS_COLLECTION, itemId);
+  await safeFirestoreWriteOrThrow(
+    deleteDoc(ref),
+    1200,
+    'deleteQuickItemDoc'
+  );
 }
 
 export async function updateQuickItemDoc(itemId: string, updates: Partial<Omit<QuickItem, 'id' | 'createdAt'>>) {
-  try {
-    const ref = doc(db, QUICK_ITEMS_COLLECTION, itemId);
-    const cleanUpdates: any = sanitizeForFirestore(updates);
-    if (updates.name !== undefined) cleanUpdates.name = updates.name.trim();
-    if (updates.imageUrl !== undefined) {
-      if (updates.imageUrl.trim().length > 0) cleanUpdates.imageUrl = updates.imageUrl;
-      else delete cleanUpdates.imageUrl;
-    }
-    await updateDoc(ref, cleanUpdates);
-  } catch (err) {
-    notifyQuotaExceeded(err);
-    console.error('Firestore updateDoc error in updateQuickItemDoc:', err);
-    throw err;
+  const ref = doc(db, QUICK_ITEMS_COLLECTION, itemId);
+  const cleanUpdates: any = sanitizeForFirestore(updates);
+  if (updates.name !== undefined) cleanUpdates.name = updates.name.trim();
+  if (updates.imageUrl !== undefined) {
+    if (updates.imageUrl.trim().length > 0) cleanUpdates.imageUrl = updates.imageUrl;
+    else delete cleanUpdates.imageUrl;
   }
+  await safeFirestoreWriteOrThrow(
+    updateDoc(ref, cleanUpdates),
+    1200,
+    'updateQuickItemDoc'
+  );
 }
 
 export function listenToGeneralItems(callback: (items: GeneralItem[]) => void) {
+  const initialItems = getCachedGeneralItems();
+  callback(initialItems);
+
+  let initialFallbackHandled = false;
   return onSnapshot(collection(db, GENERAL_ITEMS_COLLECTION), (snapshot) => {
+    initialFallbackHandled = true;
     const items: GeneralItem[] = [];
     snapshot.forEach((entry) => {
       const data = entry.data() as Partial<GeneralItem>;
@@ -1706,10 +1764,16 @@ export function listenToGeneralItems(callback: (items: GeneralItem[]) => void) {
         createdAt: data.createdAt || Date.now()
       });
     });
-    callback(items.sort((a, b) => b.createdAt - a.createdAt));
+    const sorted = items.sort((a, b) => b.createdAt - a.createdAt);
+    setCachedGeneralItems(sorted);
+    callback(sorted);
   }, (err) => {
     console.warn('Firestore general items fallback:', err);
-    callback([]);
+    notifyQuotaExceeded(err);
+    if (!initialFallbackHandled) {
+      initialFallbackHandled = true;
+      callback(getCachedGeneralItems());
+    }
   });
 }
 
@@ -1727,31 +1791,28 @@ export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdA
     receiptHistory: [],
     createdAt: Date.now()
   };
-  try {
-    await setDoc(doc(db, GENERAL_ITEMS_COLLECTION, id), sanitizeForFirestore(fullItem));
-  } catch (err) {
-    notifyQuotaExceeded(err);
-    throw err;
-  }
+  await safeFirestoreWriteOrThrow(
+    setDoc(doc(db, GENERAL_ITEMS_COLLECTION, id), sanitizeForFirestore(fullItem)),
+    1200,
+    'addGeneralItemDoc'
+  );
   return fullItem;
 }
 
 export async function updateGeneralItemDoc(itemId: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) {
-  try {
-    await updateDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId), sanitizeForFirestore(updates));
-  } catch (err) {
-    notifyQuotaExceeded(err);
-    throw err;
-  }
+  await safeFirestoreWriteOrThrow(
+    updateDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId), sanitizeForFirestore(updates)),
+    1200,
+    'updateGeneralItemDoc'
+  );
 }
 
 export async function deleteGeneralItemDoc(itemId: string) {
-  try {
-    await deleteDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId));
-  } catch (err) {
-    notifyQuotaExceeded(err);
-    throw err;
-  }
+  await safeFirestoreWriteOrThrow(
+    deleteDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId)),
+    1200,
+    'deleteGeneralItemDoc'
+  );
 }
 
 // 5. Clans Firestore functions

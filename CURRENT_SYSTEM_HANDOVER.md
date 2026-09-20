@@ -1,6 +1,6 @@
 # Lineage2M Clan Hub — Current Handover
 
-Version: **2.7.7**  
+Version: **2.7.8**  
 Updated: **2026-09-21**  
 Production: https://lineage2m-k7-item-vault.vercel.app  
 Repository: https://github.com/tinnakornid2/lineage2m-k7-item-vault
