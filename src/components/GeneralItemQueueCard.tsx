@@ -108,7 +108,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
   const isAdminOrOwner = currentUser?.role === 'owner' || currentUser?.role === 'admin';
 
   // View Mode: 'grid' (4 items per row) vs 'table' (horizontal detailed rows)
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
 
   // Add/Edit Form State
   const [showAddForm, setShowAddForm] = useState(false);
