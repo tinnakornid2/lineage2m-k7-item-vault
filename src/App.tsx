@@ -111,7 +111,8 @@ import {
   markQueueItemAsDeleted,
   unmarkQueueItemAsDeleted,
   markClaimAsCancelled,
-  unmarkClaimAsCancelled
+  unmarkClaimAsCancelled,
+  ensureFirebaseAuthSession
 } from './services/firebase';
 import { calculateDiamondNetChange, computeTotalVaultBalance } from './utils/diamondHelper';
 import { setInMemoryFormulaSettings, getFormulaSettings, saveFormulaSettings } from './services/powerFormulaService';
@@ -275,6 +276,7 @@ export const App: React.FC = () => {
     let cancelled = false;
     (async () => {
       await initSharedGoogleBackupConfig();
+      if (!isQuotaExceeded) return;
       const google = await fetchDataFromGoogleSheets();
       if (cancelled || !google.success || !google.data) return;
       const data = google.data;
@@ -941,9 +943,9 @@ export const App: React.FC = () => {
 
   // Firestore Subscriptions (run once on mount)
   useEffect(() => {
-    // Avoid wasteful unauthenticated reads, and stop listeners immediately
-    // while quota failover is active. Google becomes the live source then.
-    if (!currentUser || isQuotaExceeded) return;
+    // Stop listeners while quota failover is active. Google becomes the live source then.
+    if (isQuotaExceeded) return;
+    ensureFirebaseAuthSession(currentUser);
     const unsubUsers = listenToUsers((updatedUsers) => {
       // Ensure Eloni is always owner in the users list
       const normalizedUsers = updatedUsers.map((u) => {

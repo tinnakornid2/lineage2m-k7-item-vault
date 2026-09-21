@@ -565,7 +565,6 @@ export function isPendingFirebaseSync(): boolean {
 
 let realtimeActive = false;
 let abortController: AbortController | null = null;
-let sheetsPollingInterval: any = null;
 let currentLocalVersion = 0;
 let isApplyingRemoteUpdate = false;
 
@@ -633,7 +632,6 @@ export async function broadcastLiveState(
 /**
  * Start real-time live synchronization across all clan members:
  * - Ultra-fast push notifications via long-polling server relay (< 50ms latency)
- * - Automatic background fallback sync with Google Sheets & Google Drive every 35s
  */
 export function startGoogleRealtimeSync(
   onDataChanged: (data: BackupDataPayload) => void
@@ -677,52 +675,8 @@ export function startGoogleRealtimeSync(
 
   pollLoop();
 
-  // Periodic Google Sheets fallback sync (every 35 seconds)
-  sheetsPollingInterval = setInterval(async () => {
-    if (!realtimeActive) return;
-    try {
-      const res = await fetchDataFromGoogleSheets();
-      if (res.success && res.data) {
-        if (res.data.users?.length || res.data.vaultItems?.length) {
-          // 1. Strict equality check against what was already broadcast or applied
-          const payloadStr = JSON.stringify(res.data);
-          if (payloadStr === lastBroadcastString) {
-            // Data in Google Sheets is completely identical to active live state. Skip to avoid re-renders & flicker!
-            return;
-          }
-
-          // 2. Protect against stale snapshots overwriting higher verified power
-          const incomingUsers = res.data.users || [];
-          if (incomingUsers.length > 0 && lastBroadcastString) {
-            try {
-              const lastData = JSON.parse(lastBroadcastString);
-              const lastUsers = lastData.users || [];
-              if (lastUsers.length > 0) {
-                const incomingPower = incomingUsers.reduce((s: number, u: any) => s + (Number(u.powerLevel) || 0), 0);
-                const lastPower = lastUsers.reduce((s: number, u: any) => s + (Number(u.powerLevel) || 0), 0);
-                // If incoming snapshot has lower total power and fewer or equal members, treat as stale and do not downgrade
-                if (incomingPower < lastPower && incomingUsers.length <= lastUsers.length) {
-                  console.warn('🛡️ Shielded state: Google Sheets snapshot is older than active live state. Skipping overwrite.', {
-                    incomingPower,
-                    lastPower
-                  });
-                  return;
-                }
-              }
-            } catch {}
-          }
-
-          lastBroadcastString = payloadStr;
-          isApplyingRemoteUpdate = true;
-          applyIncomingSyncMeta(res.data);
-          onDataChanged(res.data);
-          setTimeout(() => {
-            isApplyingRemoteUpdate = false;
-          }, 800);
-        }
-      }
-    } catch {}
-  }, 35000);
+  // Periodic 35-second Google Sheets poll removed in v2.8.15 to prevent high bandwidth consumption,
+  // UI stutter, and Google Apps Script quota exhaustion. Real-time sync is handled purely by Live Relay.
 }
 
 /**
@@ -733,10 +687,6 @@ export function stopGoogleRealtimeSync() {
   if (abortController) {
     abortController.abort();
     abortController = null;
-  }
-  if (sheetsPollingInterval) {
-    clearInterval(sheetsPollingInterval);
-    sheetsPollingInterval = null;
   }
 }
 

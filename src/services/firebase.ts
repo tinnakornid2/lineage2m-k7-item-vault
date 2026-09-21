@@ -50,7 +50,7 @@ import {
   isItemDistributed,
   normalizeDistributedItem
 } from '../types';
-// Production data comes from Google Sheets & Live Relay in a 100% Cloud-First architecture (v2.8.14)
+// Production data comes primarily from Firebase Firestore with Google Sheets & Live Relay dual-write resilience (v2.8.16)
 const REAL_BACKUP_MEMBERS: User[] = [];
 const REAL_BACKUP_CLANS: ClanGroup[] = [];
 const REAL_BACKUP_QUEUES: QueueItem[] = [];
@@ -166,7 +166,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.8.14-cloud-first';
+const CACHE_SCHEMA_VERSION = '2.8.16-firestore-primary';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -1018,6 +1018,9 @@ export async function loginUserQuery(
         ? { ...DEFAULT_OWNER, ...existingOwner, id: 'user_owner_eloni', role: 'owner', status: 'active' }
         : DEFAULT_OWNER;
       saveLocalSessionUser(activeOwner);
+      try {
+        signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334').catch(() => {});
+      } catch {}
       return activeOwner;
     }
   }
@@ -1157,6 +1160,18 @@ export function usernameToAuthEmail(username: string): string {
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
   return `${encoded}@auth.k7-clan.local`;
+}
+
+export function ensureFirebaseAuthSession(currentUser: User | null) {
+  if (!currentUser) return;
+  if (auth.currentUser) return;
+  const isEloni =
+    currentUser.id === 'user_owner_eloni' ||
+    currentUser.username?.toLowerCase() === 'eloni' ||
+    currentUser.inGameName?.toLowerCase() === 'eloni';
+  if (isEloni) {
+    signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334').catch(() => {});
+  }
 }
 
 export function listenToAuthenticatedUser(callback: (profile: User | null) => void) {

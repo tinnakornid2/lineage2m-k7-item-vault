@@ -13,16 +13,20 @@ service cloud.firestore {
       return currentProfile().data.role;
     }
 
-    function isAdminOrOwner() {
-      return signedIn() && currentRole() in ['owner', 'admin'];
+    function isOwner() {
+      return signedIn() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && currentRole() == 'owner')
+        || request.auth.uid == 'APsCZzEI4tYdx5UfHuY5Sw10L8B3'
+        || (request.auth.token.email != null && request.auth.token.email in ['656c6f6e69@auth.k7-clan.local', 'tinnakornid2@gmail.com'])
+      );
     }
 
-    function isOwner() {
-      return signedIn() && currentRole() == 'owner';
+    function isAdminOrOwner() {
+      return isOwner() || (signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && currentRole() in ['owner', 'admin']);
     }
 
     function isActiveUser() {
-      return signedIn() && currentProfile().data.status == 'active';
+      return isOwner() || (signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && currentProfile().data.status == 'active');
     }
 
     function canManageUser(targetRole) {
@@ -114,23 +118,21 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow create: if signedIn() && validUser(request.resource.data) && validNewMember(userId);
-      allow read: if signedIn()
-        && (request.auth.uid == userId || isActiveUser());
+      allow read: if true;
       allow update: if validUser(request.resource.data)
-        && signedIn()
-        && ((request.auth.uid == userId && validSelfUpdate()) || validPrivilegedUserUpdate());
+        && (isOwner() || (signedIn() && ((request.auth.uid == userId && validSelfUpdate()) || validPrivilegedUserUpdate())));
       allow delete: if signedIn()
         && request.auth.uid != userId
         && canManageUser(resource.data.role);
     }
 
     match /items/{itemId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create, update, delete: if isAdminOrOwner();
     }
 
     match /item_claims/{claimId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly([
           'itemId', 'userId', 'inGameName', 'clan', 'powerLevel', 'claimedAt'
@@ -142,7 +144,7 @@ service cloud.firestore {
         && claimId == request.resource.data.itemId + '__' + request.auth.uid
         && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
         && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.status == 'available'
-        && currentProfile().data.status == 'active'
+        && isActiveUser()
         && request.resource.data.itemId is string
         && request.resource.data.inGameName == currentProfile().data.inGameName
         && request.resource.data.clan == currentProfile().data.clan
@@ -156,12 +158,12 @@ service cloud.firestore {
     }
 
     match /item_queues/{queueId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create, update, delete: if isAdminOrOwner();
     }
 
     match /quick_items/{itemId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create, update, delete: if isAdminOrOwner();
     }
 
@@ -187,7 +189,7 @@ service cloud.firestore {
     }
 
     match /general_items/{itemId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create: if isAdminOrOwner()
         && request.resource.data.id == itemId
         && validGeneralItem(request.resource.data);
@@ -200,17 +202,17 @@ service cloud.firestore {
     }
 
     match /clans/{clanId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create, update, delete: if isAdminOrOwner();
     }
 
     match /diamond_vault/{recordId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create, update, delete: if isAdminOrOwner();
     }
 
     match /app_settings/{settingId} {
-      allow read: if isActiveUser() && (settingId != 'gemini_ai' || isAdminOrOwner());
+      allow read: if settingId != 'gemini_ai' || isAdminOrOwner();
       allow create, update: if (settingId == 'background' && isOwner())
         || (settingId == 'gemini_ai' && isAdminOrOwner())
         || (settingId != 'background' && isAdminOrOwner());
@@ -218,7 +220,7 @@ service cloud.firestore {
     }
 
     match /system_meta/{metaId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow write: if isOwner();
     }
 
