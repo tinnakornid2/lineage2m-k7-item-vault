@@ -335,7 +335,7 @@ export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QU
 ];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.8.11-dist-shield';
+const CACHE_SCHEMA_VERSION = '2.8.12-unclaim-shield';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -353,6 +353,7 @@ export function clearAllLocalCaches(): void {
     localStorage.removeItem('l2m_active_tab');
     localStorage.removeItem('l2m_deleted_vault_item_ids');
     localStorage.removeItem('l2m_deleted_queue_item_ids');
+    localStorage.removeItem('l2m_cancelled_claims_map');
     localStorage.removeItem('k7_queue_announcement');
   } catch (e) {
     console.warn('clearAllLocalCaches error:', e);
@@ -527,11 +528,56 @@ export function unmarkQueueItemAsDeleted(id: string): void {
   }
 }
 
+const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
+
+export function getCancelledClaimsMap(): Record<string, number> {
+  return getDeletedIdsMap(CANCELLED_CLAIMS_KEY);
+}
+
+export function markClaimAsCancelled(itemId: string, claimantIdOrName: string): void {
+  if (!itemId || !claimantIdOrName) return;
+  const key = `${itemId}:::${claimantIdOrName.trim().toLowerCase()}`;
+  const map = getDeletedIdsMap(CANCELLED_CLAIMS_KEY);
+  map[key] = Date.now();
+  saveDeletedIdsMap(CANCELLED_CLAIMS_KEY, map);
+}
+
+export function unmarkClaimAsCancelled(itemId: string, claimantIdOrName: string): void {
+  if (!itemId || !claimantIdOrName) return;
+  const key = `${itemId}:::${claimantIdOrName.trim().toLowerCase()}`;
+  const map = getDeletedIdsMap(CANCELLED_CLAIMS_KEY);
+  if (key in map) {
+    delete map[key];
+    saveDeletedIdsMap(CANCELLED_CLAIMS_KEY, map);
+  }
+}
+
+export function isClaimCancelled(itemId: string, claimant: Claimant): boolean {
+  if (!itemId || !claimant) return false;
+  const map = getCancelledClaimsMap();
+  const claimedAt = claimant.claimedAt || 0;
+
+  if (claimant.userId) {
+    const keyUser = `${itemId}:::${claimant.userId.trim().toLowerCase()}`;
+    const cancelledAt = map[keyUser];
+    if (cancelledAt && claimedAt <= cancelledAt) return true;
+  }
+
+  if (claimant.inGameName) {
+    const keyName = `${itemId}:::${claimant.inGameName.trim().toLowerCase()}`;
+    const cancelledAt = map[keyName];
+    if (cancelledAt && claimedAt <= cancelledAt) return true;
+  }
+
+  return false;
+}
+
 /**
  * Smart merge function for Vault Items:
  * - Filters out any items whose IDs are marked as deleted in tombstones
  * - Keeps locally created items even if remote snapshot has not yet included them (NO 10-minute timer expiration!)
  * - Shields 'distributed' status so stale remote snapshots cannot flip distributed items back to 'available'
+ * - Respects claim cancellations so refreshed/stale snapshots cannot resurrect cancelled claims
  * - Deduplicates claimants and preserves attachments
  */
 export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultItem[]): VaultItem[] {
@@ -559,9 +605,17 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
     const incoming = incomingMap.get(id);
 
     if (local && !incoming) {
-      result.push(normalizeDistributedItem(local));
+      const norm = normalizeDistributedItem(local);
+      result.push({
+        ...norm,
+        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(id, c))
+      });
     } else if (!local && incoming) {
-      result.push(normalizeDistributedItem(incoming));
+      const norm = normalizeDistributedItem(incoming);
+      result.push({
+        ...norm,
+        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(id, c))
+      });
     } else if (local && incoming) {
       const isDistributed = isItemDistributed(local) || isItemDistributed(incoming);
       const status: 'available' | 'distributed' = isDistributed ? 'distributed' : ((incoming.status || local.status) as 'available' | 'distributed');
@@ -580,16 +634,29 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
       }
       const paymentStatus = local.paymentStatus || incoming.paymentStatus || (distributedTo && typeof distributedTo === 'object' ? (distributedTo as any).paymentStatus : undefined);
 
-      // Merge claimants deduplicated
-      const claimantsMap = new Map<string, Claimant>();
-      for (const c of (incoming.claimants || [])) {
-        const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
-        claimantsMap.set(key, c);
+      // Merge claimants with timestamp precedence and strict cancellation filter
+      let mergedClaimants: Claimant[];
+      const localUpdated = local.updatedAt || 0;
+      const incomingUpdated = incoming.updatedAt || 0;
+      if (localUpdated > 0 || incomingUpdated > 0) {
+        mergedClaimants = localUpdated >= incomingUpdated ? (local.claimants || []) : (incoming.claimants || []);
+      } else {
+        const claimantsMap = new Map<string, Claimant>();
+        for (const c of (incoming.claimants || [])) {
+          if (!isClaimCancelled(id, c)) {
+            const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
+            claimantsMap.set(key, c);
+          }
+        }
+        for (const c of (local.claimants || [])) {
+          if (!isClaimCancelled(id, c)) {
+            const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
+            claimantsMap.set(key, c);
+          }
+        }
+        mergedClaimants = Array.from(claimantsMap.values());
       }
-      for (const c of (local.claimants || [])) {
-        const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
-        claimantsMap.set(key, c);
-      }
+      mergedClaimants = mergedClaimants.filter((c) => !isClaimCancelled(id, c));
 
       const hunterScreenshots = (local.hunterScreenshots && local.hunterScreenshots.length > 0)
         ? local.hunterScreenshots
@@ -599,13 +666,16 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
         ? local.receiptImages
         : (incoming.receiptImages || []);
 
+      const updatedAt = Math.max(local.updatedAt || 0, incoming.updatedAt || 0) || undefined;
+
       result.push({
         ...incoming,
         ...local,
         status,
         distributedTo,
         paymentStatus,
-        claimants: Array.from(claimantsMap.values()),
+        claimants: mergedClaimants,
+        updatedAt,
         hunterScreenshots,
         receiptImages
       });
@@ -662,14 +732,26 @@ export function getCachedVaultItems(): VaultItem[] {
   const deletedIds = getDeletedVaultItemIds();
   return items
     .filter((item) => item && item.id && !deletedIds.has(item.id))
-    .map((item) => normalizeDistributedItem(item));
+    .map((item) => {
+      const norm = normalizeDistributedItem(item);
+      return {
+        ...norm,
+        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(item.id, c))
+      };
+    });
 }
 
 export function setCachedVaultItems(items: VaultItem[]): void {
   const deletedIds = getDeletedVaultItemIds();
   const filtered = (items || [])
     .filter((i) => i && i.id && !deletedIds.has(i.id))
-    .map((i) => normalizeDistributedItem(i));
+    .map((i) => {
+      const norm = normalizeDistributedItem(i);
+      return {
+        ...norm,
+        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(i.id, c))
+      };
+    });
   setCachedData(CACHE_KEYS.VAULT_ITEMS, filtered);
 }
 

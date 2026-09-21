@@ -1,6 +1,6 @@
 # Lineage2M Clan Hub — Current Handover
 
-Version: **2.8.11**  
+Version: **2.8.12**  
 Updated: **2026-09-22**  
 Production: https://lineage2m-k7-item-vault.vercel.app  
 Repository: https://github.com/tinnakornid2/lineage2m-k7-item-vault
@@ -34,6 +34,7 @@ This file is the authoritative handover. Do not restore old ZIP snapshots, `back
 - Members who received an item may join the same queue again.
 - Item Vault supports quick presets, OCR hunter scanning, payment status, distribution history and receipts.
 - Distributed item permanence (v2.8.11): Distributed items are synchronously computed, permanently shielded against stale cloud snapshot reversions, and immediately removed from "รายการเปิดรับ" (Available Items) across all tabs and devices.
+- Unclaim Tombstone & Claim Permanence (v2.8.12): When a user cancels a claim (ยกเลิกเครม), the cancellation is recorded in an instantaneous localStorage tombstone with timestamps (`l2m_cancelled_claims_map`). Stale background polling, Google Sheets fetches, or Firestore reads cannot resurrect cancelled claims upon refresh (`F5`). When legitimate re-claiming occurs, the tombstone is cleared. Both claim and unclaim trigger instant relay broadcasts and immediate Google Sheets backups.
 - OCR uses Gemini first and automatically falls back to free on-device Tesseract OCR when Google is unavailable or over quota.
 - Discord uses the configured webhook avatar; secrets are never included in Google or GitHub data.
 

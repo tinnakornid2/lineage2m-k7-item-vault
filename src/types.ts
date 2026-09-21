@@ -210,6 +210,7 @@ export interface VaultItem {
   paidAt?: number;
   paidBy?: string;
   createdAt: number;
+  updatedAt?: number;
 }
 
 /**
