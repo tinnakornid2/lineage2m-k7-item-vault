@@ -64,6 +64,7 @@ interface DashboardViewProps {
   onOpenVaultModal: () => void;
   availableItems: VaultItem[];
   queueItems: QueueItem[];
+  quickItems?: QuickItem[];
   generalItems?: GeneralItem[];
   onAddGeneralItem?: (item: Omit<GeneralItem, 'id' | 'createdAt'>) => Promise<void>;
   onUpdateGeneralItem?: (id: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => Promise<void>;
@@ -96,6 +97,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenVaultModal,
   availableItems,
   queueItems,
+  quickItems = [],
   generalItems = [],
   onAddGeneralItem,
   onUpdateGeneralItem,
@@ -1671,9 +1673,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           lang={lang}
           currentUser={currentUser}
           items={generalItems}
+          quickItems={quickItems}
+          allMembers={allMembers}
           onAdd={onAddGeneralItem}
           onUpdate={onUpdateGeneralItem}
           onDelete={onDeleteGeneralItem}
+          onViewImageZoom={onViewImage}
         />
       )}
 

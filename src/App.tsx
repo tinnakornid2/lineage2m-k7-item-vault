@@ -3309,6 +3309,7 @@ export const App: React.FC = () => {
             onOpenVaultModal={() => setShowVaultModal(true)}
             availableItems={availableDashboardItems}
             queueItems={queueItems}
+            quickItems={quickItems}
             generalItems={generalItems}
             onAddGeneralItem={handleAddGeneralItem}
             onUpdateGeneralItem={handleUpdateGeneralItem}

@@ -1,6 +1,6 @@
 # Lineage2M Clan Hub — Current Handover
 
-Version: **2.7.9**  
+Version: **2.8.0**  
 Updated: **2026-09-21**  
 Production: https://lineage2m-k7-item-vault.vercel.app  
 Repository: https://github.com/tinnakornid2/lineage2m-k7-item-vault
@@ -30,7 +30,7 @@ This file is the authoritative handover. Do not restore old ZIP snapshots, `back
 ## Current features
 
 - Quick Items are reusable item-entry presets only; they are not queues.
-- General Item Queue is a separate feature with item image, unit price, quantity, minimum power, rarity, member queue, delivery choice, receipt image and editable history.
+- General Item Queue is a dedicated queue feature styled identically to Boss Item Queue (dark fantasy gold aesthetics, Grid 4-column & Table views, 1-click Quick Item preset selection, Ctrl+V clipboard image paste, drag-and-drop upload, in-app delivery modal, receipt attachment, and editable history).
 - Members who received an item may join the same queue again.
 - Item Vault supports quick presets, OCR hunter scanning, payment status, distribution history and receipts.
 - OCR uses Gemini first and automatically falls back to free on-device Tesseract OCR when Google is unavailable or over quota.

@@ -365,7 +365,18 @@ export const QueueView: React.FC<QueueViewProps> = ({
       </nav>
 
       <div id="general-item-queue" className="scroll-mt-24">
-        <GeneralItemQueueCard lang={lang} currentUser={currentUser} items={generalItems} onAdd={onAddGeneralItem} onUpdate={onUpdateGeneralItem} onDelete={onDeleteGeneralItem} />
+        <GeneralItemQueueCard
+          lang={lang}
+          currentUser={currentUser}
+          items={generalItems}
+          quickItems={quickItems}
+          allMembers={allMembers}
+          onAdd={onAddGeneralItem}
+          onUpdate={onUpdateGeneralItem}
+          onDelete={onDeleteGeneralItem}
+          onViewImageZoom={onViewImageZoom}
+          showToast={showToast}
+        />
       </div>
       
       {/* Header */}
