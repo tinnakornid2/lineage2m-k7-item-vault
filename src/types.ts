@@ -218,6 +218,7 @@ export interface QueueMember {
   powerLevel?: number;
   status: 'pending' | 'received';
   receivedAt?: number;
+  joinedAt?: number;
 }
 
 export interface QueueItem {
@@ -379,6 +380,7 @@ export interface AppNotification {
   timestamp: number;
   read: boolean;
   item?: VaultItem;
+  generalItem?: GeneralItem;
   claimant?: Claimant;
   user?: User;
 }

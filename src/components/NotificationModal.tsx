@@ -313,7 +313,23 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
 
                   {/* Right: Action Buttons */}
                   <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                    {isClaim && notif.item && (
+                    {isClaim && notif.generalItem ? (
+                      onNavigateTab && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sounds.playClick();
+                            onNavigateTab('queue');
+                            onClose();
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold transition-all flex items-center gap-1 shadow cursor-pointer active:scale-95"
+                          title={lang === 'th' ? 'ไปที่คิวไอเทมทั่วไป' : 'Go to General Queue'}
+                        >
+                          <Users className="w-3 h-3" />
+                          <span>{lang === 'th' ? 'ดูคิวไอเทม' : 'View Queue'}</span>
+                        </button>
+                      )
+                    ) : isClaim && notif.item ? (
                       <>
                         {onViewClaimants && (
                           <button
@@ -347,7 +363,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                           </button>
                         )}
                       </>
-                    )}
+                    ) : null}
 
                     {!isClaim && onNavigateTab && (
                       <button

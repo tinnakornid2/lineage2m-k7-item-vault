@@ -530,9 +530,53 @@ export const App: React.FC = () => {
       }
     });
 
+    // 3. Requests from General Item Queue (queueList pending)
+    generalItems.forEach((gItem) => {
+      (gItem.queueList || []).forEach((m) => {
+        if (m.status === 'received') return;
+        const notifId = `gen_claim_${gItem.id}_${m.id}_${m.joinedAt || 0}`;
+        if (dismissedNotificationIds.includes(notifId)) return;
+        const th = lang === 'th';
+        list.push({
+          id: notifId,
+          type: 'claim',
+          title: th
+            ? `${m.name} (${cleanClanName(m.clan) || 'VoltZ'}) ขอรับไอเทมทั่วไป`
+            : `${m.name} (${cleanClanName(m.clan) || 'VoltZ'}) requested general item`,
+          description: th
+            ? `ขอรับ [${gItem.rarity || 'RARE'}] ${gItem.name} (x${gItem.quantity || 1}) • ${gItem.price > 0 ? `💎 ${gItem.price.toLocaleString()} เพชร` : '🎁 ฟรี'} • ⚡ ${m.powerLevel ? `${m.powerLevel.toLocaleString()} PL` : '0 PL'}`
+            : `Requested [${gItem.rarity || 'RARE'}] ${gItem.name} (x${gItem.quantity || 1}) • ${gItem.price > 0 ? `💎 ${gItem.price.toLocaleString()} Dia` : '🎁 Free'} • ⚡ ${m.powerLevel ? `${m.powerLevel.toLocaleString()} PL` : '0 PL'}`,
+          timestamp: m.joinedAt || gItem.createdAt || Date.now(),
+          read: readNotificationIds.includes(notifId),
+          generalItem: gItem,
+          item: {
+            id: gItem.id,
+            name: gItem.name,
+            imageUrl: gItem.imageUrl,
+            price: gItem.price,
+            minPowerLevel: gItem.minPowerLevel,
+            rarity: gItem.rarity,
+            quantity: gItem.quantity,
+            hunters: [],
+            hunterScreenshots: [],
+            status: 'available',
+            claimants: [],
+            createdAt: gItem.createdAt
+          } as VaultItem,
+          claimant: {
+            userId: m.userId || m.id,
+            inGameName: m.name,
+            clan: m.clan,
+            powerLevel: m.powerLevel || 0,
+            claimedAt: m.joinedAt || gItem.createdAt || Date.now()
+          }
+        });
+      });
+    });
+
     // Sort newest first
     return list.sort((a, b) => b.timestamp - a.timestamp);
-  }, [vaultItems, users, lang, readNotificationIds, dismissedNotificationIds]);
+  }, [vaultItems, generalItems, users, lang, readNotificationIds, dismissedNotificationIds]);
 
   const unreadNotificationCount = useMemo(() => {
     return notifications.filter((n) => !n.read).length;
@@ -552,15 +596,47 @@ export const App: React.FC = () => {
       if (item.status === 'distributed' || Boolean(item.distributedTo?.name || item.distributedTo?.userId)) return;
 
       (item.claimants || []).forEach((c) => {
-        const key = `${item.id}_${c.userId || c.inGameName}_${c.claimedAt || 0}`;
+        const key = `vault_${item.id}_${c.userId || c.inGameName}_${c.claimedAt || 0}`;
         currentClaimKeys.add(key);
         currentClaimsList.push({ item, claimant: c });
       });
     });
 
+    // Detect General Items queue requests as well
+    generalItems.forEach((gItem) => {
+      (gItem.queueList || []).forEach((m) => {
+        if (m.status === 'received') return;
+        const key = `gen_${gItem.id}_${m.userId || m.id}_${m.joinedAt || 0}`;
+        currentClaimKeys.add(key);
+        currentClaimsList.push({
+          item: {
+            id: gItem.id,
+            name: gItem.name,
+            imageUrl: gItem.imageUrl,
+            price: gItem.price,
+            minPowerLevel: gItem.minPowerLevel,
+            rarity: gItem.rarity,
+            quantity: gItem.quantity,
+            hunters: [],
+            hunterScreenshots: [],
+            status: 'available',
+            claimants: [],
+            createdAt: gItem.createdAt
+          } as VaultItem,
+          claimant: {
+            userId: m.userId || m.id,
+            inGameName: m.name,
+            clan: m.clan,
+            powerLevel: m.powerLevel || 0,
+            claimedAt: m.joinedAt || gItem.createdAt || Date.now()
+          }
+        });
+      });
+    });
+
     // Initial load: record existing claims without playing chime or showing toast
     if (!hasInitializedClaimsRef.current) {
-      if (vaultItems.length > 0) {
+      if (vaultItems.length > 0 || generalItems.length > 0) {
         previousClaimKeysRef.current = currentClaimKeys;
         hasInitializedClaimsRef.current = true;
       }
@@ -578,7 +654,7 @@ export const App: React.FC = () => {
       const newClaims = currentClaimsList.filter(
         ({ item, claimant }) =>
           !previousClaimKeysRef.current!.has(
-            `${item.id}_${claimant.userId || claimant.inGameName}_${claimant.claimedAt || 0}`
+            `${item.id.startsWith('gen') ? 'gen' : 'vault'}_${item.id}_${claimant.userId || claimant.inGameName}_${claimant.claimedAt || 0}`
           ) &&
           claimant.userId !== currentUser?.id &&
           (claimant.claimedAt || 0) >= pageLoadedAtRef.current - 2000
@@ -589,15 +665,15 @@ export const App: React.FC = () => {
         const newest = newClaims[newClaims.length - 1];
         showToast(
           lang === 'th'
-            ? `🔔 ${newest.claimant.inGameName} (${cleanClanName(newest.claimant.clan) || 'VoltZ'}) ลงชื่อขอรับ [${newest.item.name}]!`
-            : `🔔 ${newest.claimant.inGameName} (${cleanClanName(newest.claimant.clan) || 'VoltZ'}) claimed [${newest.item.name}]!`,
+            ? `🔔 ${newest.claimant.inGameName} (${cleanClanName(newest.claimant.clan) || 'VoltZ'}) ขอรับ [${newest.item.name}]!`
+            : `🔔 ${newest.claimant.inGameName} (${cleanClanName(newest.claimant.clan) || 'VoltZ'}) requested [${newest.item.name}]!`,
           'info'
         );
       }
     }
 
     previousClaimKeysRef.current = currentClaimKeys;
-  }, [vaultItems, currentUser, lang]);
+  }, [vaultItems, generalItems, currentUser, lang]);
 
   const handleMarkAllNotificationsAsRead = () => {
     const allIds = notifications.map((n) => n.id);
