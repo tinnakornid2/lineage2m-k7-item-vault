@@ -45,7 +45,8 @@ import {
   User,
   VaultItem,
   cleanClanName,
-  DEFAULT_CLAN
+  DEFAULT_CLAN,
+  isItemDistributed
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
@@ -1138,9 +1139,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
     return Array.from(clanSet);
   }, [hunters]);
 
-  const distributedItems = vaultItems.filter(
-    (i) => i.status === 'distributed' || Boolean(i.distributedTo?.name || i.distributedTo?.userId)
-  );
+  const distributedItems = vaultItems.filter((i) => isItemDistributed(i));
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -1197,7 +1196,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <button type="button" onClick={() => setVaultSubTab('create')} className="rounded-2xl border border-emerald-500/25 bg-gradient-to-br from-emerald-950/45 to-slate-950 p-4 text-left transition hover:border-emerald-400/60">
           <div className="text-xs font-bold text-emerald-300">{lang === 'th' ? 'พร้อมแจก' : 'Available'}</div>
-          <div className="mt-1 text-2xl font-black text-white">{vaultItems.filter((item) => item.status === 'available').length}</div>
+          <div className="mt-1 text-2xl font-black text-white">{vaultItems.filter((item) => item.status === 'available' && !isItemDistributed(item)).length}</div>
           <div className="mt-1 text-[11px] text-slate-400">{lang === 'th' ? 'เพิ่มไอเทมหรือจัดการรายการปัจจุบัน' : 'Add or manage current items'}</div>
         </button>
         <button type="button" onClick={() => setVaultSubTab('create')} className="rounded-2xl border border-cyan-500/25 bg-gradient-to-br from-cyan-950/45 to-slate-950 p-4 text-left transition hover:border-cyan-400/60">

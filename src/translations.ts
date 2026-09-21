@@ -497,6 +497,14 @@ export const translations = {
     discordRoleIdPlaceholder: 'เช่น 123456789012345678',
     discordRoleIdHelp: 'วิธีหา Role ID: ใน Discord ไปที่ การตั้งค่าเซิร์ฟเวอร์ > บทบาท > คลิกจุด 3 จุดที่ยศ > "คัดลอก ID บทบาท" (ต้องเปิด Developer Mode ใน User Settings > Advanced ก่อน)',
     discordRolePreview: 'ตัวอย่างข้อความแท็ก:',
+
+    // Cloud Data Sync & Cache
+    syncCloudData: 'ซิงค์ข้อมูลล่าสุด',
+    syncingCloudData: 'กำลังซิงค์ข้อมูล...',
+    syncCloudSuccess: 'ซิงค์ข้อมูลล่าสุดจากคลาวด์สำเร็จแล้ว!',
+    syncCloudError: 'เกิดข้อผิดพลาดในการซิงค์ข้อมูล',
+    clearCacheReload: 'ล้างแคชและโหลดใหม่',
+    clearCacheConfirm: 'ต้องการล้างแคชในเครื่องและรีเฟรชหน้าเว็บใช่หรือไม่? (ข้อมูลไอเทมและสมาชิกบนคลาวด์จะไม่สูญหาย)',
   },
   en: {
     appTitle: 'Lineage2M Clan Hub',
@@ -994,5 +1002,13 @@ export const translations = {
     discordRoleIdPlaceholder: 'e.g. 123456789012345678',
     discordRoleIdHelp: 'How to get Role ID: In Discord, go to Server Settings > Roles > click 3 dots next to role > "Copy Role ID" (Requires Developer Mode enabled in Discord Advanced Settings).',
     discordRolePreview: 'Discord Mention Preview:',
+
+    // Cloud Data Sync & Cache
+    syncCloudData: 'Sync Cloud Data',
+    syncingCloudData: 'Syncing data...',
+    syncCloudSuccess: 'Successfully synchronized latest cloud data!',
+    syncCloudError: 'Failed to sync cloud data',
+    clearCacheReload: 'Clear Cache & Reload',
+    clearCacheConfirm: 'Clear local browser cache and reload? (Cloud items and member data are safe)',
   }
 };

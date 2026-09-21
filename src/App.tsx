@@ -27,7 +27,9 @@ import {
   isUserStatsPending,
   AppNotification,
   DiscordMessageTemplate,
-  DiscordMentionType
+  DiscordMentionType,
+  isItemDistributed,
+  normalizeDistributedItem
 } from './types';
 import { getOrGenerateStatHistory } from './utils/growthTimelineHelper';
 import { translations } from './translations';
@@ -103,6 +105,7 @@ import {
   testFirestoreHealth,
   mergeVaultItems,
   mergeQueueItems,
+  clearAllLocalCaches,
   markVaultItemAsDeleted,
   unmarkVaultItemAsDeleted,
   markQueueItemAsDeleted,
@@ -205,9 +208,7 @@ export const App: React.FC = () => {
         const searchTab = new URLSearchParams(window.location.search).get('tab') as ActiveTab;
         if (VALID_TABS.includes(searchTab)) return searchTab;
 
-        // 3. Check localStorage
-        const saved = localStorage.getItem('l2m_active_tab') as ActiveTab;
-        if (VALID_TABS.includes(saved)) return saved;
+        // Note: Default to 'dashboard' on clean base URL so all users see the same landing page
       }
     } catch {}
     return 'dashboard';
@@ -275,13 +276,52 @@ export const App: React.FC = () => {
       const google = await fetchDataFromGoogleSheets();
       if (cancelled || !google.success || !google.data) return;
       const data = google.data;
-      if (data.users?.length) setUsers((prev) => prev.length ? prev : data.users);
-      if (data.vaultItems?.length) setVaultItems((prev) => prev.length ? prev : data.vaultItems);
-      if (data.queueItems?.length) setQueueItems((prev) => prev.length ? prev : data.queueItems);
-      if (data.quickItems?.length) setQuickItems((prev) => prev.length ? prev : data.quickItems || []);
-      if (data.generalItems?.length) setGeneralItems((prev) => prev.length ? prev : data.generalItems || []);
-      if (data.clans?.length) setClans((prev) => prev.length ? prev : data.clans);
-      if (data.diamondLogs?.length) setDiamondLogs((prev) => prev.length ? prev : data.diamondLogs);
+      if (data.vaultItems && data.vaultItems.length > 0) {
+        setVaultItems((prev) => {
+          const merged = mergeVaultItems(prev, data.vaultItems);
+          setCachedVaultItems(merged);
+          return merged;
+        });
+      }
+      if (data.queueItems && data.queueItems.length > 0) {
+        setQueueItems((prev) => {
+          const merged = mergeQueueItems(prev, data.queueItems);
+          setCachedQueues(merged);
+          return merged;
+        });
+      }
+      if (data.users && data.users.length > 0) {
+        setUsers((prev) => {
+          const userMap = new Map<string, User>();
+          for (const u of data.users) {
+            if (u && u.id) userMap.set(u.id, u);
+          }
+          for (const u of prev) {
+            if (u && u.id && !userMap.has(u.id)) {
+              userMap.set(u.id, u);
+            }
+          }
+          const mergedUsers = Array.from(userMap.values());
+          setCachedUsers(mergedUsers);
+          return mergedUsers;
+        });
+      }
+      if (data.quickItems && data.quickItems.length > 0) {
+        setQuickItems(data.quickItems);
+        setCachedQuickItems(data.quickItems);
+      }
+      if (data.generalItems && data.generalItems.length > 0) {
+        setGeneralItems(data.generalItems);
+        setCachedGeneralItems(data.generalItems);
+      }
+      if (data.clans && data.clans.length > 0) {
+        setClans(data.clans);
+        setCachedClans(data.clans);
+      }
+      if (data.diamondLogs && data.diamondLogs.length > 0) {
+        setDiamondLogs(data.diamondLogs);
+        setCachedDiamondTransactions(data.diamondLogs);
+      }
     })().catch(console.warn);
 
     // Proactively load active live relay state from server if available
@@ -465,6 +505,130 @@ export const App: React.FC = () => {
     }
   };
 
+  // Cloud Synchronization & Cache Management
+  const [isSyncingData, setIsSyncingData] = useState(false);
+
+  const handleForceCloudSync = async () => {
+    sounds.playClick();
+    setIsSyncingData(true);
+    showToast(
+      lang === 'th'
+        ? '🔄 กำลังดึงและซิงค์ข้อมูลล่าสุดจากคลาวด์...'
+        : '🔄 Fetching and syncing latest data from cloud...',
+      'info'
+    );
+    try {
+      // 1. Fetch latest snapshot from Google Sheets
+      const google = await fetchDataFromGoogleSheets();
+      if (google.success && google.data) {
+        const data = google.data;
+        if (data.vaultItems && data.vaultItems.length > 0) {
+          setVaultItems((prev) => {
+            const merged = mergeVaultItems(prev, data.vaultItems);
+            setCachedVaultItems(merged);
+            return merged;
+          });
+        }
+        if (data.queueItems && data.queueItems.length > 0) {
+          setQueueItems((prev) => {
+            const merged = mergeQueueItems(prev, data.queueItems);
+            setCachedQueues(merged);
+            return merged;
+          });
+        }
+        if (data.users && data.users.length > 0) {
+          setUsers((prev) => {
+            const userMap = new Map<string, User>();
+            for (const u of data.users) {
+              if (u && u.id) userMap.set(u.id, u);
+            }
+            for (const u of prev) {
+              if (u && u.id && !userMap.has(u.id)) {
+                userMap.set(u.id, u);
+              }
+            }
+            const merged = Array.from(userMap.values());
+            setCachedUsers(merged);
+            return merged;
+          });
+        }
+        if (data.clans && data.clans.length > 0) {
+          setClans(data.clans);
+          setCachedClans(data.clans);
+        }
+        if (data.diamondLogs && data.diamondLogs.length > 0) {
+          setDiamondLogs(data.diamondLogs);
+          setCachedDiamondTransactions(data.diamondLogs);
+        }
+        if (data.quickItems && data.quickItems.length > 0) {
+          setQuickItems(data.quickItems);
+          setCachedQuickItems(data.quickItems);
+        }
+        if (data.generalItems && data.generalItems.length > 0) {
+          setGeneralItems(data.generalItems);
+          setCachedGeneralItems(data.generalItems);
+        }
+      }
+
+      // 2. Also check and merge Firestore if logged in and not quota exceeded
+      if (currentUser && !isQuotaExceeded) {
+        try {
+          const cloudRes = await forceCheckAndFetchFirestore();
+          if (cloudRes.success && cloudRes.data) {
+            if (cloudRes.data.vaultItems?.length) {
+              setVaultItems((prev) => {
+                const merged = mergeVaultItems(prev, cloudRes.data.vaultItems);
+                setCachedVaultItems(merged);
+                return merged;
+              });
+            }
+            if (cloudRes.data.queueItems?.length) {
+              setQueueItems((prev) => {
+                const merged = mergeQueueItems(prev, cloudRes.data.queueItems);
+                setCachedQueues(merged);
+                return merged;
+              });
+            }
+            if (cloudRes.data.users?.length) {
+              setUsers(cloudRes.data.users);
+              setCachedUsers(cloudRes.data.users);
+            }
+          }
+        } catch (e) {}
+      }
+
+      showToast(
+        lang === 'th'
+          ? '✅ ซิงค์ข้อมูลล่าสุดจากคลาวด์สำเร็จ! ข้อมูลในหน้านี้เป็นปัจจุบันแล้ว'
+          : '✅ Successfully synced latest data from cloud! Everything is up to date.',
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Force sync error:', err);
+      showToast(
+        lang === 'th'
+          ? '⚠️ ไม่สามารถซิงค์ข้อมูลได้ กรุณาลองใหม่อีกครั้ง'
+          : '⚠️ Failed to sync data, please try again.',
+        'error'
+      );
+    } finally {
+      setIsSyncingData(false);
+    }
+  };
+
+  const handleClearCacheAndReload = () => {
+    sounds.playClick();
+    const confirmed = window.confirm(
+      lang === 'th'
+        ? 'ต้องการล้างแคชในเครื่องและรีเฟรชหน้าเว็บใช่หรือไม่?\n(ข้อมูลไอเทมและสมาชิกบนคลาวด์จะไม่สูญหาย)'
+        : 'Clear local browser cache and reload the page?\n(Cloud items and member data are safe)'
+    );
+    if (confirmed) {
+      clearAllLocalCaches();
+      window.location.reload();
+    }
+  };
+
   // RBAC Guard for Owner, Admin, and Manager
   const isOwner = currentUser?.role === 'owner';
   const canAccessAdminFeatures =
@@ -504,7 +668,7 @@ export const App: React.FC = () => {
     // 1. Claim alerts from vault items (Auto-omits distributed items)
     vaultItems.forEach((item) => {
       // Auto-remove distributed items: distributed items must not show claim notifications!
-      if (item.status === 'distributed' || Boolean(item.distributedTo?.name || item.distributedTo?.userId)) return;
+      if (isItemDistributed(item)) return;
 
       (item.claimants || []).forEach((c) => {
         const claimantId = c.userId || c.inGameName;
@@ -613,7 +777,7 @@ export const App: React.FC = () => {
 
     vaultItems.forEach((item) => {
       // Ignore distributed items: distributed items must never trigger claim notifications!
-      if (item.status === 'distributed' || Boolean(item.distributedTo?.name || item.distributedTo?.userId)) return;
+      if (isItemDistributed(item)) return;
 
       (item.claimants || []).forEach((c) => {
         const key = `vault_${item.id}_${c.userId || c.inGameName}_${c.claimedAt || 0}`;
@@ -1002,75 +1166,71 @@ export const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, [users, vaultItems, quickItems, generalItems, queueItems, clans, diamondLogs, vaultBalance, announcementSettings, bgConfig, discordSettings]);
 
-  // Real-time live synchronization engine when in failover mode (or Quota Exceeded)
+  // Real-time live synchronization engine across all devices (Dual-Cloud Resilience)
   useEffect(() => {
-    if (isQuotaExceeded) {
-      startGoogleRealtimeSync((incomingData: BackupDataPayload) => {
-        if (!incomingData) return;
-        if (Array.isArray(incomingData.users) && incomingData.users.length > 0) {
-          setUsers(incomingData.users);
-          const cur = currentUserRef.current;
-          if (cur) {
-            const found = incomingData.users.find((u) => u.id === cur.id);
-            if (found) {
-              setCurrentUser(found);
-              saveLocalSessionUser(found);
-            }
+    startGoogleRealtimeSync((incomingData: BackupDataPayload) => {
+      if (!incomingData) return;
+      if (Array.isArray(incomingData.users) && incomingData.users.length > 0) {
+        setUsers(incomingData.users);
+        const cur = currentUserRef.current;
+        if (cur) {
+          const found = incomingData.users.find((u) => u.id === cur.id);
+          if (found) {
+            setCurrentUser(found);
+            saveLocalSessionUser(found);
           }
         }
-        if (Array.isArray(incomingData.vaultItems)) {
-          setVaultItems((prev) => {
-            const merged = mergeVaultItems(prev, incomingData.vaultItems);
-            setCachedVaultItems(merged);
-            return merged;
-          });
-        }
-        if (Array.isArray(incomingData.quickItems)) {
-          setQuickItems(incomingData.quickItems);
-        }
-        if (Array.isArray(incomingData.generalItems)) {
-          setGeneralItems(incomingData.generalItems);
-        }
-        if (Array.isArray(incomingData.queueItems)) {
-          setQueueItems((prev) => {
-            const merged = mergeQueueItems(prev, incomingData.queueItems);
-            setCachedQueues(merged);
-            return merged;
-          });
-        }
-        if (Array.isArray(incomingData.clans) && incomingData.clans.length > 0) {
-          setClans(incomingData.clans);
-        }
-        if (Array.isArray(incomingData.diamondLogs)) {
-          setDiamondLogs(incomingData.diamondLogs);
-        }
-        if (incomingData.formulaSettings) {
-          saveFormulaSettings(incomingData.formulaSettings);
-        }
-        if (incomingData.announcementSettings) {
-          setAnnouncementSettings(incomingData.announcementSettings);
-          try {
-            localStorage.setItem('k7_announcement_config', JSON.stringify(incomingData.announcementSettings));
-          } catch {}
-        }
-        if (incomingData.backgroundSettings) {
-          setBgConfig(incomingData.backgroundSettings);
-          try {
-            localStorage.setItem('k7_bg_config', JSON.stringify(incomingData.backgroundSettings));
-          } catch {}
-        }
-        if (incomingData.discordSettings) {
-          setDiscordSettings(incomingData.discordSettings);
-        }
-      });
-    } else {
-      stopGoogleRealtimeSync();
-    }
+      }
+      if (Array.isArray(incomingData.vaultItems)) {
+        setVaultItems((prev) => {
+          const merged = mergeVaultItems(prev, incomingData.vaultItems);
+          setCachedVaultItems(merged);
+          return merged;
+        });
+      }
+      if (Array.isArray(incomingData.quickItems)) {
+        setQuickItems(incomingData.quickItems);
+      }
+      if (Array.isArray(incomingData.generalItems)) {
+        setGeneralItems(incomingData.generalItems);
+      }
+      if (Array.isArray(incomingData.queueItems)) {
+        setQueueItems((prev) => {
+          const merged = mergeQueueItems(prev, incomingData.queueItems);
+          setCachedQueues(merged);
+          return merged;
+        });
+      }
+      if (Array.isArray(incomingData.clans) && incomingData.clans.length > 0) {
+        setClans(incomingData.clans);
+      }
+      if (Array.isArray(incomingData.diamondLogs)) {
+        setDiamondLogs(incomingData.diamondLogs);
+      }
+      if (incomingData.formulaSettings) {
+        saveFormulaSettings(incomingData.formulaSettings);
+      }
+      if (incomingData.announcementSettings) {
+        setAnnouncementSettings(incomingData.announcementSettings);
+        try {
+          localStorage.setItem('k7_announcement_config', JSON.stringify(incomingData.announcementSettings));
+        } catch {}
+      }
+      if (incomingData.backgroundSettings) {
+        setBgConfig(incomingData.backgroundSettings);
+        try {
+          localStorage.setItem('k7_bg_config', JSON.stringify(incomingData.backgroundSettings));
+        } catch {}
+      }
+      if (incomingData.discordSettings) {
+        setDiscordSettings(incomingData.discordSettings);
+      }
+    });
 
     return () => {
       stopGoogleRealtimeSync();
     };
-  }, [isQuotaExceeded]);
+  }, []);
 
   // Automated Heartbeat: Detects when Firebase recovers from quota limit, and auto-syncs newest data to Cloud!
   useEffect(() => {
@@ -1661,12 +1821,9 @@ export const App: React.FC = () => {
       setPendingFirebaseSync(true);
 
       // 1. Optimistic UI update immediately so user sees the new item instantly
-      let nextVaultItems: VaultItem[] = [];
-      setVaultItems((prev) => {
-        nextVaultItems = [createdItem, ...prev.filter((i) => i.id !== createdItem.id)];
-        setCachedVaultItems(nextVaultItems);
-        return nextVaultItems;
-      });
+      const nextVaultItems: VaultItem[] = [createdItem, ...vaultItems.filter((i) => i.id !== createdItem.id)];
+      setVaultItems(nextVaultItems);
+      setCachedVaultItems(nextVaultItems);
 
       // Instant live state broadcast (< 20ms) to ensure server relay and all clan tabs have the new item
       broadcastLiveState(
@@ -1753,12 +1910,9 @@ export const App: React.FC = () => {
     sounds.playClick();
     markVaultItemAsDeleted(itemId);
     setPendingFirebaseSync(true);
-    let nextVaultItems: VaultItem[] = [];
-    setVaultItems((prev) => {
-      nextVaultItems = prev.filter((i) => i.id !== itemId);
-      setCachedVaultItems(nextVaultItems);
-      return nextVaultItems;
-    });
+    const nextVaultItems: VaultItem[] = vaultItems.filter((i) => i.id !== itemId);
+    setVaultItems(nextVaultItems);
+    setCachedVaultItems(nextVaultItems);
 
     broadcastLiveState(
       {
@@ -1790,6 +1944,14 @@ export const App: React.FC = () => {
 
     const item = vaultItems.find((i) => i.id === itemId);
     if (!item) return;
+    if (isItemDistributed(item)) {
+      sounds.playClick();
+      showToast(
+        lang === 'th' ? 'ไอเทมนี้ถูกแจกจ่ายไปแล้ว' : 'This item has already been distributed',
+        'info'
+      );
+      return;
+    }
 
     const isPrivileged = currentUser.role === 'owner' || currentUser.role === 'admin';
     const hasStats = hasUserUpdatedStats(currentUser);
@@ -1888,7 +2050,7 @@ export const App: React.FC = () => {
         : undefined);
 
     const item = vaultItems.find((i) => i.id === itemId);
-    if (!item) return;
+    if (!item || isItemDistributed(item)) return;
 
     const updatedClaimants = (item.claimants || []).filter((c) => {
       if (userIdToRemove && c.userId && c.userId === userIdToRemove) {
@@ -1945,12 +2107,9 @@ export const App: React.FC = () => {
     itemId: string,
     updates: Partial<VaultItem>
   ) => {
-    let nextVaultItems: VaultItem[] = [];
-    setVaultItems((prev) => {
-      nextVaultItems = prev.map((it) => (it.id === itemId ? { ...it, ...updates } : it));
-      setCachedVaultItems(nextVaultItems);
-      return nextVaultItems;
-    });
+    const nextVaultItems: VaultItem[] = vaultItems.map((it) => (it.id === itemId ? { ...it, ...updates } : it));
+    setVaultItems(nextVaultItems);
+    setCachedVaultItems(nextVaultItems);
 
     try {
       await updateVaultItemDoc(itemId, updates);
@@ -2015,32 +2174,24 @@ export const App: React.FC = () => {
         distributedPayload.receiptImages = recipient.receiptImages;
       }
 
-      await updateVaultItemDoc(itemId, {
-        status: 'distributed',
-        distributedTo: distributedPayload,
-        receiptImages: recipient.receiptImages || [],
-        paymentStatus: initialPaymentStatus
-      });
+      // 1. Synchronously construct nextVaultItems with the distributed status & payload
+      const nextVaultItems: VaultItem[] = vaultItems.map((i) =>
+        i.id === itemId
+          ? {
+              ...i,
+              status: 'distributed' as const,
+              distributedTo: distributedPayload,
+              receiptImages: recipient.receiptImages || [],
+              paymentStatus: initialPaymentStatus
+            }
+          : i
+      );
 
-      // Optimistic update local vaultItems and persist cache
-      let nextVaultItems: VaultItem[] = [];
-      setVaultItems((prev) => {
-        nextVaultItems = prev.map((i) =>
-          i.id === itemId
-            ? {
-                ...i,
-                status: 'distributed',
-                distributedTo: distributedPayload,
-                receiptImages: recipient.receiptImages || [],
-                paymentStatus: initialPaymentStatus
-              }
-            : i
-        );
-        setCachedVaultItems(nextVaultItems);
-        return nextVaultItems;
-      });
+      // 2. Immediate local state and cache update (< 1ms zero lag)
+      setVaultItems(nextVaultItems);
+      setCachedVaultItems(nextVaultItems);
 
-      // Broadcast immediately to live relay server (< 20ms) so all screens stay in sync
+      // 3. Broadcast immediately to live relay server (< 20ms) so all screens stay in sync
       broadcastLiveState(
         {
           users,
@@ -2054,7 +2205,7 @@ export const App: React.FC = () => {
         currentUser?.inGameName || currentUser?.username || 'Admin'
       );
 
-      // Dual-cloud failover: Immediately back up to Google Sheets & Drive
+      // 4. Dual-cloud failover: Immediately back up to Google Sheets & Drive with updated items
       triggerDebouncedAutoBackup(
         {
           users,
@@ -2068,6 +2219,18 @@ export const App: React.FC = () => {
         currentUser?.inGameName || currentUser?.username || 'Admin',
         true
       );
+
+      // 5. Update Firestore with setDoc merge
+      try {
+        await updateVaultItemDoc(itemId, {
+          status: 'distributed',
+          distributedTo: distributedPayload,
+          receiptImages: recipient.receiptImages || [],
+          paymentStatus: initialPaymentStatus
+        });
+      } catch (firestoreErr) {
+        console.warn('Notice: Firestore update distributed item failover:', firestoreErr);
+      }
 
       // Send Discord notification if enabled (Rule 5: English 100%)
       const activeDistDiscord = discordSettings || getCachedDiscordSettings();
@@ -2134,30 +2297,26 @@ export const App: React.FC = () => {
     const now = Date.now();
 
     // Optimistic update
-    let nextVaultItems: VaultItem[] = [];
-    setVaultItems((prev) => {
-      const next = prev.map((i) => {
-        if (i.id !== item.id) return i;
-        const updatedDistributedTo = i.distributedTo
-          ? {
-              ...i.distributedTo,
-              paymentStatus: targetStatus,
-              paidAt: isPaid ? now : undefined,
-              paidBy: isPaid ? actorName : undefined
-            }
-          : undefined;
-        return {
-          ...i,
-          paymentStatus: targetStatus,
-          paidAt: isPaid ? now : undefined,
-          paidBy: isPaid ? actorName : undefined,
-          distributedTo: updatedDistributedTo
-        };
-      });
-      nextVaultItems = next;
-      setCachedVaultItems(next);
-      return next;
+    const nextVaultItems: VaultItem[] = vaultItems.map((i) => {
+      if (i.id !== item.id) return i;
+      const updatedDistributedTo = i.distributedTo
+        ? {
+            ...i.distributedTo,
+            paymentStatus: targetStatus,
+            paidAt: isPaid ? now : undefined,
+            paidBy: isPaid ? actorName : undefined
+          }
+        : undefined;
+      return {
+        ...i,
+        paymentStatus: targetStatus,
+        paidAt: isPaid ? now : undefined,
+        paidBy: isPaid ? actorName : undefined,
+        distributedTo: updatedDistributedTo
+      };
     });
+    setVaultItems(nextVaultItems);
+    setCachedVaultItems(nextVaultItems);
 
     broadcastLiveState(
       {
@@ -3436,12 +3595,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // Helper to determine if an item is distributed (bulletproof safeguard against status mismatch)
-  const isItemDistributed = (item: VaultItem) => {
-    if (item.status === 'distributed') return true;
-    if (item.distributedTo && Boolean(item.distributedTo.name || item.distributedTo.userId)) return true;
-    return false;
-  };
 
   // Available items to show on Dashboard (status === 'available' and not distributed) filtered by Clan Scope
   const availableDashboardItems = useMemo(() => {
@@ -3560,6 +3713,9 @@ export const App: React.FC = () => {
         onOpenNotifications={() => setShowNotificationModal(true)}
         isQuotaExceeded={isQuotaExceeded}
         onCheckFirebaseHealth={handleManualCheckFirebase}
+        onForceSync={handleForceCloudSync}
+        isSyncingData={isSyncingData}
+        onClearCacheAndReload={handleClearCacheAndReload}
       />
 
       {/* 2. MAIN CONTENT AREA (Padded on left for desktop sidebar: lg:pl-64 xl:pl-72) */}
@@ -3612,6 +3768,9 @@ export const App: React.FC = () => {
             queueAnnouncement={queueAnnouncement}
             onSaveQueueAnnouncement={handleSaveQueueAnnouncement}
             showToast={showToast}
+            onForceSync={handleForceCloudSync}
+            isSyncingData={isSyncingData}
+            onClearCacheAndReload={handleClearCacheAndReload}
           />
         )}
 

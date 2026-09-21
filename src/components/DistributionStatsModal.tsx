@@ -14,7 +14,7 @@ import {
   Crosshair,
   Crown
 } from 'lucide-react';
-import { VaultItem, User, Language, cleanClanName } from '../types';
+import { VaultItem, User, Language, cleanClanName, isItemDistributed } from '../types';
 import { sounds } from '../utils/sound';
 
 interface DistributionStatsModalProps {
@@ -37,7 +37,7 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
 
   // Filter only distributed items
   const distributedItems = useMemo(
-    () => vaultItems.filter((item) => item.status === 'distributed' || Boolean(item.distributedTo?.name || item.distributedTo?.userId)),
+    () => vaultItems.filter((item) => isItemDistributed(item)),
     [vaultItems]
   );
 

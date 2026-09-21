@@ -38,7 +38,8 @@ import {
   Edit3,
   Megaphone,
   MessageSquare,
-  Database
+  Database,
+  RefreshCw
 } from 'lucide-react';
 import {
   ActiveTab,
@@ -54,7 +55,8 @@ import {
   QueueAnnouncementSettings,
   cleanClanName,
   hasUserUpdatedStats,
-  isUserStatsPending
+  isUserStatsPending,
+  isItemDistributed
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
@@ -96,6 +98,9 @@ interface DashboardViewProps {
   queueAnnouncement?: QueueAnnouncementSettings | null;
   onSaveQueueAnnouncement?: (settings: QueueAnnouncementSettings) => Promise<void>;
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  onForceSync?: () => void;
+  isSyncingData?: boolean;
+  onClearCacheAndReload?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -132,7 +137,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onConfirmPayment,
   queueAnnouncement,
   onSaveQueueAnnouncement,
-  showToast
+  showToast,
+  onForceSync,
+  isSyncingData = false,
+  onClearCacheAndReload
 }) => {
   const t = translations[lang];
   const isOwner = currentUser?.role === 'owner';
@@ -308,12 +316,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     currentUser?.role === 'owner' ||
     currentUser?.role === 'admin';
 
+  const cleanAvailableItems = React.useMemo(() => {
+    return (availableItems || []).filter((item) => item && item.status === 'available' && !isItemDistributed(item));
+  }, [availableItems]);
+
   const displayedAvailableItems = React.useMemo(() => {
-    if (!filterAvailableToMe || !currentUser) return availableItems;
+    if (!filterAvailableToMe || !currentUser) return cleanAvailableItems;
     const userPower = Number(currentUser.powerLevel || 0);
     const isPrivileged = currentUser.role === 'owner' || currentUser.role === 'admin';
-    return availableItems.filter((item) => isPrivileged || userPower >= Number(item.minPowerLevel || 0));
-  }, [availableItems, filterAvailableToMe, currentUser]);
+    return cleanAvailableItems.filter((item) => isPrivileged || userPower >= Number(item.minPowerLevel || 0));
+  }, [cleanAvailableItems, filterAvailableToMe, currentUser]);
 
   const displayedQueueItems = React.useMemo(() => {
     return queueItems.filter((q) => {
@@ -627,6 +639,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     <span>{lang === 'th' ? 'ระบบออนไลน์' : 'Online'}</span>
                   </div>
+
+                  {/* Force Cloud Sync Button */}
+                  {onForceSync && (
+                    <button
+                      type="button"
+                      id="btn-dashboard-force-sync"
+                      onClick={() => {
+                        sounds.playClick();
+                        onForceSync();
+                      }}
+                      disabled={isSyncingData}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border transition-all cursor-pointer shadow-sm disabled:opacity-50 ${
+                        isSyncingData
+                          ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
+                          : 'bg-sky-950/40 hover:bg-sky-900/60 border-sky-500/30 hover:border-sky-400 text-sky-300 hover:text-white'
+                      }`}
+                      title={isSyncingData ? t.syncingCloudData : t.syncCloudData}
+                      aria-label={t.syncCloudData}
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isSyncingData ? 'animate-spin text-sky-400' : 'text-sky-400'}`} />
+                      <span>{isSyncingData ? t.syncingCloudData : t.syncCloudData}</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -681,7 +716,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
                     <div className="min-w-0">
                       <div className="font-mono font-bold text-xs text-sky-300 leading-none">
-                        {(availableItems || []).length}
+                        {cleanAvailableItems.length}
                       </div>
                       <div className="text-[9px] text-slate-400 mt-0.5 truncate">
                         {lang === 'th' ? 'ไอเทมเปิดรับ' : 'Claimable'}
@@ -1297,7 +1332,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <h2 className="text-base sm:text-lg font-bold font-cinzel text-slate-100 flex items-center gap-2">
                 <span>{t.availableItems}</span>
                 <span className="text-[11px] px-1.5 py-0.2 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono">
-                  {availableItems.length}
+                  {cleanAvailableItems.length}
                 </span>
               </h2>
               <p className="text-[11px] text-slate-400">

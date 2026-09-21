@@ -9,7 +9,9 @@ import {
   FormulaSettings,
   AnnouncementSettings,
   BackgroundSettingsData,
-  DiscordSettings
+  DiscordSettings,
+  isItemDistributed,
+  normalizeDistributedItem
 } from '../types';
 
 export interface GoogleBackupConfig {
@@ -206,10 +208,8 @@ export async function testGoogleSheetsConnection(webAppUrl: string): Promise<{
 export const normalizeVaultItemsList = <T extends { status?: string; distributedTo?: any }>(items: T[]): T[] => {
   if (!Array.isArray(items)) return [];
   return items.map((item) => {
-    if (item && item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
-      return { ...item, status: 'distributed' };
-    }
-    return item;
+    if (!item) return item;
+    return normalizeDistributedItem(item as any) as T;
   });
 };
 

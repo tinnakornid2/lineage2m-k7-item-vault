@@ -46,7 +46,9 @@ import {
   DiscordSettings,
   FormulaSettings,
   cleanClanName,
-  DEFAULT_CLAN
+  DEFAULT_CLAN,
+  isItemDistributed,
+  normalizeDistributedItem
 } from '../types';
 import { LEAN_OFFLINE_MEMBERS } from '../data/offlineMembersFallback';
 // Production data comes from Firestore/Google Sheets, with offline fallback for authentication
@@ -333,7 +335,7 @@ export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QU
 ];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.8.9-dual-cloud';
+const CACHE_SCHEMA_VERSION = '2.8.11-dist-shield';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -343,6 +345,19 @@ export const CACHE_KEYS = {
   QUICK_ITEMS: 'l2m_cached_quick_items_v271',
   GENERAL_ITEMS: 'l2m_cached_general_items_v271'
 };
+
+export function clearAllLocalCaches(): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    Object.values(CACHE_KEYS).forEach((key) => localStorage.removeItem(key));
+    localStorage.removeItem('l2m_active_tab');
+    localStorage.removeItem('l2m_deleted_vault_item_ids');
+    localStorage.removeItem('l2m_deleted_queue_item_ids');
+    localStorage.removeItem('k7_queue_announcement');
+  } catch (e) {
+    console.warn('clearAllLocalCaches error:', e);
+  }
+}
 
 // Clean legacy cache keys if present - NEVER remove active session or current version data
 if (typeof localStorage !== 'undefined') {
@@ -360,9 +375,12 @@ if (typeof localStorage !== 'undefined') {
         'l2m_cached_queues_v260',
         'l2m_cached_clans_v260',
         'l2m_cached_diamond_txs_v260',
-        'l2m_cached_quick_items_v260'
+        'l2m_cached_quick_items_v260',
+        'l2m_active_tab'
       ];
       LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
+      // Invalidate old item caches so new cloud data hydrates seamlessly
+      Object.values(CACHE_KEYS).forEach((key) => localStorage.removeItem(key));
       localStorage.setItem(CACHE_SCHEMA_KEY, CACHE_SCHEMA_VERSION);
     }
   } catch (e) {}
@@ -541,17 +559,26 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
     const incoming = incomingMap.get(id);
 
     if (local && !incoming) {
-      result.push(local);
+      result.push(normalizeDistributedItem(local));
     } else if (!local && incoming) {
-      result.push(incoming);
+      result.push(normalizeDistributedItem(incoming));
     } else if (local && incoming) {
-      const isDistributed =
-        local.status === 'distributed' ||
-        incoming.status === 'distributed' ||
-        Boolean(local.distributedTo?.name || local.distributedTo?.userId || incoming.distributedTo?.name || incoming.distributedTo?.userId);
-      const status = isDistributed ? 'distributed' : (incoming.status || local.status);
-      const distributedTo = local.distributedTo || incoming.distributedTo;
-      const paymentStatus = local.paymentStatus || incoming.paymentStatus || distributedTo?.paymentStatus;
+      const isDistributed = isItemDistributed(local) || isItemDistributed(incoming);
+      const status: 'available' | 'distributed' = isDistributed ? 'distributed' : ((incoming.status || local.status) as 'available' | 'distributed');
+
+      const rawDist: any = (isItemDistributed(local) ? local.distributedTo : null) ||
+                           (isItemDistributed(incoming) ? incoming.distributedTo : null) ||
+                           local.distributedTo || incoming.distributedTo;
+      let distributedTo: any = rawDist;
+      if (typeof rawDist === 'string') {
+        const trimmed = rawDist.trim();
+        if (trimmed.startsWith('{')) {
+          try {
+            distributedTo = JSON.parse(trimmed);
+          } catch {}
+        }
+      }
+      const paymentStatus = local.paymentStatus || incoming.paymentStatus || (distributedTo && typeof distributedTo === 'object' ? (distributedTo as any).paymentStatus : undefined);
 
       // Merge claimants deduplicated
       const claimantsMap = new Map<string, Claimant>();
@@ -635,17 +662,14 @@ export function getCachedVaultItems(): VaultItem[] {
   const deletedIds = getDeletedVaultItemIds();
   return items
     .filter((item) => item && item.id && !deletedIds.has(item.id))
-    .map((item) => {
-      if (item && item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
-        return { ...item, status: 'distributed' };
-      }
-      return item;
-    });
+    .map((item) => normalizeDistributedItem(item));
 }
 
 export function setCachedVaultItems(items: VaultItem[]): void {
   const deletedIds = getDeletedVaultItemIds();
-  const filtered = (items || []).filter((i) => i && i.id && !deletedIds.has(i.id));
+  const filtered = (items || [])
+    .filter((i) => i && i.id && !deletedIds.has(i.id))
+    .map((i) => normalizeDistributedItem(i));
   setCachedData(CACHE_KEYS.VAULT_ITEMS, filtered);
 }
 
@@ -1493,7 +1517,7 @@ export async function updateVaultItemDoc(itemId: string, updates: Partial<VaultI
   try {
     const ref = doc(db, ITEMS_COLLECTION, itemId);
     const cleanUpdates = sanitizeForFirestore(updates);
-    await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateVaultItemDoc');
+    await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1200, 'updateVaultItemDoc');
   } catch (err: any) {
     console.warn('Notice: Failed to update vault item doc in Firestore (failover mode):', err);
     notifyQuotaExceeded(err);
@@ -1536,7 +1560,7 @@ export async function deleteVaultItemDoc(itemId: string) {
 export async function clearDistributedVaultItemsDoc(): Promise<number> {
   const cached = getCachedVaultItems();
   const cachedDistributedIds = cached
-    .filter((i) => i.status === 'distributed' || Boolean(i.distributedTo?.name || i.distributedTo?.userId))
+    .filter((i) => isItemDistributed(i))
     .map((i) => i.id);
 
   let firestoreCount = 0;
@@ -1547,7 +1571,7 @@ export async function clearDistributedVaultItemsDoc(): Promise<number> {
       const batch = writeBatch(db);
       snap.forEach((docSnap) => {
         const data = docSnap.data();
-        if (data.status === 'distributed' || Boolean(data.distributedTo?.name || data.distributedTo?.userId)) {
+        if (isItemDistributed(data as any)) {
           batch.delete(docSnap.ref);
           deletedFirestoreIds.push(docSnap.id);
           firestoreCount++;
@@ -1557,7 +1581,7 @@ export async function clearDistributedVaultItemsDoc(): Promise<number> {
         await safeFirestoreWrite(batch.commit(), 2000, 'clearDistributed_commit');
         await Promise.all(
           snap.docs
-            .filter((itemDoc) => itemDoc.data().status === 'distributed' || Boolean(itemDoc.data().distributedTo?.name || itemDoc.data().distributedTo?.userId))
+            .filter((itemDoc) => isItemDistributed(itemDoc.data() as any))
             .map((itemDoc) => deleteClaimsForItem(itemDoc.id))
         );
       }

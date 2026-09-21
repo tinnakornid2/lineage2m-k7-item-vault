@@ -212,6 +212,62 @@ export interface VaultItem {
   createdAt: number;
 }
 
+/**
+ * Universal helper to check if a vault item is distributed.
+ * Handles objects, string representations, and edge cases from cloud backups.
+ */
+export function isItemDistributed(item?: Partial<VaultItem> | null): boolean {
+  if (!item) return false;
+  if (item.status === 'distributed') return true;
+  if (item.distributedTo) {
+    if (typeof item.distributedTo === 'string') {
+      const trimmed = (item.distributedTo as string).trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          return Boolean(parsed?.name || parsed?.userId);
+        } catch {}
+      }
+      return trimmed.length > 0;
+    }
+    return Boolean((item.distributedTo as any).name || (item.distributedTo as any).userId);
+  }
+  return false;
+}
+
+/**
+ * Ensures an item identified as distributed has its status strictly set to 'distributed'
+ * and parses its distributedTo payload if it was serialized as JSON string.
+ */
+export function normalizeDistributedItem<T extends Partial<VaultItem>>(item: T): T {
+  if (!item) return item;
+  if (isItemDistributed(item)) {
+    const rawDist: any = item.distributedTo;
+    let dist: any = rawDist;
+    if (typeof rawDist === 'string') {
+      const trimmed = rawDist.trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          dist = JSON.parse(trimmed);
+        } catch {}
+      } else if (trimmed.length > 0) {
+        dist = {
+          name: trimmed,
+          clan: 'No Clan',
+          distributedAt: item.createdAt || Date.now(),
+          distributedBy: 'Admin'
+        };
+      }
+    }
+    return {
+      ...item,
+      status: 'distributed' as const,
+      distributedTo: dist
+    };
+  }
+  return item;
+}
+
 export interface QueueMember {
   id: string;
   userId?: string;
