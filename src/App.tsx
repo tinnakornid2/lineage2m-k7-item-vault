@@ -3985,7 +3985,7 @@ export const App: React.FC = () => {
           vaultBalance,
           formulaSettings: getFormulaSettings()
         }}
-        onDataRestored={(restored) => {
+        onDataRestored={async (restored) => {
           if (restored.users && restored.users.length > 0) setUsers(restored.users);
           if (restored.vaultItems && restored.vaultItems.length > 0) {
             restored.vaultItems.forEach((i) => unmarkVaultItemAsDeleted(i.id));
@@ -3997,6 +3997,8 @@ export const App: React.FC = () => {
             setQueueItems(restored.queueItems);
             setCachedQueues(restored.queueItems);
           }
+          if (restored.quickItems && restored.quickItems.length > 0) setQuickItems(restored.quickItems);
+          if (restored.generalItems && restored.generalItems.length > 0) setGeneralItems(restored.generalItems);
           if (restored.clans && restored.clans.length > 0) setClans(restored.clans);
           if (restored.diamondLogs) setDiamondLogs(restored.diamondLogs);
           if (restored.formulaSettings) saveFormulaSettings(restored.formulaSettings);
@@ -4006,6 +4008,8 @@ export const App: React.FC = () => {
               users: (restored.users && restored.users.length > 0) ? restored.users : users,
               vaultItems: (restored.vaultItems && restored.vaultItems.length > 0) ? restored.vaultItems : vaultItems,
               queueItems: restored.queueItems || queueItems,
+              quickItems: (restored.quickItems && restored.quickItems.length > 0) ? restored.quickItems : quickItems,
+              generalItems: (restored.generalItems && restored.generalItems.length > 0) ? restored.generalItems : generalItems,
               clans: (restored.clans && restored.clans.length > 0) ? restored.clans : clans,
               diamondLogs: restored.diamondLogs || diamondLogs,
               vaultBalance,
@@ -4013,6 +4017,34 @@ export const App: React.FC = () => {
             },
             currentUser?.inGameName || currentUser?.username || 'Owner'
           );
+
+          // Asynchronously sync restored data back into Firebase Cloud
+          try {
+            const syncRes = await syncBackupToFirestore({
+              users: restored.users,
+              vaultItems: restored.vaultItems,
+              queueItems: restored.queueItems,
+              quickItems: restored.quickItems,
+              generalItems: restored.generalItems,
+              clans: restored.clans,
+              diamondLogs: restored.diamondLogs,
+              formulaSettings: restored.formulaSettings,
+              announcementSettings,
+              backgroundSettings: bgConfig ? {
+                imageUrl: bgConfig.imageUrl,
+                brightness: bgConfig.brightness,
+                blur: bgConfig.blur,
+                vignetteOpacity: bgConfig.vignetteOpacity,
+                updatedBy: currentUser?.inGameName || 'Owner'
+              } : undefined,
+              discordSettings
+            });
+            if (syncRes?.success) {
+              console.log('Successfully synced restored data to Firestore:', syncRes.writtenCount);
+            }
+          } catch (syncErr) {
+            console.warn('Sync to Firestore on restore warning:', syncErr);
+          }
         }}
         showToast={showToast}
       />
