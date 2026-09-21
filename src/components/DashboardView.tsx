@@ -69,6 +69,7 @@ interface DashboardViewProps {
   onAddGeneralItem?: (item: Omit<GeneralItem, 'id' | 'createdAt'>) => Promise<void>;
   onUpdateGeneralItem?: (id: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => Promise<void>;
   onDeleteGeneralItem?: (id: string) => Promise<void>;
+  onRecordDiamondLog?: (record: Omit<DiamondVaultRecord, 'id' | 'timestamp'>) => Promise<void>;
   allMembers?: User[];
   distributedItems?: VaultItem[];
   clans?: ClanGroup[];
@@ -102,6 +103,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onAddGeneralItem,
   onUpdateGeneralItem,
   onDeleteGeneralItem,
+  onRecordDiamondLog,
   allMembers = [],
   distributedItems = [],
   clans = [],
@@ -1678,6 +1680,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onAdd={onAddGeneralItem}
           onUpdate={onUpdateGeneralItem}
           onDelete={onDeleteGeneralItem}
+          onRecordDiamondLog={onRecordDiamondLog}
           onViewImageZoom={onViewImage}
         />
       )}

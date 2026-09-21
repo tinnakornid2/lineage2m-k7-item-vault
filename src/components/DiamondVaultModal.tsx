@@ -921,6 +921,7 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                         min="1"
                         required
                         value={grossAmount}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => setGrossAmount(e.target.value ? Number(e.target.value) : '')}
                         placeholder="e.g. 10000"
                         className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-white font-mono text-sm focus:outline-none"
@@ -945,6 +946,7 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                         min="1"
                         required
                         value={deductAmount}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => setDeductAmount(e.target.value ? Number(e.target.value) : '')}
                         placeholder="e.g. 5000"
                         className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 text-white font-mono text-sm focus:outline-none"
@@ -1593,6 +1595,7 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
                   <input
                     type="number"
                     value={resetTargetBalance}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => setResetTargetBalance(e.target.value === '' ? '' : Number(e.target.value))}
                     placeholder="0"
                     className="w-full px-3 py-2 rounded-xl bg-slate-900/80 border border-slate-700 text-white font-mono text-sm focus:outline-none focus:border-amber-400"

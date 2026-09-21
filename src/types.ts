@@ -158,6 +158,8 @@ export interface GeneralItemReceipt {
   name: string;
   clan: string;
   quantity: number;
+  diamondPrice?: number;
+  totalDiamonds?: number;
   receiptImages: string[];
   note?: string;
   deliveredAt: number;

@@ -902,6 +902,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                   type="number"
                   min="0"
                   value={editPowerLevel}
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => setEditPowerLevel(Number(e.target.value))}
                   className="w-full px-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-slate-100 font-mono focus:border-[#d4af37] focus:outline-none"
                 />
@@ -975,6 +976,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                     min="0"
                     max="99"
                     value={editLevel === 0 ? '' : editLevel}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => setEditLevel(Math.max(0, parseInt(e.target.value, 10) || 0))}
                     placeholder="0"
                     className="w-full px-2.5 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-center text-slate-100 focus:border-[#d4af37] focus:outline-none font-bold"
@@ -988,6 +990,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                     type="number"
                     min="0"
                     value={editLegendClasses === 0 ? '' : editLegendClasses}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => setEditLegendClasses(Math.max(0, parseInt(e.target.value, 10) || 0))}
                     placeholder="0"
                     className="w-full px-2.5 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-center text-slate-100 focus:border-[#d4af37] focus:outline-none font-bold"
@@ -1001,6 +1004,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                     type="number"
                     min="0"
                     value={editLegendAgathions === 0 ? '' : editLegendAgathions}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => setEditLegendAgathions(Math.max(0, parseInt(e.target.value, 10) || 0))}
                     placeholder="0"
                     className="w-full px-2.5 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-center text-slate-100 focus:border-[#d4af37] focus:outline-none font-bold"

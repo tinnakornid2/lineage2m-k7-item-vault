@@ -476,6 +476,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                     min="0"
                     max="99"
                     value={charLevel === 0 ? '' : charLevel}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);
                       setCharLevel(isNaN(v) ? 0 : Math.max(0, Math.min(99, v)));
@@ -494,6 +495,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                     type="number"
                     min="0"
                     value={charLegendClasses === 0 ? '' : charLegendClasses}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);
                       setCharLegendClasses(isNaN(v) ? 0 : Math.max(0, v));
@@ -512,6 +514,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                     type="number"
                     min="0"
                     value={charLegendAgathions === 0 ? '' : charLegendAgathions}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);
                       setCharLegendAgathions(isNaN(v) ? 0 : Math.max(0, v));
@@ -544,6 +547,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                         type="number"
                         min="0"
                         value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
                         placeholder="0"
                         className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-amber-300 font-bold text-sm focus:border-amber-400 focus:outline-none"
@@ -580,6 +584,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                         type="number"
                         min="0"
                         value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
                         placeholder="0"
                         className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-amber-300 font-bold text-sm focus:border-amber-400 focus:outline-none"
@@ -659,6 +664,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                             min="0"
                             max="20"
                             value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
                             placeholder="0"
                             className="w-full px-2.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-center font-bold text-sm text-white focus:outline-none focus:border-amber-400"
@@ -728,6 +734,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                         type="number"
                         min="0"
                         value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
                         placeholder="0"
                         className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-amber-300 font-bold text-sm focus:border-amber-400 focus:outline-none"

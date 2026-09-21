@@ -1356,6 +1356,11 @@ export const App: React.FC = () => {
     });
   };
 
+  const handleRecordDiamondLog = async (record: Omit<DiamondVaultRecord, 'id' | 'timestamp'>) => {
+    const full = await addDiamondTransactionDoc(record);
+    setDiamondLogs((prev) => [full, ...prev]);
+  };
+
   const handleUpdateVaultNote = async (recordId: string, newNote: string) => {
     await updateDiamondTransactionNoteDoc(recordId, newNote);
   };
@@ -3541,6 +3546,7 @@ export const App: React.FC = () => {
             onAddGeneralItem={handleAddGeneralItem}
             onUpdateGeneralItem={handleUpdateGeneralItem}
             onDeleteGeneralItem={handleDeleteGeneralItem}
+            onRecordDiamondLog={handleRecordDiamondLog}
             onClaimItem={handleClaimItem}
             onUnclaimItem={handleUnclaimItem}
             onViewClaimants={(item) => setClaimantsTargetItem(item)}
@@ -3594,6 +3600,7 @@ export const App: React.FC = () => {
             onAddGeneralItem={handleAddGeneralItem}
             onUpdateGeneralItem={handleUpdateGeneralItem}
             onDeleteGeneralItem={handleDeleteGeneralItem}
+            onRecordDiamondLog={handleRecordDiamondLog}
             onOpenQuickItemsModal={() => setShowQuickItemsModal(true)}
             onCreateQueueItem={handleCreateQueueItem}
             onDeleteQueueItem={handleDeleteQueueItem}

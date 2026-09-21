@@ -209,10 +209,10 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
               <input
                 id="input-request-new-cp"
                 type="number"
-                min="1000"
-                step="1000"
+                min="0"
                 required
                 value={newPowerLevel}
+                onFocus={(e) => e.target.select()}
                 onChange={(e) => setNewPowerLevel(e.target.value)}
                 placeholder={lang === 'th' ? 'เช่น 580000' : 'e.g. 580000'}
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#070b13] border border-slate-700 focus:border-[#d4af37] text-slate-100 font-mono text-sm focus:outline-none transition-all shadow-inner"

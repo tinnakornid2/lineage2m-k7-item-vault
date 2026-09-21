@@ -27,7 +27,8 @@ import {
   Eye,
   ShieldCheck,
   Layers3,
-  Filter
+  Filter,
+  Gift
 } from 'lucide-react';
 import {
   GeneralItem,
@@ -37,11 +38,13 @@ import {
   QueueMember,
   QuickItem,
   User,
+  DiamondVaultRecord,
   cleanClanName,
   getRarityBadge,
   getRarityBorder,
   getRarityTextGlow
 } from '../types';
+import { addDiamondTransactionDoc } from '../services/firebase';
 import { uploadImageToGoogleDrive } from '../services/googleSheetsBackupService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
@@ -55,11 +58,19 @@ interface Props {
   onAdd: (item: Omit<GeneralItem, 'id' | 'createdAt'>) => Promise<void>;
   onUpdate: (id: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onRecordDiamondLog?: (record: Omit<DiamondVaultRecord, 'id' | 'timestamp'>) => Promise<void>;
   onViewImageZoom?: (url: string, title?: string) => void;
   showToast?: (msg: string, type: 'info' | 'success' | 'warning' | 'error') => void;
 }
 
-type Draft = Pick<GeneralItem, 'name' | 'imageUrl' | 'price' | 'quantity' | 'minPowerLevel' | 'rarity'>;
+type Draft = {
+  name: string;
+  imageUrl: string;
+  price: number | '';
+  quantity: number | '';
+  minPowerLevel: number | '';
+  rarity: ItemRarity;
+};
 const emptyDraft: Draft = {
   name: '',
   imageUrl: '',
@@ -89,6 +100,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
   onAdd,
   onUpdate,
   onDelete,
+  onRecordDiamondLog,
   onViewImageZoom,
   showToast
 }) => {
@@ -114,14 +126,15 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
   const [activeQueueIdForAdd, setActiveQueueIdForAdd] = useState<string | null>(null);
   const [selectedMemberIdForQueue, setSelectedMemberIdForQueue] = useState<string>('');
 
-  // Deliver Item Modal State (replaces window.prompt)
+  // Deliver / Distribute Item Modal State (replaces window.prompt)
   const [deliveryModalData, setDeliveryModalData] = useState<{
     item: GeneralItem;
     member: QueueMember;
-    quantity: number;
+    quantity: number | '';
     note: string;
     receiptFile: File | null;
     receiptPreview: string;
+    recordToDiamondVaultLog: boolean;
   } | null>(null);
   const [isDelivering, setIsDelivering] = useState(false);
 
@@ -260,9 +273,9 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
       const payload = {
         name: draft.name.trim(),
         imageUrl: finalImageUrl,
-        price: Math.max(0, draft.price || 0),
-        quantity: Math.max(1, draft.quantity || 1),
-        minPowerLevel: Math.max(0, draft.minPowerLevel || 0),
+        price: typeof draft.price === 'number' ? Math.max(0, draft.price) : (parseInt(String(draft.price), 10) || 0),
+        quantity: typeof draft.quantity === 'number' ? Math.max(1, draft.quantity) : (parseInt(String(draft.quantity), 10) || 1),
+        minPowerLevel: typeof draft.minPowerLevel === 'number' ? Math.max(0, draft.minPowerLevel) : (parseInt(String(draft.minPowerLevel), 10) || 0),
         rarity: draft.rarity || 'RARE'
       };
 
@@ -389,16 +402,47 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     }
   };
 
-  // Open In-App Delivery Modal (replaces window.prompt)
-  const openDeliverModal = (item: GeneralItem, member: QueueMember) => {
+  // Open In-App Delivery / Distribute Modal (replaces window.prompt)
+  const openDeliverModal = (item: GeneralItem, member?: QueueMember | null) => {
     sounds.playClick();
+    const pendingMembers = (item.queueList || []).filter((m) => m.status === 'pending');
+    let targetMember: QueueMember;
+
+    if (member) {
+      targetMember = member;
+    } else if (pendingMembers.length > 0) {
+      targetMember = pendingMembers[0];
+    } else if (allMembers.length > 0) {
+      const firstActive = allMembers.find((m) => m.status === 'active') || allMembers[0];
+      targetMember = {
+        id: `gqm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        userId: firstActive.id,
+        name: firstActive.inGameName || firstActive.username,
+        clan: cleanClanName(firstActive.clan) || 'VoltZ',
+        powerLevel: firstActive.powerLevel || 0,
+        status: 'pending',
+        joinedAt: Date.now()
+      };
+    } else {
+      targetMember = {
+        id: `gqm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        userId: currentUser?.id || '',
+        name: currentUser?.inGameName || currentUser?.username || 'Member',
+        clan: cleanClanName(currentUser?.clan) || 'VoltZ',
+        powerLevel: currentUser?.powerLevel || 0,
+        status: 'pending',
+        joinedAt: Date.now()
+      };
+    }
+
     setDeliveryModalData({
       item,
-      member,
+      member: targetMember,
       quantity: 1,
       note: '',
       receiptFile: null,
-      receiptPreview: ''
+      receiptPreview: '',
+      recordToDiamondVaultLog: true
     });
   };
 
@@ -406,7 +450,11 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
   const handleConfirmDelivery = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deliveryModalData) return;
-    const { item, member, quantity, note, receiptFile } = deliveryModalData;
+    const { item, member, quantity, note, receiptFile, recordToDiamondVaultLog } = deliveryModalData;
+    if (!member.name) {
+      if (showToast) showToast(th ? 'กรุณาระบุหรือเลือกผู้รับไอเทม' : 'Please select a recipient', 'warning');
+      return;
+    }
 
     setIsDelivering(true);
     try {
@@ -416,8 +464,14 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
         receiptImages = [uploaded];
       }
 
+      const deliveredQty = Math.max(1, typeof quantity === 'number' ? quantity : (parseInt(String(quantity), 10) || 1));
+      const itemPrice = item.price || 0;
+      const totalDiamonds = itemPrice * deliveredQty;
+
       const queueList = (item.queueList || []).map((m) =>
-        m.id === member.id ? { ...m, status: 'received' as const, receivedAt: Date.now() } : m
+        m.id === member.id || (member.userId && m.userId === member.userId)
+          ? { ...m, status: 'received' as const, receivedAt: Date.now() }
+          : m
       );
 
       const newReceipt: GeneralItemReceipt = {
@@ -425,7 +479,9 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
         userId: member.userId,
         name: member.name,
         clan: member.clan,
-        quantity: Math.max(1, quantity),
+        quantity: deliveredQty,
+        diamondPrice: itemPrice,
+        totalDiamonds,
         receiptImages,
         note: note.trim(),
         deliveredAt: Date.now(),
@@ -435,12 +491,43 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
       const receiptHistory = [...(item.receiptHistory || []), newReceipt];
       await onUpdate(item.id, { queueList, receiptHistory });
 
+      // Record to Diamond Vault Log
+      if (recordToDiamondVaultLog && currentUser) {
+        const logRecord: Omit<DiamondVaultRecord, 'id' | 'timestamp'> = {
+          type: 'deposit',
+          amount: totalDiamonds,
+          grossAmount: totalDiamonds,
+          netAmount: totalDiamonds,
+          recipientUserId: member.userId,
+          recipientName: member.name,
+          recipientClan: cleanClanName(member.clan) || 'VoltZ',
+          proofImageUrl: receiptImages[0] || '',
+          note: note.trim()
+            ? `${note.trim()} (แจกไอเทม: ${item.name} x${deliveredQty})`
+            : (th
+                ? `แจกไอเทมทั่วไป: ${item.name} x${deliveredQty} ชิ้น${totalDiamonds > 0 ? ` (ชำระ ${totalDiamonds.toLocaleString()} 💎)` : ' (ฟรี)'}`
+                : `Distributed: ${item.name} x${deliveredQty} pcs${totalDiamonds > 0 ? ` (Paid ${totalDiamonds.toLocaleString()} 💎)` : ' (Free)'}`),
+          clanScope: cleanClanName(member.clan) || 'all',
+          performedBy: {
+            userId: currentUser.id,
+            name: currentUser.inGameName || currentUser.username,
+            role: currentUser.role
+          }
+        };
+
+        if (onRecordDiamondLog) {
+          await onRecordDiamondLog(logRecord);
+        } else {
+          await addDiamondTransactionDoc(logRecord);
+        }
+      }
+
       sounds.playSuccess();
       if (showToast) {
         showToast(
           th
-            ? `ส่งมอบไอเทมให้ ${member.name} (x${quantity} ชิ้น) เรียบร้อยแล้ว!`
-            : `Delivered item to ${member.name} (x${quantity} pcs) successfully!`,
+            ? `แจกไอเทม ${item.name} ให้ ${member.name} (x${deliveredQty} ชิ้น) เรียบร้อยแล้ว${recordToDiamondVaultLog ? ' (บันทึกลง Log แล้ว)' : ''}!`
+            : `Delivered ${item.name} to ${member.name} (x${deliveredQty} pcs)${recordToDiamondVaultLog ? ' (Recorded to Log)' : ''}!`,
           'success'
         );
       }
@@ -731,14 +818,15 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                 {/* Quantity */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
-                    <span>{th ? 'จำนวน' : 'Quantity'}</span>
+                    <span>{th ? 'จำนวนที่จะได้รับ' : 'Quantity to Receive'}</span>
                     <span className="text-[10px] text-emerald-400 font-mono">{th ? 'ชิ้น' : 'pcs'}</span>
                   </label>
                   <input
                     type="number"
                     min={1}
                     value={draft.quantity}
-                    onChange={(e) => setDraft({ ...draft, quantity: Math.max(1, Number(e.target.value) || 1) })}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => setDraft({ ...draft, quantity: e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value, 10) || 1) })}
                     className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-xs font-mono font-bold focus:outline-none"
                   />
                 </div>
@@ -746,7 +834,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                 {/* Price (Diamonds) */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
-                    <span>{th ? 'ราคา (ไดมอนด์)' : 'Price (Diamonds)'}</span>
+                    <span>{th ? 'ราคาเพชรที่ต้องจ่าย' : 'Diamond Price to Pay'}</span>
                     <span className="text-[10px] text-amber-400 font-mono">0 = {th ? 'ฟรี' : 'Free'}</span>
                   </label>
                   <div className="relative">
@@ -754,7 +842,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                       type="number"
                       min={0}
                       value={draft.price}
-                      onChange={(e) => setDraft({ ...draft, price: Math.max(0, Number(e.target.value) || 0) })}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => setDraft({ ...draft, price: e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0) })}
                       className="w-full pl-7 pr-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-amber-300 text-xs font-mono font-bold focus:outline-none"
                     />
                     <Coins className="w-3.5 h-3.5 text-amber-400 absolute left-2.5 top-2.5 pointer-events-none" />
@@ -766,16 +855,16 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
-                    <span>{th ? 'พลังขั้นต่ำในการรับ (PL)' : 'Minimum Power (PL)'}</span>
+                    <span>{th ? 'พลังขั้นต่ำในการรับ (PL)' : 'Minimum Power to Receive (PL)'}</span>
                     <span className="text-[10px] text-sky-400 font-mono">0 = {th ? 'ไม่จำกัด' : 'None'}</span>
                   </label>
                   <div className="relative">
                     <input
                       type="number"
                       min={0}
-                      step={100}
                       value={draft.minPowerLevel}
-                      onChange={(e) => setDraft({ ...draft, minPowerLevel: Math.max(0, Number(e.target.value) || 0) })}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => setDraft({ ...draft, minPowerLevel: e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0) })}
                       className="w-full pl-7 pr-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-sky-300 text-xs font-mono font-bold focus:outline-none"
                     />
                     <Zap className="w-3.5 h-3.5 text-sky-400 absolute left-2.5 top-2.5 pointer-events-none" />
@@ -987,24 +1076,24 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
 
                 {/* 2. Badges Section: ราคาเพชร, จำนวน, พลังขั้นต่ำ (สะอาด เข้าใจง่าย ชัดเจน) */}
                 <div className="p-3 bg-[#0a0f1b] border-b border-slate-800/80 space-y-2">
-                  {/* Badges Row 1: ราคาเพชร & จำนวนคงเหลือ */}
+                  {/* Badges Row 1: ราคาเพชรที่ต้องจ่าย & จำนวนที่จะได้รับ */}
                   <div className="grid grid-cols-2 gap-2">
-                    {/* ป้ายราคาเพชร */}
+                    {/* ป้ายราคาเพชรที่ต้องจ่าย */}
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300">
                       <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                       <div className="min-w-0">
-                        <span className="text-[9px] text-slate-400 block uppercase tracking-wider">{th ? 'ราคาเพชร' : 'Price'}</span>
+                        <span className="text-[9px] text-slate-400 block uppercase tracking-wider">{th ? 'ราคาเพชรที่ต้องจ่าย' : 'Price to Pay'}</span>
                         <span className="text-xs font-mono font-bold truncate block">
                           {item.price ? `${item.price.toLocaleString()} 💎` : (th ? 'ฟรี (0 💎)' : 'FREE')}
                         </span>
                       </div>
                     </div>
 
-                    {/* ป้ายจำนวน */}
+                    {/* ป้ายจำนวนที่จะได้รับ */}
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
                       <Layers3 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <div className="min-w-0">
-                        <span className="text-[9px] text-slate-400 block uppercase tracking-wider">{th ? 'จำนวนคงเหลือ' : 'Remaining'}</span>
+                        <span className="text-[9px] text-slate-400 block uppercase tracking-wider">{th ? 'จำนวนที่จะได้รับ' : 'Qty to Receive'}</span>
                         <span className="text-xs font-mono font-bold truncate block">
                           {Math.max(0, item.quantity - totalDelivered)}/{item.quantity} {th ? 'ชิ้น' : 'pcs'}
                         </span>
@@ -1123,11 +1212,11 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                               <button
                                 type="button"
                                 onClick={() => openDeliverModal(item, member)}
-                                className="px-2 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 hover:brightness-110 text-slate-950 text-[10px] font-black shadow-sm transition-all cursor-pointer flex items-center gap-1 shrink-0"
-                                title={th ? 'ส่งมอบไอเทม' : 'Deliver item'}
+                                className="px-2 py-1 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white text-[10px] font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                                title={th ? 'แจกไอเทมให้สมาชิกคนนี้ & บันทึก Log' : 'Distribute item to this member & record log'}
                               >
-                                <ReceiptText className="w-3 h-3" />
-                                <span>{th ? 'ส่งมอบ' : 'Deliver'}</span>
+                                <Gift className="w-3 h-3 text-amber-300" />
+                                <span>{th ? 'แจกไอเทม' : 'Distribute'}</span>
                               </button>
                             )}
                           </div>
@@ -1228,8 +1317,21 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                   </div>
                 )}
 
-                {/* Card Footer: Request Item Button (ปุ่มขอรับ) */}
-                <div className="p-3 bg-[#0d1320] border-t border-slate-800">
+                {/* Card Footer: Action Buttons */}
+                <div className="p-3 bg-[#0d1320] border-t border-slate-800 space-y-2">
+                  {/* Admin / Owner Prominent Distribute Item Button */}
+                  {isAdminOrOwner && (
+                    <button
+                      type="button"
+                      onClick={() => openDeliverModal(item)}
+                      className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:brightness-110 text-white font-bold text-xs shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
+                    >
+                      <Gift className="w-4 h-4 text-amber-300" />
+                      <span>{th ? '🎁 แจกไอเทม (บันทึก Log)' : '🎁 Distribute Item (Record Log)'}</span>
+                    </button>
+                  )}
+
+                  {/* Member Request Item Button (ปุ่มขอรับ) */}
                   <button
                     type="button"
                     disabled={!currentUser || busyItemId === item.id || (!meetsPowerReq && !isUserInQueue)}
@@ -1288,8 +1390,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                 <tr>
                   <th className="py-3 px-4">{th ? 'ไอเทม' : 'Item'}</th>
                   <th className="py-3 px-3">{th ? 'ระดับ' : 'Rarity'}</th>
-                  <th className="py-3 px-3">{th ? 'ราคาเพชร' : 'Price'}</th>
-                  <th className="py-3 px-3">{th ? 'จำนวนคงเหลือ' : 'Quantity'}</th>
+                  <th className="py-3 px-3">{th ? 'ราคาเพชรที่ต้องจ่าย' : 'Price to Pay'}</th>
+                  <th className="py-3 px-3">{th ? 'จำนวนที่จะได้รับ' : 'Qty to Receive'}</th>
                   <th className="py-3 px-3">{th ? 'พลังขั้นต่ำ' : 'Min PL'}</th>
                   <th className="py-3 px-4">{th ? 'คนขอรับ (ดูรายชื่อ)' : 'Requesters (View)'}</th>
                   <th className="py-3 px-4">{th ? 'ขอรับ / จัดการ' : 'Request / Actions'}</th>
@@ -1393,6 +1495,19 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                       {/* Actions / Request Button */}
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
+                          {/* Admin/Owner Prominent Distribute Item Button */}
+                          {isAdminOrOwner && (
+                            <button
+                              type="button"
+                              onClick={() => openDeliverModal(item)}
+                              className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                              title={th ? 'แจกไอเทม & บันทึก Log' : 'Distribute item & record log'}
+                            >
+                              <Gift className="w-3.5 h-3.5 text-amber-300" />
+                              <span>{th ? 'แจกไอเทม' : 'Distribute'}</span>
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             disabled={!currentUser || busyItemId === item.id || (!meetsPowerReq && !isUserInQueue)}
@@ -1504,12 +1619,12 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                 {/* Price */}
                 <span className="px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold flex items-center gap-1">
                   <Coins className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{th ? 'ราคา:' : 'Price:'} {activeRequestersItem.price ? `${activeRequestersItem.price.toLocaleString()} 💎` : (th ? 'ฟรี' : 'FREE')}</span>
+                  <span>{th ? 'ราคาเพชรที่ต้องจ่าย:' : 'Price to Pay:'} {activeRequestersItem.price ? `${activeRequestersItem.price.toLocaleString()} 💎` : (th ? 'ฟรี (0 💎)' : 'FREE')}</span>
                 </span>
                 {/* Quantity */}
                 <span className="px-2 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-bold flex items-center gap-1">
                   <Layers3 className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{th ? 'จำนวน:' : 'Qty:'} x{activeRequestersItem.quantity}</span>
+                  <span>{th ? 'จำนวนที่จะได้รับ:' : 'Qty to Receive:'} x{activeRequestersItem.quantity}</span>
                 </span>
                 {/* Min Power */}
                 <span className={`px-2 py-1 rounded-md border font-bold flex items-center gap-1 ${
@@ -1626,11 +1741,11 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                                   setViewingRequestersItem(null);
                                   openDeliverModal(activeRequestersItem, member);
                                 }}
-                                className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 hover:brightness-110 text-slate-950 text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1"
-                                title={th ? 'ส่งมอบไอเทมให้สมาชิกคนนี้' : 'Deliver item to this member'}
+                                className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white text-xs font-bold shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                                title={th ? 'แจกไอเทมให้สมาชิกคนนี้ & บันทึก Log' : 'Distribute item to this member & record log'}
                               >
-                                <ReceiptText className="w-3.5 h-3.5" />
-                                <span>{th ? 'ส่งมอบ' : 'Deliver'}</span>
+                                <Gift className="w-3.5 h-3.5 text-amber-300" />
+                                <span>{th ? 'แจกไอเทม (บันทึก Log)' : 'Distribute (Log)'}</span>
                               </button>
                             )}
 
@@ -1708,9 +1823,9 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
           >
             <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4 bg-[#0e1524]">
               <div className="flex items-center gap-2">
-                <ReceiptText className="w-5 h-5 text-amber-400" />
+                <Gift className="w-5 h-5 text-amber-400" />
                 <h3 className="text-base font-bold font-cinzel text-white">
-                  {th ? 'ส่งมอบไอเทมทั่วไป & แนบบิล' : 'Deliver Item & Attach Receipt'}
+                  {th ? 'แจกไอเทมทั่วไป & บันทึก Log' : 'Distribute Item & Record Log'}
                 </h3>
               </div>
               <button
@@ -1723,38 +1838,138 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
             </div>
 
             <div className="p-5 space-y-4">
-              {/* Recipient & Item Summary */}
-              <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-slate-400 block text-[11px]">{th ? 'ไอเทมที่ส่งมอบ:' : 'Item to deliver:'}</span>
-                  <span className="font-bold text-white text-sm">{deliveryModalData.item.name}</span>
+              {/* Item Summary Card */}
+              <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-3 min-w-0">
+                  {deliveryModalData.item.imageUrl ? (
+                    <img
+                      src={deliveryModalData.item.imageUrl}
+                      alt={deliveryModalData.item.name}
+                      className="w-10 h-10 rounded-lg object-cover border border-slate-700 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
+                      <PackageCheck className="w-5 h-5 text-slate-500" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <span className="text-slate-400 block text-[10px] uppercase tracking-wider">{th ? 'ไอเทมที่แจก' : 'Item to Distribute'}</span>
+                    <span className="font-bold text-white text-sm truncate block">{deliveryModalData.item.name}</span>
+                  </div>
                 </div>
+                <span className={`text-[9px] font-bold px-2 py-0.5 rounded border uppercase shrink-0 ${getRarityBadge(deliveryModalData.item.rarity || 'RARE')}`}>
+                  {deliveryModalData.item.rarity || 'RARE'}
+                </span>
+              </div>
+
+              {/* Recipient Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
+                  <span>{th ? 'ผู้รับไอเทม' : 'Recipient'} <span className="text-emerald-400">*</span></span>
+                  <span className="text-[10px] text-slate-400">{deliveryModalData.member.name ? `(${cleanClanName(deliveryModalData.member.clan)})` : ''}</span>
+                </label>
+                <select
+                  value={deliveryModalData.member.userId || deliveryModalData.member.name}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const found = allMembers.find((m) => m.id === val || m.inGameName === val);
+                    if (found) {
+                      setDeliveryModalData({
+                        ...deliveryModalData,
+                        member: {
+                          id: `gqm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                          userId: found.id,
+                          name: found.inGameName || found.username,
+                          clan: cleanClanName(found.clan) || 'VoltZ',
+                          powerLevel: found.powerLevel || 0,
+                          status: 'pending',
+                          joinedAt: Date.now()
+                        }
+                      });
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 focus:border-emerald-400 text-white text-xs font-semibold focus:outline-none cursor-pointer"
+                >
+                  {deliveryModalData.member.name && !allMembers.some((m) => m.id === deliveryModalData.member.userId) && (
+                    <option value={deliveryModalData.member.name}>
+                      {deliveryModalData.member.name} ({cleanClanName(deliveryModalData.member.clan)})
+                    </option>
+                  )}
+                  {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, members]) => (
+                    <optgroup key={clanName} label={`🛡️ ${cleanClanName(clanName)} (${members.length} ${th ? 'คน' : 'members'})`}>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.inGameName} ({cleanClanName(m.clan)}) {m.powerLevel ? `• ⚡ ${m.powerLevel.toLocaleString()} PL` : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              {/* Price & Quantity Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Price to Pay per pc */}
                 <div>
-                  <span className="text-slate-400 block text-[11px]">{th ? 'ผู้รับไอเทม:' : 'Recipient:'}</span>
-                  <span className="font-bold text-amber-300 text-sm">{deliveryModalData.member.name}</span>
-                  <span className="text-slate-500 ml-1">({cleanClanName(deliveryModalData.member.clan)})</span>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    {th ? 'ราคาเพชรที่ต้องจ่าย/ชิ้น' : 'Price to Pay/pc'}
+                  </label>
+                  <div className="px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 text-amber-300 font-mono font-bold text-xs flex items-center gap-1.5">
+                    <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>{deliveryModalData.item.price ? `${deliveryModalData.item.price.toLocaleString()} 💎` : (th ? 'ฟรี (0 💎)' : 'FREE')}</span>
+                  </div>
+                </div>
+
+                {/* Quantity to Receive */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
+                    <span>{th ? 'จำนวนที่จะได้รับ' : 'Quantity to Receive'}</span>
+                    <span className="text-[10px] text-emerald-400 font-mono">{th ? 'ชิ้น' : 'pcs'}</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={deliveryModalData.item.quantity}
+                    value={deliveryModalData.quantity}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) =>
+                      setDeliveryModalData({
+                        ...deliveryModalData,
+                        quantity: e.target.value === '' ? '' : Math.max(1, Math.min(deliveryModalData.item.quantity, parseInt(e.target.value, 10) || 1))
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 focus:border-amber-400 text-white font-mono font-bold text-xs focus:outline-none"
+                  />
                 </div>
               </div>
 
-              {/* Quantity Input */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {th ? 'จำนวนที่ส่งมอบ' : 'Quantity to deliver'}
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={deliveryModalData.item.quantity}
-                  value={deliveryModalData.quantity}
-                  onChange={(e) =>
-                    setDeliveryModalData({
-                      ...deliveryModalData,
-                      quantity: Math.max(1, Math.min(deliveryModalData.item.quantity, Number(e.target.value) || 1))
-                    })
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 focus:border-amber-400 text-white font-mono font-bold text-sm focus:outline-none"
-                />
+              {/* Total Calculation Highlight */}
+              <div className="p-3 rounded-xl bg-gradient-to-r from-amber-500/10 via-yellow-500/10 to-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs">
+                <span className="text-slate-300 font-medium">{th ? 'รวมเพชรที่ต้องจ่ายทั้งหมด:' : 'Total Diamonds to Pay:'}</span>
+                <span className="font-mono font-black text-amber-300 text-sm">
+                  {((deliveryModalData.item.price || 0) * (typeof deliveryModalData.quantity === 'number' ? deliveryModalData.quantity : (parseInt(String(deliveryModalData.quantity), 10) || 1))).toLocaleString()} 💎
+                </span>
               </div>
+
+              {/* Checkbox: Record to Diamond Vault Log */}
+              <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 cursor-pointer hover:border-slate-700 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={deliveryModalData.recordToDiamondVaultLog}
+                  onChange={(e) => setDeliveryModalData({ ...deliveryModalData, recordToDiamondVaultLog: e.target.checked })}
+                  className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 border-slate-700 bg-slate-950 cursor-pointer"
+                />
+                <div className="min-w-0 text-xs">
+                  <span className="font-bold text-slate-200 block">
+                    {th ? 'บันทึกลงประวัติกองทุนเพชร (Diamond Vault Log)' : 'Record to Diamond Vault Log'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block">
+                    {th
+                      ? 'เพิ่มรายการประวัติลงในคลังเพชรเพื่อเป็นหลักฐานการแจกจ่ายไอเทม'
+                      : 'Adds an audit transaction record to the Clan Diamond Vault'}
+                  </span>
+                </div>
+              </label>
 
               {/* Note / Bill Number */}
               <div>
@@ -1837,17 +2052,17 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setDeliveryModalData(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
               >
                 {th ? 'ยกเลิก' : 'Cancel'}
               </button>
               <button
                 type="submit"
                 disabled={isDelivering}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:brightness-110 text-slate-950 text-xs font-bold shadow-md"
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:brightness-110 text-white text-xs font-bold shadow-md cursor-pointer disabled:opacity-50"
               >
-                {isDelivering ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                <span>{isDelivering ? (th ? 'กำลังส่งมอบ...' : 'Delivering...') : (th ? 'ยืนยันส่งมอบ' : 'Confirm Delivery')}</span>
+                {isDelivering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4 text-amber-300" />}
+                <span>{isDelivering ? (th ? 'กำลังแจกไอเทม...' : 'Distributing...') : (th ? 'ยืนยันแจกไอเทม & บันทึก Log' : 'Confirm Distribute & Save Log')}</span>
               </button>
             </div>
           </form>

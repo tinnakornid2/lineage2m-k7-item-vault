@@ -29,6 +29,7 @@ import {
   QuickItem,
   GeneralItem,
   User,
+  DiamondVaultRecord,
   cleanClanName,
   DEFAULT_CLAN
 } from '../types';
@@ -46,7 +47,8 @@ interface QueueViewProps {
   onAddGeneralItem: (item: Omit<GeneralItem, 'id' | 'createdAt'>) => Promise<void>;
   onUpdateGeneralItem: (id: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => Promise<void>;
   onDeleteGeneralItem: (id: string) => Promise<void>;
-  onOpenQuickItemsModal?: () => void;
+  onRecordDiamondLog?: (record: Omit<DiamondVaultRecord, 'id' | 'timestamp'>) => Promise<void>;
+  onOpenQuickItemsModal: () => void;
   onCreateQueueItem: (item: Omit<QueueItem, 'id' | 'createdAt'>) => Promise<void>;
   onDeleteQueueItem: (queueId: string) => Promise<void>;
   onUpdateQueueMembers: (queueId: string, members: QueueMember[]) => Promise<void>;
@@ -66,6 +68,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
   onAddGeneralItem,
   onUpdateGeneralItem,
   onDeleteGeneralItem,
+  onRecordDiamondLog,
   onOpenQuickItemsModal,
   onCreateQueueItem,
   onDeleteQueueItem,
@@ -374,6 +377,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
           onAdd={onAddGeneralItem}
           onUpdate={onUpdateGeneralItem}
           onDelete={onDeleteGeneralItem}
+          onRecordDiamondLog={onRecordDiamondLog}
           onViewImageZoom={onViewImageZoom}
           showToast={showToast}
         />

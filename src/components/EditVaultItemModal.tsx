@@ -515,7 +515,8 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
                     min="1"
                     required
                     value={quantity}
-                    onChange={(e) => setQuantity(e.target.value ? Math.max(1, Number(e.target.value)) : 1)}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => setQuantity(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value, 10) || 1))}
                     className="w-full px-2.5 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs font-mono focus:border-[#d4af37] focus:outline-none"
                   />
                 </div>
@@ -537,7 +538,8 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
                       required
                       placeholder={lang === 'th' ? '0 = ฟรี' : '0 = Free'}
                       value={price}
-                      onChange={(e) => setPrice(e.target.value ? Math.max(0, Number(e.target.value)) : 0)}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => setPrice(e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0))}
                       className="w-full pl-2 pr-6 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs font-mono focus:border-[#d4af37] focus:outline-none"
                     />
                     <span className="absolute right-2 top-2 text-[11px] text-slate-400">💎</span>
@@ -555,7 +557,8 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
                       min="0"
                       required
                       value={minPowerLevel}
-                      onChange={(e) => setMinPowerLevel(e.target.value ? Math.max(0, Number(e.target.value)) : 0)}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => setMinPowerLevel(e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0))}
                       className="w-full pl-2 pr-6 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs font-mono focus:border-[#d4af37] focus:outline-none"
                     />
                     <span className="absolute right-2 top-2 text-[10px] text-amber-400 font-mono">PL</span>

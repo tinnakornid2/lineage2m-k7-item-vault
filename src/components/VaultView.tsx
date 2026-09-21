@@ -1496,6 +1496,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                         required
                         placeholder={lang === 'th' ? 'ระบุราคา (เพชร) - ใส่ 0 = ฟรี' : 'Price (Diamonds) - 0 = Free'}
                         value={price}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => {
                           const val = e.target.value;
                           setPrice(val === '' ? '' : Math.max(0, Number(val)));
@@ -1519,6 +1520,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                         required
                         placeholder={t.itemQuantityPlaceholder}
                         value={quantity}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => {
                           const val = e.target.value;
                           setQuantity(val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
@@ -1542,6 +1544,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                         required
                         placeholder={lang === 'th' ? 'ระบุพลังขั้นต่ำ (PL)' : 'Min PL required'}
                         value={minPowerLevel}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => {
                           const val = e.target.value;
                           setMinPowerLevel(val === '' ? '' : Math.max(0, Number(val)));
