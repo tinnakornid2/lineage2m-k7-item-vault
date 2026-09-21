@@ -312,7 +312,6 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
         updatedQueueList = (item.queueList || []).filter(
           (m) => !(m.userId === currentUser.id && m.status === 'pending')
         );
-        if (showToast) showToast(th ? 'ยกเลิกการต่อคิวเรียบร้อย' : 'Left queue successfully', 'info');
       } else {
         // Add user to queue
         const newMember: QueueMember = {
@@ -325,9 +324,16 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
           joinedAt: Date.now()
         };
         updatedQueueList = [...(item.queueList || []), newMember];
-        if (showToast) showToast(th ? 'ลงชื่อขอรับไอเทมสำเร็จ!' : 'Requested item successfully!', 'success');
       }
       await onUpdate(item.id, { queueList: updatedQueueList });
+      if (showToast) {
+        showToast(
+          isAlreadyInQueue
+            ? (th ? 'ยกเลิกการต่อคิวเรียบร้อย' : 'Left queue successfully')
+            : (th ? 'ลงชื่อขอรับไอเทมสำเร็จ!' : 'Requested item successfully!'),
+          isAlreadyInQueue ? 'info' : 'success'
+        );
+      }
     } catch (err: any) {
       if (showToast) showToast(err?.message || (th ? 'เกิดข้อผิดพลาด' : 'An error occurred'), 'error');
     } finally {

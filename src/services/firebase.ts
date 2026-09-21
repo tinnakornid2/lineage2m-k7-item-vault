@@ -332,7 +332,7 @@ export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QU
 ];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.8.1-dual-cloud';
+const CACHE_SCHEMA_VERSION = '2.8.2-dual-cloud';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -1776,9 +1776,9 @@ export async function addQuickItemDoc(item: Omit<QuickItem, 'id' | 'createdAt'>)
     quantity: Math.max(1, item.quantity || 1),
     createdAt: Date.now()
   };
-  await safeFirestoreWriteOrThrow(
-    setDoc(doc(db, QUICK_ITEMS_COLLECTION, newId), fullItem),
-    1200,
+  await safeFirestoreWrite(
+    setDoc(doc(db, QUICK_ITEMS_COLLECTION, newId), fullItem, { merge: true }),
+    1500,
     'addQuickItemDoc'
   );
   return fullItem;
@@ -1786,9 +1786,9 @@ export async function addQuickItemDoc(item: Omit<QuickItem, 'id' | 'createdAt'>)
 
 export async function deleteQuickItemDoc(itemId: string) {
   const ref = doc(db, QUICK_ITEMS_COLLECTION, itemId);
-  await safeFirestoreWriteOrThrow(
+  await safeFirestoreWrite(
     deleteDoc(ref),
-    1200,
+    1500,
     'deleteQuickItemDoc'
   );
 }
@@ -1801,9 +1801,9 @@ export async function updateQuickItemDoc(itemId: string, updates: Partial<Omit<Q
     if (updates.imageUrl.trim().length > 0) cleanUpdates.imageUrl = updates.imageUrl;
     else delete cleanUpdates.imageUrl;
   }
-  await safeFirestoreWriteOrThrow(
-    updateDoc(ref, cleanUpdates),
-    1200,
+  await safeFirestoreWrite(
+    setDoc(ref, cleanUpdates, { merge: true }),
+    1500,
     'updateQuickItemDoc'
   );
 }
@@ -1845,8 +1845,8 @@ export function listenToGeneralItems(callback: (items: GeneralItem[]) => void) {
   });
 }
 
-export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdAt'>) {
-  const id = 'gi_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdAt'> & { id?: string }) {
+  const id = item.id || ('gi_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
   const fullItem: GeneralItem = {
     ...item,
     id,
@@ -1855,30 +1855,30 @@ export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdA
     quantity: Math.max(1, item.quantity || 1),
     minPowerLevel: Math.max(0, item.minPowerLevel || 0),
     rarity: item.rarity || 'RARE',
-    queueList: [],
-    receiptHistory: [],
+    queueList: Array.isArray(item.queueList) ? item.queueList : [],
+    receiptHistory: Array.isArray(item.receiptHistory) ? item.receiptHistory : [],
     createdAt: Date.now()
   };
-  await safeFirestoreWriteOrThrow(
-    setDoc(doc(db, GENERAL_ITEMS_COLLECTION, id), sanitizeForFirestore(fullItem)),
-    1200,
+  await safeFirestoreWrite(
+    setDoc(doc(db, GENERAL_ITEMS_COLLECTION, id), sanitizeForFirestore(fullItem), { merge: true }),
+    1500,
     'addGeneralItemDoc'
   );
   return fullItem;
 }
 
 export async function updateGeneralItemDoc(itemId: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) {
-  await safeFirestoreWriteOrThrow(
-    updateDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId), sanitizeForFirestore(updates)),
-    1200,
+  await safeFirestoreWrite(
+    setDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId), sanitizeForFirestore(updates), { merge: true }),
+    1500,
     'updateGeneralItemDoc'
   );
 }
 
 export async function deleteGeneralItemDoc(itemId: string) {
-  await safeFirestoreWriteOrThrow(
+  await safeFirestoreWrite(
     deleteDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId)),
-    1200,
+    1500,
     'deleteGeneralItemDoc'
   );
 }

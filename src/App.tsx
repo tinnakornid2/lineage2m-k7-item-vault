@@ -302,6 +302,14 @@ export const App: React.FC = () => {
               return merged;
             });
           }
+          if (Array.isArray(json.data.quickItems)) {
+            setQuickItems(json.data.quickItems);
+            setCachedQuickItems(json.data.quickItems);
+          }
+          if (Array.isArray(json.data.generalItems)) {
+            setGeneralItems(json.data.generalItems);
+            setCachedGeneralItems(json.data.generalItems);
+          }
           if (Array.isArray(json.data.clans) && json.data.clans.length > 0) setClans(json.data.clans);
           if (Array.isArray(json.data.diamondLogs)) setDiamondLogs(json.data.diamondLogs);
         }
@@ -322,6 +330,14 @@ export const App: React.FC = () => {
                   setCachedVaultItems(merged);
                   return merged;
                 });
+              }
+              if (res.data.quickItems && res.data.quickItems.length > 0) {
+                setQuickItems(res.data.quickItems);
+                setCachedQuickItems(res.data.quickItems);
+              }
+              if (res.data.generalItems && res.data.generalItems.length > 0) {
+                setGeneralItems(res.data.generalItems);
+                setCachedGeneralItems(res.data.generalItems);
               }
               if (res.data.queueItems) {
                 setQueueItems((prev) => {
@@ -2295,37 +2311,172 @@ export const App: React.FC = () => {
   };
 
   const handleAddGeneralItem = async (item: Omit<GeneralItem, 'id' | 'createdAt'>) => {
+    const newId = 'gi_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const fullItem: GeneralItem = {
+      ...item,
+      id: newId,
+      name: item.name.trim(),
+      price: Math.max(0, item.price || 0),
+      quantity: Math.max(1, item.quantity || 1),
+      minPowerLevel: Math.max(0, item.minPowerLevel || 0),
+      rarity: item.rarity || 'RARE',
+      queueList: Array.isArray(item.queueList) ? item.queueList : [],
+      receiptHistory: Array.isArray(item.receiptHistory) ? item.receiptHistory : [],
+      createdAt: Date.now()
+    };
+
+    // 1. Instant Optimistic React State update (<1ms)
+    const nextItems = [fullItem, ...generalItems.filter((entry) => entry.id !== newId)];
+    setGeneralItems(nextItems);
+
+    // 2. Instant LocalStorage caching
+    setCachedGeneralItems(nextItems);
+
+    // 3. Instant Live State Relay Broadcast to peers
+    broadcastLiveState({
+      users,
+      vaultItems,
+      quickItems,
+      generalItems: nextItems,
+      queueItems,
+      clans,
+      diamondLogs,
+      vaultBalance,
+      formulaSettings: getFormulaSettings(),
+      announcementSettings,
+      backgroundSettings: bgConfig,
+      discordSettings
+    }, currentUser?.inGameName || 'Admin');
+
+    // 4. Debounced auto backup to Google Sheets & Drive
+    triggerDebouncedAutoBackup(
+      {
+        users,
+        vaultItems,
+        quickItems,
+        generalItems: nextItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Admin',
+      true
+    );
+
+    // 5. Safe Firestore persistence (non-blocking)
     try {
-      const saved = await addGeneralItemDoc(item);
-      setGeneralItems((prev) => [saved, ...prev.filter((entry) => entry.id !== saved.id)]);
+      await addGeneralItemDoc(fullItem);
     } catch (err) {
-      const fallback: GeneralItem = { ...item, id: `gi_${Date.now()}_google`, createdAt: Date.now() };
-      const nextItems = [fallback, ...generalItems];
-      const result = await saveFailoverSnapshot(quickItems, nextItems, 'General Item Failover');
-      if (!result.success) throw err;
-      setGeneralItems(nextItems);
+      console.warn('General item saved locally/relay/sheets; firestore write deferred:', err);
     }
   };
 
   const handleUpdateGeneralItem = async (itemId: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => {
+    // 1. Instant Optimistic React State update (<1ms)
     const nextItems = generalItems.map((entry) => entry.id === itemId ? { ...entry, ...updates } : entry);
     setGeneralItems(nextItems);
+
+    // 2. Instant LocalStorage caching
+    setCachedGeneralItems(nextItems);
+
+    // 3. Instant Live State Relay Broadcast to peers
+    broadcastLiveState({
+      users,
+      vaultItems,
+      quickItems,
+      generalItems: nextItems,
+      queueItems,
+      clans,
+      diamondLogs,
+      vaultBalance,
+      formulaSettings: getFormulaSettings(),
+      announcementSettings,
+      backgroundSettings: bgConfig,
+      discordSettings
+    }, currentUser?.inGameName || 'Member');
+
+    // 4. Debounced auto backup to Google Sheets & Drive
+    triggerDebouncedAutoBackup(
+      {
+        users,
+        vaultItems,
+        quickItems,
+        generalItems: nextItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Member',
+      true
+    );
+
+    // 5. Safe Firestore persistence (non-blocking)
     try {
       await updateGeneralItemDoc(itemId, updates);
     } catch (err) {
-      const result = await saveFailoverSnapshot(quickItems, nextItems, 'General Item Update Failover');
-      if (!result.success) throw err;
+      console.warn('General item updated locally/relay/sheets; firestore update deferred:', err);
     }
   };
 
   const handleDeleteGeneralItem = async (itemId: string) => {
+    // 1. Instant Optimistic React State update (<1ms)
     const nextItems = generalItems.filter((entry) => entry.id !== itemId);
     setGeneralItems(nextItems);
+
+    // 2. Instant LocalStorage caching
+    setCachedGeneralItems(nextItems);
+
+    // 3. Instant Live State Relay Broadcast to peers
+    broadcastLiveState({
+      users,
+      vaultItems,
+      quickItems,
+      generalItems: nextItems,
+      queueItems,
+      clans,
+      diamondLogs,
+      vaultBalance,
+      formulaSettings: getFormulaSettings(),
+      announcementSettings,
+      backgroundSettings: bgConfig,
+      discordSettings
+    }, currentUser?.inGameName || 'Admin');
+
+    // 4. Debounced auto backup
+    triggerDebouncedAutoBackup(
+      {
+        users,
+        vaultItems,
+        quickItems,
+        generalItems: nextItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Admin',
+      true
+    );
+
+    // 5. Safe Firestore persistence (non-blocking)
     try {
       await deleteGeneralItemDoc(itemId);
     } catch (err) {
-      const result = await saveFailoverSnapshot(quickItems, nextItems, 'General Item Delete Failover');
-      if (!result.success) throw err;
+      console.warn('General item deleted locally/relay/sheets; firestore delete deferred:', err);
     }
   };
 
