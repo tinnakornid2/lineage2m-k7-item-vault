@@ -1286,49 +1286,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </section>
 
-      {/* Announcement Banner for Item Queue (Moved to Dashboard) */}
-      {(activeAnnouncement.enabled || canEditAnnouncement) && (
-        <div className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-          activeAnnouncement.enabled
-            ? 'bg-gradient-to-r from-[#191508]/90 via-[#231b0a]/90 to-[#120f06]/90 border-[#d4af37]/45 shadow-[0_0_20px_rgba(212,175,55,0.12)]'
-            : 'bg-slate-900/60 border-dashed border-slate-700/60 opacity-60'
-        }`}>
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-[#d4af37]/20 to-[#8c6b12]/20 border border-[#d4af37]/40 text-[#f5d77f] shrink-0 shadow-md">
-              <Megaphone className="w-5 h-5 animate-pulse" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#d4af37]/20 border border-[#d4af37]/40 text-[#f5d77f] font-mono tracking-wider uppercase">
-                  {lang === 'th' ? 'ประกาศจากกิลด์' : 'ANNOUNCEMENT'}
-                </span>
-                {!activeAnnouncement.enabled && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-                    {lang === 'th' ? 'ซ่อนอยู่ (ปิดใช้งาน)' : 'Hidden (Disabled)'}
-                  </span>
-                )}
-              </div>
-              <p className="text-xs sm:text-sm font-semibold text-slate-100 mt-1 leading-relaxed">
-                {lang === 'th' ? activeAnnouncement.textTh : activeAnnouncement.textEn}
-              </p>
-            </div>
-          </div>
-
-          {canEditAnnouncement && (
-            <button
-              type="button"
-              id="btn-edit-queue-announcement"
-              onClick={handleOpenEditAnnouncement}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1f2838] hover:bg-[#28354a] border border-[#d4af37]/40 hover:border-[#d4af37] text-[#f5d77f] hover:text-white text-xs font-bold transition-all shadow cursor-pointer shrink-0 self-start sm:self-center group"
-              title={lang === 'th' ? 'แก้ไขข้อความประกาศ (เฉพาะ Owner/Admin)' : 'Edit Announcement (Owner/Admin)'}
-            >
-              <Edit3 className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
-              <span>{lang === 'th' ? 'แก้ไขประกาศ' : 'Edit Announcement'}</span>
-            </button>
-          )}
-        </div>
-      )}
-
       {/* 2. ACTIVE CLAIMABLE ITEMS (กล่องไอเทมเปิดรับ - แสดงแบบตารางแนวนอน ขนาดกะทัดรัด) */}
       <section className="space-y-2.5">
         <div className="flex items-center justify-between">
@@ -2196,6 +2153,49 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Announcement Banner for Item Queue (Placed inside คิวรับไอเทม) */}
+        {(activeAnnouncement.enabled || canEditAnnouncement) && (
+          <div className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+            activeAnnouncement.enabled
+              ? 'bg-gradient-to-r from-[#191508]/90 via-[#231b0a]/90 to-[#120f06]/90 border-[#d4af37]/45 shadow-[0_0_20px_rgba(212,175,55,0.12)]'
+              : 'bg-slate-900/60 border-dashed border-slate-700/60 opacity-60'
+          }`}>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-[#d4af37]/20 to-[#8c6b12]/20 border border-[#d4af37]/40 text-[#f5d77f] shrink-0 shadow-md">
+                <Megaphone className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#d4af37]/20 border border-[#d4af37]/40 text-[#f5d77f] font-mono tracking-wider uppercase">
+                    {lang === 'th' ? 'ประกาศจากกิลด์' : 'ANNOUNCEMENT'}
+                  </span>
+                  {!activeAnnouncement.enabled && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                      {lang === 'th' ? 'ซ่อนอยู่ (ปิดใช้งาน)' : 'Hidden (Disabled)'}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs sm:text-sm font-semibold text-slate-100 mt-1 leading-relaxed">
+                  {lang === 'th' ? activeAnnouncement.textTh : activeAnnouncement.textEn}
+                </p>
+              </div>
+            </div>
+
+            {canEditAnnouncement && (
+              <button
+                type="button"
+                id="btn-edit-queue-announcement"
+                onClick={handleOpenEditAnnouncement}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1f2838] hover:bg-[#28354a] border border-[#d4af37]/40 hover:border-[#d4af37] text-[#f5d77f] hover:text-white text-xs font-bold transition-all shadow cursor-pointer shrink-0 self-start sm:self-center group"
+                title={lang === 'th' ? 'แก้ไขข้อความประกาศ (เฉพาะ Owner/Admin)' : 'Edit Announcement (Owner/Admin)'}
+              >
+                <Edit3 className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
+                <span>{lang === 'th' ? 'แก้ไขประกาศ' : 'Edit Announcement'}</span>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Rarity Quick Filter Pills */}
         <div className="flex flex-wrap items-center gap-1.5 text-xs">

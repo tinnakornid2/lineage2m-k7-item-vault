@@ -20,7 +20,10 @@ import {
   List,
   Users,
   X,
-  Check
+  Check,
+  Edit3,
+  Megaphone,
+  Loader2
 } from 'lucide-react';
 import { compressImageFile } from '../utils/imageCompressor';
 import {
@@ -32,6 +35,7 @@ import {
   GeneralItem,
   User,
   DiamondVaultRecord,
+  QueueAnnouncementSettings,
   cleanClanName,
   DEFAULT_CLAN
 } from '../types';
@@ -46,6 +50,8 @@ interface QueueViewProps {
   queueItems: QueueItem[];
   quickItems?: QuickItem[];
   generalItems?: GeneralItem[];
+  queueAnnouncement?: QueueAnnouncementSettings | null;
+  onSaveQueueAnnouncement?: (settings: QueueAnnouncementSettings) => Promise<void>;
   onAddGeneralItem?: (item: Omit<GeneralItem, 'id' | 'createdAt'>) => Promise<void>;
   onUpdateGeneralItem?: (id: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => Promise<void>;
   onDeleteGeneralItem?: (id: string) => Promise<void>;
@@ -67,6 +73,8 @@ export const QueueView: React.FC<QueueViewProps> = ({
   queueItems,
   quickItems,
   generalItems,
+  queueAnnouncement,
+  onSaveQueueAnnouncement,
   onAddGeneralItem,
   onUpdateGeneralItem,
   onDeleteGeneralItem,
@@ -89,6 +97,55 @@ export const QueueView: React.FC<QueueViewProps> = ({
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
   const isOwner = currentUser?.role === 'owner';
+
+  // Queue Announcement editing modal state
+  const [isEditAnnouncementOpen, setIsEditAnnouncementOpen] = useState(false);
+  const [announcementTextTh, setAnnouncementTextTh] = useState('');
+  const [announcementTextEn, setAnnouncementTextEn] = useState('');
+  const [announcementEnabled, setAnnouncementEnabled] = useState(true);
+  const [isSavingAnnouncement, setIsSavingAnnouncement] = useState(false);
+
+  const activeAnnouncement: QueueAnnouncementSettings = queueAnnouncement || {
+    textTh: '📢 สมาชิกที่ต้องการขอรับไอเทม กรุณาติดต่อ Admin เพื่อเพิ่มรายชื่อลงในคิว',
+    textEn: '📢 Members who wish to receive items, please contact an Admin to be added to the queue.',
+    enabled: true
+  };
+
+  const handleOpenEditAnnouncement = () => {
+    sounds.playClick();
+    setAnnouncementTextTh(activeAnnouncement.textTh);
+    setAnnouncementTextEn(activeAnnouncement.textEn);
+    setAnnouncementEnabled(activeAnnouncement.enabled);
+    setIsEditAnnouncementOpen(true);
+  };
+
+  const handleSaveAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onSaveQueueAnnouncement) return;
+    setIsSavingAnnouncement(true);
+    sounds.playClick();
+    try {
+      await onSaveQueueAnnouncement({
+        textTh: announcementTextTh.trim() || '📢 สมาชิกที่ต้องการขอรับไอเทม กรุณาติดต่อ Admin เพื่อเพิ่มรายชื่อลงในคิว',
+        textEn: announcementTextEn.trim() || '📢 Members who wish to receive items, please contact an Admin to be added to the queue.',
+        enabled: announcementEnabled,
+        updatedBy: currentUser?.inGameName || currentUser?.username || 'Owner',
+        updatedAt: Date.now()
+      });
+      sounds.playSuccess();
+      setIsEditAnnouncementOpen(false);
+      if (showToast) {
+        showToast(lang === 'th' ? 'บันทึกข้อความประกาศคิวสำเร็จแล้ว' : 'Queue announcement saved successfully', 'success');
+      }
+    } catch (err: any) {
+      console.error(err);
+      if (showToast) {
+        showToast(lang === 'th' ? 'บันทึกประกาศไม่สำเร็จ' : 'Failed to save announcement', 'error');
+      }
+    } finally {
+      setIsSavingAnnouncement(false);
+    }
+  };
 
   // Create queue modal form state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -467,6 +524,49 @@ export const QueueView: React.FC<QueueViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Announcement Banner for Item Queue */}
+      {(activeAnnouncement.enabled || isAdminOrOwner) && (
+        <div className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+          activeAnnouncement.enabled
+            ? 'bg-gradient-to-r from-[#191508]/90 via-[#231b0a]/90 to-[#120f06]/90 border-[#d4af37]/45 shadow-[0_0_20px_rgba(212,175,55,0.12)]'
+            : 'bg-slate-900/60 border-dashed border-slate-700/60 opacity-60'
+        }`}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-[#d4af37]/20 to-[#8c6b12]/20 border border-[#d4af37]/40 text-[#f5d77f] shrink-0 shadow-md">
+              <Megaphone className="w-5 h-5 animate-pulse" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#d4af37]/20 border border-[#d4af37]/40 text-[#f5d77f] font-mono tracking-wider uppercase">
+                  {lang === 'th' ? 'ประกาศจากกิลด์' : 'ANNOUNCEMENT'}
+                </span>
+                {!activeAnnouncement.enabled && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                    {lang === 'th' ? 'ซ่อนอยู่ (ปิดใช้งาน)' : 'Hidden (Disabled)'}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs sm:text-sm font-semibold text-slate-100 mt-1 leading-relaxed">
+                {lang === 'th' ? activeAnnouncement.textTh : activeAnnouncement.textEn}
+              </p>
+            </div>
+          </div>
+
+          {isAdminOrOwner && (
+            <button
+              type="button"
+              id="btn-edit-queue-announcement"
+              onClick={handleOpenEditAnnouncement}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1f2838] hover:bg-[#28354a] border border-[#d4af37]/40 hover:border-[#d4af37] text-[#f5d77f] hover:text-white text-xs font-bold transition-all shadow cursor-pointer shrink-0 self-start sm:self-center group"
+              title={lang === 'th' ? 'แก้ไขข้อความประกาศ (เฉพาะ Owner/Admin)' : 'Edit Announcement (Owner/Admin)'}
+            >
+              <Edit3 className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
+              <span>{lang === 'th' ? 'แก้ไขประกาศ' : 'Edit Announcement'}</span>
+            </button>
+          )}
+        </div>
+      )}
 
 
       {/* CREATE QUEUE ITEM FORM */}
@@ -1334,6 +1434,113 @@ export const QueueView: React.FC<QueueViewProps> = ({
         </div>
       )}
 
+      {/* Queue Announcement Edit Modal */}
+      {isEditAnnouncementOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0e1422] border border-[#d4af37]/40 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-[#f5d77f] font-cinzel font-bold text-base">
+                <Megaphone className="w-5 h-5 text-[#d4af37]" />
+                <span>{lang === 'th' ? 'แก้ไขข้อความประกาศคิว' : 'Edit Queue Announcement'}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditAnnouncementOpen(false)}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAnnouncement} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  🇹🇭 {lang === 'th' ? 'ข้อความภาษาไทย' : 'Thai Message'}
+                </label>
+                <textarea
+                  rows={3}
+                  value={announcementTextTh}
+                  onChange={(e) => setAnnouncementTextTh(e.target.value)}
+                  placeholder="เช่น: 📢 สมาชิกที่ต้องการขอรับไอเทม กรุณาติดต่อ Admin เพื่อเพิ่มรายชื่อลงในคิว"
+                  className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-xs focus:outline-none leading-relaxed resize-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  🇬🇧 {lang === 'th' ? 'ข้อความภาษาอังกฤษ' : 'English Message'}
+                </label>
+                <textarea
+                  rows={3}
+                  value={announcementTextEn}
+                  onChange={(e) => setAnnouncementTextEn(e.target.value)}
+                  placeholder="e.g.: 📢 Members who wish to receive items, please contact an Admin to be added to the queue."
+                  className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-xs focus:outline-none leading-relaxed resize-none"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                <div>
+                  <div className="text-xs font-bold text-slate-200">
+                    {lang === 'th' ? 'แสดงแถบประกาศ' : 'Display Announcement'}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {lang === 'th' ? 'เปิด/ปิด การแสดงผลแถบประกาศนี้' : 'Enable or disable the announcement banner'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAnnouncementEnabled(!announcementEnabled)}
+                  className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
+                    announcementEnabled ? 'bg-amber-500' : 'bg-slate-700'
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full bg-white shadow-md absolute top-0.5 transition-transform ${
+                      announcementEnabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="pt-2 flex items-center justify-between border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playClick();
+                    setAnnouncementTextTh('📢 สมาชิกที่ต้องการขอรับไอเทม กรุณาติดต่อ Admin เพื่อเพิ่มรายชื่อลงในคิว');
+                    setAnnouncementTextEn('📢 Members who wish to receive items, please contact an Admin to be added to the queue.');
+                    setAnnouncementEnabled(true);
+                  }}
+                  className="text-[11px] text-slate-400 hover:text-amber-300 underline cursor-pointer"
+                >
+                  {lang === 'th' ? 'รีเซ็ตเป็นค่าเริ่มต้น' : 'Reset to Default'}
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditAnnouncementOpen(false)}
+                    className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+                  >
+                    {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingAnnouncement}
+                    className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#aa841c] hover:brightness-110 text-slate-950 font-bold text-xs shadow-md transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    {isSavingAnnouncement && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{isSavingAnnouncement ? (lang === 'th' ? 'กำลังบันทึก...' : 'Saving...') : (lang === 'th' ? 'บันทึกประกาศ' : 'Save Announcement')}</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

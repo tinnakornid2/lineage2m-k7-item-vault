@@ -3641,6 +3641,8 @@ export const App: React.FC = () => {
             queueItems={queueItems}
             quickItems={quickItems}
             generalItems={generalItems}
+            queueAnnouncement={queueAnnouncement}
+            onSaveQueueAnnouncement={handleSaveQueueAnnouncement}
             onAddGeneralItem={handleAddGeneralItem}
             onUpdateGeneralItem={handleUpdateGeneralItem}
             onDeleteGeneralItem={handleDeleteGeneralItem}
