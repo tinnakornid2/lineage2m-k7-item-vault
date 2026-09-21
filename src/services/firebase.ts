@@ -50,9 +50,8 @@ import {
   isItemDistributed,
   normalizeDistributedItem
 } from '../types';
-import { LEAN_OFFLINE_MEMBERS } from '../data/offlineMembersFallback';
-// Production data comes from Firestore/Google Sheets, with offline fallback for authentication
-const REAL_BACKUP_MEMBERS: User[] = LEAN_OFFLINE_MEMBERS;
+// Production data comes from Google Sheets & Live Relay in a 100% Cloud-First architecture (v2.8.14)
+const REAL_BACKUP_MEMBERS: User[] = [];
 const REAL_BACKUP_CLANS: ClanGroup[] = [];
 const REAL_BACKUP_QUEUES: QueueItem[] = [];
 const REAL_BACKUP_VAULT_ITEMS: VaultItem[] = [];
@@ -154,188 +153,20 @@ export const DEFAULT_OWNER: User = {
   statScreenshotUrl: 'https://kain7.com/screenshot/1810',
 };
 
-export const INITIAL_MEMBERS: User[] = (REAL_BACKUP_MEMBERS && REAL_BACKUP_MEMBERS.length > 0)
-  ? (REAL_BACKUP_MEMBERS.some((u) => u.username?.toLowerCase() === 'eloni') ? REAL_BACKUP_MEMBERS : [DEFAULT_OWNER, ...REAL_BACKUP_MEMBERS])
-  : [
-      DEFAULT_OWNER,
-      {
-        id: 'user_zenkaii',
-        username: 'zenkaii',
-        inGameName: 'Zenkaii',
-        powerLevel: 580000,
-        clan: 'VoltZ',
-        characterClass: 'Dual Blade',
-        role: 'admin',
-        status: 'active',
-        createdAt: Date.now() - 86400000 * 20,
-      },
-      {
-        id: 'user_dvd',
-        username: 'dvd_player',
-        inGameName: 'DVD',
-        powerLevel: 540000,
-        clan: 'LevelS',
-        characterClass: 'Spear',
-        role: 'member',
-        status: 'active',
-        createdAt: Date.now() - 86400000 * 15,
-      },
-      {
-        id: 'user_arthur',
-        username: 'arthur99',
-        inGameName: 'KingArthur',
-        powerLevel: 490000,
-        clan: 'VoltZ',
-        characterClass: 'Greatsword',
-        role: 'member',
-        status: 'active',
-        createdAt: Date.now() - 86400000 * 10,
-      },
-      {
-        id: 'user_valkyrie',
-        username: 'valkyrie',
-        inGameName: 'ValkyrieX',
-        powerLevel: 510000,
-        clan: 'LevelS',
-        characterClass: 'Staff',
-        role: 'member',
-        status: 'active',
-        createdAt: Date.now() - 86400000 * 8,
-      },
-      {
-        id: 'user_pending_one',
-        username: 'shadow_hunter',
-        inGameName: 'NightHawk',
-        powerLevel: 380000,
-        clan: 'VoltZ',
-        characterClass: 'Dagger',
-        role: 'member',
-        status: 'pending_approval',
-        createdAt: Date.now() - 86400000 * 2,
-      }
-    ];
+export const INITIAL_MEMBERS: User[] = [DEFAULT_OWNER];
 
-export const INITIAL_CLANS: ClanGroup[] = (REAL_BACKUP_CLANS && REAL_BACKUP_CLANS.length > 0)
-  ? REAL_BACKUP_CLANS
-  : [
-      { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0, enabled: true },
-      { id: 'clan_levels', name: 'LevelS', color: '#ef4444', order: 1, enabled: true },
-      { id: 'clan_stronk', name: 'STRONK', color: '#eab308', order: 2, enabled: true }
-    ];
+export const INITIAL_CLANS: ClanGroup[] = [
+  { id: 'clan_voltz', name: 'VoltZ', color: '#22c55e', order: 0, enabled: true }
+];
 
 export const INITIAL_QUICK_ITEMS: QuickItem[] = [];
 
-export const INITIAL_VAULT_ITEMS: VaultItem[] = (REAL_BACKUP_VAULT_ITEMS && REAL_BACKUP_VAULT_ITEMS.length > 0)
-  ? REAL_BACKUP_VAULT_ITEMS
-  : [
-  {
-    id: 'item_initial_1',
-    name: 'Dynasty Crusher Spear',
-    imageUrl: 'https://images.unsplash.com/photo-1589241062272-c0a000072dfa?w=400&auto=format&fit=crop&q=80',
-    price: 8500,
-    minPowerLevel: 500000,
-    rarity: 'LAGEND',
-    hunters: [
-      { name: 'Zenkaii', clan: 'VoltZ' },
-      { name: 'DVD', clan: 'LevelS' }
-    ],
-    hunterScreenshots: [
-      'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800&auto=format&fit=crop&q=80'
-    ],
-    status: 'available',
-    claimants: [
-      {
-        userId: 'user_dvd',
-        inGameName: 'DVD',
-        clan: 'LevelS',
-        powerLevel: 540000,
-        claimedAt: Date.now() - 3600000 * 4
-      }
-    ],
-    createdAt: Date.now() - 86400000 * 1
-  },
-  {
-    id: 'item_initial_2',
-    name: 'Imperial Crusader Armor',
-    imageUrl: 'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=400&auto=format&fit=crop&q=80',
-    price: 15000,
-    minPowerLevel: 550000,
-    rarity: 'MYTHIC',
-    hunters: [
-      { name: 'Eloni', clan: 'VoltZ' },
-      { name: 'Zenkaii', clan: 'VoltZ' },
-      { name: 'DVD', clan: 'LevelS' }
-    ],
-    hunterScreenshots: [
-      'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?w=800&auto=format&fit=crop&q=80'
-    ],
-    status: 'available',
-    claimants: [],
-    createdAt: Date.now() - 86400000 * 2
-  }
-];
+export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 
-export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QUEUES.length > 0)
-  ? REAL_BACKUP_QUEUES
-  : [
-  {
-    id: 'queue_1',
-    name: "Archangel's Sword",
-    imageUrl: 'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=300&auto=format&fit=crop&q=80',
-    rarity: 'MYTHIC',
-    queueList: [
-      {
-        id: 'qm_1',
-        name: 'Eloni',
-        clan: 'VoltZ',
-        powerLevel: 650000,
-        status: 'received',
-        receivedAt: Date.now() - 86400000 * 5
-      },
-      {
-        id: 'qm_2',
-        name: 'Zenkaii',
-        clan: 'VoltZ',
-        powerLevel: 580000,
-        status: 'pending'
-      },
-      {
-        id: 'qm_3',
-        name: 'KingArthur',
-        clan: 'VoltZ',
-        powerLevel: 490000,
-        status: 'pending'
-      }
-    ],
-    createdAt: Date.now() - 86400000 * 10
-  },
-  {
-    id: 'queue_2',
-    name: 'Dainsleif Dual Blade',
-    imageUrl: 'https://images.unsplash.com/photo-1589241062272-c0a000072dfa?w=300&auto=format&fit=crop&q=80',
-    rarity: 'LAGEND',
-    queueList: [
-      {
-        id: 'qm_4',
-        name: 'DVD',
-        clan: 'LevelS',
-        powerLevel: 540000,
-        status: 'pending'
-      },
-      {
-        id: 'qm_5',
-        name: 'ValkyrieX',
-        clan: 'LevelS',
-        powerLevel: 510000,
-        status: 'pending'
-      }
-    ],
-    createdAt: Date.now() - 86400000 * 8
-  }
-];
+export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.8.13-cross-device-sync';
+const CACHE_SCHEMA_VERSION = '2.8.14-cloud-first';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -382,6 +213,7 @@ if (typeof localStorage !== 'undefined') {
       LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
       // Invalidate old item caches so new cloud data hydrates seamlessly
       Object.values(CACHE_KEYS).forEach((key) => localStorage.removeItem(key));
+      localStorage.removeItem('l2m_google_backup_cache');
       localStorage.setItem(CACHE_SCHEMA_KEY, CACHE_SCHEMA_VERSION);
     }
   } catch (e) {}
@@ -408,40 +240,37 @@ function setCachedData<T>(key: string, data: T): void {
   } catch {}
 }
 
+// Cloud-First In-Memory Collections (No stale full-table snapshots in LocalStorage - Tier 2 Eliminated)
+let inMemoryVaultItems: VaultItem[] = [];
+let inMemoryQueues: QueueItem[] = [];
+let inMemoryUsers: User[] = [];
+let inMemoryClans: ClanGroup[] = [];
+let inMemoryDiamondTxs: DiamondVaultRecord[] = [];
+let inMemoryQuickItems: QuickItem[] = [];
+let inMemoryGeneralItems: GeneralItem[] = [];
+
 export function getCachedUsers(): User[] {
-  const cached = getCachedData<User[]>(CACHE_KEYS.USERS, []);
-  if (cached && cached.length > 0) return cached;
-  // If no cached users in CACHE_KEYS, check Google Sheets cache in localStorage
-  try {
-    const googleCache = localStorage.getItem('l2m_google_backup_cache');
-    if (googleCache) {
-      const parsed = JSON.parse(googleCache);
-      if (parsed?.data?.users && Array.isArray(parsed.data.users) && parsed.data.users.length > 0) {
-        return parsed.data.users;
-      }
-    }
-  } catch {}
-  return INITIAL_MEMBERS;
+  return inMemoryUsers;
 }
 
 export function setCachedUsers(users: User[]): void {
-  setCachedData(CACHE_KEYS.USERS, users);
+  inMemoryUsers = users || [];
 }
 
 export function getCachedQuickItems(): QuickItem[] {
-  return getCachedData<QuickItem[]>(CACHE_KEYS.QUICK_ITEMS, []);
+  return inMemoryQuickItems;
 }
 
 export function setCachedQuickItems(items: QuickItem[]): void {
-  setCachedData(CACHE_KEYS.QUICK_ITEMS, items || []);
+  inMemoryQuickItems = items || [];
 }
 
 export function getCachedGeneralItems(): GeneralItem[] {
-  return getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
+  return inMemoryGeneralItems;
 }
 
 export function setCachedGeneralItems(items: GeneralItem[]): void {
-  setCachedData(CACHE_KEYS.GENERAL_ITEMS, items || []);
+  inMemoryGeneralItems = items || [];
 }
 
 export const DELETED_VAULT_ITEMS_KEY = 'k7_deleted_vault_item_ids';
@@ -732,9 +561,8 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
 }
 
 export function getCachedVaultItems(): VaultItem[] {
-  const items = getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, []);
   const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
-  return items
+  return inMemoryVaultItems
     .filter((item) => item && item.id && (deletedMap[item.id] || 0) < (item.updatedAt || item.createdAt || 0))
     .map((item) => {
       const norm = normalizeDistributedItem(item);
@@ -746,9 +574,9 @@ export function getCachedVaultItems(): VaultItem[] {
 }
 
 export function setCachedVaultItems(items: VaultItem[]): void {
-  const deletedIds = getDeletedVaultItemIds();
-  const filtered = (items || [])
-    .filter((i) => i && i.id && !deletedIds.has(i.id))
+  const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
+  inMemoryVaultItems = (items || [])
+    .filter((i) => i && i.id && (deletedMap[i.id] || 0) < (i.updatedAt || i.createdAt || 0))
     .map((i) => {
       const norm = normalizeDistributedItem(i);
       return {
@@ -756,35 +584,32 @@ export function setCachedVaultItems(items: VaultItem[]): void {
         claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(i.id, c))
       };
     });
-  setCachedData(CACHE_KEYS.VAULT_ITEMS, filtered);
 }
 
 export function getCachedClans(): ClanGroup[] {
-  return getCachedData<ClanGroup[]>(CACHE_KEYS.CLANS, []);
+  return inMemoryClans;
 }
 
 export function setCachedClans(clans: ClanGroup[]): void {
-  setCachedData(CACHE_KEYS.CLANS, clans);
+  inMemoryClans = clans || [];
 }
 
 export function getCachedQueues(): QueueItem[] {
-  const queues = getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, []);
   const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
-  return queues.filter((q) => q && q.id && (deletedMap[q.id] || 0) < (q.updatedAt || q.createdAt || 0));
+  return inMemoryQueues.filter((q) => q && q.id && (deletedMap[q.id] || 0) < (q.updatedAt || q.createdAt || 0));
 }
 
 export function setCachedQueues(queues: QueueItem[]): void {
-  const deletedIds = getDeletedQueueItemIds();
-  const filtered = (queues || []).filter((q) => q && q.id && !deletedIds.has(q.id));
-  setCachedData(CACHE_KEYS.QUEUES, filtered);
+  const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
+  inMemoryQueues = (queues || []).filter((q) => q && q.id && (deletedMap[q.id] || 0) < (q.updatedAt || q.createdAt || 0));
 }
 
 export function getCachedDiamondTransactions(): DiamondVaultRecord[] {
-  return getCachedData<DiamondVaultRecord[]>(CACHE_KEYS.DIAMOND_TXS, []);
+  return inMemoryDiamondTxs;
 }
 
 export function setCachedDiamondTransactions(records: DiamondVaultRecord[]): void {
-  setCachedData(CACHE_KEYS.DIAMOND_TXS, records);
+  inMemoryDiamondTxs = records || [];
 }
 
 let onQuotaExceededCallback: ((isQuotaExceeded: boolean) => void) | null = null;
