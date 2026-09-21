@@ -3609,6 +3609,9 @@ export const App: React.FC = () => {
             onOpenGoogleBackupModal={isOwner ? () => setShowGoogleBackupModal(true) : undefined}
             onCheckFirebaseHealth={handleManualCheckFirebase}
             onConfirmPayment={handleConfirmPayment}
+            queueAnnouncement={queueAnnouncement}
+            onSaveQueueAnnouncement={handleSaveQueueAnnouncement}
+            showToast={showToast}
           />
         )}
 
@@ -3650,8 +3653,6 @@ export const App: React.FC = () => {
             onOpenAuth={() => setShowAuthModal(true)}
             showToast={showToast}
             onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
-            queueAnnouncement={queueAnnouncement}
-            onSaveQueueAnnouncement={handleSaveQueueAnnouncement}
           />
         )}
 
