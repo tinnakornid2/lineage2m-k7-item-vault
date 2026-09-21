@@ -1095,7 +1095,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                       <div className="min-w-0">
                         <span className="text-[9px] text-slate-400 block uppercase tracking-wider">{th ? 'จำนวนที่จะได้รับ' : 'Qty to Receive'}</span>
                         <span className="text-xs font-mono font-bold truncate block">
-                          {Math.max(0, item.quantity - totalDelivered)}/{item.quantity} {th ? 'ชิ้น' : 'pcs'}
+                          {item.quantity} {th ? 'ชิ้น' : 'pcs'}
                         </span>
                       </div>
                     </div>
@@ -1460,7 +1460,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                       {/* Quantity Badge */}
                       <td className="py-3 px-3">
                         <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono font-bold text-xs inline-block">
-                          {Math.max(0, item.quantity - totalDelivered)}/{item.quantity} {th ? 'ชิ้น' : 'pcs'}
+                          {item.quantity} {th ? 'ชิ้น' : 'pcs'}
                         </span>
                       </td>
 
