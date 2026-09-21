@@ -15,6 +15,7 @@ import {
   VaultItem,
   Claimant,
   AnnouncementSettings,
+  QueueAnnouncementSettings,
   DiscordSettings,
   ClanFundTxType,
   cleanClanName,
@@ -45,6 +46,8 @@ import {
   saveBackgroundSettingsDoc,
   listenToAnnouncementSettings,
   saveAnnouncementSettingsDoc,
+  subscribeToQueueAnnouncementSettings,
+  saveQueueAnnouncementSettingsDoc,
   listenToDiscordSettings,
   saveDiscordSettingsDoc,
   getCachedDiscordSettings,
@@ -366,6 +369,7 @@ export const App: React.FC = () => {
   const [showRequestCpModal, setShowRequestCpModal] = useState(false);
   const [showGeminiModal, setShowGeminiModal] = useState(false);
   const [announcementSettings, setAnnouncementSettings] = useState<AnnouncementSettings | null>(null);
+  const [queueAnnouncement, setQueueAnnouncement] = useState<QueueAnnouncementSettings | null>(null);
   const [discordSettings, setDiscordSettings] = useState<DiscordSettings | null>(null);
   const [distributeTargetItem, setDistributeTargetItem] = useState<VaultItem | null>(null);
   const [distributeClaimantId, setDistributeClaimantId] = useState<string | undefined>(undefined);
@@ -872,6 +876,9 @@ export const App: React.FC = () => {
     const unsubAnnouncement = listenToAnnouncementSettings((settings) => {
       if (settings) setAnnouncementSettings(settings);
     });
+    const unsubQueueAnnouncement = subscribeToQueueAnnouncementSettings((settings) => {
+      if (settings) setQueueAnnouncement(settings);
+    });
     const unsubDiscord = listenToDiscordSettings((settings) => {
       if (settings) setDiscordSettings(settings);
     });
@@ -889,6 +896,7 @@ export const App: React.FC = () => {
       unsubDiamonds();
       unsubBg();
       unsubAnnouncement();
+      unsubQueueAnnouncement();
       unsubDiscord();
       unsubFormula();
     };
@@ -1437,6 +1445,39 @@ export const App: React.FC = () => {
         vaultBalance,
         formulaSettings: getFormulaSettings(),
         announcementSettings: newSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Admin',
+      true
+    );
+  };
+
+  const handleSaveQueueAnnouncement = async (newSettings: QueueAnnouncementSettings) => {
+    setQueueAnnouncement(newSettings);
+    try {
+      await saveQueueAnnouncementSettingsDoc(newSettings);
+      showToast(
+        lang === 'th' ? 'บันทึกข้อความประกาศคิวสำเร็จแล้ว' : 'Queue announcement updated successfully',
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to save queue announcement:', err);
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการบันทึกประกาศคิว' : 'Failed to update queue announcement',
+        'error'
+      );
+    }
+    triggerDebouncedAutoBackup(
+      {
+        users,
+        vaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
         backgroundSettings: bgConfig,
         discordSettings
       },
@@ -3609,6 +3650,8 @@ export const App: React.FC = () => {
             onOpenAuth={() => setShowAuthModal(true)}
             showToast={showToast}
             onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
+            queueAnnouncement={queueAnnouncement}
+            onSaveQueueAnnouncement={handleSaveQueueAnnouncement}
           />
         )}
 

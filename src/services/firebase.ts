@@ -42,6 +42,7 @@ import {
   DiamondVaultRecord,
   ClanGroup,
   AnnouncementSettings,
+  QueueAnnouncementSettings,
   DiscordSettings,
   FormulaSettings,
   cleanClanName,
@@ -332,7 +333,7 @@ export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QU
 ];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.8.4-dual-cloud';
+const CACHE_SCHEMA_VERSION = '2.8.5-dual-cloud';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -2140,6 +2141,59 @@ export async function saveAnnouncementSettingsDoc(settings: AnnouncementSettings
   });
   const ref = doc(db, APP_SETTINGS_COLLECTION, 'announcement');
   await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveAnnouncementSettingsDoc');
+}
+
+export const DEFAULT_QUEUE_ANNOUNCEMENT: QueueAnnouncementSettings = {
+  textTh: '📢 สมาชิกที่ต้องการขอรับไอเทม กรุณาติดต่อ Admin เพื่อเพิ่มรายชื่อลงในคิว',
+  textEn: '📢 Members who wish to receive items, please contact an Admin to be added to the queue.',
+  enabled: true
+};
+
+export function subscribeToQueueAnnouncementSettings(
+  callback: (settings: QueueAnnouncementSettings) => void
+) {
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'queue_announcement');
+  return onSnapshot(
+    ref,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as QueueAnnouncementSettings;
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('k7_queue_announcement_config', JSON.stringify(data));
+          }
+        } catch {}
+        callback(data);
+      } else {
+        callback(DEFAULT_QUEUE_ANNOUNCEMENT);
+      }
+    },
+    (err) => {
+      console.warn('Firestore queue announcement sync notice:', err);
+      let cached: QueueAnnouncementSettings | null = null;
+      try {
+        if (typeof localStorage !== 'undefined') {
+          const raw = localStorage.getItem('k7_queue_announcement_config');
+          if (raw) cached = JSON.parse(raw);
+        }
+      } catch {}
+      callback(cached || DEFAULT_QUEUE_ANNOUNCEMENT);
+    }
+  );
+}
+
+export async function saveQueueAnnouncementSettingsDoc(settings: QueueAnnouncementSettings) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('k7_queue_announcement_config', JSON.stringify(settings));
+    }
+  } catch {}
+  const cleanData = sanitizeForFirestore({
+    ...settings,
+    updatedAt: Date.now()
+  });
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'queue_announcement');
+  await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveQueueAnnouncementSettingsDoc');
 }
 
 // 9. Discord Webhook Integration Settings

@@ -19,6 +19,8 @@ import {
   Sparkles,
   ShieldAlert,
   Crown,
+  LayoutGrid,
+  List,
   ChevronRight,
   ChevronDown,
   ChevronUp,
@@ -130,6 +132,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [itemToDelete, setItemToDelete] = React.useState<VaultItem | null>(null);
   const [statWarningModalItem, setStatWarningModalItem] = React.useState<VaultItem | null>(null);
   const [filterAvailableToMe, setFilterAvailableToMe] = React.useState(false);
+  const [claimableViewMode, setClaimableViewMode] = React.useState<'grid' | 'table'>(() => {
+    try {
+      const saved = localStorage.getItem('l2m_claimable_view_mode');
+      if (saved === 'grid' || saved === 'table') return saved;
+    } catch {}
+    return 'grid';
+  });
   const [queueSearchQuery, setQueueSearchQuery] = React.useState('');
   const [queueRarityFilter, setQueueRarityFilter] = React.useState<string>('all');
   const [expandedQueues, setExpandedQueues] = React.useState<Record<string, boolean>>({});
@@ -1241,6 +1250,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* View Mode Switcher: Cards vs Table */}
+            <div className="flex items-center p-1 rounded-xl bg-[#090d16] border border-slate-800 shadow-inner">
+              <button
+                type="button"
+                id="btn-claimable-view-grid"
+                onClick={() => {
+                  sounds.playClick();
+                  setClaimableViewMode('grid');
+                  try { localStorage.setItem('l2m_claimable_view_mode', 'grid'); } catch {}
+                }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  claimableViewMode === 'grid'
+                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow font-black'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                }`}
+                title={lang === 'th' ? 'แสดงแบบการ์ด (Card View)' : 'Card View (Grid)'}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>{lang === 'th' ? 'การ์ด' : 'Cards'}</span>
+              </button>
+              <button
+                type="button"
+                id="btn-claimable-view-table"
+                onClick={() => {
+                  sounds.playClick();
+                  setClaimableViewMode('table');
+                  try { localStorage.setItem('l2m_claimable_view_mode', 'table'); } catch {}
+                }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  claimableViewMode === 'table'
+                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow font-black'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                }`}
+                title={lang === 'th' ? 'แสดงแบบตารางแนวนอน (Table View)' : 'Table View'}
+              >
+                <List className="w-3.5 h-3.5" />
+                <span>{lang === 'th' ? 'ตาราง' : 'Table'}</span>
+              </button>
+            </div>
             {/* Filter: Available to me */}
             {currentUser && (
               <button
@@ -1365,7 +1413,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         ) : (
           <div className="max-h-[640px] overflow-y-auto pr-1 custom-scrollbar">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
+            {claimableViewMode === 'grid' ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
               {displayedAvailableItems.map((item) => {
                 const hasClaimed = Boolean(
                   currentUser &&
@@ -1665,7 +1714,304 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                 );
               })}
-            </div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-slate-800/80 bg-[#090e18]/90 shadow-xl backdrop-blur">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 bg-[#0c1322] text-slate-400 uppercase text-[11px] tracking-wider font-cinzel">
+                      <th className="py-3 px-3 w-16 text-center">{lang === 'th' ? 'รูป' : 'Image'}</th>
+                      <th className="py-3 px-3">{lang === 'th' ? 'ชื่อไอเทม & ระดับ' : 'Item & Rarity'}</th>
+                      <th className="py-3 px-3 text-center">{lang === 'th' ? 'ราคาเพชร' : 'Price'}</th>
+                      <th className="py-3 px-3 text-center">{lang === 'th' ? 'พลังขั้นต่ำ (PL)' : 'Min PL'}</th>
+                      <th className="py-3 px-3 text-center">{lang === 'th' ? 'ผู้ขอรับ' : 'Claimants'}</th>
+                      <th className="py-3 px-3 text-center">{lang === 'th' ? 'สถานะ / ขอรับ' : 'Claim Status'}</th>
+                      {isAdminOrOwner && (
+                        <th className="py-3 px-3 text-center">{lang === 'th' ? 'จัดการ' : 'Actions'}</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/50">
+                    {displayedAvailableItems.map((item) => {
+                      const hasClaimed = Boolean(
+                        currentUser &&
+                        item.claimants?.some(
+                          (c) =>
+                            (c.userId && c.userId === currentUser.id) ||
+                            (c.inGameName &&
+                              currentUser.inGameName &&
+                              c.inGameName.trim().toLowerCase() ===
+                                currentUser.inGameName.trim().toLowerCase())
+                        )
+                      );
+                      const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+                      const hasStats = hasUserUpdatedStats(currentUser);
+                      const isStatsPendingState = isUserStatsPending(currentUser);
+                      const userPower = Number(currentUser?.powerLevel || 0);
+                      const hasEnoughPower = isPrivileged || (hasStats && userPower >= Number(item.minPowerLevel || 0));
+
+                      return (
+                        <tr
+                          key={item.id}
+                          className="hover:bg-slate-800/30 transition-colors group"
+                        >
+                          {/* Col 1: Image Thumbnail with zoom */}
+                          <td className="py-2.5 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sounds.playClick();
+                                onViewImage?.(item.imageUrl, item.name);
+                              }}
+                              title={t.zoomImage}
+                              className={`relative w-11 h-11 mx-auto rounded-lg overflow-hidden border bg-[#080d18] cursor-pointer shadow group-hover:scale-105 transition-transform block ${getRarityBorder(
+                                item.rarity
+                              )}`}
+                            >
+                              <img
+                                src={item.imageUrl}
+                                alt={item.name}
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <Eye className="w-3 h-3 text-white drop-shadow" />
+                              </div>
+                            </button>
+                          </td>
+
+                          {/* Col 2: Name & Rarity */}
+                          <td className="py-2.5 px-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className={`text-[8.5px] font-bold px-1.5 py-0.2 rounded border uppercase tracking-wider shrink-0 ${getRarityBadge(
+                                  item.rarity
+                                )}`}
+                              >
+                                {item.rarity}
+                              </span>
+                              <span
+                                className={`text-xs font-bold text-slate-100 group-hover:brightness-125 transition-all ${getRarityTextGlow(
+                                  item.rarity
+                                )}`}
+                              >
+                                {item.name}
+                              </span>
+                              {item.quantity && item.quantity > 1 && (
+                                <span className="text-[9px] font-bold font-mono px-1 py-0.2 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 shrink-0">
+                                  x{item.quantity}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Col 3: Price */}
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            {item.price > 0 ? (
+                              <div className="inline-flex items-center gap-1 font-mono font-bold text-xs text-white">
+                                <Gem className="w-3 h-3 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)]" />
+                                <span>{item.price.toLocaleString()}</span>
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                                🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Col 4: Min PL */}
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1 text-[11px] font-mono">
+                              <Zap className="w-3 h-3 text-amber-400" />
+                              <span className="text-amber-300 font-bold">{item.minPowerLevel.toLocaleString()}</span>
+                              {currentUser && (
+                                <span className="text-[9px] font-bold">
+                                  {hasEnoughPower ? (
+                                    <span className="text-emerald-400" title={lang === 'th' ? 'พลังถึงเกณฑ์' : 'Eligible'}>✓</span>
+                                  ) : (
+                                    <span className="text-red-400" title={lang === 'th' ? 'พลังไม่ถึงเกณฑ์' : 'Low PL'}>✗</span>
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Col 5: Claimants */}
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            <button
+                              type="button"
+                              id={`btn-table-view-claimants-${item.id}`}
+                              onClick={() => {
+                                sounds.playClick();
+                                if (onViewClaimants) onViewClaimants(item);
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#0d1524] hover:bg-[#16243d] border border-slate-700/60 hover:border-sky-500/60 text-slate-300 hover:text-white transition-all cursor-pointer shadow-sm text-xs group/btn"
+                              title={lang === 'th' ? 'คลิกดูรายชื่อผู้ลงชื่อเครม' : 'Click to view claimants list'}
+                            >
+                              <Users className="w-3 h-3 text-sky-400 group-hover/btn:scale-110 transition-transform" />
+                              <span className="font-bold text-sky-300 font-mono">
+                                {item.claimants?.length || 0}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {lang === 'th' ? 'คน' : 'p'}
+                              </span>
+                            </button>
+                          </td>
+
+                          {/* Col 6: Claim Status / Action */}
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            {!currentUser ? (
+                              <button
+                                onClick={() => {
+                                  sounds.playClick();
+                                  onOpenAuth();
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-[#1a2538] hover:bg-[#233149] text-xs font-bold text-[#f5d77f] border border-[#d4af37]/30 transition-all cursor-pointer"
+                              >
+                                {t.login}
+                              </button>
+                            ) : hasClaimed ? (
+                              <div className="inline-flex items-center gap-1">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-700/50 text-emerald-300 text-xs font-bold">
+                                  <CheckCircle className="w-3 h-3 text-emerald-400" />
+                                  <span>{lang === 'th' ? 'ขอรับแล้ว' : 'Claimed'}</span>
+                                </span>
+                                {onUnclaimItem && (
+                                  <button
+                                    type="button"
+                                    id={`btn-table-unclaim-${item.id}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      sounds.playClick();
+                                      onUnclaimItem(item.id);
+                                    }}
+                                    className="p-1 rounded-lg bg-red-950/70 hover:bg-red-900 border border-red-800/70 text-red-300 hover:text-white text-xs font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
+                                    title={t.cancelClaimBtn}
+                                  >
+                                    <X className="w-3 h-3 text-red-400" />
+                                  </button>
+                                )}
+                              </div>
+                            ) : !hasStats && !isPrivileged ? (
+                              <button
+                                id={`btn-table-claim-${item.id}`}
+                                onClick={() => {
+                                  sounds.playClick();
+                                  setStatWarningModalItem(item);
+                                }}
+                                className="px-2.5 py-1 rounded-lg text-xs font-semibold transition-all inline-flex items-center gap-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-sm cursor-pointer active:scale-95"
+                                title={isStatsPendingState ? t.statsPendingBadge : t.updateStatsFirst}
+                              >
+                                {isStatsPendingState ? (
+                                  <>
+                                    <Clock className="w-3 h-3 text-amber-400 animate-pulse" />
+                                    <span>{lang === 'th' ? 'รออนุมัติ' : 'Pending'}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <AlertCircle className="w-3 h-3 text-amber-400" />
+                                    <span>{lang === 'th' ? 'สเตตัสก่อน' : 'Need Stats'}</span>
+                                  </>
+                                )}
+                              </button>
+                            ) : (
+                              <button
+                                id={`btn-table-claim-${item.id}`}
+                                disabled={!hasEnoughPower}
+                                onClick={() => {
+                                  sounds.playClaim();
+                                  onClaimItem(item.id);
+                                }}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all inline-flex items-center gap-1 ${
+                                  hasEnoughPower
+                                    ? 'btn-l2m-gold text-slate-950 font-bold shadow cursor-pointer active:scale-95'
+                                    : 'bg-slate-800/60 text-slate-500 border border-slate-700/40 cursor-not-allowed'
+                                }`}
+                              >
+                                {hasEnoughPower ? (
+                                  <>
+                                    <Sparkles className="w-3 h-3" />
+                                    <span>{lang === 'th' ? 'ขอรับไอเทม' : 'Claim Item'}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Lock className="w-3 h-3" />
+                                    <span>{lang === 'th' ? 'พลังไม่ถึง' : 'Low PL'}</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </td>
+
+                          {/* Col 7: Actions for Admin / Owner */}
+                          {isAdminOrOwner && (
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-slate-900/90 border border-slate-700/60 shadow-inner">
+                                <button
+                                  id={`btn-table-distribute-${item.id}`}
+                                  onClick={() => {
+                                    sounds.playClick();
+                                    onOpenDistributeModal(item);
+                                  }}
+                                  className="p-1.5 rounded hover:bg-sky-600/30 text-sky-400 hover:text-sky-200 transition-all cursor-pointer"
+                                  title={t.distributeItemBtn}
+                                >
+                                  <Gift className="w-3.5 h-3.5" />
+                                </button>
+                                {onEditItem && (
+                                  <button
+                                    id={`btn-table-edit-${item.id}`}
+                                    onClick={() => {
+                                      sounds.playClick();
+                                      onEditItem(item);
+                                    }}
+                                    className="p-1.5 rounded hover:bg-amber-500/30 text-amber-400 hover:text-amber-200 transition-all cursor-pointer"
+                                    title={t.editItem}
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                {isOwner && onBroadcastToDiscord && (
+                                  <button
+                                    id={`btn-table-discord-${item.id}`}
+                                    disabled={broadcastingItemId === item.id}
+                                    onClick={async () => {
+                                      sounds.playClick();
+                                      setBroadcastingItemId(item.id);
+                                      try {
+                                        await onBroadcastToDiscord(item);
+                                      } finally {
+                                        setBroadcastingItemId(null);
+                                      }
+                                    }}
+                                    className="p-1.5 rounded hover:bg-[#5865F2]/35 text-[#8ea1e1] hover:text-white transition-all cursor-pointer disabled:opacity-50"
+                                    title={t.sendToDiscord || (lang === 'th' ? 'ส่งไป Discord' : 'Send to Discord')}
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                {onDeleteItem && (
+                                  <button
+                                    id={`btn-table-delete-${item.id}`}
+                                    onClick={() => {
+                                      sounds.playClick();
+                                      setItemToDelete(item);
+                                    }}
+                                    className="p-1.5 rounded hover:bg-red-900/50 text-red-400 hover:text-red-200 transition-all cursor-pointer"
+                                    title={lang === 'th' ? 'ลบไอเทมนี้' : 'Delete item'}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </section>

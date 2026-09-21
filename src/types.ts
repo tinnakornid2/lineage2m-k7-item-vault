@@ -347,6 +347,14 @@ export interface AnnouncementSettings {
   updatedAt?: number;
 }
 
+export interface QueueAnnouncementSettings {
+  textTh: string;
+  textEn: string;
+  enabled: boolean;
+  updatedBy?: string;
+  updatedAt?: number;
+}
+
 export interface BackgroundSettingsData {
   imageUrl: string;
   brightness: number;
