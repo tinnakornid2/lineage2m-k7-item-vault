@@ -69,6 +69,7 @@ function doGet(e) {
         queueItems: readSheetData(ss, "Queues"),
         clans: readSheetData(ss, "Clans"),
         diamondLogs: readSheetData(ss, "ClanDiamonds"),
+        syncMeta: readSheetData(ss, "SyncMeta")[0] || {},
         announcementSettings: (readSheetData(ss, "Announcement") || [])[0] || null,
         backgroundSettings: (readSheetData(ss, "Background") || [])[0] || null,
         discordSettings: (readSheetData(ss, "DiscordSettings") || [])[0] || null,
@@ -119,6 +120,7 @@ function doPost(e) {
       if (Array.isArray(data.queueItems)) writeSheetData(ss, "Queues", data.queueItems);
       if (Array.isArray(data.clans)) writeSheetData(ss, "Clans", data.clans);
       if (Array.isArray(data.diamondLogs)) writeSheetData(ss, "ClanDiamonds", data.diamondLogs);
+      if (data.syncMeta) writeSheetData(ss, "SyncMeta", [data.syncMeta]);
       if (data.formulaSettings && Array.isArray(data.formulaSettings.stats)) {
         writeSheetData(ss, "PowerFormula", data.formulaSettings.stats);
       }

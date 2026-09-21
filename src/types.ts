@@ -287,6 +287,7 @@ export interface QueueItem {
   rarity: ItemRarity;
   queueList: QueueMember[];
   createdAt: number;
+  updatedAt?: number;
 }
 
 export type ClanFundTxType = 'credit' | 'deduction' | 'adjust' | 'expenditure' | 'deposit' | 'withdraw';

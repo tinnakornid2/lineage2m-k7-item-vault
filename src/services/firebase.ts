@@ -335,7 +335,7 @@ export const INITIAL_QUEUES: QueueItem[] = (REAL_BACKUP_QUEUES && REAL_BACKUP_QU
 ];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.8.12-unclaim-shield';
+const CACHE_SCHEMA_VERSION = '2.8.13-cross-device-sync';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -351,8 +351,8 @@ export function clearAllLocalCaches(): void {
     if (typeof localStorage === 'undefined') return;
     Object.values(CACHE_KEYS).forEach((key) => localStorage.removeItem(key));
     localStorage.removeItem('l2m_active_tab');
-    localStorage.removeItem('l2m_deleted_vault_item_ids');
-    localStorage.removeItem('l2m_deleted_queue_item_ids');
+    localStorage.removeItem(DELETED_VAULT_ITEMS_KEY);
+    localStorage.removeItem(DELETED_QUEUE_ITEMS_KEY);
     localStorage.removeItem('l2m_cancelled_claims_map');
     localStorage.removeItem('k7_queue_announcement');
   } catch (e) {
@@ -581,17 +581,18 @@ export function isClaimCancelled(itemId: string, claimant: Claimant): boolean {
  * - Deduplicates claimants and preserves attachments
  */
 export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultItem[]): VaultItem[] {
-  const deletedIds = getDeletedVaultItemIds();
+  const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
+  const isDeleted = (item: VaultItem) => (deletedMap[item.id] || 0) >= (item.updatedAt || item.createdAt || 0);
   const currentMap = new Map<string, VaultItem>();
   for (const item of (currentItems || [])) {
-    if (item && item.id && !deletedIds.has(item.id)) {
+    if (item && item.id && !isDeleted(item)) {
       currentMap.set(item.id, item);
     }
   }
 
   const incomingMap = new Map<string, VaultItem>();
   for (const item of (incomingItems || [])) {
-    if (item && item.id && !deletedIds.has(item.id)) {
+    if (item && item.id && !isDeleted(item)) {
       incomingMap.set(item.id, item);
     }
   }
@@ -600,7 +601,6 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
   const result: VaultItem[] = [];
 
   for (const id of allIds) {
-    if (deletedIds.has(id)) continue;
     const local = currentMap.get(id);
     const incoming = incomingMap.get(id);
 
@@ -617,6 +617,12 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
         claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(id, c))
       });
     } else if (local && incoming) {
+      const localRevision = local.updatedAt || local.createdAt || 0;
+      const incomingRevision = incoming.updatedAt || incoming.createdAt || 0;
+      // The relay returns the canonical merged record. Prefer incoming on equal
+      // revisions so concurrent claims merged by the server reach the sender too.
+      const newest = incomingRevision >= localRevision ? incoming : local;
+      const older = newest === local ? incoming : local;
       const isDistributed = isItemDistributed(local) || isItemDistributed(incoming);
       const status: 'available' | 'distributed' = isDistributed ? 'distributed' : ((incoming.status || local.status) as 'available' | 'distributed');
 
@@ -632,14 +638,14 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
           } catch {}
         }
       }
-      const paymentStatus = local.paymentStatus || incoming.paymentStatus || (distributedTo && typeof distributedTo === 'object' ? (distributedTo as any).paymentStatus : undefined);
+      const paymentStatus = newest.paymentStatus || older.paymentStatus || (distributedTo && typeof distributedTo === 'object' ? (distributedTo as any).paymentStatus : undefined);
 
       // Merge claimants with timestamp precedence and strict cancellation filter
       let mergedClaimants: Claimant[];
       const localUpdated = local.updatedAt || 0;
       const incomingUpdated = incoming.updatedAt || 0;
       if (localUpdated > 0 || incomingUpdated > 0) {
-        mergedClaimants = localUpdated >= incomingUpdated ? (local.claimants || []) : (incoming.claimants || []);
+        mergedClaimants = localUpdated > incomingUpdated ? (local.claimants || []) : (incoming.claimants || []);
       } else {
         const claimantsMap = new Map<string, Claimant>();
         for (const c of (incoming.claimants || [])) {
@@ -658,19 +664,19 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
       }
       mergedClaimants = mergedClaimants.filter((c) => !isClaimCancelled(id, c));
 
-      const hunterScreenshots = (local.hunterScreenshots && local.hunterScreenshots.length > 0)
-        ? local.hunterScreenshots
-        : (incoming.hunterScreenshots || []);
+      const hunterScreenshots = (newest.hunterScreenshots && newest.hunterScreenshots.length > 0)
+        ? newest.hunterScreenshots
+        : (older.hunterScreenshots || []);
 
-      const receiptImages = (local.receiptImages && local.receiptImages.length > 0)
-        ? local.receiptImages
-        : (incoming.receiptImages || []);
+      const receiptImages = (newest.receiptImages && newest.receiptImages.length > 0)
+        ? newest.receiptImages
+        : (older.receiptImages || []);
 
       const updatedAt = Math.max(local.updatedAt || 0, incoming.updatedAt || 0) || undefined;
 
       result.push({
-        ...incoming,
-        ...local,
+        ...older,
+        ...newest,
         status,
         distributedTo,
         paymentStatus,
@@ -687,17 +693,18 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
 }
 
 export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: QueueItem[]): QueueItem[] {
-  const deletedIds = getDeletedQueueItemIds();
+  const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
+  const isDeleted = (item: QueueItem) => (deletedMap[item.id] || 0) >= (item.updatedAt || item.createdAt || 0);
   const currentMap = new Map<string, QueueItem>();
   for (const q of (currentQueues || [])) {
-    if (q && q.id && !deletedIds.has(q.id)) {
+    if (q && q.id && !isDeleted(q)) {
       currentMap.set(q.id, q);
     }
   }
 
   const incomingMap = new Map<string, QueueItem>();
   for (const q of (incomingQueues || [])) {
-    if (q && q.id && !deletedIds.has(q.id)) {
+    if (q && q.id && !isDeleted(q)) {
       incomingMap.set(q.id, q);
     }
   }
@@ -706,7 +713,6 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
   const result: QueueItem[] = [];
 
   for (const id of allIds) {
-    if (deletedIds.has(id)) continue;
     const local = currentMap.get(id);
     const incoming = incomingMap.get(id);
 
@@ -715,11 +721,9 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
     } else if (!local && incoming) {
       result.push(incoming);
     } else if (local && incoming) {
-      result.push({
-        ...incoming,
-        ...local,
-        queueList: (local.queueList && local.queueList.length > 0) ? local.queueList : (incoming.queueList || [])
-      });
+      const localRevision = local.updatedAt || local.createdAt || 0;
+      const incomingRevision = incoming.updatedAt || incoming.createdAt || 0;
+      result.push(incomingRevision >= localRevision ? incoming : local);
     }
   }
 
@@ -729,9 +733,9 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
 
 export function getCachedVaultItems(): VaultItem[] {
   const items = getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, []);
-  const deletedIds = getDeletedVaultItemIds();
+  const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
   return items
-    .filter((item) => item && item.id && !deletedIds.has(item.id))
+    .filter((item) => item && item.id && (deletedMap[item.id] || 0) < (item.updatedAt || item.createdAt || 0))
     .map((item) => {
       const norm = normalizeDistributedItem(item);
       return {
@@ -765,8 +769,8 @@ export function setCachedClans(clans: ClanGroup[]): void {
 
 export function getCachedQueues(): QueueItem[] {
   const queues = getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, []);
-  const deletedIds = getDeletedQueueItemIds();
-  return queues.filter((q) => q && q.id && !deletedIds.has(q.id));
+  const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
+  return queues.filter((q) => q && q.id && (deletedMap[q.id] || 0) < (q.updatedAt || q.createdAt || 0));
 }
 
 export function setCachedQueues(queues: QueueItem[]): void {
@@ -1576,7 +1580,8 @@ export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>)
     claimants: (item.claimants || []).map((c) => ({ ...c, clan: cleanClanName(c.clan) })),
     hunterScreenshots: safeScreenshots,
     id: newId,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   };
   if (fullItem.distributedTo?.clan) {
     fullItem.distributedTo.clan = cleanClanName(fullItem.distributedTo.clan);
@@ -1616,6 +1621,7 @@ export async function confirmVaultItemPayment(
   const now = Date.now();
   const updates: Partial<VaultItem> = {
     paymentStatus: status,
+    updatedAt: now,
     ...(isPaid
       ? { paidAt: now, paidBy: actorName }
       : { paidAt: undefined, paidBy: undefined })
@@ -1762,7 +1768,8 @@ export async function addQueueItemDoc(item: Omit<QueueItem, 'id' | 'createdAt'>)
       clan: cleanClanName(qm.clan)
     })),
     id: newId,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   };
 
   const currentCached = getCachedQueues();

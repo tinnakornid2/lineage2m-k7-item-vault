@@ -413,12 +413,64 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     try {
       const { data } = req.body;
       if (data && typeof data === 'object') {
+        const previousData = liveHubState.data || {};
+        const mergeTimestampMaps = (left: any, right: any) => {
+          const merged: Record<string, number> = { ...(left || {}) };
+          for (const [key, value] of Object.entries(right || {})) {
+            if (typeof value === 'number' && value > (merged[key] || 0)) merged[key] = value;
+          }
+          return merged;
+        };
+        const syncMeta = {
+          deletedVaultItems: mergeTimestampMaps(previousData.syncMeta?.deletedVaultItems, data.syncMeta?.deletedVaultItems),
+          deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
+          cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims)
+        };
+        const mergeVersionedRecords = (previous: any[], incoming: any[], deleted: Record<string, number>, mergeClaims = false) => {
+          const records = new Map<string, any>();
+          for (const record of [...(previous || []), ...(incoming || [])]) {
+            if (!record?.id) continue;
+            const recordRevision = Number(record.updatedAt || record.createdAt || 0);
+            if ((deleted[record.id] || 0) >= recordRevision) continue;
+            const existing = records.get(record.id);
+            const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
+            if (!existing) {
+              records.set(record.id, record);
+              continue;
+            }
+            const newest = recordRevision >= existingRevision ? record : existing;
+            if (!mergeClaims) {
+              records.set(record.id, newest);
+              continue;
+            }
+            const claimantMap = new Map<string, any>();
+            for (const claimant of [...(existing.claimants || []), ...(record.claimants || [])]) {
+              const key = claimant.userId || String(claimant.inGameName || '').trim().toLowerCase();
+              if (key) claimantMap.set(key, claimant);
+            }
+            records.set(record.id, { ...newest, claimants: Array.from(claimantMap.values()) });
+          }
+          return Array.from(records.values());
+        };
+
+        data.syncMeta = syncMeta;
+        data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
+        data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems);
         if (Array.isArray(data.vaultItems)) {
           data.vaultItems = data.vaultItems.map((item: any) => {
+            const claimants = (item.claimants || []).filter((claimant: any) => {
+              const claimedAt = Number(claimant.claimedAt || 0);
+              const userKey = claimant.userId ? `${item.id}:::${String(claimant.userId).trim().toLowerCase()}` : '';
+              const nameKey = claimant.inGameName ? `${item.id}:::${String(claimant.inGameName).trim().toLowerCase()}` : '';
+              return !(
+                (userKey && claimedAt <= (syncMeta.cancelledClaims[userKey] || 0)) ||
+                (nameKey && claimedAt <= (syncMeta.cancelledClaims[nameKey] || 0))
+              );
+            });
             if (item && item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
-              return { ...item, status: 'distributed' };
+              return { ...item, claimants, status: 'distributed' };
             }
-            return item;
+            return { ...item, claimants };
           });
         }
         liveHubState = {

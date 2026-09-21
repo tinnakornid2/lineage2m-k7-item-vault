@@ -1,6 +1,6 @@
 # Lineage2M Clan Hub — Current Handover
 
-Version: **2.8.12**  
+Version: **2.8.13**  
 Updated: **2026-09-22**  
 Production: https://lineage2m-k7-item-vault.vercel.app  
 Repository: https://github.com/tinnakornid2/lineage2m-k7-item-vault
@@ -14,7 +14,7 @@ This file is the authoritative handover. Do not restore old ZIP snapshots, `back
 - React + TypeScript + Vite frontend.
 - Express API bundled into `api/index.js` for Vercel.
 - Firebase project `k7-item` with Enterprise Firestore database `ai-studio-lineage2mclanhub-4a1794d8-f944-422f-945e-56c12057ad13`.
-- Google Apps Script endpoint is the secondary database/backup. Full snapshots include users, vaultItems, quickItems, generalItems, queueItems, clans, diamondLogs, formula/settings and sanitized Discord settings.
+- Google Apps Script endpoint is the secondary database/backup. Full snapshots include users, vaultItems, quickItems, generalItems, queueItems, clans, diamondLogs, formula/settings, syncMeta and sanitized Discord settings.
 - Vercel production project is linked through `.vercel/project.json`; never commit `.vercel` or secrets.
 
 ## Data continuity rules
@@ -35,6 +35,7 @@ This file is the authoritative handover. Do not restore old ZIP snapshots, `back
 - Item Vault supports quick presets, OCR hunter scanning, payment status, distribution history and receipts.
 - Distributed item permanence (v2.8.11): Distributed items are synchronously computed, permanently shielded against stale cloud snapshot reversions, and immediately removed from "รายการเปิดรับ" (Available Items) across all tabs and devices.
 - Unclaim Tombstone & Claim Permanence (v2.8.12): When a user cancels a claim (ยกเลิกเครม), the cancellation is recorded in an instantaneous localStorage tombstone with timestamps (`l2m_cancelled_claims_map`). Stale background polling, Google Sheets fetches, or Firestore reads cannot resurrect cancelled claims upon refresh (`F5`). When legitimate re-claiming occurs, the tombstone is cleared. Both claim and unclaim trigger instant relay broadcasts and immediate Google Sheets backups.
+- Cross-Device Collision Prevention & Concurrent Claim Merge (v2.8.13): Timestamp revision tracking (`updatedAt`) prevents item/queue overwriting across devices. The live relay server merges concurrent claimants instead of overwriting, broadcasts tombstones via `syncMeta` (persisted to Google Sheets `SyncMeta`), safely caches empty collections for full deletions, and catches up sender state via long-polling.
 - OCR uses Gemini first and automatically falls back to free on-device Tesseract OCR when Google is unavailable or over quota.
 - Discord uses the configured webhook avatar; secrets are never included in Google or GitHub data.
 

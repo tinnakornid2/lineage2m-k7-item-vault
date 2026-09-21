@@ -1099,9 +1099,7 @@ export const App: React.FC = () => {
 
   // Keep local cache in sync whenever core collections update (survives quota limits and offline refreshes)
   useEffect(() => {
-    if (vaultItems.length > 0) {
-      setCachedVaultItems(vaultItems);
-    }
+    setCachedVaultItems(vaultItems);
   }, [vaultItems]);
 
   useEffect(() => {
@@ -1111,9 +1109,7 @@ export const App: React.FC = () => {
   }, [users]);
 
   useEffect(() => {
-    if (queueItems.length > 0) {
-      setCachedQueues(queueItems);
-    }
+    setCachedQueues(queueItems);
   }, [queueItems]);
 
   useEffect(() => {
@@ -2175,12 +2171,14 @@ export const App: React.FC = () => {
     itemId: string,
     updates: Partial<VaultItem>
   ) => {
-    const nextVaultItems: VaultItem[] = vaultItems.map((it) => (it.id === itemId ? { ...it, ...updates } : it));
+    const now = Date.now();
+    const versionedUpdates = { ...updates, updatedAt: now };
+    const nextVaultItems: VaultItem[] = vaultItems.map((it) => (it.id === itemId ? { ...it, ...versionedUpdates } : it));
     setVaultItems(nextVaultItems);
     setCachedVaultItems(nextVaultItems);
 
     try {
-      await updateVaultItemDoc(itemId, updates);
+      await updateVaultItemDoc(itemId, versionedUpdates);
       showToast(
         lang === 'th' ? 'อัปเดตข้อมูลไอเทมเรียบร้อยแล้ว' : 'Item updated successfully',
         'success'
@@ -2250,7 +2248,8 @@ export const App: React.FC = () => {
               status: 'distributed' as const,
               distributedTo: distributedPayload,
               receiptImages: recipient.receiptImages || [],
-              paymentStatus: initialPaymentStatus
+              paymentStatus: initialPaymentStatus,
+              updatedAt: Date.now()
             }
           : i
       );
@@ -2294,7 +2293,8 @@ export const App: React.FC = () => {
           status: 'distributed',
           distributedTo: distributedPayload,
           receiptImages: recipient.receiptImages || [],
-          paymentStatus: initialPaymentStatus
+          paymentStatus: initialPaymentStatus,
+          updatedAt: Date.now()
         });
       } catch (firestoreErr) {
         console.warn('Notice: Firestore update distributed item failover:', firestoreErr);
@@ -2380,7 +2380,8 @@ export const App: React.FC = () => {
         paymentStatus: targetStatus,
         paidAt: isPaid ? now : undefined,
         paidBy: isPaid ? actorName : undefined,
-        distributedTo: updatedDistributedTo
+        distributedTo: updatedDistributedTo,
+        updatedAt: now
       };
     });
     setVaultItems(nextVaultItems);
@@ -2424,12 +2425,9 @@ export const App: React.FC = () => {
       const createdQueue = await addQueueItemDoc(itemData);
       unmarkQueueItemAsDeleted(createdQueue.id);
       setPendingFirebaseSync(true);
-      let nextQueues: QueueItem[] = [];
-      setQueueItems((prev) => {
-        nextQueues = [createdQueue, ...prev.filter((q) => q.id !== createdQueue.id)];
-        setCachedQueues(nextQueues);
-        return nextQueues;
-      });
+      const nextQueues = [createdQueue, ...queueItems.filter((q) => q.id !== createdQueue.id)];
+      setQueueItems(nextQueues);
+      setCachedQueues(nextQueues);
 
       broadcastLiveState(
         {
@@ -2464,12 +2462,9 @@ export const App: React.FC = () => {
     sounds.playClick();
     markQueueItemAsDeleted(queueId);
     setPendingFirebaseSync(true);
-    let nextQueues: QueueItem[] = [];
-    setQueueItems((prev) => {
-      nextQueues = prev.filter((q) => q.id !== queueId);
-      setCachedQueues(nextQueues);
-      return nextQueues;
-    });
+    const nextQueues = queueItems.filter((q) => q.id !== queueId);
+    setQueueItems(nextQueues);
+    setCachedQueues(nextQueues);
 
     broadcastLiveState(
       {
@@ -2494,12 +2489,10 @@ export const App: React.FC = () => {
 
   const handleUpdateQueueMembers = async (queueId: string, members: QueueMember[]) => {
     // 1. Optimistic UI update immediately
-    let nextQueues: QueueItem[] = [];
-    setQueueItems((prev) => {
-      nextQueues = prev.map((q) => (q.id === queueId ? { ...q, queueList: members } : q));
-      setCachedQueues(nextQueues);
-      return nextQueues;
-    });
+    const now = Date.now();
+    const nextQueues = queueItems.map((q) => (q.id === queueId ? { ...q, queueList: members, updatedAt: now } : q));
+    setQueueItems(nextQueues);
+    setCachedQueues(nextQueues);
 
     broadcastLiveState(
       {
@@ -2516,7 +2509,7 @@ export const App: React.FC = () => {
 
     // 2. Persist in Firestore
     try {
-      await updateQueueItemDoc(queueId, { queueList: members });
+      await updateQueueItemDoc(queueId, { queueList: members, updatedAt: now });
     } catch (err) {
       console.error('Failed to update queue item doc in Firestore:', err);
     }
@@ -4218,11 +4211,15 @@ export const App: React.FC = () => {
         onDataRestored={async (restored) => {
           if (restored.users && restored.users.length > 0) setUsers(restored.users);
           if (restored.vaultItems && restored.vaultItems.length > 0) {
+            const restoredAt = Date.now();
+            restored.vaultItems = restored.vaultItems.map((item) => ({ ...item, updatedAt: restoredAt }));
             restored.vaultItems.forEach((i) => unmarkVaultItemAsDeleted(i.id));
             setVaultItems(restored.vaultItems);
             setCachedVaultItems(restored.vaultItems);
           }
           if (restored.queueItems) {
+            const restoredAt = Date.now();
+            restored.queueItems = restored.queueItems.map((queue) => ({ ...queue, updatedAt: restoredAt }));
             restored.queueItems.forEach((q) => unmarkQueueItemAsDeleted(q.id));
             setQueueItems(restored.queueItems);
             setCachedQueues(restored.queueItems);

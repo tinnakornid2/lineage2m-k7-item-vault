@@ -39,9 +39,52 @@ export interface BackupDataPayload {
   backgroundSettings?: BackgroundSettingsData | null;
   discordSettings?: DiscordSettings | null;
   googleBackupConfig?: Partial<GoogleBackupConfig> | null;
+  syncMeta?: {
+    deletedVaultItems?: Record<string, number>;
+    deletedQueueItems?: Record<string, number>;
+    cancelledClaims?: Record<string, number>;
+  };
+}
+
+const SYNC_META_KEYS = {
+  deletedVaultItems: 'k7_deleted_vault_item_ids',
+  deletedQueueItems: 'k7_deleted_queue_item_ids',
+  cancelledClaims: 'l2m_cancelled_claims_map'
+} as const;
+
+function readSyncMap(key: string): Record<string, number> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
+}
+
+function withLocalSyncMeta(payload: BackupDataPayload): BackupDataPayload {
+  return {
+    ...payload,
+    syncMeta: {
+      deletedVaultItems: readSyncMap(SYNC_META_KEYS.deletedVaultItems),
+      deletedQueueItems: readSyncMap(SYNC_META_KEYS.deletedQueueItems),
+      cancelledClaims: readSyncMap(SYNC_META_KEYS.cancelledClaims),
+      ...(payload.syncMeta || {})
+    }
+  };
+}
+
+function applyIncomingSyncMeta(payload: BackupDataPayload): void {
+  if (!payload.syncMeta) return;
+  for (const [field, storageKey] of Object.entries(SYNC_META_KEYS)) {
+    const incoming = payload.syncMeta[field as keyof typeof SYNC_META_KEYS] || {};
+    const local = readSyncMap(storageKey);
+    for (const [id, timestamp] of Object.entries(incoming)) {
+      if (typeof timestamp === 'number' && timestamp > (local[id] || 0)) local[id] = timestamp;
+    }
+    try { localStorage.setItem(storageKey, JSON.stringify(local)); } catch {}
+  }
 }
 
 function sanitizePayloadForGoogle(payload: BackupDataPayload): BackupDataPayload {
+  payload = withLocalSyncMeta(payload);
   return {
     ...payload,
     users: payload.users.map(({ password: _password, ...user }) => user as User),
@@ -355,7 +398,8 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
         clans: Array.isArray(json.data.clans) ? json.data.clans : [],
         diamondLogs: Array.isArray(json.data.diamondLogs) ? json.data.diamondLogs : [],
         vaultBalance: Number(json.vaultBalance || 0),
-        formulaSettings: json.data.formulaSettings || undefined
+        formulaSettings: json.data.formulaSettings || undefined,
+        syncMeta: json.data.syncMeta || undefined
       };
 
       return {
@@ -558,6 +602,7 @@ export async function broadcastLiveState(
   performedBy: string = 'User'
 ): Promise<{ success: boolean; version?: number }> {
   try {
+    payload = withLocalSyncMeta(payload);
     const payloadStr = JSON.stringify(payload);
     if (payloadStr === lastBroadcastString) {
       // Data is identical to what was already broadcasted or received from remote. Skip!
@@ -575,9 +620,8 @@ export async function broadcastLiveState(
     if (res.ok) {
       const json = await res.json();
       lastBroadcastString = payloadStr;
-      if (typeof json.version === 'number') {
-        currentLocalVersion = json.version;
-      }
+      // Do not advance the polling cursor here. The next long-poll must receive
+      // the server's canonical merge (including concurrent claims/deletions).
       return { success: true, version: json.version };
     }
   } catch (err) {
@@ -614,6 +658,7 @@ export function startGoogleRealtimeSync(
               lastBroadcastString = JSON.stringify(json.data);
             } catch {}
             isApplyingRemoteUpdate = true;
+            applyIncomingSyncMeta(json.data);
             onDataChanged(json.data);
             setTimeout(() => {
               isApplyingRemoteUpdate = false;
@@ -669,6 +714,7 @@ export function startGoogleRealtimeSync(
 
           lastBroadcastString = payloadStr;
           isApplyingRemoteUpdate = true;
+          applyIncomingSyncMeta(res.data);
           onDataChanged(res.data);
           setTimeout(() => {
             isApplyingRemoteUpdate = false;

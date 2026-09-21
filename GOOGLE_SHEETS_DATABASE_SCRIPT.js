@@ -70,6 +70,7 @@ function doGet(e) {
         queueItems: readSheetData(ss, "Queues"),
         clans: readSheetData(ss, "Clans"),
         diamondLogs: readSheetData(ss, "ClanDiamonds"),
+        syncMeta: readSheetData(ss, "SyncMeta")[0] || {},
         backupLog: readSheetData(ss, "BackupLog"),
         updatedAt: new Date().toISOString()
       };
@@ -117,6 +118,7 @@ function doPost(e) {
       if (Array.isArray(data.queueItems)) writeSheetData(ss, "Queues", data.queueItems);
       if (Array.isArray(data.clans)) writeSheetData(ss, "Clans", data.clans);
       if (Array.isArray(data.diamondLogs)) writeSheetData(ss, "ClanDiamonds", data.diamondLogs);
+      if (data.syncMeta) writeSheetData(ss, "SyncMeta", [data.syncMeta]);
       if (data.formulaSettings && Array.isArray(data.formulaSettings.stats)) {
         writeSheetData(ss, "PowerFormula", data.formulaSettings.stats);
       }
