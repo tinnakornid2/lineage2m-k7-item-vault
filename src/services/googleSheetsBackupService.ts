@@ -42,6 +42,7 @@ export interface BackupDataPayload {
   syncMeta?: {
     deletedVaultItems?: Record<string, number>;
     deletedQueueItems?: Record<string, number>;
+    deletedUsers?: Record<string, number>;
     cancelledClaims?: Record<string, number>;
   };
 }
@@ -49,6 +50,7 @@ export interface BackupDataPayload {
 const SYNC_META_KEYS = {
   deletedVaultItems: 'k7_deleted_vault_item_ids',
   deletedQueueItems: 'k7_deleted_queue_item_ids',
+  deletedUsers: 'k7_deleted_user_ids',
   cancelledClaims: 'l2m_cancelled_claims_map'
 } as const;
 
@@ -65,6 +67,7 @@ function withLocalSyncMeta(payload: BackupDataPayload): BackupDataPayload {
     syncMeta: {
       deletedVaultItems: readSyncMap(SYNC_META_KEYS.deletedVaultItems),
       deletedQueueItems: readSyncMap(SYNC_META_KEYS.deletedQueueItems),
+      deletedUsers: readSyncMap(SYNC_META_KEYS.deletedUsers),
       cancelledClaims: readSyncMap(SYNC_META_KEYS.cancelledClaims),
       ...(payload.syncMeta || {})
     }
@@ -85,9 +88,16 @@ function applyIncomingSyncMeta(payload: BackupDataPayload): void {
 
 function sanitizePayloadForGoogle(payload: BackupDataPayload): BackupDataPayload {
   payload = withLocalSyncMeta(payload);
+  const deletedUserMap = payload.syncMeta?.deletedUsers || {};
   return {
     ...payload,
-    users: payload.users.map(({ password: _password, ...user }) => user as User),
+    users: (payload.users || [])
+      .filter((user) => {
+        if (!user || !user.id) return false;
+        if (user.id === 'user_owner_eloni' || user.username?.toLowerCase() === 'eloni' || user.inGameName?.toLowerCase() === 'eloni') return true;
+        return (deletedUserMap[user.id] || 0) < Number(user.updatedAt || user.createdAt || 0);
+      })
+      .map(({ password: _password, ...user }) => user as User),
     discordSettings: payload.discordSettings
       ? { ...payload.discordSettings, webhookUrl: '' }
       : payload.discordSettings
@@ -389,8 +399,25 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
     const json = await response.json();
 
     if (json.status === 'success' && json.data) {
+      applyIncomingSyncMeta(json.data);
+      const localDeletedUsers = readSyncMap(SYNC_META_KEYS.deletedUsers);
+      const incomingDeletedUsers = json.data.syncMeta?.deletedUsers || {};
+      const mergedDeletedUsers: Record<string, number> = { ...localDeletedUsers };
+      for (const [uid, ts] of Object.entries(incomingDeletedUsers)) {
+        if (typeof ts === 'number' && ts > (mergedDeletedUsers[uid] || 0)) {
+          mergedDeletedUsers[uid] = ts;
+        }
+      }
+
+      const rawUsers = Array.isArray(json.data.users) ? json.data.users : [];
+      const cleanUsers = rawUsers.filter((u: any) => {
+        if (!u || !u.id) return false;
+        if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
+        return (mergedDeletedUsers[u.id] || 0) < Number(u.updatedAt || u.createdAt || 0);
+      });
+
       const parsedData: BackupDataPayload = {
-        users: Array.isArray(json.data.users) ? json.data.users : [],
+        users: cleanUsers,
         vaultItems: normalizeVaultItemsList(Array.isArray(json.data.vaultItems) ? json.data.vaultItems : []),
         quickItems: Array.isArray(json.data.quickItems) ? json.data.quickItems : [],
         generalItems: Array.isArray(json.data.generalItems) ? json.data.generalItems : [],
@@ -419,8 +446,15 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed.data) {
+          const localDeletedUsers = readSyncMap(SYNC_META_KEYS.deletedUsers);
+          const cachedUsers = (parsed.data.users || []).filter((u: any) => {
+            if (!u || !u.id) return false;
+            if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
+            return (localDeletedUsers[u.id] || 0) < Number(u.updatedAt || u.createdAt || 0);
+          });
           const cachedData: BackupDataPayload = {
             ...parsed.data,
+            users: cachedUsers,
             vaultItems: normalizeVaultItemsList(parsed.data.vaultItems || [])
           };
           return {

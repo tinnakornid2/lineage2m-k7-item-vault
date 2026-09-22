@@ -89,6 +89,69 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   let sharedGoogleBackupUrl = process.env.GOOGLE_BACKUP_WEB_APP_URL || '';
   let sharedGoogleSheetUrl = '';
 
+  // Disk persistence helpers for live relay and backup config
+  const DATA_DIR = process.env.VERCEL
+    ? path.join('/tmp', 'l2m-data')
+    : (fs.existsSync(path.join(process.cwd(), 'data'))
+        ? path.join(process.cwd(), 'data')
+        : (fs.existsSync(path.join(currentDirname, 'data'))
+            ? path.join(currentDirname, 'data')
+            : path.join(currentDirname, '..', 'data')));
+  if (!fs.existsSync(DATA_DIR)) {
+    try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+  }
+  const LIVE_STATE_FILE = path.join(DATA_DIR, 'hub-live-state.json');
+  const GOOGLE_CONFIG_FILE = path.join(DATA_DIR, 'google-backup-config.json');
+  const DISCORD_CONFIG_FILE = path.join(DATA_DIR, 'discord-config.json');
+
+  // Load saved google config if present
+  try {
+    if (fs.existsSync(GOOGLE_CONFIG_FILE)) {
+      const parsedConfig = JSON.parse(fs.readFileSync(GOOGLE_CONFIG_FILE, 'utf-8'));
+      if (parsedConfig?.webAppUrl && !sharedGoogleBackupUrl) {
+        sharedGoogleBackupUrl = parsedConfig.webAppUrl;
+      }
+      if (parsedConfig?.sheetUrl) {
+        sharedGoogleSheetUrl = parsedConfig.sheetUrl;
+      }
+    }
+  } catch {}
+
+  // Real-time Event Emitter for Instant Cross-Member Sync (< 20ms response)
+  const liveStateEmitter = new EventEmitter();
+  liveStateEmitter.setMaxListeners(500);
+
+  // Real-time In-Memory Hub State for Instant Cross-Member Sync
+  let liveHubState: {
+    data: any;
+    updatedAt: number;
+    version: number;
+  } = {
+    data: null,
+    updatedAt: 0,
+    version: 0
+  };
+
+  // Restore live hub state from disk or bundled seed if available
+  try {
+    const SEED_FILE = path.join(process.cwd(), 'src', 'data', 'seed-live-state.json');
+    if (fs.existsSync(LIVE_STATE_FILE)) {
+      const parsedLive = JSON.parse(fs.readFileSync(LIVE_STATE_FILE, 'utf-8'));
+      if (parsedLive && typeof parsedLive.version === 'number' && parsedLive.data) {
+        liveHubState = parsedLive;
+      }
+    } else if (fs.existsSync(SEED_FILE)) {
+      const parsedSeed = JSON.parse(fs.readFileSync(SEED_FILE, 'utf-8'));
+      if (parsedSeed && parsedSeed.data) {
+        liveHubState = {
+          data: parsedSeed.data,
+          updatedAt: parsedSeed.updatedAt || Date.now(),
+          version: parsedSeed.version || 1
+        };
+      }
+    }
+  } catch {}
+
   const consumeRateLimit = (
     limits: Map<string, { count: number; resetAt: number }>,
     actorId: string,
@@ -167,7 +230,8 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
 
   app.delete("/api/users/:userId", requireRoles(['owner', 'admin']), async (req, res) => {
     try {
-      const result = await deleteManagedUser(res.locals.actor, req.params.userId);
+      const targetUserId = req.params.userId;
+      const result = await deleteManagedUser(res.locals.actor, targetUserId);
       if (!result.allowed) {
         const notFound = result.reason === 'USER_NOT_FOUND';
         return res.status(notFound ? 404 : 403).json({
@@ -178,6 +242,23 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
             : 'ไม่มีสิทธิ์ลบบัญชีนี้ / You do not have permission to delete this account.'
         });
       }
+
+      // Record tombstone in liveHubState and purge user from liveHubState.data.users
+      if (liveHubState && liveHubState.data) {
+        liveHubState.data.syncMeta = liveHubState.data.syncMeta || {};
+        liveHubState.data.syncMeta.deletedUsers = liveHubState.data.syncMeta.deletedUsers || {};
+        liveHubState.data.syncMeta.deletedUsers[targetUserId] = Date.now();
+        if (Array.isArray(liveHubState.data.users)) {
+          liveHubState.data.users = liveHubState.data.users.filter((u: any) => u && u.id !== targetUserId);
+        }
+        liveHubState.updatedAt = Date.now();
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8');
+        } catch {}
+        liveStateEmitter.emit('update');
+      }
+
       return res.json({ success: true });
     } catch (error) {
       console.error('Failed to delete managed user:', error);
@@ -274,34 +355,6 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     }
   });
 
-  // Disk persistence helpers for live relay and backup config
-  const DATA_DIR = process.env.VERCEL
-    ? path.join('/tmp', 'l2m-data')
-    : (fs.existsSync(path.join(process.cwd(), 'data'))
-        ? path.join(process.cwd(), 'data')
-        : (fs.existsSync(path.join(currentDirname, 'data'))
-            ? path.join(currentDirname, 'data')
-            : path.join(currentDirname, '..', 'data')));
-  if (!fs.existsSync(DATA_DIR)) {
-    try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
-  }
-  const LIVE_STATE_FILE = path.join(DATA_DIR, 'hub-live-state.json');
-  const GOOGLE_CONFIG_FILE = path.join(DATA_DIR, 'google-backup-config.json');
-  const DISCORD_CONFIG_FILE = path.join(DATA_DIR, 'discord-config.json');
-
-  // Load saved google config if present
-  try {
-    if (fs.existsSync(GOOGLE_CONFIG_FILE)) {
-      const parsedConfig = JSON.parse(fs.readFileSync(GOOGLE_CONFIG_FILE, 'utf-8'));
-      if (parsedConfig?.webAppUrl && !sharedGoogleBackupUrl) {
-        sharedGoogleBackupUrl = parsedConfig.webAppUrl;
-      }
-      if (parsedConfig?.sheetUrl) {
-        sharedGoogleSheetUrl = parsedConfig.sheetUrl;
-      }
-    }
-  } catch {}
-
   // Google Sheets & Drive Shared Backup Config (Distributed to all clan members)
   app.get("/api/google-backup-config", (_req, res) => {
     res.json({
@@ -335,41 +388,6 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       res.status(500).json({ success: false, error: err?.message || 'Failed to save config' });
     }
   });
-
-  // Real-time Event Emitter for Instant Cross-Member Sync (< 20ms response)
-  const liveStateEmitter = new EventEmitter();
-  liveStateEmitter.setMaxListeners(500);
-
-  // Real-time In-Memory Hub State for Instant Cross-Member Sync
-  let liveHubState: {
-    data: any;
-    updatedAt: number;
-    version: number;
-  } = {
-    data: null,
-    updatedAt: 0,
-    version: 0
-  };
-
-  // Restore live hub state from disk or bundled seed if available
-  try {
-    const SEED_FILE = path.join(process.cwd(), 'src', 'data', 'seed-live-state.json');
-    if (fs.existsSync(LIVE_STATE_FILE)) {
-      const parsedLive = JSON.parse(fs.readFileSync(LIVE_STATE_FILE, 'utf-8'));
-      if (parsedLive && typeof parsedLive.version === 'number' && parsedLive.data) {
-        liveHubState = parsedLive;
-      }
-    } else if (fs.existsSync(SEED_FILE)) {
-      const parsedSeed = JSON.parse(fs.readFileSync(SEED_FILE, 'utf-8'));
-      if (parsedSeed && parsedSeed.data) {
-        liveHubState = {
-          data: parsedSeed.data,
-          updatedAt: parsedSeed.updatedAt || Date.now(),
-          version: parsedSeed.version || 1
-        };
-      }
-    }
-  } catch {}
 
   app.get("/api/live-state", (req, res) => {
     const clientVersion = Number(req.query.v) || 0;
@@ -437,6 +455,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         const syncMeta = {
           deletedVaultItems: mergeTimestampMaps(previousData.syncMeta?.deletedVaultItems, data.syncMeta?.deletedVaultItems),
           deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
+          deletedUsers: mergeTimestampMaps(previousData.syncMeta?.deletedUsers, data.syncMeta?.deletedUsers),
           cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims)
         };
         const mergeVersionedRecords = (previous: any[], incoming: any[], deleted: Record<string, number>, mergeClaims = false) => {
@@ -469,6 +488,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         data.syncMeta = syncMeta;
         data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
         data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems);
+        data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
         if (Array.isArray(data.vaultItems)) {
           data.vaultItems = data.vaultItems.map((item: any) => {
             const claimants = (item.claimants || []).filter((claimant: any) => {

@@ -305,6 +305,91 @@ async function runRealUserSimulation() {
     console.log(`   ${idx + 1}. ${m.name} (${m.clan}) - ⚡ ${m.powerLevel.toLocaleString()} PL - Status: ${m.status}`);
   });
 
+  // STEP 12: Member Lifecycle & Permanent Deletion (Tombstone Anti-Resurrection Guard)
+  console.log('\n--- STEP 12: Member Lifecycle & Permanent Deletion (Tombstone Guard) ---');
+  const deletedUserId = `user_to_delete_${Date.now()}`;
+  const memberToDelete = {
+    id: deletedUserId,
+    username: 'todelete_member',
+    inGameName: 'DeleteMePls',
+    role: 'member',
+    status: 'active',
+    clan: 'VoltZ',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+
+  // 1. Add member to live state
+  const postMemberState = await fetch(`${baseUrl}/api/live-state`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      data: {
+        ...genRefreshState.data,
+        users: [...(genRefreshState.data.users || []), memberToDelete]
+      },
+      performedBy: 'Eloni (Owner)'
+    })
+  });
+  assert.strictEqual(postMemberState.status, 200);
+
+  // Verify member is present in live state
+  const checkMemberRes = await fetch(`${baseUrl}/api/live-state?v=0&_t=${Date.now()}`);
+  const checkMemberState = await checkMemberRes.json();
+  const addedMember = (checkMemberState.data?.users || []).find((u) => u.id === deletedUserId);
+  assert.ok(addedMember, 'Member must exist in live state prior to deletion');
+  console.log(`✓ Member created: ${addedMember.inGameName} (${addedMember.id})`);
+
+  // 2. Admin deletes member via DELETE /api/users/:userId
+  console.log('Admin deleting member via DELETE /api/users/:userId...');
+  const deleteRes = await fetch(`${baseUrl}/api/users/${deletedUserId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: 'Bearer local-dev-user_owner_eloni-owner'
+    }
+  });
+  assert.strictEqual(deleteRes.status, 200);
+  const deleteResult = await deleteRes.json();
+  assert.strictEqual(deleteResult.success, true);
+  console.log('✓ DELETE /api/users/:userId succeeded');
+
+  // 3. Verify member is removed and tombstone exists in live-state
+  const postDeleteRes = await fetch(`${baseUrl}/api/live-state?v=0&_t=${Date.now()}`);
+  const postDeleteState = await postDeleteRes.json();
+  const deletedMemberCheck = (postDeleteState.data?.users || []).find((u) => u.id === deletedUserId);
+  assert.strictEqual(deletedMemberCheck, undefined, 'Deleted member must NOT exist in live state users list!');
+  assert.ok(
+    postDeleteState.data?.syncMeta?.deletedUsers?.[deletedUserId],
+    'Deleted user must have a tombstone recorded in syncMeta.deletedUsers!'
+  );
+  console.log(`✓ VERIFIED: Deleted member purged from users list and tombstoned with timestamp: ${postDeleteState.data.syncMeta.deletedUsers[deletedUserId]}`);
+
+  // 4. CRITICAL TEST: Simulate an older / stale client posting a snapshot containing the deleted user
+  console.log('Simulating stale client or Google Sheets syncing an older snapshot containing the deleted member...');
+  const staleSnapshotPost = await fetch(`${baseUrl}/api/live-state`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      data: {
+        ...postDeleteState.data,
+        users: [...(postDeleteState.data.users || []), memberToDelete]
+      },
+      performedBy: 'Stale Client Sync'
+    })
+  });
+  assert.strictEqual(staleSnapshotPost.status, 200);
+
+  // 5. Fetch fresh live state after stale sync: member must NEVER resurrect!
+  const antiResurrectionRes = await fetch(`${baseUrl}/api/live-state?v=0&_t=${Date.now()}`);
+  const antiResurrectionState = await antiResurrectionRes.json();
+  const resurrectedMember = (antiResurrectionState.data?.users || []).find((u) => u.id === deletedUserId);
+  assert.strictEqual(
+    resurrectedMember,
+    undefined,
+    'ANTI-RESURRECTION SHIELD: Member MUST NOT resurrect even when a stale snapshot containing them is posted!'
+  );
+  console.log(`✓ VERIFIED: Anti-resurrection shield blocked stale sync. Member remains 100% permanently deleted!`);
+
   console.log('\n====================================================');
   console.log('🎉 ALL END-TO-END REAL USER SIMULATION TESTS PASSED 100%!');
   console.log('====================================================\n');

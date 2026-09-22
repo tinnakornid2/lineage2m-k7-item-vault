@@ -111,11 +111,15 @@ import {
   testFirestoreHealth,
   mergeVaultItems,
   mergeQueueItems,
+  mergeUsers,
   clearAllLocalCaches,
   markVaultItemAsDeleted,
   unmarkVaultItemAsDeleted,
   markQueueItemAsDeleted,
   unmarkQueueItemAsDeleted,
+  markUserAsDeleted,
+  unmarkUserAsDeleted,
+  getDeletedUserIds,
   markClaimAsCancelled,
   unmarkClaimAsCancelled,
   ensureFirebaseAuthSession
@@ -302,16 +306,7 @@ export const App: React.FC = () => {
       }
       if (data.users && data.users.length > 0) {
         setUsers((prev) => {
-          const userMap = new Map<string, User>();
-          for (const u of data.users) {
-            if (u && u.id) userMap.set(u.id, u);
-          }
-          for (const u of prev) {
-            if (u && u.id && !userMap.has(u.id)) {
-              userMap.set(u.id, u);
-            }
-          }
-          const mergedUsers = Array.from(userMap.values());
+          const mergedUsers = mergeUsers(prev, data.users);
           setCachedUsers(mergedUsers);
           return mergedUsers;
         });
@@ -340,7 +335,13 @@ export const App: React.FC = () => {
       .then((json) => {
         if (json.modified && json.data) {
           setLastBroadcastPayload(json.data);
-          if (Array.isArray(json.data.users) && json.data.users.length > 0) setUsers(json.data.users);
+          if (Array.isArray(json.data.users) && json.data.users.length > 0) {
+            setUsers((prev) => {
+              const merged = mergeUsers(prev, json.data.users);
+              setCachedUsers(merged);
+              return merged;
+            });
+          }
           if (Array.isArray(json.data.vaultItems)) {
             setVaultItems((prev) => {
               const merged = mergeVaultItems(prev, json.data.vaultItems);
@@ -376,7 +377,13 @@ export const App: React.FC = () => {
         if (config.webAppUrl && config.fallbackOnQuotaExceeded) {
           fetchDataFromGoogleSheets().then((res) => {
             if (res.success && res.data) {
-              if (res.data.users && res.data.users.length > 0) setUsers(res.data.users);
+              if (res.data.users && res.data.users.length > 0) {
+                setUsers((prev) => {
+                  const merged = mergeUsers(prev, res.data.users);
+                  setCachedUsers(merged);
+                  return merged;
+                });
+              }
               if (res.data.vaultItems && res.data.vaultItems.length > 0) {
                 setVaultItems((prev) => {
                   const merged = mergeVaultItems(prev, res.data.vaultItems);
@@ -549,16 +556,7 @@ export const App: React.FC = () => {
         }
         if (data.users && data.users.length > 0) {
           setUsers((prev) => {
-            const userMap = new Map<string, User>();
-            for (const u of data.users) {
-              if (u && u.id) userMap.set(u.id, u);
-            }
-            for (const u of prev) {
-              if (u && u.id && !userMap.has(u.id)) {
-                userMap.set(u.id, u);
-              }
-            }
-            const merged = Array.from(userMap.values());
+            const merged = mergeUsers(prev, data.users);
             setCachedUsers(merged);
             return merged;
           });
@@ -601,8 +599,11 @@ export const App: React.FC = () => {
               });
             }
             if (cloudRes.data.users?.length) {
-              setUsers(cloudRes.data.users);
-              setCachedUsers(cloudRes.data.users);
+              setUsers((prev) => {
+                const merged = mergeUsers(prev, cloudRes.data.users);
+                setCachedUsers(merged);
+                return merged;
+              });
             }
           }
         } catch (e) {}
@@ -1249,7 +1250,11 @@ export const App: React.FC = () => {
     startGoogleRealtimeSync((incomingData: BackupDataPayload) => {
       if (!incomingData) return;
       if (Array.isArray(incomingData.users) && incomingData.users.length > 0) {
-        setUsers(incomingData.users);
+        setUsers((prev) => {
+          const merged = mergeUsers(prev, incomingData.users);
+          setCachedUsers(merged);
+          return merged;
+        });
         const cur = currentUserRef.current;
         if (cur) {
           const found = incomingData.users.find((u) => u.id === cur.id);
@@ -1362,7 +1367,13 @@ export const App: React.FC = () => {
             // No offline edits made: fetch authentic cloud records from Firebase
             const cloudRes = await forceCheckAndFetchFirestore();
             if (cloudRes.success && cloudRes.data) {
-              if (cloudRes.data.users && cloudRes.data.users.length > 0) setUsers(cloudRes.data.users);
+              if (cloudRes.data.users && cloudRes.data.users.length > 0) {
+                setUsers((prev) => {
+                  const merged = mergeUsers(prev, cloudRes.data.users);
+                  setCachedUsers(merged);
+                  return merged;
+                });
+              }
               if (cloudRes.data.vaultItems && cloudRes.data.vaultItems.length > 0) {
                 setVaultItems((prev) => {
                   const merged = mergeVaultItems(prev, cloudRes.data.vaultItems);
@@ -1499,6 +1510,8 @@ export const App: React.FC = () => {
         password: data.password,
         inGameName: data.inGameName
       });
+
+      unmarkUserAsDeleted(registered.id);
 
       // Update local state and cached users immediately
       const updatedUsers = [...users, registered];
@@ -3258,6 +3271,7 @@ export const App: React.FC = () => {
 
   const handleRejectMember = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
+    markUserAsDeleted(userId);
     const updatedUsers = users.filter((u) => u.id !== userId);
     setUsers(updatedUsers);
     setCachedUsers(updatedUsers);
@@ -3334,7 +3348,39 @@ export const App: React.FC = () => {
 
   const handleDeleteMember = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
-    setUsers((prev) => prev.filter((u) => u.id !== userId));
+    markUserAsDeleted(userId);
+    const updatedUsers = users.filter((u) => u.id !== userId);
+    setUsers(updatedUsers);
+    setCachedUsers(updatedUsers);
+
+    broadcastLiveState(
+      {
+        users: updatedUsers,
+        vaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance: computeTotalVaultBalance(diamondLogs)
+      },
+      currentUser?.inGameName || 'Admin'
+    );
+
+    const googleConfig = getGoogleBackupConfig();
+    if (googleConfig.webAppUrl) {
+      triggerDebouncedAutoBackup(
+        {
+          users: updatedUsers,
+          vaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance: computeTotalVaultBalance(diamondLogs)
+        },
+        'Delete Member',
+        true
+      );
+    }
+
     try {
       await deleteUserDoc(userId);
       showToast(
@@ -3843,7 +3889,41 @@ export const App: React.FC = () => {
   const handleBatchDeleteMembers = async (userIds: string[]) => {
     const idSet = new Set(userIds);
     const count = userIds.length;
-    setUsers((prev) => prev.filter((u) => !idSet.has(u.id)));
+    for (const uid of userIds) {
+      markUserAsDeleted(uid);
+    }
+    const updatedUsers = users.filter((u) => !idSet.has(u.id));
+    setUsers(updatedUsers);
+    setCachedUsers(updatedUsers);
+
+    broadcastLiveState(
+      {
+        users: updatedUsers,
+        vaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance: computeTotalVaultBalance(diamondLogs)
+      },
+      currentUser?.inGameName || 'Admin'
+    );
+
+    const googleConfig = getGoogleBackupConfig();
+    if (googleConfig.webAppUrl) {
+      triggerDebouncedAutoBackup(
+        {
+          users: updatedUsers,
+          vaultItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance: computeTotalVaultBalance(diamondLogs)
+        },
+        'Batch Delete Members',
+        true
+      );
+    }
+
     try {
       for (const uid of userIds) {
         await deleteUserDoc(uid);
@@ -4413,7 +4493,13 @@ export const App: React.FC = () => {
           formulaSettings: getFormulaSettings()
         }}
         onDataRestored={async (restored) => {
-          if (restored.users && restored.users.length > 0) setUsers(restored.users);
+          if (restored.users && restored.users.length > 0) {
+            const restoredAt = Date.now();
+            restored.users = restored.users.map((u) => ({ ...u, updatedAt: restoredAt }));
+            restored.users.forEach((u) => unmarkUserAsDeleted(u.id));
+            setUsers(restored.users);
+            setCachedUsers(restored.users);
+          }
           if (restored.vaultItems && restored.vaultItems.length > 0) {
             const restoredAt = Date.now();
             restored.vaultItems = restored.vaultItems.map((item) => ({ ...item, updatedAt: restoredAt }));

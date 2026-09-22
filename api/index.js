@@ -350,6 +350,54 @@ async function createApp(options = {}) {
   const ocrRateLimits = /* @__PURE__ */ new Map();
   let sharedGoogleBackupUrl = process.env.GOOGLE_BACKUP_WEB_APP_URL || "";
   let sharedGoogleSheetUrl = "";
+  const DATA_DIR = process.env.VERCEL ? path.join("/tmp", "l2m-data") : fs.existsSync(path.join(process.cwd(), "data")) ? path.join(process.cwd(), "data") : fs.existsSync(path.join(currentDirname, "data")) ? path.join(currentDirname, "data") : path.join(currentDirname, "..", "data");
+  if (!fs.existsSync(DATA_DIR)) {
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    } catch {
+    }
+  }
+  const LIVE_STATE_FILE = path.join(DATA_DIR, "hub-live-state.json");
+  const GOOGLE_CONFIG_FILE = path.join(DATA_DIR, "google-backup-config.json");
+  const DISCORD_CONFIG_FILE = path.join(DATA_DIR, "discord-config.json");
+  try {
+    if (fs.existsSync(GOOGLE_CONFIG_FILE)) {
+      const parsedConfig = JSON.parse(fs.readFileSync(GOOGLE_CONFIG_FILE, "utf-8"));
+      if (parsedConfig?.webAppUrl && !sharedGoogleBackupUrl) {
+        sharedGoogleBackupUrl = parsedConfig.webAppUrl;
+      }
+      if (parsedConfig?.sheetUrl) {
+        sharedGoogleSheetUrl = parsedConfig.sheetUrl;
+      }
+    }
+  } catch {
+  }
+  const liveStateEmitter = new EventEmitter();
+  liveStateEmitter.setMaxListeners(500);
+  let liveHubState = {
+    data: null,
+    updatedAt: 0,
+    version: 0
+  };
+  try {
+    const SEED_FILE = path.join(process.cwd(), "src", "data", "seed-live-state.json");
+    if (fs.existsSync(LIVE_STATE_FILE)) {
+      const parsedLive = JSON.parse(fs.readFileSync(LIVE_STATE_FILE, "utf-8"));
+      if (parsedLive && typeof parsedLive.version === "number" && parsedLive.data) {
+        liveHubState = parsedLive;
+      }
+    } else if (fs.existsSync(SEED_FILE)) {
+      const parsedSeed = JSON.parse(fs.readFileSync(SEED_FILE, "utf-8"));
+      if (parsedSeed && parsedSeed.data) {
+        liveHubState = {
+          data: parsedSeed.data,
+          updatedAt: parsedSeed.updatedAt || Date.now(),
+          version: parsedSeed.version || 1
+        };
+      }
+    }
+  } catch {
+  }
   const consumeRateLimit = (limits, actorId, maximum, windowMs) => {
     const now = Date.now();
     const previous = limits.get(actorId);
@@ -410,7 +458,8 @@ async function createApp(options = {}) {
   });
   app.delete("/api/users/:userId", requireRoles(["owner", "admin"]), async (req, res) => {
     try {
-      const result = await deleteManagedUser(res.locals.actor, req.params.userId);
+      const targetUserId = req.params.userId;
+      const result = await deleteManagedUser(res.locals.actor, targetUserId);
       if (!result.allowed) {
         const notFound = result.reason === "USER_NOT_FOUND";
         return res.status(notFound ? 404 : 403).json({
@@ -418,6 +467,21 @@ async function createApp(options = {}) {
           error: result.reason,
           message: notFound ? "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49 / User account not found." : "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E25\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49 / You do not have permission to delete this account."
         });
+      }
+      if (liveHubState && liveHubState.data) {
+        liveHubState.data.syncMeta = liveHubState.data.syncMeta || {};
+        liveHubState.data.syncMeta.deletedUsers = liveHubState.data.syncMeta.deletedUsers || {};
+        liveHubState.data.syncMeta.deletedUsers[targetUserId] = Date.now();
+        if (Array.isArray(liveHubState.data.users)) {
+          liveHubState.data.users = liveHubState.data.users.filter((u) => u && u.id !== targetUserId);
+        }
+        liveHubState.updatedAt = Date.now();
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+        liveStateEmitter.emit("update");
       }
       return res.json({ success: true });
     } catch (error) {
@@ -498,28 +562,6 @@ async function createApp(options = {}) {
       });
     }
   });
-  const DATA_DIR = process.env.VERCEL ? path.join("/tmp", "l2m-data") : fs.existsSync(path.join(process.cwd(), "data")) ? path.join(process.cwd(), "data") : fs.existsSync(path.join(currentDirname, "data")) ? path.join(currentDirname, "data") : path.join(currentDirname, "..", "data");
-  if (!fs.existsSync(DATA_DIR)) {
-    try {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    } catch {
-    }
-  }
-  const LIVE_STATE_FILE = path.join(DATA_DIR, "hub-live-state.json");
-  const GOOGLE_CONFIG_FILE = path.join(DATA_DIR, "google-backup-config.json");
-  const DISCORD_CONFIG_FILE = path.join(DATA_DIR, "discord-config.json");
-  try {
-    if (fs.existsSync(GOOGLE_CONFIG_FILE)) {
-      const parsedConfig = JSON.parse(fs.readFileSync(GOOGLE_CONFIG_FILE, "utf-8"));
-      if (parsedConfig?.webAppUrl && !sharedGoogleBackupUrl) {
-        sharedGoogleBackupUrl = parsedConfig.webAppUrl;
-      }
-      if (parsedConfig?.sheetUrl) {
-        sharedGoogleSheetUrl = parsedConfig.sheetUrl;
-      }
-    }
-  } catch {
-  }
   app.get("/api/google-backup-config", (_req, res) => {
     res.json({
       webAppUrl: sharedGoogleBackupUrl,
@@ -552,32 +594,6 @@ async function createApp(options = {}) {
       res.status(500).json({ success: false, error: err?.message || "Failed to save config" });
     }
   });
-  const liveStateEmitter = new EventEmitter();
-  liveStateEmitter.setMaxListeners(500);
-  let liveHubState = {
-    data: null,
-    updatedAt: 0,
-    version: 0
-  };
-  try {
-    const SEED_FILE = path.join(process.cwd(), "src", "data", "seed-live-state.json");
-    if (fs.existsSync(LIVE_STATE_FILE)) {
-      const parsedLive = JSON.parse(fs.readFileSync(LIVE_STATE_FILE, "utf-8"));
-      if (parsedLive && typeof parsedLive.version === "number" && parsedLive.data) {
-        liveHubState = parsedLive;
-      }
-    } else if (fs.existsSync(SEED_FILE)) {
-      const parsedSeed = JSON.parse(fs.readFileSync(SEED_FILE, "utf-8"));
-      if (parsedSeed && parsedSeed.data) {
-        liveHubState = {
-          data: parsedSeed.data,
-          updatedAt: parsedSeed.updatedAt || Date.now(),
-          version: parsedSeed.version || 1
-        };
-      }
-    }
-  } catch {
-  }
   app.get("/api/live-state", (req, res) => {
     const clientVersion = Number(req.query.v) || 0;
     const shouldWait = req.query.wait === "true" || req.query.wait === "1";
@@ -634,6 +650,7 @@ async function createApp(options = {}) {
         const syncMeta = {
           deletedVaultItems: mergeTimestampMaps(previousData.syncMeta?.deletedVaultItems, data.syncMeta?.deletedVaultItems),
           deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
+          deletedUsers: mergeTimestampMaps(previousData.syncMeta?.deletedUsers, data.syncMeta?.deletedUsers),
           cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims)
         };
         const mergeVersionedRecords = (previous, incoming, deleted, mergeClaims = false) => {
@@ -665,6 +682,7 @@ async function createApp(options = {}) {
         data.syncMeta = syncMeta;
         data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
         data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems);
+        data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
         if (Array.isArray(data.vaultItems)) {
           data.vaultItems = data.vaultItems.map((item) => {
             const claimants = (item.claimants || []).filter((claimant) => {

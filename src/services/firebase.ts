@@ -169,7 +169,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.3-resilient-claims';
+const CACHE_SCHEMA_VERSION = '2.10.4-deleted-users-tombstone';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -187,6 +187,7 @@ export function clearAllLocalCaches(): void {
     localStorage.removeItem('l2m_active_tab');
     localStorage.removeItem(DELETED_VAULT_ITEMS_KEY);
     localStorage.removeItem(DELETED_QUEUE_ITEMS_KEY);
+    localStorage.removeItem(DELETED_USERS_KEY);
     localStorage.removeItem('l2m_cancelled_claims_map');
     localStorage.removeItem('k7_queue_announcement');
   } catch (e) {
@@ -249,44 +250,9 @@ let inMemoryDiamondTxs: DiamondVaultRecord[] = [];
 let inMemoryQuickItems: QuickItem[] = [];
 let inMemoryGeneralItems: GeneralItem[] = [];
 
-export function getCachedUsers(): User[] {
-  if (!inMemoryUsers || inMemoryUsers.length === 0) {
-    inMemoryUsers = getCachedData<User[]>(CACHE_KEYS.USERS, []);
-  }
-  return inMemoryUsers;
-}
-
-export function setCachedUsers(users: User[]): void {
-  inMemoryUsers = users || [];
-  setCachedData(CACHE_KEYS.USERS, inMemoryUsers);
-}
-
-export function getCachedQuickItems(): QuickItem[] {
-  if (!inMemoryQuickItems || inMemoryQuickItems.length === 0) {
-    inMemoryQuickItems = getCachedData<QuickItem[]>(CACHE_KEYS.QUICK_ITEMS, []);
-  }
-  return inMemoryQuickItems;
-}
-
-export function setCachedQuickItems(items: QuickItem[]): void {
-  inMemoryQuickItems = items || [];
-  setCachedData(CACHE_KEYS.QUICK_ITEMS, inMemoryQuickItems);
-}
-
-export function getCachedGeneralItems(): GeneralItem[] {
-  if (!inMemoryGeneralItems || inMemoryGeneralItems.length === 0) {
-    inMemoryGeneralItems = getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
-  }
-  return inMemoryGeneralItems;
-}
-
-export function setCachedGeneralItems(items: GeneralItem[]): void {
-  inMemoryGeneralItems = items || [];
-  setCachedData(CACHE_KEYS.GENERAL_ITEMS, inMemoryGeneralItems);
-}
-
 export const DELETED_VAULT_ITEMS_KEY = 'k7_deleted_vault_item_ids';
 export const DELETED_QUEUE_ITEMS_KEY = 'k7_deleted_queue_item_ids';
+export const DELETED_USERS_KEY = 'k7_deleted_user_ids';
 
 const TOMBSTONE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 
@@ -319,6 +285,135 @@ function saveDeletedIdsMap(key: string, map: Record<string, number>): void {
   try {
     localStorage.setItem(key, JSON.stringify(map));
   } catch {}
+}
+
+export function getDeletedUserIds(): Set<string> {
+  return new Set(Object.keys(getDeletedIdsMap(DELETED_USERS_KEY)));
+}
+
+export function markUserAsDeleted(id: string): void {
+  if (!id) return;
+  const map = getDeletedIdsMap(DELETED_USERS_KEY);
+  map[id] = Date.now();
+  saveDeletedIdsMap(DELETED_USERS_KEY, map);
+  const currentCached = getCachedData<User[]>(CACHE_KEYS.USERS, []);
+  if (currentCached.some((u) => u.id === id)) {
+    setCachedData(CACHE_KEYS.USERS, currentCached.filter((u) => u.id !== id));
+  }
+  if (inMemoryUsers.some((u) => u.id === id)) {
+    inMemoryUsers = inMemoryUsers.filter((u) => u.id !== id);
+  }
+}
+
+export function unmarkUserAsDeleted(id: string): void {
+  if (!id) return;
+  const map = getDeletedIdsMap(DELETED_USERS_KEY);
+  if (id in map) {
+    delete map[id];
+    saveDeletedIdsMap(DELETED_USERS_KEY, map);
+  }
+}
+
+export function getCachedUsers(): User[] {
+  const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
+  let pool = inMemoryUsers;
+  if (!pool || pool.length === 0) {
+    pool = getCachedData<User[]>(CACHE_KEYS.USERS, []);
+    inMemoryUsers = pool;
+  }
+  return pool.filter((u) => {
+    if (!u || !u.id) return false;
+    if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
+    return (deletedMap[u.id] || 0) < Number(u.updatedAt || u.createdAt || 0);
+  });
+}
+
+export function setCachedUsers(users: User[]): void {
+  const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
+  const clean = (users || []).filter((u) => {
+    if (!u || !u.id) return false;
+    if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
+    return (deletedMap[u.id] || 0) < Number(u.updatedAt || u.createdAt || 0);
+  });
+  inMemoryUsers = clean;
+  setCachedData(CACHE_KEYS.USERS, clean);
+}
+
+/**
+ * Smart merge function for Users:
+ * - Filters out any users whose IDs are marked as deleted in tombstones
+ * - Protects 'owner' (Eloni) so owner can never be deleted or replaced
+ * - When conflict occurs, picks the newest revision (updatedAt || createdAt)
+ */
+export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] {
+  const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
+  const isDeleted = (u: User) => {
+    if (!u || !u.id) return true;
+    if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return false;
+    return (deletedMap[u.id] || 0) >= Number(u.updatedAt || u.createdAt || 0);
+  };
+
+  const currentMap = new Map<string, User>();
+  for (const u of currentUsers || []) {
+    if (u && u.id && !isDeleted(u)) {
+      currentMap.set(u.id, u);
+    }
+  }
+
+  const incomingMap = new Map<string, User>();
+  for (const u of incomingUsers || []) {
+    if (u && u.id && !isDeleted(u)) {
+      incomingMap.set(u.id, u);
+    }
+  }
+
+  const allIds = new Set([...currentMap.keys(), ...incomingMap.keys()]);
+  const result: User[] = [];
+
+  for (const id of allIds) {
+    const local = currentMap.get(id);
+    const incoming = incomingMap.get(id);
+
+    if (local && !incoming) {
+      result.push(local);
+    } else if (!local && incoming) {
+      result.push(incoming);
+    } else if (local && incoming) {
+      if (id === 'user_owner_eloni' || local.username?.toLowerCase() === 'eloni') {
+        result.push({ ...local, ...incoming, role: 'owner', status: 'active' });
+      } else {
+        const localRev = Number(local.updatedAt || local.createdAt || 0);
+        const incomingRev = Number(incoming.updatedAt || incoming.createdAt || 0);
+        result.push(incomingRev >= localRev ? incoming : local);
+      }
+    }
+  }
+
+  return result;
+}
+
+export function getCachedQuickItems(): QuickItem[] {
+  if (!inMemoryQuickItems || inMemoryQuickItems.length === 0) {
+    inMemoryQuickItems = getCachedData<QuickItem[]>(CACHE_KEYS.QUICK_ITEMS, []);
+  }
+  return inMemoryQuickItems;
+}
+
+export function setCachedQuickItems(items: QuickItem[]): void {
+  inMemoryQuickItems = items || [];
+  setCachedData(CACHE_KEYS.QUICK_ITEMS, inMemoryQuickItems);
+}
+
+export function getCachedGeneralItems(): GeneralItem[] {
+  if (!inMemoryGeneralItems || inMemoryGeneralItems.length === 0) {
+    inMemoryGeneralItems = getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
+  }
+  return inMemoryGeneralItems;
+}
+
+export function setCachedGeneralItems(items: GeneralItem[]): void {
+  inMemoryGeneralItems = items || [];
+  setCachedData(CACHE_KEYS.GENERAL_ITEMS, inMemoryGeneralItems);
 }
 
 export function getDeletedVaultItemIds(): Set<string> {
@@ -738,17 +833,25 @@ export function listenToUsers(callback: (users: User[]) => void) {
     (snapshot) => {
       initialFallbackHandled = true;
       if (snapshot.empty) {
-        setCachedData(CACHE_KEYS.USERS, []);
+        setCachedUsers([]);
         callback([]);
         return;
       }
+      const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
+      const isDeleted = (u: User) => {
+        if (!u || !u.id) return true;
+        if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return false;
+        return (deletedMap[u.id] || 0) >= Number(u.updatedAt || u.createdAt || 0);
+      };
       const users: User[] = [];
       snapshot.forEach((docSnap) => {
         const u = { ...docSnap.data(), id: docSnap.id } as User;
         if (u.clan) u.clan = cleanClanName(u.clan);
-        users.push(u);
+        if (!isDeleted(u)) {
+          users.push(u);
+        }
       });
-      setCachedData(CACHE_KEYS.USERS, users);
+      setCachedUsers(users);
       callback(users);
     },
     (err) => {
@@ -778,6 +881,22 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
 }
 
 export async function deleteUserDoc(userId: string) {
+  if (!userId) return;
+  // 1. Immediately tombstone locally so that no sync or refresh can resurrect the user
+  markUserAsDeleted(userId);
+  const current = getCachedUsers().filter((u) => u.id !== userId);
+  setCachedUsers(current);
+
+  // 2. Client-side direct Firestore delete with timeout guard (Zero-Downtime Rule 6)
+  try {
+    const ref = doc(db, USERS_COLLECTION, userId);
+    await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteUserDoc');
+  } catch (err: any) {
+    console.warn('Notice: Failed to delete user directly from Firestore (marked deleted locally):', err?.message);
+    notifyQuotaExceeded(err);
+  }
+
+  // 3. Server-side deletion via API (deletes from Auth and handles relay live state)
   try {
     const token = await getCurrentUserIdToken();
     const response = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
@@ -786,11 +905,10 @@ export async function deleteUserDoc(userId: string) {
     });
     if (!response.ok) {
       const result = await response.json().catch(() => null);
-      throw new Error(result?.message || `Delete user failed (${response.status})`);
+      console.warn(`Notice: /api/users/${userId} returned status ${response.status}:`, result?.message);
     }
-  } catch (err) {
-    console.error('Failed to delete user:', err);
-    throw err;
+  } catch (err: any) {
+    console.warn('Notice: /api/users endpoint unreachable or error (user tombstoned locally):', err?.message);
   }
 }
 
@@ -978,6 +1096,9 @@ export async function registerUserDoc(data: {
     console.warn('Direct Firestore registration save notice (operating in resilient offline/live mode):', error?.code || error?.message);
     notifyQuotaExceeded(error);
   }
+
+  // Clear any tombstone if this ID was previously marked deleted
+  unmarkUserAsDeleted(resolvedId);
 
   // Always return the valid newUser object so App state, cache, and live relay can immediately accept it!
   return newUser;
