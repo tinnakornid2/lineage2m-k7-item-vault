@@ -929,11 +929,10 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
           )}
         </div>
       ) : viewMode === 'grid' ? (
-        /* 2 ITEMS PER ROW (GRID) */
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        /* 2 ITEMS PER ROW TABLE-STYLE VIEW (ตาราง 2 แถว) */
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
           {items.map((item) => {
             const pendingList = (item.queueList || []).filter((m) => m.status === 'pending');
-            const receivedList = (item.queueList || []).filter((m) => m.status === 'received');
             const userIndex = currentUser
               ? pendingList.findIndex(
                   (m) =>
@@ -944,18 +943,13 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
             const isUserInQueue = userIndex !== -1;
             const meetsPowerReq = !currentUser || currentUser.powerLevel >= (item.minPowerLevel || 0);
 
-            // Progress: delivered receipts count vs total item quantity
-            const totalDelivered = (item.receiptHistory || []).reduce((sum, r) => sum + (r.quantity || 1), 0);
-            const percentProgress = Math.min(100, Math.round((totalDelivered / Math.max(1, item.quantity)) * 100));
-
             return (
               <div
                 key={item.id}
-                className="flex flex-col rounded-xl bg-gradient-to-b from-[#111726] to-[#090d16] border border-slate-800 hover:border-slate-700 shadow-xl overflow-hidden transition-all duration-200"
+                className="rounded-2xl border border-slate-800/90 bg-gradient-to-b from-[#0e1422] via-[#090d16] to-[#070a12] p-3 sm:p-3.5 shadow-xl hover:border-slate-700 transition-all flex flex-col justify-between gap-3 group relative overflow-hidden"
               >
-                {/* Card Header with Image and Rarity styling */}
-                <div className="p-3 bg-[#0d1320] border-b border-slate-800 flex items-start gap-2.5">
-                  {/* Thumbnail with zoom click */}
+                {/* Row 1: Image, Name, Receipts, and Key Badges */}
+                <div className="flex items-center gap-3 min-w-0">
                   {item.imageUrl ? (
                     <button
                       type="button"
@@ -963,428 +957,194 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                         sounds.playClick();
                         if (onViewImageZoom) onViewImageZoom(item.imageUrl, item.name);
                       }}
-                      className="shrink-0 group relative overflow-hidden rounded-xl border border-slate-700 hover:border-[#d4af37] transition-colors cursor-pointer shadow-md"
+                      className="w-12 h-12 rounded-xl overflow-hidden border border-slate-700 hover:border-[#d4af37] shrink-0 cursor-pointer shadow group-hover:scale-105 transition-transform"
                       title={th ? 'คลิกเพื่อดูรูปขยาย' : 'Click to zoom image'}
                     >
-                      <img
-                        src={item.imageUrl}
-                        alt={item.name}
-                        className="w-14 h-14 object-cover group-hover:scale-105 transition-transform"
-                      />
+                      <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
                     </button>
                   ) : (
-                    <div className="w-14 h-14 rounded-xl bg-[#141b2b] border border-dashed border-slate-700 flex items-center justify-center text-[9px] text-slate-500 text-center p-1 shrink-0">
-                      <PackageCheck className="w-6 h-6 text-slate-600" />
+                    <div className="w-12 h-12 rounded-xl bg-slate-800/80 border border-slate-700 flex items-center justify-center shrink-0">
+                      <PackageCheck className="w-6 h-6 text-slate-500" />
                     </div>
                   )}
 
-                  {/* Title & Top Controls */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1">
-                      <span className={`text-[8.5px] font-bold px-1.5 py-0.2 rounded border uppercase ${getRarityBadge(item.rarity || 'RARE')}`}>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`text-[8.5px] font-bold px-1.5 py-0.2 rounded border uppercase shrink-0 ${getRarityBadge(item.rarity || 'RARE')}`}>
                         {item.rarity || 'RARE'}
                       </span>
-
-                      {/* Actions for Admin / Owner */}
-                      {isAdminOrOwner && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => openEditForm(item)}
-                            className="p-1 rounded bg-[#162235] hover:bg-[#1f314c] border border-slate-700 text-amber-300 transition-all cursor-pointer shadow-sm"
-                            title={th ? 'แก้ไขไอเทม' : 'Edit item'}
-                          >
-                            <Edit3 className="w-3 h-3" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              sounds.playClick();
-                              setActiveQueueIdForAdd(activeQueueIdForAdd === item.id ? null : item.id);
-                            }}
-                            className={`p-1 rounded border text-xs font-semibold transition-all cursor-pointer ${
-                              activeQueueIdForAdd === item.id
-                                ? 'bg-sky-500/20 border-sky-400/50 text-sky-300'
-                                : 'bg-[#162235] hover:bg-[#1f314c] border-slate-700 text-slate-200'
-                            }`}
-                            title={th ? 'เพิ่มสมาชิกลงคิวด้วยตนเอง' : 'Add member to queue manually'}
-                          >
-                            <UserPlus className="w-3 h-3 text-[#38bdf8]" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setItemToDelete(item)}
-                            className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 hover:text-white transition-all cursor-pointer shadow-sm"
-                            title={th ? 'ลบไอเทม' : 'Delete item'}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )}
+                      <span className={`font-bold text-sm truncate ${getRarityTextGlow(item.rarity || 'RARE')}`}>
+                        {item.name}
+                      </span>
                     </div>
 
-                    <h3
-                      className={`text-xs sm:text-sm font-bold font-cinzel line-clamp-2 mt-1 leading-snug ${getRarityTextGlow(item.rarity || 'RARE')}`}
-                      title={item.name}
-                    >
-                      {item.name}
-                    </h3>
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs">
+                      {/* Diamond Price */}
+                      <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono font-bold text-[11px] shrink-0">
+                        {item.price ? `${item.price.toLocaleString()} 💎` : (th ? 'ฟรี (0 💎)' : 'FREE')}
+                      </span>
+                      {/* Quantity */}
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono font-bold text-[11px] shrink-0">
+                        {item.quantity} {th ? 'ชิ้น' : 'pcs'}
+                      </span>
+                      {/* Min PL */}
+                      <span className={`px-2 py-0.5 rounded border font-mono font-bold text-[11px] shrink-0 ${
+                        item.minPowerLevel > 0
+                          ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
+                          : 'bg-slate-800/40 border-slate-800 text-slate-400'
+                      }`}>
+                        {item.minPowerLevel > 0 ? `⚡ ${item.minPowerLevel.toLocaleString()}+ PL` : (th ? 'ไม่จำกัด' : 'None')}
+                      </span>
+                      {/* Receipts count */}
+                      <span className="text-[10px] text-slate-500 shrink-0">
+                        {(item.receiptHistory || []).length} {th ? 'บิลส่งมอบ' : 'receipts'}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Inline Add Member Expander for Admin */}
-                {activeQueueIdForAdd === item.id && isAdminOrOwner && (
-                  <div className="p-2.5 bg-[#0a0e18] border-b border-slate-800 space-y-2 animate-in fade-in duration-150">
-                    <div className="text-[11px] text-amber-300 font-bold flex items-center gap-1">
-                      <UserCheck className="w-3.5 h-3.5 text-amber-400" />
-                      <span>{th ? 'เลือกสมาชิกลงคิว:' : 'Select Member:'}</span>
-                    </div>
-                    <select
-                      value={selectedMemberIdForQueue}
-                      onChange={(e) => setSelectedMemberIdForQueue(e.target.value)}
-                      className="w-full px-2 py-1.5 rounded-lg bg-[#111726] border border-amber-500/50 hover:border-amber-400 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none cursor-pointer"
-                    >
-                      <option value="">{th ? '-- คลิกเลือกชื่อสมาชิก --' : '-- Select member --'}</option>
-                      {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, members]) => (
-                        <optgroup key={clanName} label={`🛡️ ${cleanClanName(clanName)} (${members.length} ${th ? 'คน' : 'members'})`}>
-                          {members.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.inGameName} ({cleanClanName(m.clan)}) {m.powerLevel ? `• ⚡ ${m.powerLevel.toLocaleString()} PL` : ''}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-
-                    <div className="flex items-center justify-end gap-1.5 pt-0.5">
-                      <button
-                        type="button"
-                        disabled={!selectedMemberIdForQueue || busyItemId === item.id}
-                        onClick={() => handleAdminAddMember(item.id)}
-                        className="px-2.5 py-1 rounded bg-[#0284c7] hover:bg-[#0369a1] disabled:opacity-40 text-white text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>{th ? 'เพิ่มลงคิว' : 'Add'}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveQueueIdForAdd(null);
-                          setSelectedMemberIdForQueue('');
-                        }}
-                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] cursor-pointer"
-                      >
-                        {th ? 'ยกเลิก' : 'Cancel'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* 2. Badges Section: ราคาเพชร, จำนวน, พลังขั้นต่ำ (สะอาด เข้าใจง่าย ชัดเจน) */}
-                <div className="p-3 bg-[#0a0f1b] border-b border-slate-800/80 space-y-2">
-                  {/* Badges Row 1: ราคาเพชรที่ต้องจ่าย & จำนวนที่จะได้รับ */}
-                  <div className="grid grid-cols-2 gap-2">
-                    {/* ป้ายราคาเพชรที่ต้องจ่าย */}
-                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300">
-                      <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <div className="min-w-0">
-                        <span className="text-[9px] text-slate-400 block uppercase tracking-wider">{th ? 'ราคาเพชรที่ต้องจ่าย' : 'Price to Pay'}</span>
-                        <span className="text-xs font-mono font-bold truncate block">
-                          {item.price ? `${item.price.toLocaleString()} 💎` : (th ? 'ฟรี (0 💎)' : 'FREE')}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* ป้ายจำนวนที่จะได้รับ */}
-                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
-                      <Layers3 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <div className="min-w-0">
-                        <span className="text-[9px] text-slate-400 block uppercase tracking-wider">{th ? 'จำนวนที่จะได้รับ' : 'Qty to Receive'}</span>
-                        <span className="text-xs font-mono font-bold truncate block">
-                          {item.quantity} {th ? 'ชิ้น' : 'pcs'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* ป้ายพลังขั้นต่ำ */}
-                  <div className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs font-mono font-semibold ${
-                    item.minPowerLevel > 0
-                      ? 'bg-sky-500/10 border-sky-500/30 text-sky-300'
-                      : 'bg-slate-800/40 border-slate-800 text-slate-400'
-                  }`}>
-                    <div className="flex items-center gap-1.5">
-                      <Zap className={`w-3.5 h-3.5 shrink-0 ${item.minPowerLevel > 0 ? 'text-sky-400' : 'text-slate-500'}`} />
-                      <span className="text-[10px] text-slate-400 uppercase tracking-wider">{th ? 'พลังขั้นต่ำ:' : 'Min Power:'}</span>
-                    </div>
-                    <span className="font-bold">
-                      {item.minPowerLevel > 0 ? `⚡ ${item.minPowerLevel.toLocaleString()}+ PL` : (th ? 'ไม่จำกัดพลัง' : 'No limit')}
-                    </span>
-                  </div>
-
-                  {/* ป้ายจำนวนคนขอรับ + ปุ่มกดดูรายชื่อได้ */}
+                {/* Row 2: Requesters Button & Action Buttons */}
+                <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-slate-800/80 flex-wrap">
+                  {/* Requesters button */}
                   <button
                     type="button"
                     onClick={() => {
                       sounds.playClick();
                       setViewingRequestersItem(item);
                     }}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-gradient-to-r from-blue-950/50 to-indigo-950/50 hover:from-blue-900/70 hover:to-indigo-900/70 border border-blue-500/30 hover:border-blue-400/60 text-blue-200 transition-all cursor-pointer shadow-sm group"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 hover:border-blue-400 text-blue-200 transition-all cursor-pointer font-semibold text-xs shadow-sm group shrink-0"
+                    title={th ? 'คลิกเพื่อดูรายชื่อคนขอรับทั้งหมด' : 'Click to view all requesters'}
                   >
-                    <div className="flex items-center gap-2">
-                      <div className="p-1 rounded-md bg-blue-500/20 text-blue-400 group-hover:scale-105 transition-transform">
-                        <Users className="w-4 h-4" />
-                      </div>
-                      <div className="text-left">
-                        <span className="text-[10px] text-slate-400 block leading-tight">{th ? 'จำนวนคนขอรับ' : 'Requesters'}</span>
-                        <span className="text-xs font-mono font-bold text-blue-300">
-                          {pendingList.length} {th ? 'คนกำลังรอ' : 'waiting'}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 text-[11px] font-bold text-sky-300 group-hover:text-white bg-blue-500/20 px-2 py-1 rounded-lg border border-blue-400/30">
-                      <span>{th ? 'กดดูรายชื่อ' : 'View List'}</span>
-                      <Eye className="w-3.5 h-3.5" />
-                    </div>
+                    <Users className="w-3.5 h-3.5 text-blue-400 group-hover:scale-110 transition-transform shrink-0" />
+                    <span className="font-mono font-bold">{pendingList.length} {th ? 'คนรอคิว' : 'waiting'}</span>
+                    <span className="text-[10px] text-sky-400 underline ml-1">{th ? 'ดูรายชื่อ' : 'View'}</span>
                   </button>
-                </div>
 
-                {/* Progress Bar (Sent vs Total) */}
-                <div className="px-3 pt-2 pb-1 bg-[#090d16]">
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                    <span>{th ? 'สถานะการส่งมอบ' : 'Delivery Progress'}</span>
-                    <span className="font-mono font-bold text-slate-300">{percentProgress}%</span>
-                  </div>
-                  <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 rounded-full transition-all duration-300"
-                      style={{ width: `${percentProgress}%` }}
-                    />
-                  </div>
-                </div>
+                  {/* Actions Toolbar */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {isAdminOrOwner && (
+                      <button
+                        type="button"
+                        onClick={() => openDeliverModal(item)}
+                        className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                        title={th ? 'แจกไอเทม & บันทึก Log' : 'Distribute item & record log'}
+                      >
+                        <Gift className="w-3.5 h-3.5 text-amber-300" />
+                        <span>{th ? 'แจกไอเทม' : 'Distribute'}</span>
+                      </button>
+                    )}
 
-                {/* Compact Queue Preview (Top 2 Requesters) */}
-                <div className="p-2.5 space-y-1.5 bg-[#090d16]/60 flex-1">
-                  {pendingList.length === 0 ? (
-                    <div className="py-4 flex flex-col items-center justify-center text-slate-500 text-xs gap-1">
-                      <Users className="w-4 h-4 opacity-30 text-slate-400" />
-                      <span>{th ? 'ยังไม่มีสมาชิกขอรับ' : 'No requesters yet'}</span>
-                    </div>
-                  ) : (
-                    <>
-                      {pendingList.slice(0, 2).map((member, index) => {
-                        const isCurrentUserMember = currentUser && (member.userId === currentUser.id || member.name === currentUser.inGameName);
+                    <button
+                      type="button"
+                      disabled={!currentUser || busyItemId === item.id || (!meetsPowerReq && !isUserInQueue)}
+                      onClick={() => handleToggleQueue(item)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 ${
+                        isUserInQueue
+                          ? 'bg-amber-950/80 hover:bg-red-950 border border-amber-500/60 hover:border-red-600 text-amber-200 hover:text-red-200'
+                          : meetsPowerReq
+                          ? 'bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:brightness-110 text-slate-950 font-black shadow-amber-500/20 active:scale-95'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {busyItemId === item.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : isUserInQueue ? (
+                        <>
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{th ? `ขอรับแล้ว (#${userIndex !== -1 ? userIndex + 1 : 1})` : `Requested (#${userIndex !== -1 ? userIndex + 1 : 1})`}</span>
+                        </>
+                      ) : meetsPowerReq ? (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+                          <span>{th ? 'ขอรับไอเทม' : 'Request'}</span>
+                        </>
+                      ) : (
+                        <span>{th ? 'พลังไม่ถึง' : 'Low PL'}</span>
+                      )}
+                    </button>
 
-                        return (
-                          <div
-                            key={member.id}
-                            className={`flex items-center justify-between p-2 rounded-lg border text-xs transition-all shadow-sm ${
-                              isCurrentUserMember
-                                ? 'bg-amber-950/25 border-[#d4af37]/60'
-                                : 'bg-[#0e1422] border-slate-800 hover:border-slate-700'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span
-                                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono font-bold shrink-0 shadow-sm ${
-                                  index === 0
-                                    ? 'bg-gradient-to-r from-amber-400 to-yellow-600 text-slate-950 font-black'
-                                    : 'bg-slate-300 text-slate-950'
-                                }`}
-                              >
-                                {index + 1}
-                              </span>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`font-bold truncate text-[11px] ${isCurrentUserMember ? 'text-amber-200' : 'text-slate-100'}`}>
-                                    {member.name}
-                                  </span>
-                                  {member.clan && (
-                                    <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700 shrink-0">
-                                      {cleanClanName(member.clan)}
-                                    </span>
-                                  )}
-                                </div>
-                                {member.powerLevel ? (
-                                  <span className="text-[9.5px] font-mono text-sky-400 block">
-                                    ⚡ {member.powerLevel.toLocaleString()} PL
-                                  </span>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            {/* Deliver Button for Admin/Owner */}
-                            {isAdminOrOwner && (
-                              <button
-                                type="button"
-                                onClick={() => openDeliverModal(item, member)}
-                                className="px-2 py-1 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white text-[10px] font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1 shrink-0"
-                                title={th ? 'แจกไอเทมให้สมาชิกคนนี้ & บันทึก Log' : 'Distribute item to this member & record log'}
-                              >
-                                <Gift className="w-3 h-3 text-amber-300" />
-                                <span>{th ? 'แจกไอเทม' : 'Distribute'}</span>
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-
-                      {/* View More Requesters Link Button */}
-                      {pendingList.length > 2 && (
+                    {isAdminOrOwner && (
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => {
                             sounds.playClick();
-                            setViewingRequestersItem(item);
+                            setActiveQueueIdForAdd(activeQueueIdForAdd === item.id ? null : item.id);
                           }}
-                          className="w-full py-1 text-center text-[11px] font-bold text-sky-400 hover:text-sky-300 hover:underline cursor-pointer bg-[#0d1320] rounded-lg border border-slate-800/80 transition-colors"
+                          className={`p-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                            activeQueueIdForAdd === item.id
+                              ? 'bg-sky-500/20 border-sky-400/50 text-sky-300'
+                              : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                          }`}
+                          title={th ? 'เพิ่มสมาชิกลงคิวด้วยตนเอง' : 'Add member manually'}
                         >
-                          + {th ? `ดูคนขอรับอีก ${pendingList.length - 2} คน (คลิกดูรายชื่อ)` : `View ${pendingList.length - 2} more requesters (Click)`}
+                          <UserPlus className="w-3.5 h-3.5 text-[#38bdf8]" />
                         </button>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                {/* Receipt History Accordion */}
-                {(item.receiptHistory || []).length > 0 && (
-                  <div className="border-t border-slate-800/80 bg-[#0a0f1a] p-2.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpandedReceipts((prev) => ({
-                          ...prev,
-                          [item.id]: !prev[item.id]
-                        }))
-                      }
-                      className="w-full flex items-center justify-between text-xs font-semibold text-cyan-400 hover:text-cyan-300 cursor-pointer"
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <History className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>{th ? 'ประวัติผู้ได้รับ' : 'Delivery History'} ({(item.receiptHistory || []).length})</span>
-                      </span>
-                      {expandedReceipts[item.id] ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </button>
-
-                    {expandedReceipts[item.id] && (
-                      <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar pt-1">
-                        {(item.receiptHistory || [])
-                          .slice()
-                          .reverse()
-                          .map((r) => (
-                            <div key={r.id} className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px] space-y-1">
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold text-white">
-                                  {r.name} <span className="text-emerald-400 font-mono">x{r.quantity} {th ? 'ชิ้น' : 'pcs'}</span>
-                                </span>
-                                <span className="text-[9.5px] text-slate-500 font-mono">
-                                  {new Date(r.deliveredAt).toLocaleDateString(th ? 'th-TH' : 'en-US')}
-                                </span>
-                              </div>
-                              {r.note && <p className="text-slate-400 text-[10px] italic">"{r.note}"</p>}
-                              <div className="flex items-center justify-between pt-1">
-                                <div className="flex items-center gap-2">
-                                  {(r.receiptImages || []).map((url, i) => (
-                                    <button
-                                      key={i}
-                                      type="button"
-                                      onClick={() => {
-                                        if (onViewImageZoom) onViewImageZoom(url, `${r.name} - ${th ? 'บิลส่งมอบ' : 'Receipt'}`);
-                                      }}
-                                      className="text-emerald-300 hover:underline flex items-center gap-0.5 text-[10px] font-bold"
-                                    >
-                                      <ReceiptText className="w-3 h-3" />
-                                      <span>{th ? 'ดูบิล' : 'View bill'}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                                {isAdminOrOwner && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setEditingReceiptData({
-                                        item,
-                                        receipt: r,
-                                        note: r.note || '',
-                                        newReceiptFile: null,
-                                        newReceiptPreview: (r.receiptImages && r.receiptImages[0]) || ''
-                                      })
-                                    }
-                                    className="text-amber-300 hover:text-amber-200 text-[10px] font-bold hover:underline cursor-pointer"
-                                  >
-                                    {th ? 'แก้ไขบิล' : 'Edit bill'}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
+                        <button
+                          type="button"
+                          onClick={() => openEditForm(item)}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 cursor-pointer"
+                          title={th ? 'แก้ไข' : 'Edit'}
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setItemToDelete(item)}
+                          className="p-1.5 rounded-lg bg-red-950/60 hover:bg-red-800 text-red-300 cursor-pointer"
+                          title={th ? 'ลบ' : 'Delete'}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     )}
                   </div>
-                )}
-
-                {/* Card Footer: Action Buttons */}
-                <div className="p-3 bg-[#0d1320] border-t border-slate-800 space-y-2">
-                  {/* Admin / Owner Prominent Distribute Item Button */}
-                  {isAdminOrOwner && (
-                    <button
-                      type="button"
-                      onClick={() => openDeliverModal(item)}
-                      className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:brightness-110 text-white font-bold text-xs shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
-                    >
-                      <Gift className="w-4 h-4 text-amber-300" />
-                      <span>{th ? '🎁 แจกไอเทม (บันทึก Log)' : '🎁 Distribute Item (Record Log)'}</span>
-                    </button>
-                  )}
-
-                  {/* Member Request Item Button (ปุ่มขอรับ) */}
-                  <button
-                    type="button"
-                    disabled={!currentUser || busyItemId === item.id || (!meetsPowerReq && !isUserInQueue)}
-                    onClick={() => handleToggleQueue(item)}
-                    className={`w-full py-2.5 rounded-xl font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
-                      isUserInQueue
-                        ? 'bg-amber-950/80 hover:bg-red-950 border border-amber-500/60 hover:border-red-600 text-amber-200 hover:text-red-200 shadow-amber-950/30'
-                        : meetsPowerReq
-                        ? 'bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:brightness-110 text-slate-950 font-black shadow-amber-500/25 active:scale-95'
-                        : 'bg-slate-800/80 border border-slate-700 text-slate-400'
-                    }`}
-                  >
-                    {busyItemId === item.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-white" />
-                    ) : !currentUser ? (
-                      <>
-                        <ShieldCheck className="w-4 h-4 text-slate-400" />
-                        <span>{th ? 'เข้าสู่ระบบเพื่อขอรับ' : 'Sign in to Request'}</span>
-                      </>
-                    ) : isUserInQueue ? (
-                      <>
-                        <CheckCircle className="w-4 h-4 text-emerald-400" />
-                        <span>
-                          {th
-                            ? `✓ ขอรับแล้ว (คิวที่ #${userIndex !== -1 ? userIndex + 1 : 1}) — คลิกเพื่อยกเลิก`
-                            : `✓ Requested (Queue #${userIndex !== -1 ? userIndex + 1 : 1}) — Click to Cancel`}
-                        </span>
-                      </>
-                    ) : meetsPowerReq ? (
-                      <>
-                        <Sparkles className="w-4 h-4 text-slate-950" />
-                        <span>{th ? '✋ ลงชื่อขอรับไอเทม' : '✋ Request Item'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle className="w-4 h-4 text-rose-400" />
-                        <span>
-                          {th
-                            ? `🔒 พลังไม่ถึงขั้นต่ำ (${item.minPowerLevel.toLocaleString()} PL)`
-                            : `🔒 Min Power Required: ${item.minPowerLevel.toLocaleString()} PL`}
-                        </span>
-                      </>
-                    )}
-                  </button>
                 </div>
+
+                {/* In-line Add Member form if activeQueueIdForAdd === item.id */}
+                {activeQueueIdForAdd === item.id && isAdminOrOwner && (
+                  <div className="pt-2 border-t border-slate-800/80 mt-1">
+                    <div className="p-2.5 rounded-xl bg-[#090d16] border border-sky-500/30 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-sky-300 flex items-center gap-1">
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>{th ? 'เพิ่มสมาชิกเข้าคิวนี้' : 'Add Member to Queue'}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setActiveQueueIdForAdd(null)}
+                          className="text-slate-400 hover:text-white text-xs"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <select
+                          value={selectedMemberIdForQueue}
+                          onChange={(e) => setSelectedMemberIdForQueue(e.target.value)}
+                          className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                        >
+                          <option value="">{th ? '-- เลือกสมาชิก --' : '-- Select Member --'}</option>
+                          {allMembers
+                            .filter((m) => m.status === 'active')
+                            .map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.inGameName || m.username} ({cleanClanName(m.clan) || 'VoltZ'})
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          type="button"
+                          disabled={!selectedMemberIdForQueue}
+                          onClick={() => handleAdminAddMember(item.id)}
+                          className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+                        >
+                          {th ? 'เพิ่ม' : 'Add'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
