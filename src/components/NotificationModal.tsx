@@ -53,7 +53,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   onNavigateTab,
   onViewImageZoom
 }) => {
-  const [filterType, setFilterType] = useState<'all' | 'claim' | 'stat_request' | 'member_registration'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'claim' | 'stat_request'>('all');
   const t = translations[lang];
 
   if (!isOpen) return null;
@@ -193,24 +193,6 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               <Zap className="w-3 h-3 text-purple-400" />
               <span>{lang === 'th' ? 'สเตตัส' : 'Stats'}</span>
             </button>
-
-            {notifications.some((n) => n.type === 'member_registration') && (
-              <button
-                type="button"
-                onClick={() => {
-                  sounds.playClick();
-                  setFilterType('member_registration');
-                }}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
-                  filterType === 'member_registration'
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm'
-                    : 'bg-slate-900/60 text-slate-400 border-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <Users className="w-3 h-3 text-emerald-400" />
-                <span>{lang === 'th' ? 'สมาชิกใหม่' : 'Members'}</span>
-              </button>
-            )}
           </div>
 
           {notifications.length > 0 && (
@@ -285,10 +267,6 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                           className="w-full h-full object-cover"
                         />
                       </button>
-                    ) : notif.type === 'member_registration' ? (
-                      <div className="w-14 h-14 rounded-xl bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0 shadow-sm">
-                        <Users className="w-6 h-6" />
-                      </div>
                     ) : (
                       <div className="w-14 h-14 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
                         <Zap className="w-5 h-5" />
@@ -387,7 +365,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                       </>
                     ) : null}
 
-                    {notif.type === 'member_registration' && onNavigateTab ? (
+                    {!isClaim && onNavigateTab && (
                       <button
                         type="button"
                         onClick={() => {
@@ -395,25 +373,12 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                           onNavigateTab('all_members');
                           onClose();
                         }}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center gap-1 shadow cursor-pointer active:scale-95 shrink-0"
-                      >
-                        <Users className="w-3 h-3" />
-                        <span>{t.goToApproveMember}</span>
-                      </button>
-                    ) : !isClaim && onNavigateTab ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          sounds.playClick();
-                          onNavigateTab('all_members');
-                          onClose();
-                        }}
-                        className="px-2.5 py-1 rounded-lg btn-l2m-gold text-slate-950 text-xs font-bold transition-all flex items-center gap-1 shadow cursor-pointer active:scale-95 shrink-0"
+                        className="px-2.5 py-1 rounded-lg btn-l2m-gold text-slate-950 text-xs font-bold transition-all flex items-center gap-1 shadow cursor-pointer active:scale-95"
                       >
                         <Zap className="w-3 h-3" />
                         <span>{lang === 'th' ? 'ตรวจสเตตัส' : 'Review Stats'}</span>
                       </button>
-                    ) : null}
+                    )}
 
                     {onDeleteNotification && (
                       <button

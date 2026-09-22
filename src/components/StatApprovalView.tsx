@@ -15,12 +15,9 @@ import {
   Columns,
   Sparkles,
   ZoomIn,
-  Loader2,
-  Lock,
-  Unlock
+  Loader2
 } from 'lucide-react';
-import { User, OFFICIAL_CLASSES, ActiveTab, StatUpdateSettings } from '../types';
-import { translations } from '../translations';
+import { User, OFFICIAL_CLASSES, ActiveTab } from '../types';
 import { sounds } from '../utils/sound';
 import { ScreenshotGuideModal } from './ScreenshotGuideModal';
 import { StatComparisonModal } from './StatComparisonModal';
@@ -29,9 +26,6 @@ import { getFormulaSettings } from '../services/powerFormulaService';
 interface StatApprovalViewProps {
   pendingUsers: User[];
   lang: 'th' | 'en';
-  currentUser?: User | null;
-  statUpdateSettings?: StatUpdateSettings;
-  onToggleStatUpdates?: (allow: boolean) => Promise<void>;
   onApproveStatUpdate: (userId: string) => Promise<void>;
   onRejectStatUpdate: (userId: string, reason: string) => Promise<void>;
   onNavigateTab?: (tab: ActiveTab) => void;
@@ -59,17 +53,12 @@ const QUICK_REJECTION_REASONS: Record<'th' | 'en', string[]> = {
 export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
   pendingUsers,
   lang,
-  currentUser,
-  statUpdateSettings,
-  onToggleStatUpdates,
   onApproveStatUpdate,
   onRejectStatUpdate,
   onNavigateTab,
   onViewImageZoom,
   showToast
 }) => {
-  const t = translations[lang];
-  const isOwner = currentUser?.role === 'owner';
   const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -188,61 +177,6 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
           </button>
         </div>
       </div>
-
-      {/* Owner Monthly Stat Updates Lock / Unlock Switch Card */}
-      {isOwner ? (
-        <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-[#0e1628] via-[#0b1220] to-[#070d18] border border-[#d4af37]/40 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className={`p-3 rounded-xl border ${statUpdateSettings?.allowMemberUpdates ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-400' : 'bg-red-950/60 border-red-500/50 text-red-400'}`}>
-              {statUpdateSettings?.allowMemberUpdates ? <Unlock className="w-6 h-6" /> : <Lock className="w-6 h-6" />}
-            </div>
-            <div>
-              <div className="flex items-center gap-2.5">
-                <span className="text-sm sm:text-base font-bold text-slate-100">{t.statUpdateLockStatus}</span>
-                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border uppercase tracking-wider ${statUpdateSettings?.allowMemberUpdates ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' : 'bg-red-500/20 text-red-300 border-red-500/50'}`}>
-                  {statUpdateSettings?.allowMemberUpdates ? t.statusUnlockedBadge : t.statusLockedBadge}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-1">
-                {statUpdateSettings?.allowMemberUpdates ? t.statUpdateUnlocked : t.statUpdateLocked}
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            id="btn-toggle-stat-updates"
-            onClick={() => {
-              sounds.playClick();
-              onToggleStatUpdates?.(!statUpdateSettings?.allowMemberUpdates);
-            }}
-            className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-lg cursor-pointer shrink-0 ${
-              statUpdateSettings?.allowMemberUpdates
-                ? 'bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white shadow-red-950/40'
-                : 'bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white shadow-emerald-950/40'
-            }`}
-          >
-            {statUpdateSettings?.allowMemberUpdates ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-            <span>
-              {statUpdateSettings?.allowMemberUpdates
-                ? (lang === 'th' ? '🔒 สั่งปิดรับอัปเดตสเตตัส' : '🔒 Lock Member Updates')
-                : (lang === 'th' ? '🔓 สั่งเปิดรับอัปเดตสเตตัส' : '🔓 Unlock Member Updates')}
-            </span>
-          </button>
-        </div>
-      ) : (
-        <div className="p-3.5 rounded-xl bg-[#0a101d] border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-slate-300 font-semibold">{t.statUpdateLockStatus}:</span>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statUpdateSettings?.allowMemberUpdates ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' : 'bg-red-500/20 text-red-300 border-red-500/50'}`}>
-              {statUpdateSettings?.allowMemberUpdates ? t.statusUnlockedBadge : t.statusLockedBadge}
-            </span>
-          </div>
-          <span className="text-slate-400 text-[11px]">
-            {statUpdateSettings?.allowMemberUpdates ? t.statUpdateUnlocked : t.statUpdateLocked}
-          </span>
-        </div>
-      )}
 
       {/* Main List Body */}
       {pendingUsers.length === 0 ? (

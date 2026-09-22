@@ -192,17 +192,6 @@ export interface DistributedInfo {
   paidBy?: string;
 }
 
-export interface DirectDistributionPayload {
-  recipient: {
-    name: string;
-    inGameName?: string;
-    clan: string;
-    userId?: string;
-  };
-  receiptImages?: string[];
-  paymentStatus: 'pending' | 'paid';
-}
-
 export interface VaultItem {
   id: string;
   name: string;
@@ -438,7 +427,6 @@ export type DiscordMessageTemplate = 'neon_glow' | 'war_horn' | 'clan_market' | 
 
 export interface DiscordSettings {
   webhookUrl: string;
-  distributeWebhookUrl?: string;
   appBaseUrl?: string;
   enabled: boolean;
   notifyOnNewItem: boolean;
@@ -454,7 +442,7 @@ export interface DiscordSettings {
 
 export interface AppNotification {
   id: string;
-  type: 'claim' | 'stat_request' | 'member_registration';
+  type: 'claim' | 'stat_request';
   title: string;
   description: string;
   timestamp: number;
@@ -464,20 +452,6 @@ export interface AppNotification {
   claimant?: Claimant;
   user?: User;
 }
-
-export interface StatUpdateSettings {
-  allowMemberUpdates: boolean;
-  lockedMessageTh?: string;
-  lockedMessageEn?: string;
-  updatedBy?: string;
-  updatedAt?: number;
-}
-
-export const DEFAULT_STAT_UPDATE_SETTINGS: StatUpdateSettings = {
-  allowMemberUpdates: true,
-  updatedBy: 'Owner',
-  updatedAt: Date.now()
-};
 
 // ─────────────────────────────────────────────────────────────
 // Power Formula & Dynamic Stat Engine Types

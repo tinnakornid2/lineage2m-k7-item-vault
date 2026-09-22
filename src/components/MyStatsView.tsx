@@ -22,12 +22,9 @@ import {
   Eye,
   Maximize2,
   ExternalLink,
-  KeyRound,
-  Lock,
-  Unlock
+  KeyRound
 } from 'lucide-react';
-import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint, StatUpdateSettings } from '../types';
-import { translations } from '../translations';
+import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint } from '../types';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
@@ -37,7 +34,6 @@ import { GrowthTimelineChart } from './GrowthTimelineChart';
 interface MyStatsViewProps {
   currentUser: User | null;
   lang: 'th' | 'en';
-  statUpdateSettings?: StatUpdateSettings;
   onUpdateMember?: (userId: string, updates: Partial<User>) => Promise<void>;
   onRequestStatUpdate: (
     userId: string,
@@ -64,7 +60,6 @@ interface MyStatsViewProps {
 export const MyStatsView: React.FC<MyStatsViewProps> = ({
   currentUser,
   lang,
-  statUpdateSettings,
   onUpdateMember,
   onRequestStatUpdate,
   onCancelPendingRequest,
@@ -74,16 +69,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   onSaveHistory,
   onOpenChangePassword
 }) => {
-  const t = translations[lang];
-  const isOwner = currentUser?.role === 'owner';
-  const isAdmin = currentUser?.role === 'admin';
-  const isStatLocked = Boolean(
-    statUpdateSettings &&
-    !statUpdateSettings.allowMemberUpdates &&
-    !isOwner &&
-    !isAdmin
-  );
-
   const [formulaSettings, setFormulaSettings] = useState<FormulaSettings>(getFormulaSettings());
 
   useEffect(() => {
@@ -317,12 +302,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
-
-    if (isStatLocked) {
-      setErrorMessage(t.statUpdateLockedNotice);
-      showToast?.(t.statUpdateLockedNotice, 'warning');
-      return;
-    }
 
     // Determine effective Power Level: calculate from entered stats or retain existing verified PL
     const finalPL = calculatedNewPL > 0 ? calculatedNewPL : (currentUser.powerLevel || 0);
@@ -569,43 +548,18 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
           <button
             type="submit"
             form="mystats-form"
-            disabled={isSubmitting || isStatLocked}
-            title={isStatLocked ? t.statUpdateLockedBtnDesc : undefined}
+            disabled={isSubmitting}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs tracking-wide shadow-md shadow-amber-500/20 transition active:scale-98 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-1.5 cursor-pointer"
           >
             {isSubmitting ? (
               <RotateCcw className="size-3.5 animate-spin" />
-            ) : isStatLocked ? (
-              <Lock className="size-3.5 fill-slate-950" />
             ) : (
               <Zap className="size-3.5 fill-slate-950" />
             )}
-            <span>
-              {isStatLocked
-                ? t.statusLockedBadge
-                : (lang === 'th' ? 'บันทึก (Save)' : 'Save Changes')}
-            </span>
+            <span>{lang === 'th' ? 'บันทึก (Save)' : 'Save Changes'}</span>
           </button>
         </div>
       </div>
-
-      {/* Monthly Stat Updates Locked by Owner Banner */}
-      {isStatLocked && (
-        <div className="p-3.5 rounded-xl bg-red-950/60 border border-red-500/60 text-xs flex items-center gap-3 text-red-200 shadow-md">
-          <Lock className="size-5 text-red-400 shrink-0" />
-          <div className="space-y-0.5">
-            <div className="font-bold text-red-300 flex items-center gap-2">
-              <span>{lang === 'th' ? 'ระบบปิดรับการอัปเดตสเตตัสประจำเดือน' : 'Monthly Stat Updates Locked'}</span>
-              <span className="text-[10px] px-2 py-0.2 rounded bg-red-900 text-red-200 border border-red-700 font-mono">
-                {t.statusLockedBadge}
-              </span>
-            </div>
-            <p className="text-[11px] text-red-300/80">
-              {t.statUpdateLockedNotice}
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* Admin Rejection Alert Banner */}
       {isRejected && (
@@ -1435,19 +1389,13 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || isStatLocked}
-                  title={isStatLocked ? t.statUpdateLockedBtnDesc : undefined}
+                  disabled={isSubmitting}
                   className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-amber-500/25 transition active:scale-98 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-2 ml-auto cursor-pointer"
                 >
                   {isSubmitting ? (
                     <>
                       <RotateCcw className="size-4 animate-spin" />
                       <span>{lang === 'th' ? 'กำลังส่งข้อมูล...' : 'Saving Changes...'}</span>
-                    </>
-                  ) : isStatLocked ? (
-                    <>
-                      <Lock className="size-4 fill-slate-950" />
-                      <span>{t.statUpdateLockedBtnDesc}</span>
                     </>
                   ) : (
                     <>

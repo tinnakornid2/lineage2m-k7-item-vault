@@ -44,15 +44,13 @@ import {
   AnnouncementSettings,
   QueueAnnouncementSettings,
   DiscordSettings,
-  StatUpdateSettings,
-  DEFAULT_STAT_UPDATE_SETTINGS,
   FormulaSettings,
   cleanClanName,
   DEFAULT_CLAN,
   isItemDistributed,
   normalizeDistributedItem
 } from '../types';
-// Production data comes primarily from Firebase Firestore with Google Sheets & Live Relay dual-write resilience (v2.10.0)
+// Production data comes primarily from Firebase Firestore with Google Sheets & Live Relay dual-write resilience (v2.8.17)
 const REAL_BACKUP_MEMBERS: User[] = [];
 const REAL_BACKUP_CLANS: ClanGroup[] = [];
 const REAL_BACKUP_QUEUES: QueueItem[] = [];
@@ -168,7 +166,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.0-direct-distribute-stat-lock';
+const CACHE_SCHEMA_VERSION = '2.8.17-streamlined-ui';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -2154,7 +2152,6 @@ export async function saveQueueAnnouncementSettingsDoc(settings: QueueAnnounceme
 // 9. Discord Webhook Integration Settings
 export const DEFAULT_DISCORD_SETTINGS: DiscordSettings = {
   webhookUrl: '',
-  distributeWebhookUrl: '',
   enabled: false,
   notifyOnNewItem: true,
   notifyOnDistribute: true,
@@ -2177,10 +2174,6 @@ export function getCachedDiscordSettings(): DiscordSettings {
       if (localWebhook && !cached.webhookUrl) {
         cached.webhookUrl = localWebhook;
       }
-      const localDistWebhook = localStorage.getItem('vault_discord_distribute_webhook_url') || '';
-      if (localDistWebhook && !cached.distributeWebhookUrl) {
-        cached.distributeWebhookUrl = localDistWebhook;
-      }
     } catch {}
   }
   return cached;
@@ -2197,33 +2190,24 @@ export function listenToDiscordSettings(
     ref,
     (docSnap) => {
       let localWebhook = '';
-      let localDistWebhook = '';
       if (typeof window !== 'undefined') {
         try {
           localWebhook = localStorage.getItem('vault_discord_webhook_url') || '';
-          localDistWebhook = localStorage.getItem('vault_discord_distribute_webhook_url') || '';
         } catch {}
       }
 
       if (docSnap.exists()) {
         const data = docSnap.data() as DiscordSettings;
         const effectiveWebhook = (data.webhookUrl && data.webhookUrl.trim()) || localWebhook;
-        const effectiveDistWebhook = (data.distributeWebhookUrl && data.distributeWebhookUrl.trim()) || localDistWebhook;
         if (effectiveWebhook && typeof window !== 'undefined') {
           try {
             localStorage.setItem('vault_discord_webhook_url', effectiveWebhook);
           } catch {}
         }
-        if (effectiveDistWebhook && typeof window !== 'undefined') {
-          try {
-            localStorage.setItem('vault_discord_distribute_webhook_url', effectiveDistWebhook);
-          } catch {}
-        }
         const full: DiscordSettings = {
           ...DEFAULT_DISCORD_SETTINGS,
           ...data,
-          webhookUrl: effectiveWebhook,
-          distributeWebhookUrl: effectiveDistWebhook
+          webhookUrl: effectiveWebhook
         };
         try {
           if (typeof window !== 'undefined') {
@@ -2245,89 +2229,24 @@ export function listenToDiscordSettings(
 
 export async function saveDiscordSettingsDoc(settings: DiscordSettings) {
   const targetWebhook = typeof settings.webhookUrl === 'string' ? settings.webhookUrl.trim() : '';
-  const targetDistWebhook = typeof settings.distributeWebhookUrl === 'string' ? settings.distributeWebhookUrl.trim() : '';
   if (typeof window !== 'undefined') {
     try {
       if (targetWebhook) {
         localStorage.setItem('vault_discord_webhook_url', targetWebhook);
       }
-      if (targetDistWebhook) {
-        localStorage.setItem('vault_discord_distribute_webhook_url', targetDistWebhook);
-      } else {
-        localStorage.removeItem('vault_discord_distribute_webhook_url');
-      }
       localStorage.setItem('vault_discord_settings', JSON.stringify({
         ...settings,
-        webhookUrl: targetWebhook,
-        distributeWebhookUrl: targetDistWebhook
+        webhookUrl: targetWebhook
       }));
     } catch {}
   }
   const cleanData = sanitizeForFirestore({
     ...settings,
     webhookUrl: targetWebhook,
-    distributeWebhookUrl: targetDistWebhook,
     updatedAt: Date.now()
   });
   const ref = doc(db, APP_SETTINGS_COLLECTION, 'discord');
   await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveDiscordSettingsDoc');
-}
-
-// 9f. Monthly Stat Update Window Settings (Owner-controlled lock/unlock)
-export function getCachedStatUpdateSettings(): StatUpdateSettings {
-  if (typeof window === 'undefined') return DEFAULT_STAT_UPDATE_SETTINGS;
-  try {
-    const raw = localStorage.getItem('l2m_stat_update_settings');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return {
-        ...DEFAULT_STAT_UPDATE_SETTINGS,
-        ...parsed
-      };
-    }
-  } catch {}
-  return DEFAULT_STAT_UPDATE_SETTINGS;
-}
-
-export function listenToStatUpdateSettings(callback: (settings: StatUpdateSettings) => void): () => void {
-  const ref = doc(db, APP_SETTINGS_COLLECTION, 'stat_updates');
-  return onSnapshot(
-    ref,
-    (snap) => {
-      if (snap.exists()) {
-        const data = snap.data() as Partial<StatUpdateSettings>;
-        const full: StatUpdateSettings = {
-          ...DEFAULT_STAT_UPDATE_SETTINGS,
-          ...data
-        };
-        try {
-          localStorage.setItem('l2m_stat_update_settings', JSON.stringify(full));
-        } catch {}
-        callback(full);
-      } else {
-        callback(getCachedStatUpdateSettings());
-      }
-    },
-    (err) => {
-      console.warn('Firestore stat update settings sync notice:', err);
-      notifyQuotaExceeded(err);
-      callback(getCachedStatUpdateSettings());
-    }
-  );
-}
-
-export async function saveStatUpdateSettingsDoc(settings: StatUpdateSettings) {
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem('l2m_stat_update_settings', JSON.stringify(settings));
-    } catch {}
-  }
-  const cleanData = sanitizeForFirestore({
-    ...settings,
-    updatedAt: Date.now()
-  });
-  const ref = doc(db, APP_SETTINGS_COLLECTION, 'stat_updates');
-  await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveStatUpdateSettingsDoc');
 }
 
 // 10. Guild Character Classes (Dynamic Management for Owner)

@@ -195,7 +195,6 @@ export async function sendDiscordNotification(
     actorName?: string;
     lang?: Language;
     webhookUrl?: string;
-    targetChannel?: 'new_item' | 'distribute';
     template?: DiscordMessageTemplate;
     customNote?: string;
   }
@@ -205,25 +204,9 @@ export async function sendDiscordNotification(
   const template = data?.template || settings.messageTemplate || 'neon_glow';
 
   const localWebhook = typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '';
-  const localDistWebhook = typeof window !== 'undefined' ? localStorage.getItem('vault_discord_distribute_webhook_url') || '' : '';
+  const effectiveWebhook = data?.webhookUrl?.trim() || settings.webhookUrl?.trim() || localWebhook;
 
-  // Determine effective Webhook URL based on event/target channel
-  const isDistributeChannel = event === 'distribute' || data?.targetChannel === 'distribute';
-  const effectiveWebhook = isDistributeChannel
-    ? (data?.webhookUrl?.trim() || settings.distributeWebhookUrl?.trim() || localDistWebhook)
-    : (data?.webhookUrl?.trim() || settings.webhookUrl?.trim() || localWebhook);
-
-  // If distribution channel has no webhook configured, strictly DO NOT send to any other channel
-  if (isDistributeChannel && !effectiveWebhook) {
-    return {
-      success: false,
-      message: th
-        ? 'ยังไม่ได้ตั้งค่า Webhook สำหรับห้องแจกไอเทม (ระบบจะไม่ส่งเข้าห้องอื่น)'
-        : 'Distribution Webhook is not configured (will not send to other channels)'
-    };
-  }
-
-  if (!settings.enabled && !data?.webhookUrl && !localWebhook && !localDistWebhook) {
+  if (!settings.enabled && !data?.webhookUrl && !localWebhook) {
     return { success: false, message: th ? 'ปิดการใช้งาน Discord Webhook อยู่' : 'Discord Webhook is disabled' };
   }
 
@@ -258,28 +241,22 @@ export async function sendDiscordNotification(
 
     const origin = typeof window !== 'undefined' && window.location ? window.location.origin : '';
     const baseWebUrl = (settings.appBaseUrl || origin || '').replace(/\/$/, '');
-    const channelLabelEn = isDistributeChannel ? 'Item Distribution Channel' : 'New Items Channel';
     const sampleDesc = buildTemplateDescription(
       template,
       testItem,
       baseWebUrl,
-      `Testing ${channelLabelEn} (${templateMeta.name.en})`
+      `Testing Connection (${templateMeta.name.en})`
     );
 
     payload = {
       username: settings.botName || 'Lineage 2M Clan Hub',
       embeds: [
         {
-          title: `🔔 Discord Webhook Test: ${channelLabelEn}!`,
+          title: '🔔 Discord Webhook Test Successful!',
           description: sampleDesc,
-          color: isDistributeChannel ? 0xa855f7 : 0x10b981, // Purple for Distribute, Emerald for New Item
+          color: 0x10b981, // Emerald Green
           thumbnail: { url: 'attachment://item.jpg' },
           fields: [
-            {
-              name: '🎯 Target Channel',
-              value: `**${channelLabelEn}**`,
-              inline: true
-            },
             {
               name: '🎨 Active Template',
               value: `**${templateMeta.name.en}**`,
@@ -297,7 +274,7 @@ export async function sendDiscordNotification(
             }
           ],
           footer: {
-            text: `Lineage 2M Clan Hub • ${channelLabelEn} Test`
+            text: 'Lineage 2M Clan Hub • Connection Test'
           },
           timestamp: new Date().toISOString()
         }
@@ -472,8 +449,7 @@ export async function sendDiscordNotification(
         payload,
         imageBase64: attachedImageBase64 || undefined,
         attachTo: attachedImageBase64 ? attachTo : undefined,
-        webhookUrl: candidateWebhookUrl || undefined,
-        targetChannel: isDistributeChannel ? 'distribute' : 'new_item'
+        webhookUrl: candidateWebhookUrl || undefined
       })
     });
 
@@ -482,10 +458,6 @@ export async function sendDiscordNotification(
     try {
       result = JSON.parse(resText);
     } catch {}
-
-    if (result?.dropped) {
-      return { success: false, message: result?.message || (th ? 'ข้ามการส่งแจ้งเตือน' : 'Notification skipped') };
-    }
 
     if (res.ok && result?.success) {
       return { success: true };

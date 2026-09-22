@@ -29,10 +29,7 @@ import {
   DiscordMessageTemplate,
   DiscordMentionType,
   isItemDistributed,
-  normalizeDistributedItem,
-  DirectDistributionPayload,
-  StatUpdateSettings,
-  DEFAULT_STAT_UPDATE_SETTINGS
+  normalizeDistributedItem
 } from './types';
 import { getOrGenerateStatHistory } from './utils/growthTimelineHelper';
 import { translations } from './translations';
@@ -57,9 +54,6 @@ import {
   saveDiscordSettingsDoc,
   getCachedDiscordSettings,
   DEFAULT_DISCORD_SETTINGS,
-  listenToStatUpdateSettings,
-  saveStatUpdateSettingsDoc,
-  getCachedStatUpdateSettings,
   addVaultItemDoc,
   updateVaultItemDoc,
   deleteVaultItemDoc,
@@ -421,7 +415,6 @@ export const App: React.FC = () => {
   const [announcementSettings, setAnnouncementSettings] = useState<AnnouncementSettings | null>(null);
   const [queueAnnouncement, setQueueAnnouncement] = useState<QueueAnnouncementSettings | null>(null);
   const [discordSettings, setDiscordSettings] = useState<DiscordSettings | null>(null);
-  const [statUpdateSettings, setStatUpdateSettings] = useState<StatUpdateSettings>(() => getCachedStatUpdateSettings());
   const [distributeTargetItem, setDistributeTargetItem] = useState<VaultItem | null>(null);
   const [distributeClaimantId, setDistributeClaimantId] = useState<string | undefined>(undefined);
   const [claimantsTargetItem, setClaimantsTargetItem] = useState<VaultItem | null>(null);
@@ -769,33 +762,9 @@ export const App: React.FC = () => {
       });
     });
 
-    // 4. Pending member registration requests (for Admin & Owner)
-    if (currentUser?.role === 'admin' || currentUser?.role === 'owner') {
-      users.forEach((u) => {
-        if (u.status === 'pending') {
-          const notifId = `reg_pending_${u.id}_${u.createdAt || 0}`;
-          if (dismissedNotificationIds.includes(notifId)) return;
-          const th = lang === 'th';
-          list.push({
-            id: notifId,
-            type: 'member_registration',
-            title: th
-              ? `👤 สมาชิกสมัครใหม่: ${u.inGameName || u.username} (${cleanClanName(u.clan) || 'Alliance'})`
-              : `👤 New Member Registration: ${u.inGameName || u.username} (${cleanClanName(u.clan) || 'Alliance'})`,
-            description: th
-              ? `ชื่อในเกม: ${u.inGameName || u.username} • แคลน: ${cleanClanName(u.clan) || '-'} • รอ Admin/Owner ตรวจสอบและอนุมัติเข้าใช้งาน`
-              : `IGN: ${u.inGameName || u.username} • Clan: ${cleanClanName(u.clan) || '-'} • Awaiting Admin/Owner approval`,
-            timestamp: u.createdAt || Date.now(),
-            read: readNotificationIds.includes(notifId),
-            user: u
-          });
-        }
-      });
-    }
-
     // Sort newest first
     return list.sort((a, b) => b.timestamp - a.timestamp);
-  }, [vaultItems, generalItems, users, lang, readNotificationIds, dismissedNotificationIds, currentUser]);
+  }, [vaultItems, generalItems, users, lang, readNotificationIds, dismissedNotificationIds]);
 
   const unreadNotificationCount = useMemo(() => {
     return notifications.filter((n) => !n.read).length;
@@ -893,49 +862,6 @@ export const App: React.FC = () => {
 
     previousClaimKeysRef.current = currentClaimKeys;
   }, [vaultItems, generalItems, currentUser, lang]);
-
-  // Real-time detection of new member registrations to alert Admin & Owner
-  const previousPendingUserIdsRef = useRef<Set<string> | null>(null);
-  const hasInitializedPendingUsersRef = useRef(false);
-
-  useEffect(() => {
-    const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
-    if (!isPrivileged) return;
-
-    const currentPendingUsers = users.filter((u) => u.status === 'pending');
-    const currentPendingIds = new Set(currentPendingUsers.map((u) => u.id));
-
-    // Initial load: record existing pending users without playing chime or showing toast
-    if (!hasInitializedPendingUsersRef.current) {
-      if (users.length > 0) {
-        previousPendingUserIdsRef.current = currentPendingIds;
-        hasInitializedPendingUsersRef.current = true;
-      }
-      return;
-    }
-
-    if (previousPendingUserIdsRef.current === null) {
-      previousPendingUserIdsRef.current = currentPendingIds;
-      return;
-    }
-
-    const newlyRegistered = currentPendingUsers.filter(
-      (u) => !previousPendingUserIdsRef.current!.has(u.id) && u.id !== currentUser?.id
-    );
-
-    if (newlyRegistered.length > 0) {
-      sounds.playNotification();
-      const newest = newlyRegistered[newlyRegistered.length - 1];
-      showToast(
-        lang === 'th'
-          ? `👤 มีสมาชิกสมัครใหม่: ${newest.inGameName || newest.username} (${cleanClanName(newest.clan) || 'Alliance'}) รอการอนุมัติ!`
-          : `👤 New member registered: ${newest.inGameName || newest.username} (${cleanClanName(newest.clan) || 'Alliance'}) pending approval!`,
-        'info'
-      );
-    }
-
-    previousPendingUserIdsRef.current = currentPendingIds;
-  }, [users, currentUser, lang]);
 
   const handleMarkAllNotificationsAsRead = () => {
     const allIds = notifications.map((n) => n.id);
@@ -1127,9 +1053,6 @@ export const App: React.FC = () => {
     const unsubFormula = listenToFormulaSettings((settings) => {
       if (settings) setInMemoryFormulaSettings(settings);
     });
-    const unsubStatUpdates = listenToStatUpdateSettings((settings) => {
-      if (settings) setStatUpdateSettings(settings);
-    });
 
     return () => {
       unsubUsers();
@@ -1144,7 +1067,6 @@ export const App: React.FC = () => {
       unsubQueueAnnouncement();
       unsubDiscord();
       unsubFormula();
-      unsubStatUpdates();
     };
   }, [currentUser?.id, isQuotaExceeded]);
 
@@ -1884,73 +1806,15 @@ export const App: React.FC = () => {
   };
 
 
-  // Stat Updates Lock/Unlock Handler (Owner only)
-  const handleToggleStatUpdates = async (allow: boolean) => {
-    if (currentUser?.role !== 'owner') {
-      showToast(lang === 'th' ? 'เฉพาะ Owner เท่านั้นที่มีสิทธิ์กำหนด' : 'Only Owner can change this setting', 'error');
-      return;
-    }
-    const nextSettings: StatUpdateSettings = {
-      allowMemberUpdates: allow,
-      updatedAt: Date.now(),
-      updatedBy: currentUser?.inGameName || currentUser?.username || 'Owner'
-    };
-    setStatUpdateSettings(nextSettings);
-    sounds.playClick();
-    try {
-      await saveStatUpdateSettingsDoc(nextSettings);
-      sounds.playSuccess();
-      showToast(
-        allow
-          ? (lang === 'th' ? '🔓 เปิดรับการอัปเดตสเตตัสประจำเดือนเรียบร้อยแล้ว' : '🔓 Monthly stat updates unlocked for members!')
-          : (lang === 'th' ? '🔒 ล็อกการอัปเดตสเตตัสประจำเดือนเรียบร้อยแล้ว' : '🔒 Monthly stat updates locked for members!'),
-        'success'
-      );
-    } catch (err) {
-      console.error('Failed to update stat settings:', err);
-      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการบันทึก' : 'Failed to update settings', 'error');
-    }
-  };
-
   // Vault Items Handlers
   const handleCreateVaultItem = async (
-    itemData: Omit<VaultItem, 'id' | 'createdAt' | 'status' | 'claimants'>,
-    directDistribution?: DirectDistributionPayload
+    itemData: Omit<VaultItem, 'id' | 'createdAt' | 'status' | 'claimants'>
   ) => {
     try {
-      const isDirectDistribute = Boolean(directDistribution && directDistribution.recipient);
-      const initialPaymentStatus = directDistribution?.paymentStatus || 'pending';
-      const recName = directDistribution?.recipient?.name || directDistribution?.recipient?.inGameName || 'Member';
-
-      const distributedPayload: any = isDirectDistribute
-        ? {
-            name: recName,
-            clan: directDistribution!.recipient.clan,
-            date: Date.now(),
-            distributedAt: Date.now(),
-            distributedBy: currentUser?.inGameName || currentUser?.username || 'Admin',
-            price: itemData.price || 0,
-            userId: directDistribution!.recipient.userId,
-            receiptImages: directDistribution!.receiptImages || [],
-            paymentStatus: initialPaymentStatus,
-            slipUrl:
-              directDistribution!.receiptImages && directDistribution!.receiptImages.length > 0
-                ? directDistribution!.receiptImages[0]
-                : undefined
-          }
-        : undefined;
-
       const createdItem = await addVaultItemDoc({
         ...itemData,
-        status: isDirectDistribute ? 'distributed' : 'available',
-        claimants: [],
-        ...(isDirectDistribute
-          ? {
-              distributedTo: distributedPayload,
-              receiptImages: directDistribution!.receiptImages || [],
-              paymentStatus: initialPaymentStatus
-            }
-          : {})
+        status: 'available',
+        claimants: []
       });
 
       unmarkVaultItemAsDeleted(createdItem.id);
@@ -1976,21 +1840,12 @@ export const App: React.FC = () => {
       );
 
       sounds.playSuccess();
-      if (isDirectDistribute) {
-        showToast(
-          lang === 'th'
-            ? `แจกไอเทม [${createdItem.name}] ให้กับ ${recName} เรียบร้อยแล้ว!`
-            : `Directly distributed [${createdItem.name}] to ${recName}!`,
-          'success'
-        );
-      } else {
-        showToast(
-          lang === 'th'
-            ? `เพิ่มไอเทม [${createdItem.name}] เข้าคลังเรียบร้อยแล้ว!`
-            : `Added [${createdItem.name}] to vault successfully!`,
-          'success'
-        );
-      }
+      showToast(
+        lang === 'th'
+          ? `เพิ่มไอเทม [${createdItem.name}] เข้าคลังเรียบร้อยแล้ว!`
+          : `Added [${createdItem.name}] to vault successfully!`,
+        'success'
+      );
 
       // 2. Immediate dual-cloud sync to Google Sheets & Drive (failover backup)
       triggerDebouncedAutoBackup(
@@ -2007,69 +1862,37 @@ export const App: React.FC = () => {
         true
       );
 
-      // 3. Discord notification if enabled (Rule 5: English 100%, item-only)
+      // 3. Discord notification if enabled (Rule 5: English 100%)
       const activeDiscord = discordSettings || getCachedDiscordSettings();
       const localWebhookUrl = (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '');
-      const localDistWebhookUrl = (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_distribute_webhook_url') || '' : '');
       const effectiveWebhookUrl = activeDiscord?.webhookUrl || localWebhookUrl;
-      const effectiveDistWebhookUrl = activeDiscord?.distributeWebhookUrl || localDistWebhookUrl;
+      const isDiscordActive = Boolean(activeDiscord?.enabled || effectiveWebhookUrl);
 
-      if (isDirectDistribute) {
-        // Direct Distribution: send notification strictly to Distribution channel (event: 'distribute')
-        const isDistDiscordActive = Boolean(activeDiscord?.enabled || effectiveDistWebhookUrl);
-        if (isDistDiscordActive && (activeDiscord?.notifyOnDistribute ?? true)) {
-          const payloadSettings: DiscordSettings = {
-            ...DEFAULT_DISCORD_SETTINGS,
-            ...activeDiscord,
-            enabled: true,
-            webhookUrl: effectiveDistWebhookUrl,
-            distributeWebhookUrl: effectiveDistWebhookUrl
-          };
-          sendDiscordNotification(payloadSettings, 'distribute', {
-            item: createdItem,
-            distributeInfo: distributedPayload,
-            actorName: currentUser?.inGameName || currentUser?.username || 'Admin',
-            webhookUrl: effectiveDistWebhookUrl
-          }).then((res) => {
-            if (res.success) {
-              showToast(
-                lang === 'th'
-                  ? `📢 ส่งผลการแจก [${createdItem.name}] เข้า Discord ห้องแจกเรียบร้อย!`
-                  : `📢 Sent [${createdItem.name}] distribution result to Discord!`,
-                'info'
-              );
-            }
-          }).catch((err) => console.warn('Discord direct distribute error:', err));
-        }
-      } else {
-        // Normal Vault Entry: send notification to Item Entry channel (event: 'new_item')
-        const isDiscordActive = Boolean(activeDiscord?.enabled || effectiveWebhookUrl);
-        if (isDiscordActive && (activeDiscord?.notifyOnNewItem ?? true)) {
-          const payloadSettings: DiscordSettings = {
-            ...DEFAULT_DISCORD_SETTINGS,
-            ...activeDiscord,
-            enabled: true,
-            webhookUrl: effectiveWebhookUrl
-          };
-          sendDiscordNotification(payloadSettings, 'new_item', {
-            item: createdItem,
-            actorName: currentUser?.inGameName || currentUser?.username || 'Admin',
-            lang,
-            template: activeDiscord?.messageTemplate || 'neon_glow',
-            webhookUrl: effectiveWebhookUrl
-          }).then((res) => {
-            if (res.success) {
-              showToast(
-                lang === 'th'
-                  ? `📢 ส่งแจ้งเตือน [${createdItem.name}] เข้า Discord เรียบร้อยแล้ว!`
-                  : `📢 Sent [${createdItem.name}] alert to Discord!`,
-                'info'
-              );
-            } else {
-              console.warn('Discord notification notice:', res.message);
-            }
-          }).catch((err) => console.warn('Discord notification error:', err));
-        }
+      if (isDiscordActive && (activeDiscord?.notifyOnNewItem ?? true)) {
+        const payloadSettings: DiscordSettings = {
+          ...DEFAULT_DISCORD_SETTINGS,
+          ...activeDiscord,
+          enabled: true,
+          webhookUrl: effectiveWebhookUrl
+        };
+        sendDiscordNotification(payloadSettings, 'new_item', {
+          item: createdItem,
+          actorName: currentUser?.inGameName || currentUser?.username || 'Admin',
+          lang,
+          template: activeDiscord?.messageTemplate || 'neon_glow',
+          webhookUrl: effectiveWebhookUrl
+        }).then((res) => {
+          if (res.success) {
+            showToast(
+              lang === 'th'
+                ? `📢 ส่งแจ้งเตือน [${createdItem.name}] เข้า Discord เรียบร้อยแล้ว!`
+                : `📢 Sent [${createdItem.name}] alert to Discord!`,
+              'info'
+            );
+          } else {
+            console.warn('Discord notification notice:', res.message);
+          }
+        }).catch((err) => console.warn('Discord notification error:', err));
       }
     } catch (err: any) {
       console.error('Failed to create vault item:', err);
@@ -2481,8 +2304,8 @@ export const App: React.FC = () => {
 
       // Send Discord notification if enabled (Rule 5: English 100%)
       const activeDistDiscord = discordSettings || getCachedDiscordSettings();
-      const localDistWebhookUrl = (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_distribute_webhook_url') || '' : '');
-      const effectiveDistWebhookUrl = activeDistDiscord?.distributeWebhookUrl || localDistWebhookUrl;
+      const localDistWebhookUrl = (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '');
+      const effectiveDistWebhookUrl = activeDistDiscord?.webhookUrl || localDistWebhookUrl;
       const isDistDiscordActive = Boolean(activeDistDiscord?.enabled || effectiveDistWebhookUrl);
 
       if (targetItem && isDistDiscordActive && (activeDistDiscord?.notifyOnDistribute ?? true)) {
@@ -2490,8 +2313,7 @@ export const App: React.FC = () => {
           ...DEFAULT_DISCORD_SETTINGS,
           ...activeDistDiscord,
           enabled: true,
-          webhookUrl: effectiveDistWebhookUrl,
-          distributeWebhookUrl: effectiveDistWebhookUrl
+          webhookUrl: effectiveDistWebhookUrl
         };
         sendDiscordNotification(payloadSettings, 'distribute', {
           item: { ...targetItem, status: 'distributed', distributedTo: distributedPayload, paymentStatus: initialPaymentStatus },
@@ -3955,7 +3777,6 @@ export const App: React.FC = () => {
         isQuotaExceeded={isQuotaExceeded}
         onCheckFirebaseHealth={handleManualCheckFirebase}
         onClearCacheAndReload={handleClearCacheAndReload}
-        statUpdateSettings={statUpdateSettings}
       />
 
       {/* 2. MAIN CONTENT AREA (Padded on left for desktop sidebar: lg:pl-64 xl:pl-72) */}
@@ -4135,15 +3956,11 @@ export const App: React.FC = () => {
             onViewImageZoom={(url, title) => setImageViewerData({ url, title })}
             onSaveHistory={handleSaveUserHistory}
             onOpenChangePassword={currentUser ? () => setPasswordTargetUser(currentUser) : undefined}
-            statUpdateSettings={statUpdateSettings}
           />
         )}
 
         {activeTab === 'stat_approvals' && canAccessAdminFeatures && (
           <StatApprovalView
-            currentUser={currentUser}
-            statUpdateSettings={statUpdateSettings}
-            onToggleStatUpdates={handleToggleStatUpdates}
             pendingUsers={users.filter((u) => u.pendingPowerLevel && u.pendingPowerLevel > 0)}
             lang={lang}
             onApproveStatUpdate={handleApproveStatUpdate}
@@ -4207,7 +4024,6 @@ export const App: React.FC = () => {
         lang={lang}
         onRequestUpdate={handleRequestPowerLevelUpdate}
         onCancelRequest={handleCancelPowerLevelRequest}
-        statUpdateSettings={statUpdateSettings}
       />
 
       <DiamondVaultModal
