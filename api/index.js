@@ -560,10 +560,20 @@ async function createApp(options = {}) {
     version: 0
   };
   try {
+    const SEED_FILE = path.join(process.cwd(), "src", "data", "seed-live-state.json");
     if (fs.existsSync(LIVE_STATE_FILE)) {
       const parsedLive = JSON.parse(fs.readFileSync(LIVE_STATE_FILE, "utf-8"));
       if (parsedLive && typeof parsedLive.version === "number" && parsedLive.data) {
         liveHubState = parsedLive;
+      }
+    } else if (fs.existsSync(SEED_FILE)) {
+      const parsedSeed = JSON.parse(fs.readFileSync(SEED_FILE, "utf-8"));
+      if (parsedSeed && parsedSeed.data) {
+        liveHubState = {
+          data: parsedSeed.data,
+          updatedAt: parsedSeed.updatedAt || Date.now(),
+          version: parsedSeed.version || 1
+        };
       }
     }
   } catch {
