@@ -44,7 +44,7 @@ import {
   getRarityBorder,
   getRarityTextGlow
 } from '../types';
-import { addDiamondTransactionDoc, markQueueMemberAsRemoved } from '../services/firebase';
+import { addDiamondTransactionDoc, markQueueMemberAsRemoved, unmarkQueueMemberAsRemoved } from '../services/firebase';
 import { uploadImageToGoogleDrive } from '../services/googleSheetsBackupService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
@@ -344,6 +344,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
           status: 'pending',
           joinedAt: Date.now()
         };
+        unmarkQueueMemberAsRemoved(item.id, newMember.id, newMember.userId, newMember.name);
         updatedQueueList = [...(item.queueList || []), newMember];
       }
       await onUpdate(item.id, { queueList: updatedQueueList });
@@ -400,6 +401,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
         status: 'pending',
         joinedAt: Date.now()
       };
+      unmarkQueueMemberAsRemoved(itemId, newMember.id, newMember.userId, newMember.name);
       const updatedQueue = [...(item.queueList || []), newMember];
       await onUpdate(itemId, { queueList: updatedQueue });
       setActiveQueueIdForAdd(null);

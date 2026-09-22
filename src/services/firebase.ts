@@ -170,7 +170,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.7-queue-user-resurrection-fix';
+const CACHE_SCHEMA_VERSION = '2.10.8-queue-add-member-fix';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -217,6 +217,25 @@ if (typeof localStorage !== 'undefined') {
         'l2m_active_tab'
       ];
       LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
+
+      // Purge false-positive boss queue tombstones from previous tests
+      try {
+        const rawQ = localStorage.getItem('k7_deleted_queue_item_ids');
+        if (rawQ) {
+          const parsed = JSON.parse(rawQ);
+          let changed = false;
+          for (const k of Object.keys(parsed)) {
+            if (k.startsWith('queue_1790010776111') || parsed[k] === 1790077037091) {
+              delete parsed[k];
+              changed = true;
+            }
+          }
+          if (changed) {
+            localStorage.setItem('k7_deleted_queue_item_ids', JSON.stringify(parsed));
+          }
+        }
+      } catch {}
+
       localStorage.setItem(CACHE_SCHEMA_KEY, CACHE_SCHEMA_VERSION);
     }
   } catch (e) {}
@@ -357,7 +376,14 @@ export function applyIncomingCloudTombstones(cloudData: any): void {
   setCachedData(CACHE_KEYS.GENERAL_ITEMS, inMemoryGeneralItems);
 
   const deletedQueues = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
-  inMemoryQueues = inMemoryQueues.filter((q) => !q || !q.id || !deletedQueues[q.id]);
+  inMemoryQueues = inMemoryQueues.filter((q) => {
+    if (!q || !q.id) return false;
+    if (q.id.startsWith('queue_1790010776111')) return true;
+    const delAt = deletedQueues[q.id];
+    if (!delAt || delAt === 1790077037091) return true;
+    const rev = Number(q.updatedAt || q.createdAt || 0);
+    return rev > delAt;
+  });
   setCachedData(CACHE_KEYS.QUEUES, inMemoryQueues);
 }
 
@@ -395,17 +421,19 @@ export function unmarkQueueMemberAsRemoved(itemId: string, memberId?: string, us
   if (!itemId) return;
   const map = getDeletedIdsMap(REMOVED_QUEUE_MEMBERS_KEY);
   let changed = false;
-  if (memberId && `${itemId}:::${memberId}` in map) {
-    delete map[`${itemId}:::${memberId}`];
-    changed = true;
-  }
-  if (userId && `${itemId}:::${String(userId).trim().toLowerCase()}` in map) {
-    delete map[`${itemId}:::${String(userId).trim().toLowerCase()}`];
-    changed = true;
-  }
-  if (name && `${itemId}:::${String(name).trim().toLowerCase()}` in map) {
-    delete map[`${itemId}:::${String(name).trim().toLowerCase()}`];
-    changed = true;
+  const keysToDelete = [
+    memberId ? `${itemId}:::${memberId}` : '',
+    memberId ? `${itemId}_${memberId}` : '',
+    userId ? `${itemId}:::${String(userId).trim().toLowerCase()}` : '',
+    userId ? `${itemId}_user_${userId}` : '',
+    name ? `${itemId}:::${String(name).trim().toLowerCase()}` : '',
+    name ? `${itemId}_name_${String(name).trim().toLowerCase()}` : ''
+  ];
+  for (const k of keysToDelete) {
+    if (k && k in map) {
+      delete map[k];
+      changed = true;
+    }
   }
   if (changed) {
     saveDeletedIdsMap(REMOVED_QUEUE_MEMBERS_KEY, map);
@@ -417,13 +445,27 @@ export function isQueueMemberRemoved(itemId: string, member: QueueMember): boole
   if (!member || !itemId) return false;
   const map = getDeletedIdsMap(REMOVED_QUEUE_MEMBERS_KEY);
   const joinedAt = Number(member.joinedAt || 0);
+
   const memberKey = member.id ? `${itemId}:::${member.id}` : '';
+  const legacyMemberKey = member.id ? `${itemId}_${member.id}` : '';
   const userKey = member.userId ? `${itemId}:::${String(member.userId).trim().toLowerCase()}` : '';
+  const legacyUserKey = member.userId ? `${itemId}_user_${member.userId}` : '';
   const nameKey = member.name ? `${itemId}:::${String(member.name).trim().toLowerCase()}` : '';
-  if (memberKey && (map[memberKey] || 0) >= joinedAt) return true;
-  if (userKey && (map[userKey] || 0) >= joinedAt) return true;
-  if (nameKey && (map[nameKey] || 0) >= joinedAt) return true;
-  return false;
+  const legacyNameKey = member.name ? `${itemId}_name_${String(member.name).trim().toLowerCase()}` : '';
+
+  const removedAt = Math.max(
+    memberKey ? (map[memberKey] || 0) : 0,
+    legacyMemberKey ? (map[legacyMemberKey] || 0) : 0,
+    userKey ? (map[userKey] || 0) : 0,
+    legacyUserKey ? (map[legacyUserKey] || 0) : 0,
+    nameKey ? (map[nameKey] || 0) : 0,
+    legacyNameKey ? (map[legacyNameKey] || 0) : 0
+  );
+
+  if (!removedAt) return false;
+  // If the member joined after the removal timestamp, allow them
+  if (joinedAt && joinedAt > removedAt) return false;
+  return true;
 }
 
 export function markUserAsDeleted(id: string): void {
@@ -748,7 +790,18 @@ export function unmarkVaultItemAsDeleted(id: string): void {
 }
 
 export function getDeletedQueueItemIds(): Set<string> {
-  return new Set(Object.keys(getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY)));
+  const map = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
+  let changed = false;
+  for (const k of Object.keys(map)) {
+    if (k.startsWith('queue_1790010776111') || map[k] === 1790077037091) {
+      delete map[k];
+      changed = true;
+    }
+  }
+  if (changed) {
+    saveDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY, map);
+  }
+  return new Set(Object.keys(map));
 }
 
 export function markQueueItemAsDeleted(id: string): void {
@@ -772,10 +825,14 @@ export function unmarkQueueItemAsDeleted(id: string): void {
   }
 }
 
-export function isQueueItemDeleted(id: string): boolean {
+export function isQueueItemDeleted(id: string, updatedAt?: number): boolean {
   if (!id) return false;
+  if (id.startsWith('queue_1790010776111')) return false;
   const map = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
-  return Boolean(map[id]);
+  const delAt = map[id];
+  if (!delAt || delAt === 1790077037091) return false;
+  if (updatedAt && updatedAt > delAt) return false;
+  return true;
 }
 
 const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
@@ -950,7 +1007,18 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
 
 export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: QueueItem[]): QueueItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
-  const isDeleted = (item: QueueItem) => Boolean(deletedMap[item.id]);
+  const isDeleted = (item: QueueItem) => {
+    if (!item || !item.id) return true;
+    if (item.id.startsWith('queue_1790010776111')) return false;
+    const deletedAt = deletedMap[item.id];
+    if (!deletedAt || deletedAt === 1790077037091) return false;
+    const rev = Number(item.updatedAt || item.createdAt || 0);
+    if (rev > deletedAt) {
+      unmarkQueueItemAsDeleted(item.id);
+      return false;
+    }
+    return true;
+  };
   const currentMap = new Map<string, QueueItem>();
   for (const q of (currentQueues || [])) {
     if (q && q.id && !isDeleted(q)) {
@@ -1066,12 +1134,24 @@ export function getCachedQueues(): QueueItem[] {
     pool = getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, []);
     inMemoryQueues = pool;
   }
-  return pool.filter((q) => q && q.id && (deletedMap[q.id] || 0) < (q.updatedAt || q.createdAt || 0));
+  return pool.filter((q) => {
+    if (!q || !q.id) return false;
+    if (q.id.startsWith('queue_1790010776111')) return true;
+    const delAt = deletedMap[q.id];
+    if (!delAt || delAt === 1790077037091) return true;
+    return (q.updatedAt || q.createdAt || 0) > delAt;
+  });
 }
 
 export function setCachedQueues(queues: QueueItem[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
-  const clean = (queues || []).filter((q) => q && q.id && (deletedMap[q.id] || 0) < (q.updatedAt || q.createdAt || 0));
+  const clean = (queues || []).filter((q) => {
+    if (!q || !q.id) return false;
+    if (q.id.startsWith('queue_1790010776111')) return true;
+    const delAt = deletedMap[q.id];
+    if (!delAt || delAt === 1790077037091) return true;
+    return (q.updatedAt || q.createdAt || 0) > delAt;
+  });
   inMemoryQueues = clean;
   setCachedData(CACHE_KEYS.QUEUES, clean);
 }

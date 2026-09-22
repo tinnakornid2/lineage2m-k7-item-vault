@@ -4,7 +4,7 @@ import http from 'node:http';
 
 async function runQueueUserResurrectionTests() {
   console.log('======================================================================');
-  console.log('🧪 VERIFYING ANTI-RESURRECTION ARCHITECTURE (v2.10.7)');
+  console.log('🧪 VERIFYING ANTI-RESURRECTION ARCHITECTURE (v2.10.8)');
   console.log('   Testing: Queue Member, Queue Item, General Item, and User Deletion');
   console.log('======================================================================\n');
 

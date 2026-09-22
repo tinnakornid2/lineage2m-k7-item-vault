@@ -337,7 +337,8 @@ export const QueueView: React.FC<QueueViewProps> = ({
       name: newPlayerName.trim() || matched?.inGameName || '',
       clan: cleanClanName(newPlayerClan.trim() || matched?.clan) || 'VoltZ',
       powerLevel: matched?.powerLevel,
-      status: 'pending'
+      status: 'pending',
+      joinedAt: Date.now()
     };
 
     unmarkQueueMemberAsRemoved(queueId, newMember.id, newMember.userId, newMember.name);

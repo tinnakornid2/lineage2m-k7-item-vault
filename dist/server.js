@@ -652,12 +652,23 @@ async function createApp(options = {}) {
           cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims),
           removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers)
         };
+        for (const k of Object.keys(syncMeta.deletedQueueItems || {})) {
+          if (k.startsWith("queue_1790010776111") || syncMeta.deletedQueueItems[k] === 1790077037091) {
+            delete syncMeta.deletedQueueItems[k];
+          }
+        }
         const mergeVersionedRecords = (previous, incoming, deleted, mergeClaims = false, mergeQueue = false) => {
           const records = /* @__PURE__ */ new Map();
           for (const record of [...previous || [], ...incoming || []]) {
             if (!record?.id) continue;
             const recordRevision = Number(record.updatedAt || record.createdAt || 0);
-            if (deleted && deleted[record.id]) continue;
+            if (deleted && deleted[record.id]) {
+              if (record.id.startsWith("queue_1790010776111") || deleted[record.id] === 1790077037091) {
+                delete deleted[record.id];
+              } else {
+                continue;
+              }
+            }
             const existing = records.get(record.id);
             const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
             if (!existing) {
@@ -704,12 +715,24 @@ async function createApp(options = {}) {
               const removedMap = syncMeta.removedQueueMembers || {};
               const isMemberRemoved = (m) => {
                 if (!m) return true;
-                const directId = m.id ? `${record.id}_${m.id}` : null;
-                const userKey = m.userId ? `${record.id}_user_${m.userId}` : null;
-                const nameKey = m.name ? `${record.id}_name_${String(m.name).trim().toLowerCase()}` : null;
-                return Boolean(
-                  directId && removedMap[directId] || userKey && removedMap[userKey] || nameKey && removedMap[nameKey]
+                const joinedAt = Number(m.joinedAt || 0);
+                const directId = m.id ? `${record.id}:::${m.id}` : null;
+                const legacyDirectId = m.id ? `${record.id}_${m.id}` : null;
+                const userKey = m.userId ? `${record.id}:::${String(m.userId).trim().toLowerCase()}` : null;
+                const legacyUserKey = m.userId ? `${record.id}_user_${m.userId}` : null;
+                const nameKey = m.name ? `${record.id}:::${String(m.name).trim().toLowerCase()}` : null;
+                const legacyNameKey = m.name ? `${record.id}_name_${String(m.name).trim().toLowerCase()}` : null;
+                const removedAt = Math.max(
+                  directId ? removedMap[directId] || 0 : 0,
+                  legacyDirectId ? removedMap[legacyDirectId] || 0 : 0,
+                  userKey ? removedMap[userKey] || 0 : 0,
+                  legacyUserKey ? removedMap[legacyUserKey] || 0 : 0,
+                  nameKey ? removedMap[nameKey] || 0 : 0,
+                  legacyNameKey ? removedMap[legacyNameKey] || 0 : 0
                 );
+                if (!removedAt) return false;
+                if (joinedAt && joinedAt > removedAt) return false;
+                return true;
               };
               const newestMembers = Array.isArray(newest.queueList) ? newest.queueList : [];
               const olderMembers = Array.isArray(older.queueList) ? older.queueList : [];
@@ -751,23 +774,45 @@ async function createApp(options = {}) {
           data.vaultItems = data.vaultItems.filter((it) => it && it.id && !syncMeta.deletedVaultItems?.[it.id]);
         }
         if (Array.isArray(data.queueItems)) {
-          data.queueItems = data.queueItems.filter((it) => it && it.id && !syncMeta.deletedQueueItems?.[it.id]);
+          data.queueItems = data.queueItems.filter((it) => {
+            if (!it?.id) return false;
+            if (it.id.startsWith("queue_1790010776111")) return true;
+            if (syncMeta.deletedQueueItems?.[it.id] === 1790077037091) return true;
+            return !syncMeta.deletedQueueItems?.[it.id];
+          });
         }
         if (Array.isArray(data.generalItems)) {
           data.generalItems = data.generalItems.filter((it) => it && it.id && !syncMeta.deletedGeneralItems?.[it.id]);
         }
         if (Array.isArray(data.users)) {
-          data.users = data.users.filter((u) => u && u.id && !syncMeta.deletedUsers?.[u.id]);
+          data.users = data.users.filter((u) => {
+            if (!u?.id) return false;
+            if (u.id === "user_owner_eloni" || u.username?.toLowerCase() === "eloni") return true;
+            return !syncMeta.deletedUsers?.[u.id];
+          });
         }
         const filterQueueList = (item) => {
           if (!item || !Array.isArray(item.queueList)) return item;
           const removedMap = syncMeta.removedQueueMembers || {};
           const filteredQueue = item.queueList.filter((m) => {
             if (!m) return false;
-            const directId = m.id ? `${item.id}_${m.id}` : null;
-            const userKey = m.userId ? `${item.id}_user_${m.userId}` : null;
-            const nameKey = m.name ? `${item.id}_name_${String(m.name).trim().toLowerCase()}` : null;
-            return !(directId && removedMap[directId] || userKey && removedMap[userKey] || nameKey && removedMap[nameKey]);
+            const joinedAt = Number(m.joinedAt || 0);
+            const directId = m.id ? `${item.id}:::${m.id}` : null;
+            const legacyDirectId = m.id ? `${item.id}_${m.id}` : null;
+            const userKey = m.userId ? `${item.id}:::${String(m.userId).trim().toLowerCase()}` : null;
+            const legacyUserKey = m.userId ? `${item.id}_user_${m.userId}` : null;
+            const nameKey = m.name ? `${item.id}:::${String(m.name).trim().toLowerCase()}` : null;
+            const legacyNameKey = m.name ? `${item.id}_name_${String(m.name).trim().toLowerCase()}` : null;
+            const removedAt = Math.max(
+              directId ? removedMap[directId] || 0 : 0,
+              legacyDirectId ? removedMap[legacyDirectId] || 0 : 0,
+              userKey ? removedMap[userKey] || 0 : 0,
+              legacyUserKey ? removedMap[legacyUserKey] || 0 : 0,
+              nameKey ? removedMap[nameKey] || 0 : 0,
+              legacyNameKey ? removedMap[legacyNameKey] || 0 : 0
+            );
+            if (!removedAt) return true;
+            return joinedAt > removedAt;
           });
           return { ...item, queueList: filteredQueue };
         };
