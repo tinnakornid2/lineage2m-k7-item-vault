@@ -405,7 +405,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                         type="button"
                         onClick={() => {
                           sounds.playClick();
-                          onNavigateTab('all_members');
+                          onNavigateTab('stat_approvals');
                           onClose();
                         }}
                         className="px-2.5 py-1 rounded-lg btn-l2m-gold text-slate-950 text-xs font-bold transition-all flex items-center gap-1 shadow cursor-pointer active:scale-95 shrink-0"

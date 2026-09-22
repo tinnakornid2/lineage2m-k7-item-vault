@@ -173,13 +173,15 @@ async function verifyRoleToken(authorization, allowedRoles) {
       if (parts.length === 3) {
         const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
         const uid = payload.user_id || payload.sub;
-        if (uid) {
-          return { uid, role: allowedRoles[0] };
+        const role = String(payload.role || "").toLowerCase();
+        const normalizedAllowed = allowedRoles.map((r) => r.toLowerCase());
+        if (uid && role && normalizedAllowed.includes(role)) {
+          return { uid, role };
         }
       }
     } catch {
     }
-    return { uid: "auth-user", role: allowedRoles[0] };
+    return null;
   }
   try {
     const decoded = await Promise.race([
@@ -191,7 +193,12 @@ async function verifyRoleToken(authorization, allowedRoles) {
       new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore user profile timeout")), 2500))
     ]).catch(() => null);
     if (!profile || !profile.exists) {
-      return { uid: decoded.uid, role: allowedRoles[allowedRoles.length - 1] || "member" };
+      const defaultRole = "member";
+      const normalizedAllowed2 = allowedRoles.map((r) => r.toLowerCase());
+      if (normalizedAllowed2.includes(defaultRole)) {
+        return { uid: decoded.uid, role: defaultRole };
+      }
+      return null;
     }
     const data = profile.data();
     const userRole = String(data.role || "").toLowerCase();
@@ -202,17 +209,6 @@ async function verifyRoleToken(authorization, allowedRoles) {
     return { uid: decoded.uid, role: userRole };
   } catch (err) {
     console.warn("verifyRoleToken verification notice:", err);
-    try {
-      const parts = token.split(".");
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
-        const uid = payload.user_id || payload.sub;
-        if (uid) {
-          return { uid, role: allowedRoles[0] };
-        }
-      }
-    } catch {
-    }
     return null;
   }
 }
@@ -650,10 +646,11 @@ async function createApp(options = {}) {
         const syncMeta = {
           deletedVaultItems: mergeTimestampMaps(previousData.syncMeta?.deletedVaultItems, data.syncMeta?.deletedVaultItems),
           deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
+          deletedGeneralItems: mergeTimestampMaps(previousData.syncMeta?.deletedGeneralItems, data.syncMeta?.deletedGeneralItems),
           deletedUsers: mergeTimestampMaps(previousData.syncMeta?.deletedUsers, data.syncMeta?.deletedUsers),
           cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims)
         };
-        const mergeVersionedRecords = (previous, incoming, deleted, mergeClaims = false) => {
+        const mergeVersionedRecords = (previous, incoming, deleted, mergeClaims = false, mergeQueue = false) => {
           const records = /* @__PURE__ */ new Map();
           for (const record of [...previous || [], ...incoming || []]) {
             if (!record?.id) continue;
@@ -665,24 +662,84 @@ async function createApp(options = {}) {
               records.set(record.id, record);
               continue;
             }
-            const newest = recordRevision >= existingRevision ? record : existing;
-            if (!mergeClaims) {
-              records.set(record.id, newest);
-              continue;
+            let newest = recordRevision >= existingRevision ? { ...existing, ...record } : { ...record, ...existing };
+            const older = recordRevision >= existingRevision ? existing : record;
+            if (newest.pendingPowerLevel !== void 0 || older.pendingPowerLevel !== void 0) {
+              const newestPendingTime = Number(newest.pendingPowerLevelRequestedAt || newest.updatedAt || 0);
+              const olderPendingTime = Number(older.pendingPowerLevelRequestedAt || older.updatedAt || 0);
+              const newestResTime = Math.max(Number(newest.statApprovalAt || 0), Number(newest.statRejectionAt || 0));
+              const olderResTime = Math.max(Number(older.statApprovalAt || 0), Number(older.statRejectionAt || 0));
+              const latestRes = Math.max(newestResTime, olderResTime);
+              const olderHasPending = Boolean((typeof older.pendingPowerLevel === "number" || older.pendingPowerLevelRequestedAt || older.pendingStatScreenshotUrl) && olderPendingTime > latestRes);
+              const newestHasPending = Boolean((typeof newest.pendingPowerLevel === "number" || newest.pendingPowerLevelRequestedAt || newest.pendingStatScreenshotUrl) && newestPendingTime > latestRes);
+              if (olderHasPending && (!newestHasPending || olderPendingTime > newestPendingTime)) {
+                newest = {
+                  ...newest,
+                  pendingPowerLevel: older.pendingPowerLevel,
+                  pendingPowerLevelRequestedAt: older.pendingPowerLevelRequestedAt,
+                  pendingStats: older.pendingStats || newest.pendingStats,
+                  pendingSpiritEnhancements: older.pendingSpiritEnhancements || newest.pendingSpiritEnhancements,
+                  pendingStatScreenshotUrl: older.pendingStatScreenshotUrl || newest.pendingStatScreenshotUrl,
+                  pendingClasses: older.pendingClasses ?? newest.pendingClasses,
+                  pendingLevel: older.pendingLevel ?? newest.pendingLevel,
+                  pendingLegendClasses: older.pendingLegendClasses ?? newest.pendingLegendClasses,
+                  pendingLegendAgathions: older.pendingLegendAgathions ?? newest.pendingLegendAgathions,
+                  statRejectionReason: null,
+                  statRejectionAt: null
+                };
+              }
             }
-            const claimantMap = /* @__PURE__ */ new Map();
-            for (const claimant of [...existing.claimants || [], ...record.claimants || []]) {
-              const key = claimant.userId || String(claimant.inGameName || "").trim().toLowerCase();
-              if (key) claimantMap.set(key, claimant);
+            if (mergeClaims) {
+              const claimantMap = /* @__PURE__ */ new Map();
+              for (const claimant of [...older.claimants || [], ...newest.claimants || []]) {
+                const key = claimant.userId || String(claimant.inGameName || "").trim().toLowerCase();
+                if (key) claimantMap.set(key, claimant);
+              }
+              newest = { ...newest, claimants: Array.from(claimantMap.values()) };
             }
-            records.set(record.id, { ...newest, claimants: Array.from(claimantMap.values()) });
+            if (mergeQueue) {
+              const queueMap = /* @__PURE__ */ new Map();
+              for (const m of [...older.queueList || [], ...newest.queueList || []]) {
+                if (!m) continue;
+                const key = m.id || m.userId || String(m.name || "").trim().toLowerCase();
+                if (!key) continue;
+                const ex = queueMap.get(key);
+                if (!ex) {
+                  queueMap.set(key, m);
+                } else {
+                  if (m.status === "received" || ex.status === "received") {
+                    queueMap.set(key, m.status === "received" ? m : ex);
+                  } else {
+                    queueMap.set(key, m);
+                  }
+                }
+              }
+              const receiptMap = /* @__PURE__ */ new Map();
+              for (const r of [...older.receiptHistory || [], ...newest.receiptHistory || []]) {
+                if (r && r.id) receiptMap.set(r.id, r);
+              }
+              newest = {
+                ...newest,
+                queueList: Array.from(queueMap.values()),
+                receiptHistory: Array.from(receiptMap.values())
+              };
+            }
+            records.set(record.id, newest);
           }
           return Array.from(records.values());
         };
         data.syncMeta = syncMeta;
         data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
-        data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems);
+        data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems, false, true);
+        data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
         data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
+        if (Array.isArray(data.users)) {
+          data.users = data.users.map((u) => {
+            if (!u || typeof u !== "object") return u;
+            const { password: _pw, ...cleanUser } = u;
+            return cleanUser;
+          });
+        }
         if (Array.isArray(data.vaultItems)) {
           data.vaultItems = data.vaultItems.map((item) => {
             const claimants = (item.claimants || []).filter((claimant) => {
@@ -744,6 +801,10 @@ async function createApp(options = {}) {
         powerLevel: Number(claimant.powerLevel || 0),
         claimedAt: Number(claimant.claimedAt || now)
       };
+      const targetItem = (liveHubState?.data?.vaultItems || []).find((i) => i.id === itemId);
+      if (!targetItem) {
+        return res.status(404).json({ success: false, error: "ITEM_NOT_FOUND" });
+      }
       if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
         liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item) => {
           if (item.id === itemId) {
@@ -1137,7 +1198,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
       return res.status(500).json({ error: "CONFIG_READ_FAILED", message: "Failed to read Discord configuration." });
     }
   });
-  app.post("/api/save-discord-webhook", requireRoles(["owner", "admin"]), async (req, res) => {
+  app.post("/api/save-discord-webhook", requireRoles(["owner"]), async (req, res) => {
     try {
       const { webhookUrl, distributeWebhookUrl } = req.body;
       const cleanUrl = typeof webhookUrl === "string" ? webhookUrl.trim() : "";

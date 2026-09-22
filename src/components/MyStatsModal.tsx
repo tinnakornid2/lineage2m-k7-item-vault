@@ -18,7 +18,7 @@ import {
   TrendingUp,
   ArrowRight
 } from 'lucide-react';
-import { User, StatDefinition, FormulaSettings, OFFICIAL_CLASSES } from '../types';
+import { User, StatDefinition, FormulaSettings, OFFICIAL_CLASSES, isUserStatsPending } from '../types';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
@@ -207,7 +207,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
   const calculatedNewPL = calculatePowerLevel(stats, spiritEnhancements, formulaSettings, false);
   const plDiff = calculatedNewPL - currentVerifiedPL;
 
-  const hasPending = Boolean(currentUser.pendingPowerLevel && currentUser.pendingPowerLevel > 0);
+  const hasPending = isUserStatsPending(currentUser);
   const isRejected = Boolean(currentUser.statRejectionReason);
 
   const handleSubmit = async (e: React.FormEvent) => {

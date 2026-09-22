@@ -440,6 +440,7 @@ export const translations = {
     success: 'สำเร็จ',
     error: 'เกิดข้อผิดพลาด',
     huntersRecognized: 'พบผู้ล่า {count} คน',
+    noHuntersFound: 'ยังไม่ได้ระบุรายชื่อคนล่า',
     soundToggle: 'เสียงเอฟเฟกต์',
 
     // In-App Notification Center
@@ -631,6 +632,7 @@ export const translations = {
     grossAmount: 'Gross Diamond Amount',
     marketTax: 'Marketplace Tax (%)',
     taxDeducted: 'Tax Deducted',
+    netCredited: 'Net Credited to Vault',
     currentBalance: 'Current Balance',
     balanceDelta: 'Adjustment Delta',
     resetVaultBalance: 'Reset Balance',

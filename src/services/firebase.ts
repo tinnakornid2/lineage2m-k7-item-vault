@@ -37,6 +37,7 @@ import {
   Claimant,
   QuickItem,
   GeneralItem,
+  GeneralItemReceipt,
   QueueItem,
   QueueMember,
   DiamondVault,
@@ -169,7 +170,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.4-deleted-users-tombstone';
+const CACHE_SCHEMA_VERSION = '2.10.6-stat-approval-fix';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -188,6 +189,7 @@ export function clearAllLocalCaches(): void {
     localStorage.removeItem(DELETED_VAULT_ITEMS_KEY);
     localStorage.removeItem(DELETED_QUEUE_ITEMS_KEY);
     localStorage.removeItem(DELETED_USERS_KEY);
+    localStorage.removeItem(DELETED_GENERAL_ITEMS_KEY);
     localStorage.removeItem('l2m_cancelled_claims_map');
     localStorage.removeItem('k7_queue_announcement');
   } catch (e) {
@@ -253,6 +255,7 @@ let inMemoryGeneralItems: GeneralItem[] = [];
 export const DELETED_VAULT_ITEMS_KEY = 'k7_deleted_vault_item_ids';
 export const DELETED_QUEUE_ITEMS_KEY = 'k7_deleted_queue_item_ids';
 export const DELETED_USERS_KEY = 'k7_deleted_user_ids';
+export const DELETED_GENERAL_ITEMS_KEY = 'k7_deleted_general_item_ids';
 
 const TOMBSTONE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 
@@ -344,6 +347,8 @@ export function setCachedUsers(users: User[]): void {
  * - Filters out any users whose IDs are marked as deleted in tombstones
  * - Protects 'owner' (Eloni) so owner can never be deleted or replaced
  * - When conflict occurs, picks the newest revision (updatedAt || createdAt)
+ * - Preserves active unresolved pending stat updates so stale snapshots never wipe them out
+ * - Correctly reconciles 'pending_approval' vs 'active' statuses
  */
 export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] {
   const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
@@ -384,7 +389,55 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
       } else {
         const localRev = Number(local.updatedAt || local.createdAt || 0);
         const incomingRev = Number(incoming.updatedAt || incoming.createdAt || 0);
-        result.push(incomingRev >= localRev ? incoming : local);
+        let base = incomingRev >= localRev ? { ...local, ...incoming } : { ...incoming, ...local };
+        const other = incomingRev >= localRev ? local : incoming;
+
+        // SMART PENDING STAT PRESERVATION:
+        // If one side has an active unresolved pending stat request, make sure it is not dropped!
+        const basePendingTime = Number(base.pendingPowerLevelRequestedAt || base.updatedAt || 0);
+        const otherPendingTime = Number(other.pendingPowerLevelRequestedAt || other.updatedAt || 0);
+        const baseResTime = Math.max(Number(base.statApprovalAt || 0), Number(base.statRejectionAt || 0));
+        const otherResTime = Math.max(Number(other.statApprovalAt || 0), Number(other.statRejectionAt || 0));
+        const latestRes = Math.max(baseResTime, otherResTime);
+
+        const otherHasActivePending = Boolean(
+          (typeof other.pendingPowerLevel === 'number' || other.pendingPowerLevelRequestedAt || other.pendingStatScreenshotUrl) &&
+          otherPendingTime > latestRes
+        );
+        const baseHasActivePending = Boolean(
+          (typeof base.pendingPowerLevel === 'number' || base.pendingPowerLevelRequestedAt || base.pendingStatScreenshotUrl) &&
+          basePendingTime > latestRes
+        );
+
+        if (otherHasActivePending && (!baseHasActivePending || otherPendingTime > basePendingTime)) {
+          base = {
+            ...base,
+            pendingPowerLevel: other.pendingPowerLevel,
+            pendingPowerLevelRequestedAt: other.pendingPowerLevelRequestedAt,
+            pendingStats: other.pendingStats || base.pendingStats,
+            pendingSpiritEnhancements: other.pendingSpiritEnhancements || base.pendingSpiritEnhancements,
+            pendingStatScreenshotUrl: other.pendingStatScreenshotUrl || base.pendingStatScreenshotUrl,
+            pendingClasses: other.pendingClasses ?? base.pendingClasses,
+            pendingLevel: other.pendingLevel ?? base.pendingLevel,
+            pendingLegendClasses: other.pendingLegendClasses ?? base.pendingLegendClasses,
+            pendingLegendAgathions: other.pendingLegendAgathions ?? base.pendingLegendAgathions,
+            statRejectionReason: null,
+            statRejectionAt: null
+          };
+        }
+
+        // Preserve registration status if one is pending_approval and not yet approved by a newer active status
+        if (local.status === 'pending_approval' || incoming.status === 'pending_approval') {
+          const activeUser = local.status === 'active' ? local : incoming.status === 'active' ? incoming : null;
+          const pendingUser = local.status === 'pending_approval' ? local : incoming;
+          if (activeUser && Number(activeUser.updatedAt || 0) > Number(pendingUser.createdAt || 0)) {
+            base.status = 'active';
+          } else if (!activeUser) {
+            base.status = 'pending_approval';
+          }
+        }
+
+        result.push(base);
       }
     }
   }
@@ -404,16 +457,122 @@ export function setCachedQuickItems(items: QuickItem[]): void {
   setCachedData(CACHE_KEYS.QUICK_ITEMS, inMemoryQuickItems);
 }
 
-export function getCachedGeneralItems(): GeneralItem[] {
-  if (!inMemoryGeneralItems || inMemoryGeneralItems.length === 0) {
-    inMemoryGeneralItems = getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
+export function getDeletedGeneralItemIds(): Set<string> {
+  return new Set(Object.keys(getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY)));
+}
+
+export function markGeneralItemAsDeleted(id: string): void {
+  if (!id) return;
+  const map = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
+  map[id] = Date.now();
+  saveDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY, map);
+  const currentCached = getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
+  if (currentCached.some((i) => i.id === id)) {
+    setCachedData(CACHE_KEYS.GENERAL_ITEMS, currentCached.filter((i) => i.id !== id));
   }
-  return inMemoryGeneralItems;
+  if (inMemoryGeneralItems.some((i) => i.id === id)) {
+    inMemoryGeneralItems = inMemoryGeneralItems.filter((i) => i.id !== id);
+  }
+}
+
+export function unmarkGeneralItemAsDeleted(id: string): void {
+  if (!id) return;
+  const map = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
+  if (id in map) {
+    delete map[id];
+    saveDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY, map);
+  }
+}
+
+export function getCachedGeneralItems(): GeneralItem[] {
+  const deletedMap = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
+  let pool = inMemoryGeneralItems;
+  if (!pool || pool.length === 0) {
+    pool = getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
+    inMemoryGeneralItems = pool;
+  }
+  return pool.filter((item) => item && item.id && (deletedMap[item.id] || 0) < Number(item.updatedAt || item.createdAt || 0));
 }
 
 export function setCachedGeneralItems(items: GeneralItem[]): void {
-  inMemoryGeneralItems = items || [];
-  setCachedData(CACHE_KEYS.GENERAL_ITEMS, inMemoryGeneralItems);
+  const deletedMap = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
+  const clean = (items || []).filter((item) => item && item.id && (deletedMap[item.id] || 0) < Number(item.updatedAt || item.createdAt || 0));
+  inMemoryGeneralItems = clean;
+  setCachedData(CACHE_KEYS.GENERAL_ITEMS, clean);
+}
+
+export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: GeneralItem[]): GeneralItem[] {
+  const deletedMap = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
+  const isDeleted = (item: GeneralItem) => (deletedMap[item.id] || 0) >= Number(item.updatedAt || item.createdAt || 0);
+
+  const currentMap = new Map<string, GeneralItem>();
+  for (const it of (currentItems || [])) {
+    if (it && it.id && !isDeleted(it)) {
+      currentMap.set(it.id, it);
+    }
+  }
+
+  const incomingMap = new Map<string, GeneralItem>();
+  for (const it of (incomingItems || [])) {
+    if (it && it.id && !isDeleted(it)) {
+      incomingMap.set(it.id, it);
+    }
+  }
+
+  const allIds = new Set([...currentMap.keys(), ...incomingMap.keys()]);
+  const result: GeneralItem[] = [];
+
+  for (const id of allIds) {
+    const local = currentMap.get(id);
+    const incoming = incomingMap.get(id);
+
+    if (local && !incoming) {
+      result.push(local);
+    } else if (!local && incoming) {
+      result.push(incoming);
+    } else if (local && incoming) {
+      const localRevision = Number(local.updatedAt || local.createdAt || 0);
+      const incomingRevision = Number(incoming.updatedAt || incoming.createdAt || 0);
+      const newest = incomingRevision >= localRevision ? incoming : local;
+      const older = incomingRevision >= localRevision ? local : incoming;
+
+      // Smart merge queueList: combine queue members deduplicating by id / userId / name
+      const queueMap = new Map<string, QueueMember>();
+      for (const m of [...(older.queueList || []), ...(newest.queueList || [])]) {
+        if (!m) continue;
+        const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+        if (!key) continue;
+        const existing = queueMap.get(key);
+        if (!existing) {
+          queueMap.set(key, m);
+        } else {
+          // If status changed to received in either, prefer received
+          if (m.status === 'received' || existing.status === 'received') {
+            queueMap.set(key, m.status === 'received' ? m : existing);
+          } else {
+            queueMap.set(key, m);
+          }
+        }
+      }
+
+      // Merge receipt history deduplicating by receipt id
+      const receiptMap = new Map<string, GeneralItemReceipt>();
+      for (const r of [...(older.receiptHistory || []), ...(newest.receiptHistory || [])]) {
+        if (r && r.id) receiptMap.set(r.id, r);
+      }
+
+      result.push({
+        ...older,
+        ...newest,
+        queueList: Array.from(queueMap.values()),
+        receiptHistory: Array.from(receiptMap.values()).sort((a, b) => (b.deliveredAt || 0) - (a.deliveredAt || 0)),
+        updatedAt: Math.max(localRevision, incomingRevision) || Date.now()
+      });
+    }
+  }
+
+  result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return result;
 }
 
 export function getDeletedVaultItemIds(): Set<string> {
@@ -2002,6 +2161,8 @@ export function listenToGeneralItems(callback: (items: GeneralItem[]) => void) {
 
 export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdAt'> & { id?: string }) {
   const id = item.id || ('gi_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
+  unmarkGeneralItemAsDeleted(id);
+  const now = Date.now();
   const fullItem: GeneralItem = {
     ...item,
     id,
@@ -2012,7 +2173,8 @@ export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdA
     rarity: item.rarity || 'RARE',
     queueList: Array.isArray(item.queueList) ? item.queueList : [],
     receiptHistory: Array.isArray(item.receiptHistory) ? item.receiptHistory : [],
-    createdAt: Date.now()
+    createdAt: now,
+    updatedAt: now
   };
   await safeFirestoreWrite(
     setDoc(doc(db, GENERAL_ITEMS_COLLECTION, id), sanitizeForFirestore(fullItem), { merge: true }),
@@ -2023,14 +2185,19 @@ export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdA
 }
 
 export async function updateGeneralItemDoc(itemId: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) {
+  const updatesWithTime = {
+    ...updates,
+    updatedAt: (updates as any).updatedAt || Date.now()
+  };
   await safeFirestoreWrite(
-    setDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId), sanitizeForFirestore(updates), { merge: true }),
+    setDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId), sanitizeForFirestore(updatesWithTime), { merge: true }),
     1500,
     'updateGeneralItemDoc'
   );
 }
 
 export async function deleteGeneralItemDoc(itemId: string) {
+  markGeneralItemAsDeleted(itemId);
   await safeFirestoreWrite(
     deleteDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId)),
     1500,

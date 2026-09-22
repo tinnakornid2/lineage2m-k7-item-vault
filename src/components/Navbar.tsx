@@ -16,7 +16,7 @@ import {
   Lock,
   Unlock
 } from 'lucide-react';
-import { ActiveTab, Language, User, cleanClanName, StatUpdateSettings } from '../types';
+import { ActiveTab, Language, User, cleanClanName, StatUpdateSettings, isUserStatsPending } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -142,7 +142,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   CLAN HUB
                 </span>
                 <span className="text-[9px] sm:text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300">
-                  v2.10.4
+                  v2.10.6
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 truncate max-w-[190px] sm:max-w-none">
@@ -283,7 +283,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     >
                       <Zap className="w-3 h-3 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
                       <span>⚡ {(currentUser.powerLevel || 0).toLocaleString()} PL</span>
-                      {currentUser.pendingPowerLevel && currentUser.pendingPowerLevel > 0 && (
+                      {isUserStatsPending(currentUser) && (
                         <span className="ml-1 px-1 py-0.2 rounded bg-amber-400/25 text-[#f5d77f] text-[9px] font-sans font-bold animate-pulse">
                           ⏳ {t.pendingBadge}
                         </span>

@@ -636,6 +636,16 @@ export async function broadcastLiveState(
 ): Promise<{ success: boolean; version?: number }> {
   try {
     payload = withLocalSyncMeta(payload);
+    if (Array.isArray(payload.users)) {
+      payload = {
+        ...payload,
+        users: payload.users.map((u: any) => {
+          if (!u || typeof u !== 'object') return u;
+          const { password: _pw, ...cleanUser } = u;
+          return cleanUser;
+        })
+      };
+    }
     const payloadStr = JSON.stringify(payload);
     if (payloadStr === lastBroadcastString) {
       // Data is identical to what was already broadcasted or received from remote. Skip!

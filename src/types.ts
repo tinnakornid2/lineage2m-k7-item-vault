@@ -102,6 +102,7 @@ export interface User {
   statScreenshotUrl?: string;
   statRejectionReason?: string;
   statRejectionAt?: number;
+  statApprovalAt?: number;
   lastStatUpdatedAt?: number;
   verified?: boolean;
   statHistory?: StatHistoryPoint[];
@@ -150,6 +151,7 @@ export interface GeneralItem {
   queueList: QueueMember[];
   receiptHistory: GeneralItemReceipt[];
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface GeneralItemReceipt {
@@ -395,8 +397,20 @@ export function hasUserUpdatedStats(user?: User | null): boolean {
  */
 export function isUserStatsPending(user?: User | null): boolean {
   if (!user) return false;
-  if (hasUserUpdatedStats(user)) return false;
-  if (typeof user.pendingPowerLevel === 'number' && user.pendingPowerLevel > 0) return true;
+  const reqTime = Number(user.pendingPowerLevelRequestedAt || 0);
+  const approvalTime = Number(user.statApprovalAt || 0);
+  const rejectionTime = Number(user.statRejectionAt || 0);
+  const latestResolution = Math.max(approvalTime, rejectionTime);
+
+  if (reqTime > 0 && reqTime > latestResolution) {
+    return true;
+  }
+  if (typeof user.pendingPowerLevel === 'number') {
+    return true;
+  }
+  if (user.pendingStatScreenshotUrl && user.pendingStatScreenshotUrl.trim() !== '') {
+    return true;
+  }
   if (user.pendingStats && typeof user.pendingStats === 'object') {
     return Object.values(user.pendingStats).some((v) => typeof v === 'number' && v > 0);
   }

@@ -26,7 +26,7 @@ import {
   Lock,
   Unlock
 } from 'lucide-react';
-import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint, StatUpdateSettings } from '../types';
+import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint, StatUpdateSettings, isUserStatsPending } from '../types';
 import { translations } from '../translations';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
 import { compressImageFile } from '../utils/imageCompressor';
@@ -212,7 +212,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const processScreenshotFile = async (file: File, isPaste = false) => {
     try {
       sounds.playClick();
-      const compressed = await compressImageFile(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.85 });
+      const compressed = await compressImageFile(file, { maxWidth: 960, maxHeight: 960, quality: 0.72 });
       setScreenshotUrl(compressed);
       if (showToast) {
         showToast(
@@ -310,7 +310,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const calculatedNewPL = calculatePowerLevel(stats, spiritEnhancements, formulaSettings, false);
   const plDiff = calculatedNewPL - currentVerifiedPL;
 
-  const hasPending = Boolean(currentUser.pendingPowerLevel && currentUser.pendingPowerLevel > 0);
+  const hasPending = isUserStatsPending(currentUser);
   const isRejected = Boolean(currentUser.statRejectionReason);
 
   const handleSubmit = async (e: React.FormEvent) => {

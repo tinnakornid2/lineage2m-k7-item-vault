@@ -21,7 +21,7 @@ import {
   Camera,
   ZoomIn
 } from 'lucide-react';
-import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, OFFICIAL_CLASSES, cleanClanName, ClanGroup } from '../types';
+import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, OFFICIAL_CLASSES, cleanClanName, ClanGroup, isUserStatsPending } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { canChangePassword } from '../services/firebase';
@@ -129,7 +129,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
   // Filter members by pending vs active
   const pendingMembers = allMembers.filter((m) => m.status === 'pending_approval');
   const pendingCpMembers = allMembers.filter(
-    (m) => m.status === 'active' && Boolean(m.pendingPowerLevel && m.pendingPowerLevel > 0)
+    (m) => m.status === 'active' && isUserStatsPending(m)
   );
   const activeMembers = allMembers.filter((m) => {
     if (m.status !== 'active') return false;
@@ -773,9 +773,9 @@ export const MembersView: React.FC<MembersViewProps> = ({
                                   </button>
                                 )}
                               </div>
-                              {mem.pendingPowerLevel && mem.pendingPowerLevel > 0 && (
+                              {isUserStatsPending(mem) && (
                                 <div className="text-[10px] text-[#f5d77f] font-sans font-medium flex items-center gap-1 mt-0.5 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.2 rounded w-fit">
-                                  <span className="animate-pulse">⏳</span> {t.cpPendingBadge}: ⚡ {mem.pendingPowerLevel.toLocaleString()} PL
+                                  <span className="animate-pulse">⏳</span> {t.cpPendingBadge}: ⚡ {(mem.pendingPowerLevel != null ? mem.pendingPowerLevel : (mem.powerLevel || 0)).toLocaleString()} PL
                                 </div>
                               )}
                             </td>

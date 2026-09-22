@@ -1,0 +1,48 @@
+{
+  "total": 14,
+  "passed": 10,
+  "failed": 4,
+  "blocked": 0,
+  "bugs": [
+    {
+      "severity": "High",
+      "page": "Roles & Permissions / Clan Management",
+      "problem": "Admin clan restriction & \"Manage All Clans\" toggle not implemented in User schema",
+      "steps": "1. Login as Admin belonging to VoltZ. 2. Observe Admin can edit/delete members in LevelS and STRONK without Owner enabling \"Manage All Clans\".",
+      "expected": "Admin can only manage their assigned clan unless Owner grants \"Manage All Clans\".",
+      "actual": "All Admins currently have unrestricted global rights across all clans.",
+      "console": "No managedClans or manageAllClans field on User model",
+      "possibleCause": "Feature specification from user is not yet implemented in codebase"
+    },
+    {
+      "severity": "Medium",
+      "page": "Member System / Registration",
+      "problem": "Link Account with Existing Member & \"Possible Match\" detection is missing",
+      "steps": "1. Admin creates a roster member with in-game name \"ShadowHunter\". 2. New player registers with IGN \"ShadowHunter\". 3. Observe error \"มีชื่อตัวละครนี้ในระบบแล้ว\" instead of offering to link the account.",
+      "expected": "System detects possible match and prompts user to link account with existing roster record.",
+      "actual": "System rejects registration as a hard duplicate error.",
+      "console": "handleRegister throws duplicate character error",
+      "possibleCause": "Roster-to-account claiming/linking modal is not implemented"
+    },
+    {
+      "severity": "Low",
+      "page": "Boss / Hunt System",
+      "problem": "No dedicated Boss entity, spawn timer, or Boss list view in project",
+      "steps": "Navigate through sidebar menus.",
+      "expected": "Dedicated Boss list with timers, sorting, and 3-dots edit menu as described in prompt.",
+      "actual": "Project implements Boss Item Vault (items with hunters list) rather than a standalone Boss timer table.",
+      "console": "No BossListView component found",
+      "possibleCause": "Scope clarification needed: User prompt references a Boss list that may belong to a separate module or upcoming feature."
+    },
+    {
+      "severity": "Low",
+      "page": "Dashboard",
+      "problem": "Dashboard lacks widget toggle customization (เปิด/ปิด Widget)",
+      "steps": "1. Open DashboardView. 2. Look for widget visibility customization controls.",
+      "expected": "User/Admin can toggle widgets on/off and layout adjusts dynamically.",
+      "actual": "Dashboard layout is statically fixed to 5 pre-arranged sections.",
+      "console": "No widget toggle state found",
+      "possibleCause": "Widget management toolbar not yet designed"
+    }
+  ]
+}

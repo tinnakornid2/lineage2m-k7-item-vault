@@ -37,7 +37,8 @@ import {
   CheckSquare,
   Square,
   Gift,
-  Receipt
+  Receipt,
+  Edit
 } from 'lucide-react';
 import {
   HunterRecord,
@@ -76,6 +77,7 @@ interface VaultViewProps {
     directDistribution?: DirectDistributionPayload
   ) => Promise<void>;
   onDeleteVaultItem: (itemId: string) => Promise<void>;
+  onEditItem?: (item: VaultItem) => void;
   onViewImageZoom: (
     url: string,
     title?: string,
@@ -95,6 +97,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   onOpenQuickItemsModal,
   onCreateVaultItem,
   onDeleteVaultItem,
+  onEditItem,
   onViewImageZoom,
   onOpenOwnerResetModal,
   onConfirmPayment
@@ -551,8 +554,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
     }
   };
 
-  // Active view inside Vault: 'active' or 'distributed'
-  const [vaultSubTab, setVaultSubTab] = useState<'create' | 'distributed'>('create');
+  // Active view inside Vault: 'create', 'active', or 'distributed'
+  const [vaultSubTab, setVaultSubTab] = useState<'create' | 'active' | 'distributed'>('create');
 
   // State to track deduplication stats
   const [duplicatesRemovedCount, setDuplicatesRemovedCount] = useState<number | null>(null);
@@ -1280,31 +1283,31 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
       {/* Fast workflow overview */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <button type="button" onClick={() => setVaultSubTab('create')} className="rounded-2xl border border-emerald-500/25 bg-gradient-to-br from-emerald-950/45 to-slate-950 p-4 text-left transition hover:border-emerald-400/60">
+        <button type="button" onClick={() => setVaultSubTab('active')} className="rounded-2xl border border-emerald-500/25 bg-gradient-to-br from-emerald-950/45 to-slate-950 p-4 text-left transition hover:border-emerald-400/60 cursor-pointer">
           <div className="text-xs font-bold text-emerald-300">{lang === 'th' ? 'พร้อมแจก' : 'Available'}</div>
           <div className="mt-1 text-2xl font-black text-white">{vaultItems.filter((item) => item.status === 'available' && !isItemDistributed(item)).length}</div>
-          <div className="mt-1 text-[11px] text-slate-400">{lang === 'th' ? 'เพิ่มไอเทมหรือจัดการรายการปัจจุบัน' : 'Add or manage current items'}</div>
+          <div className="mt-1 text-[11px] text-slate-400">{lang === 'th' ? 'ดูรายการและจัดการไอเทมปัจจุบัน' : 'View and manage active items'}</div>
         </button>
-        <button type="button" onClick={() => setVaultSubTab('create')} className="rounded-2xl border border-cyan-500/25 bg-gradient-to-br from-cyan-950/45 to-slate-950 p-4 text-left transition hover:border-cyan-400/60">
+        <button type="button" onClick={() => setVaultSubTab('create')} className="rounded-2xl border border-cyan-500/25 bg-gradient-to-br from-cyan-950/45 to-slate-950 p-4 text-left transition hover:border-cyan-400/60 cursor-pointer">
           <div className="text-xs font-bold text-cyan-300">{lang === 'th' ? 'ควิกไอเทม' : 'Quick presets'}</div>
           <div className="mt-1 text-2xl font-black text-white">{quickItems.length}</div>
           <div className="mt-1 text-[11px] text-slate-400">{lang === 'th' ? 'เลือกเพื่อกรอกข้อมูลไอเทมอย่างรวดเร็ว' : 'Fill item details instantly'}</div>
         </button>
-        <button type="button" onClick={() => setVaultSubTab('distributed')} className="rounded-2xl border border-violet-500/25 bg-gradient-to-br from-violet-950/45 to-slate-950 p-4 text-left transition hover:border-violet-400/60">
+        <button type="button" onClick={() => setVaultSubTab('distributed')} className="rounded-2xl border border-violet-500/25 bg-gradient-to-br from-violet-950/45 to-slate-950 p-4 text-left transition hover:border-violet-400/60 cursor-pointer">
           <div className="text-xs font-bold text-violet-300">{lang === 'th' ? 'แจกแล้ว' : 'Distributed'}</div>
           <div className="mt-1 text-2xl font-black text-white">{distributedItems.length}</div>
           <div className="mt-1 text-[11px] text-slate-400">{lang === 'th' ? 'ดูประวัติ ผู้รับ และหลักฐานย้อนหลัง' : 'Review recipients and evidence'}</div>
         </button>
       </div>
 
-      {/* Sub-Tabs: Add/Active Item Form VS Distributed Archive */}
+      {/* Sub-Tabs: Add/Active Item Form VS Active Items VS Distributed Archive */}
       <div className="sticky top-2 z-20 flex w-fit items-center gap-2 rounded-xl border border-slate-700/80 bg-[#0b0e17]/95 p-1 shadow-xl backdrop-blur">
         <button
           onClick={() => {
             sounds.playClick();
             setVaultSubTab('create');
           }}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
             vaultSubTab === 'create'
               ? 'bg-[#1b263b] text-[#f5d77f] border border-[#d4af37]/50 shadow'
               : 'text-slate-400 hover:text-white'
@@ -1316,9 +1319,26 @@ export const VaultView: React.FC<VaultViewProps> = ({
         <button
           onClick={() => {
             sounds.playClick();
+            setVaultSubTab('active');
+          }}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            vaultSubTab === 'active'
+              ? 'bg-[#1b263b] text-[#f5d77f] border border-[#d4af37]/50 shadow'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span>{lang === 'th' ? 'ไอเทมในคลัง' : 'Vault Items'}</span>
+          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono">
+            {vaultItems.filter((item) => item.status === 'available' && !isItemDistributed(item)).length}
+          </span>
+        </button>
+        <button
+          onClick={() => {
+            sounds.playClick();
             setVaultSubTab('distributed');
           }}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
             vaultSubTab === 'distributed'
               ? 'bg-[#1b263b] text-[#f5d77f] border border-[#d4af37]/50 shadow'
               : 'text-slate-400 hover:text-white'
@@ -2748,7 +2768,161 @@ export const VaultView: React.FC<VaultViewProps> = ({
         </div>
       )}
 
-      {/* VIEW 2: DISTRIBUTED ITEMS SECTION (ไอเทมที่แจกแล้ว เก็บแยกต่างหาก แสดงตารางแนวนอน) */}
+      {/* VIEW 2: ACTIVE VAULT ITEMS SECTION (รายการไอเทมในคลังปัจจุบัน) */}
+      {vaultSubTab === 'active' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h2 className="text-lg font-bold font-cinzel text-slate-100">
+                {lang === 'th' ? 'รายการไอเทมในคลัง (Active Vault Items)' : 'Active Vault Items'}
+              </h2>
+              <p className="text-xs text-slate-400">
+                {lang === 'th'
+                  ? 'ไอเทมที่พร้อมแจกหรือเปิดให้สมาชิกเคลม สามารถกดแก้ไขหรือลบได้'
+                  : 'Items ready for distribution or claiming. Click Edit or Delete to manage.'}
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                sounds.playClick();
+                setVaultSubTab('create');
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white text-xs font-bold transition-all shadow flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{t.addNewItem}</span>
+            </button>
+          </div>
+
+          {vaultItems.filter((item) => item.status === 'available' && !isItemDistributed(item)).length === 0 ? (
+            <div className="p-12 text-center rounded-2xl border border-slate-800 bg-[#0d131f]/70 space-y-3">
+              <Layers className="size-10 text-slate-600 mx-auto" />
+              <p className="text-sm font-medium text-slate-400">
+                {lang === 'th' ? 'ยังไม่มีไอเทมค้างอยู่ในคลัง' : 'No items currently in vault'}
+              </p>
+              <button
+                onClick={() => setVaultSubTab('create')}
+                className="px-4 py-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold hover:bg-amber-500/30 transition cursor-pointer"
+              >
+                + {t.addNewItem}
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {vaultItems.filter((item) => item.status === 'available' && !isItemDistributed(item)).map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-2xl border border-slate-700/80 bg-gradient-to-b from-[#111827] to-[#0b0f19] p-4 shadow-xl flex flex-col justify-between gap-3 relative group"
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Item Image with Click to Zoom */}
+                    <div
+                      className="size-14 rounded-xl bg-slate-800/80 border border-slate-700 overflow-hidden shrink-0 cursor-pointer relative group/img flex items-center justify-center"
+                      onClick={() => onViewImageZoom(item.imageUrl || '', item.name)}
+                    >
+                      {item.imageUrl ? (
+                        <img
+                          src={item.imageUrl}
+                          alt={item.name}
+                          className="w-full h-full object-cover group-hover/img:scale-110 transition duration-300"
+                        />
+                      ) : (
+                        <ImageIcon className="size-6 text-slate-500" />
+                      )}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 flex items-center justify-center transition">
+                        <ZoomIn className="size-4 text-white" />
+                      </div>
+                    </div>
+
+                    {/* Item Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border font-mono ${
+                          item.rarity === 'MYTHIC'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                            : item.rarity === 'LAGEND' || item.rarity === 'LEGEND'
+                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/50'
+                            : item.rarity === 'EPIC'
+                            ? 'bg-red-500/20 text-red-300 border-red-500/50'
+                            : 'bg-blue-500/20 text-blue-300 border-blue-500/50'
+                        }`}>
+                          {item.rarity}
+                        </span>
+                        {item.quantity && item.quantity > 1 && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
+                            x{item.quantity}
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="font-bold text-sm text-slate-100 truncate mt-1" title={item.name}>
+                        {item.name}
+                      </h3>
+                      <div className="flex items-center gap-3 mt-1 text-xs">
+                        <span className="text-amber-400 font-mono font-bold flex items-center gap-1">
+                          <Gem className="size-3 text-amber-400" />
+                          {item.price > 0 ? `${item.price.toLocaleString()} Dia` : (lang === 'th' ? 'ฟรี' : 'Free')}
+                        </span>
+                        {item.minPowerLevel && item.minPowerLevel > 0 && (
+                          <span className="text-cyan-300 font-mono text-[11px] flex items-center gap-0.5">
+                            <Zap className="size-3 text-cyan-400" />
+                            {item.minPowerLevel.toLocaleString()} PL
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Hunters & Claimants info */}
+                  <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <Users className="size-3 text-slate-400" />
+                      <span>{item.hunters?.length || 0} {lang === 'th' ? 'คนล่า' : 'hunters'}</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <UserCheck className="size-3 text-emerald-400" />
+                      <span>{(item.claimants || []).length} {lang === 'th' ? 'ขอรับ' : 'claims'}</span>
+                    </span>
+                  </div>
+
+                  {/* Action Buttons: Edit and Delete */}
+                  {isAdminOrOwner && (
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
+                      {onEditItem && (
+                        <button
+                          id={`btn-edit-active-item-${item.id}`}
+                          onClick={() => {
+                            sounds.playClick();
+                            onEditItem(item);
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-xs font-semibold transition cursor-pointer"
+                          title={t.editItem}
+                        >
+                          <Edit className="size-3.5" />
+                          <span>{t.edit}</span>
+                        </button>
+                      )}
+                      <button
+                        id={`btn-delete-active-item-${item.id}`}
+                        onClick={() => {
+                          sounds.playClick();
+                          setItemToDelete(item);
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/50 text-xs font-semibold transition cursor-pointer"
+                        title={lang === 'th' ? 'ลบไอเทมนี้' : 'Delete item'}
+                      >
+                        <Trash2 className="size-3.5" />
+                        <span>{lang === 'th' ? 'ลบ' : 'Delete'}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* VIEW 3: DISTRIBUTED ITEMS SECTION (ไอเทมที่แจกแล้ว เก็บแยกต่างหาก แสดงตารางแนวนอน) */}
       {vaultSubTab === 'distributed' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
@@ -3211,6 +3385,21 @@ export const VaultView: React.FC<VaultViewProps> = ({
                               <span className="text-[10px] font-medium hidden sm:inline">
                                 {lang === 'th' ? 'ดูรูป' : 'View'} ({item.hunterScreenshots.length})
                               </span>
+                            </button>
+                          )}
+
+                          {/* Admin / Owner Edit Item */}
+                          {isAdminOrOwner && onEditItem && (
+                            <button
+                              id={`btn-edit-distributed-record-${item.id}`}
+                              onClick={() => {
+                                sounds.playClick();
+                                onEditItem(item);
+                              }}
+                              className="p-1.5 rounded-lg bg-amber-950/40 hover:bg-amber-900/60 text-amber-400 border border-amber-800/50 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                              title={t.editItem}
+                            >
+                              <Edit className="w-4 h-4" />
                             </button>
                           )}
 

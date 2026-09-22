@@ -455,10 +455,11 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         const syncMeta = {
           deletedVaultItems: mergeTimestampMaps(previousData.syncMeta?.deletedVaultItems, data.syncMeta?.deletedVaultItems),
           deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
+          deletedGeneralItems: mergeTimestampMaps(previousData.syncMeta?.deletedGeneralItems, data.syncMeta?.deletedGeneralItems),
           deletedUsers: mergeTimestampMaps(previousData.syncMeta?.deletedUsers, data.syncMeta?.deletedUsers),
           cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims)
         };
-        const mergeVersionedRecords = (previous: any[], incoming: any[], deleted: Record<string, number>, mergeClaims = false) => {
+        const mergeVersionedRecords = (previous: any[], incoming: any[], deleted: Record<string, number>, mergeClaims = false, mergeQueue = false) => {
           const records = new Map<string, any>();
           for (const record of [...(previous || []), ...(incoming || [])]) {
             if (!record?.id) continue;
@@ -470,25 +471,92 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
               records.set(record.id, record);
               continue;
             }
-            const newest = recordRevision >= existingRevision ? record : existing;
-            if (!mergeClaims) {
-              records.set(record.id, newest);
-              continue;
+            let newest = recordRevision >= existingRevision ? { ...existing, ...record } : { ...record, ...existing };
+            const older = recordRevision >= existingRevision ? existing : record;
+
+            // Smart user pending stat preservation
+            if (newest.pendingPowerLevel !== undefined || older.pendingPowerLevel !== undefined) {
+              const newestPendingTime = Number(newest.pendingPowerLevelRequestedAt || newest.updatedAt || 0);
+              const olderPendingTime = Number(older.pendingPowerLevelRequestedAt || older.updatedAt || 0);
+              const newestResTime = Math.max(Number(newest.statApprovalAt || 0), Number(newest.statRejectionAt || 0));
+              const olderResTime = Math.max(Number(older.statApprovalAt || 0), Number(older.statRejectionAt || 0));
+              const latestRes = Math.max(newestResTime, olderResTime);
+
+              const olderHasPending = Boolean((typeof older.pendingPowerLevel === 'number' || older.pendingPowerLevelRequestedAt || older.pendingStatScreenshotUrl) && olderPendingTime > latestRes);
+              const newestHasPending = Boolean((typeof newest.pendingPowerLevel === 'number' || newest.pendingPowerLevelRequestedAt || newest.pendingStatScreenshotUrl) && newestPendingTime > latestRes);
+
+              if (olderHasPending && (!newestHasPending || olderPendingTime > newestPendingTime)) {
+                newest = {
+                  ...newest,
+                  pendingPowerLevel: older.pendingPowerLevel,
+                  pendingPowerLevelRequestedAt: older.pendingPowerLevelRequestedAt,
+                  pendingStats: older.pendingStats || newest.pendingStats,
+                  pendingSpiritEnhancements: older.pendingSpiritEnhancements || newest.pendingSpiritEnhancements,
+                  pendingStatScreenshotUrl: older.pendingStatScreenshotUrl || newest.pendingStatScreenshotUrl,
+                  pendingClasses: older.pendingClasses ?? newest.pendingClasses,
+                  pendingLevel: older.pendingLevel ?? newest.pendingLevel,
+                  pendingLegendClasses: older.pendingLegendClasses ?? newest.pendingLegendClasses,
+                  pendingLegendAgathions: older.pendingLegendAgathions ?? newest.pendingLegendAgathions,
+                  statRejectionReason: null,
+                  statRejectionAt: null
+                };
+              }
             }
-            const claimantMap = new Map<string, any>();
-            for (const claimant of [...(existing.claimants || []), ...(record.claimants || [])]) {
-              const key = claimant.userId || String(claimant.inGameName || '').trim().toLowerCase();
-              if (key) claimantMap.set(key, claimant);
+
+            if (mergeClaims) {
+              const claimantMap = new Map<string, any>();
+              for (const claimant of [...(older.claimants || []), ...(newest.claimants || [])]) {
+                const key = claimant.userId || String(claimant.inGameName || '').trim().toLowerCase();
+                if (key) claimantMap.set(key, claimant);
+              }
+              newest = { ...newest, claimants: Array.from(claimantMap.values()) };
             }
-            records.set(record.id, { ...newest, claimants: Array.from(claimantMap.values()) });
+
+            if (mergeQueue) {
+              const queueMap = new Map<string, any>();
+              for (const m of [...(older.queueList || []), ...(newest.queueList || [])]) {
+                if (!m) continue;
+                const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+                if (!key) continue;
+                const ex = queueMap.get(key);
+                if (!ex) {
+                  queueMap.set(key, m);
+                } else {
+                  if (m.status === 'received' || ex.status === 'received') {
+                    queueMap.set(key, m.status === 'received' ? m : ex);
+                  } else {
+                    queueMap.set(key, m);
+                  }
+                }
+              }
+              const receiptMap = new Map<string, any>();
+              for (const r of [...(older.receiptHistory || []), ...(newest.receiptHistory || [])]) {
+                if (r && r.id) receiptMap.set(r.id, r);
+              }
+              newest = {
+                ...newest,
+                queueList: Array.from(queueMap.values()),
+                receiptHistory: Array.from(receiptMap.values())
+              };
+            }
+
+            records.set(record.id, newest);
           }
           return Array.from(records.values());
         };
 
         data.syncMeta = syncMeta;
         data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
-        data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems);
+        data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems, false, true);
+        data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
         data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
+        if (Array.isArray(data.users)) {
+          data.users = data.users.map((u: any) => {
+            if (!u || typeof u !== 'object') return u;
+            const { password: _pw, ...cleanUser } = u;
+            return cleanUser;
+          });
+        }
         if (Array.isArray(data.vaultItems)) {
           data.vaultItems = data.vaultItems.map((item: any) => {
             const claimants = (item.claimants || []).filter((claimant: any) => {
@@ -557,6 +625,12 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         powerLevel: Number(claimant.powerLevel || 0),
         claimedAt: Number(claimant.claimedAt || now)
       };
+
+      // Check if item exists in vault
+      const targetItem = (liveHubState?.data?.vaultItems || []).find((i: any) => i.id === itemId);
+      if (!targetItem) {
+        return res.status(404).json({ success: false, error: 'ITEM_NOT_FOUND' });
+      }
 
       // 1. Update in-memory liveHubState
       if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
@@ -999,8 +1073,8 @@ Do not include markdown or explanations. Return pure JSON only.`;
     }
   });
 
-  // Save Discord Webhook URL (Owner & Admin)
-  app.post("/api/save-discord-webhook", requireRoles(['owner', 'admin']), async (req, res) => {
+  // Save Discord Webhook URL (Owner only per Rule 3 & 5)
+  app.post("/api/save-discord-webhook", requireRoles(['owner']), async (req, res) => {
     try {
       const { webhookUrl, distributeWebhookUrl } = req.body;
       const cleanUrl = typeof webhookUrl === 'string' ? webhookUrl.trim() : '';

@@ -111,6 +111,7 @@ import {
   testFirestoreHealth,
   mergeVaultItems,
   mergeQueueItems,
+  mergeGeneralItems,
   mergeUsers,
   clearAllLocalCaches,
   markVaultItemAsDeleted,
@@ -316,8 +317,11 @@ export const App: React.FC = () => {
         setCachedQuickItems(data.quickItems);
       }
       if (data.generalItems && data.generalItems.length > 0) {
-        setGeneralItems(data.generalItems);
-        setCachedGeneralItems(data.generalItems);
+        setGeneralItems((prev) => {
+          const merged = mergeGeneralItems(prev, data.generalItems);
+          setCachedGeneralItems(merged);
+          return merged;
+        });
       }
       if (data.clans && data.clans.length > 0) {
         setClans(data.clans);
@@ -361,8 +365,11 @@ export const App: React.FC = () => {
             setCachedQuickItems(json.data.quickItems);
           }
           if (Array.isArray(json.data.generalItems)) {
-            setGeneralItems(json.data.generalItems);
-            setCachedGeneralItems(json.data.generalItems);
+            setGeneralItems((prev) => {
+              const merged = mergeGeneralItems(prev, json.data.generalItems);
+              setCachedGeneralItems(merged);
+              return merged;
+            });
           }
           if (Array.isArray(json.data.clans) && json.data.clans.length > 0) setClans(json.data.clans);
           if (Array.isArray(json.data.diamondLogs)) setDiamondLogs(json.data.diamondLogs);
@@ -396,8 +403,11 @@ export const App: React.FC = () => {
                 setCachedQuickItems(res.data.quickItems);
               }
               if (res.data.generalItems && res.data.generalItems.length > 0) {
-                setGeneralItems(res.data.generalItems);
-                setCachedGeneralItems(res.data.generalItems);
+                setGeneralItems((prev) => {
+                  const merged = mergeGeneralItems(prev, res.data.generalItems);
+                  setCachedGeneralItems(merged);
+                  return merged;
+                });
               }
               if (res.data.queueItems) {
                 setQueueItems((prev) => {
@@ -574,8 +584,11 @@ export const App: React.FC = () => {
           setCachedQuickItems(data.quickItems);
         }
         if (data.generalItems && data.generalItems.length > 0) {
-          setGeneralItems(data.generalItems);
-          setCachedGeneralItems(data.generalItems);
+          setGeneralItems((prev) => {
+            const merged = mergeGeneralItems(prev, data.generalItems);
+            setCachedGeneralItems(merged);
+            return merged;
+          });
         }
       }
 
@@ -706,10 +719,12 @@ export const App: React.FC = () => {
 
     // 2. Pending stat verification requests
     users.forEach((u) => {
-      if (u.pendingPowerLevel && u.pendingPowerLevel > 0) {
-        const notifId = `stat_req_${u.id}_${u.updatedAt || 0}`;
+      if (isUserStatsPending(u)) {
+        const reqTimestamp = u.pendingPowerLevelRequestedAt || u.updatedAt || 0;
+        const notifId = `stat_req_${u.id}_${reqTimestamp}`;
         if (dismissedNotificationIds.includes(notifId)) return;
         const th = lang === 'th';
+        const displayPL = u.pendingPowerLevel != null ? Number(u.pendingPowerLevel) : (u.powerLevel || 0);
         list.push({
           id: notifId,
           type: 'stat_request',
@@ -717,9 +732,9 @@ export const App: React.FC = () => {
             ? `${u.inGameName || u.username} (${cleanClanName(u.clan) || 'Alliance'}) ส่งคำขออัปเดตสเตตัส`
             : `${u.inGameName || u.username} (${cleanClanName(u.clan) || 'Alliance'}) requested stats update`,
           description: th
-            ? `ค่าพลังใหม่: ⚡ ${Number(u.pendingPowerLevel).toLocaleString()} PL (รอ Admin ตรวจสอบและอนุมัติ)`
-            : `New Power Level: ⚡ ${Number(u.pendingPowerLevel).toLocaleString()} PL (Pending Admin verification)`,
-          timestamp: u.updatedAt || Date.now(),
+            ? `ค่าพลังใหม่: ⚡ ${displayPL.toLocaleString()} PL (รอ Admin ตรวจสอบและอนุมัติ)`
+            : `New Power Level: ⚡ ${displayPL.toLocaleString()} PL (Pending Admin verification)`,
+          timestamp: u.pendingPowerLevelRequestedAt || u.updatedAt || Date.now(),
           read: readNotificationIds.includes(notifId),
           user: u
         });
@@ -773,7 +788,7 @@ export const App: React.FC = () => {
     // 4. Pending member registration requests (for Admin & Owner)
     if (currentUser?.role === 'admin' || currentUser?.role === 'owner') {
       users.forEach((u) => {
-        if (u.status === 'pending') {
+        if (u.status === 'pending_approval' || (u.status as any) === 'pending') {
           const notifId = `reg_pending_${u.id}_${u.createdAt || 0}`;
           if (dismissedNotificationIds.includes(notifId)) return;
           const th = lang === 'th';
@@ -903,7 +918,7 @@ export const App: React.FC = () => {
     const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
     if (!isPrivileged) return;
 
-    const currentPendingUsers = users.filter((u) => u.status === 'pending');
+    const currentPendingUsers = users.filter((u) => u.status === 'pending_approval' || (u.status as any) === 'pending');
     const currentPendingIds = new Set(currentPendingUsers.map((u) => u.id));
 
     // Initial load: record existing pending users without playing chime or showing toast
@@ -936,6 +951,53 @@ export const App: React.FC = () => {
     }
 
     previousPendingUserIdsRef.current = currentPendingIds;
+  }, [users, currentUser, lang]);
+
+  // Real-time detection of new stat update requests to alert Admin & Owner
+  const previousPendingStatKeysRef = useRef<Set<string> | null>(null);
+  const hasInitializedPendingStatsRef = useRef(false);
+
+  useEffect(() => {
+    const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+    if (!isPrivileged) return;
+
+    const currentPendingUsers = users.filter((u) => isUserStatsPending(u));
+    const currentKeys = new Set(
+      currentPendingUsers.map((u) => `${u.id}_${u.pendingPowerLevelRequestedAt || u.updatedAt || 0}`)
+    );
+
+    // Initial load: record existing pending stat requests without playing chime or showing toast
+    if (!hasInitializedPendingStatsRef.current) {
+      if (users.length > 0) {
+        previousPendingStatKeysRef.current = currentKeys;
+        hasInitializedPendingStatsRef.current = true;
+      }
+      return;
+    }
+
+    if (previousPendingStatKeysRef.current === null) {
+      previousPendingStatKeysRef.current = currentKeys;
+      return;
+    }
+
+    const newlyRequested = currentPendingUsers.filter((u) => {
+      const key = `${u.id}_${u.pendingPowerLevelRequestedAt || u.updatedAt || 0}`;
+      return !previousPendingStatKeysRef.current!.has(key) && u.id !== currentUser?.id;
+    });
+
+    if (newlyRequested.length > 0) {
+      sounds.playNotification();
+      const newest = newlyRequested[newlyRequested.length - 1];
+      const displayPL = newest.pendingPowerLevel != null ? Number(newest.pendingPowerLevel) : (newest.powerLevel || 0);
+      showToast(
+        lang === 'th'
+          ? `⚡ มีคำขออัปเดตสเตตัสใหม่: ${newest.inGameName || newest.username} (${cleanClanName(newest.clan) || 'Alliance'}) ⚡ ${displayPL.toLocaleString()} PL รอตรวจสอบ!`
+          : `⚡ New stat update request: ${newest.inGameName || newest.username} (${cleanClanName(newest.clan) || 'Alliance'}) ⚡ ${displayPL.toLocaleString()} PL pending approval!`,
+        'info'
+      );
+    }
+
+    previousPendingStatKeysRef.current = currentKeys;
   }, [users, currentUser, lang]);
 
   const handleMarkAllNotificationsAsRead = () => {
@@ -1275,7 +1337,11 @@ export const App: React.FC = () => {
         setQuickItems(incomingData.quickItems);
       }
       if (Array.isArray(incomingData.generalItems)) {
-        setGeneralItems(incomingData.generalItems);
+        setGeneralItems((prev) => {
+          const merged = mergeGeneralItems(prev, incomingData.generalItems);
+          setCachedGeneralItems(merged);
+          return merged;
+        });
       }
       if (Array.isArray(incomingData.queueItems)) {
         setQueueItems((prev) => {
@@ -1389,7 +1455,13 @@ export const App: React.FC = () => {
                 });
               }
               if (cloudRes.data.quickItems) setQuickItems(cloudRes.data.quickItems);
-              if (cloudRes.data.generalItems) setGeneralItems(cloudRes.data.generalItems);
+              if (cloudRes.data.generalItems) {
+                setGeneralItems((prev) => {
+                  const merged = mergeGeneralItems(prev, cloudRes.data.generalItems);
+                  setCachedGeneralItems(merged);
+                  return merged;
+                });
+              }
               if (cloudRes.data.clans && cloudRes.data.clans.length > 0) setClans(cloudRes.data.clans);
               if (cloudRes.data.diamondLogs) setDiamondLogs(cloudRes.data.diamondLogs);
             }
@@ -2792,7 +2864,8 @@ export const App: React.FC = () => {
   };
 
   const handleAddGeneralItem = async (item: Omit<GeneralItem, 'id' | 'createdAt'>) => {
-    const newId = 'gi_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const now = Date.now();
+    const newId = 'gi_' + now + '_' + Math.random().toString(36).substring(2, 6);
     const fullItem: GeneralItem = {
       ...item,
       id: newId,
@@ -2803,7 +2876,8 @@ export const App: React.FC = () => {
       rarity: item.rarity || 'RARE',
       queueList: Array.isArray(item.queueList) ? item.queueList : [],
       receiptHistory: Array.isArray(item.receiptHistory) ? item.receiptHistory : [],
-      createdAt: Date.now()
+      createdAt: now,
+      updatedAt: now
     };
 
     // 1. Instant Optimistic React State update (<1ms)
@@ -2858,8 +2932,11 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateGeneralItem = async (itemId: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => {
+    const now = Date.now();
+    const fullUpdates = { ...updates, updatedAt: now };
+
     // 1. Instant Optimistic React State update (<1ms)
-    const nextItems = generalItems.map((entry) => entry.id === itemId ? { ...entry, ...updates } : entry);
+    const nextItems = generalItems.map((entry) => entry.id === itemId ? { ...entry, ...fullUpdates } : entry);
     setGeneralItems(nextItems);
 
     // 2. Instant LocalStorage caching
@@ -2903,7 +2980,7 @@ export const App: React.FC = () => {
 
     // 5. Safe Firestore persistence (non-blocking)
     try {
-      await updateGeneralItemDoc(itemId, updates);
+      await updateGeneralItemDoc(itemId, fullUpdates);
     } catch (err) {
       console.warn('General item updated locally/relay/sheets; firestore update deferred:', err);
     }
@@ -3218,7 +3295,8 @@ export const App: React.FC = () => {
   // Members Handlers (Approvals & Management)
   const handleApproveMember = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
-    const updatedUsers = users.map((u) => (u.id === userId ? { ...u, status: 'active' as UserStatus } : u));
+    const now = Date.now();
+    const updatedUsers = users.map((u) => (u.id === userId ? { ...u, status: 'active' as UserStatus, updatedAt: now } : u));
     setUsers(updatedUsers);
     setCachedUsers(updatedUsers);
 
@@ -3226,10 +3304,16 @@ export const App: React.FC = () => {
       {
         users: updatedUsers,
         vaultItems,
+        quickItems,
+        generalItems,
         queueItems,
         clans,
         diamondLogs,
-        vaultBalance: computeTotalVaultBalance(diamondLogs)
+        vaultBalance: computeTotalVaultBalance(diamondLogs),
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
       },
       currentUser?.inGameName || 'Admin'
     );
@@ -3240,10 +3324,16 @@ export const App: React.FC = () => {
         {
           users: updatedUsers,
           vaultItems,
+          quickItems,
+          generalItems,
           queueItems,
           clans,
           diamondLogs,
-          vaultBalance: computeTotalVaultBalance(diamondLogs)
+          vaultBalance: computeTotalVaultBalance(diamondLogs),
+          formulaSettings: getFormulaSettings(),
+          announcementSettings,
+          backgroundSettings: bgConfig,
+          discordSettings
         },
         'Approve Member',
         true
@@ -3251,7 +3341,7 @@ export const App: React.FC = () => {
     }
 
     try {
-      await updateUserDoc(userId, { status: 'active' });
+      await updateUserDoc(userId, { status: 'active', updatedAt: now });
       showToast(
         lang === 'th'
           ? `อนุมัติสมาชิก ${target?.inGameName || ''} สำเร็จ 🎉`
@@ -3450,30 +3540,32 @@ export const App: React.FC = () => {
     const safeStatus: UserStatus = isAuthorized && reqStatus ? reqStatus : (targetUser?.status || 'active');
     const safeClan: string = isAuthorized && reqClan ? reqClan : (targetUser?.clan || 'VoltZ');
 
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? {
-              ...u,
-              inGameName: reqInGameName || u.inGameName,
-              role: isOwnerUser ? 'owner' : (isAuthorized && reqRole ? reqRole : u.role),
-              status: isAuthorized && reqStatus ? reqStatus : u.status,
-              clan: isAuthorized && reqClan ? reqClan : u.clan,
-              pendingPowerLevel: newPowerLevel,
-              pendingPowerLevelRequestedAt: timestamp,
-              pendingStats: newStats,
-              pendingSpiritEnhancements: newSpiritEnhancements,
-              pendingStatScreenshotUrl: screenshotUrl || null,
-              pendingClasses: reqClasses ?? u.classes,
-              pendingLevel: reqLevel ?? u.level,
-              pendingLegendClasses: reqLegendClasses ?? u.legendClasses,
-              pendingLegendAgathions: reqLegendAgathions ?? u.legendAgathions,
-              statRejectionReason: null,
-              statRejectionAt: null
-            }
-          : u
-      )
+    const updatedUsers = users.map((u) =>
+      u.id === userId
+        ? {
+            ...u,
+            inGameName: reqInGameName || u.inGameName,
+            role: isOwnerUser ? 'owner' : (isAuthorized && reqRole ? reqRole : u.role),
+            status: isAuthorized && reqStatus ? reqStatus : u.status,
+            clan: isAuthorized && reqClan ? reqClan : u.clan,
+            pendingPowerLevel: newPowerLevel,
+            pendingPowerLevelRequestedAt: timestamp,
+            pendingStats: newStats,
+            pendingSpiritEnhancements: newSpiritEnhancements,
+            pendingStatScreenshotUrl: screenshotUrl || null,
+            pendingClasses: reqClasses ?? u.classes,
+            pendingLevel: reqLevel ?? u.level,
+            pendingLegendClasses: reqLegendClasses ?? u.legendClasses,
+            pendingLegendAgathions: reqLegendAgathions ?? u.legendAgathions,
+            statRejectionReason: null,
+            statRejectionAt: null,
+            updatedAt: timestamp
+          }
+        : u
     );
+    setUsers(updatedUsers);
+    setCachedUsers(updatedUsers);
+
     if (currentUser && currentUser.id === userId) {
       setCurrentUser((prev) =>
         prev
@@ -3493,11 +3585,52 @@ export const App: React.FC = () => {
               pendingLegendClasses: reqLegendClasses ?? prev.legendClasses,
               pendingLegendAgathions: reqLegendAgathions ?? prev.legendAgathions,
               statRejectionReason: null,
-              statRejectionAt: null
+              statRejectionAt: null,
+              updatedAt: timestamp
             }
           : null
       );
     }
+
+    // Instant Live State Relay Broadcast to peers
+    broadcastLiveState(
+      {
+        users: updatedUsers,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Member'
+    );
+
+    // Debounced auto backup to Google Sheets & Drive
+    triggerDebouncedAutoBackup(
+      {
+        users: updatedUsers,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Member',
+      true
+    );
+
     try {
       const docUpdates: Record<string, any> = {
         pendingPowerLevel: newPowerLevel,
@@ -3510,7 +3643,8 @@ export const App: React.FC = () => {
         pendingLegendClasses: reqLegendClasses ?? null,
         pendingLegendAgathions: reqLegendAgathions ?? null,
         statRejectionReason: null,
-        statRejectionAt: null
+        statRejectionAt: null,
+        updatedAt: timestamp
       };
       if (reqInGameName) docUpdates.inGameName = reqInGameName;
       if (isOwnerUser) {
@@ -3540,9 +3674,11 @@ export const App: React.FC = () => {
 
   const handleApproveStatUpdate = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
-    if (!target || !target.pendingPowerLevel) return;
+    if (!target) return;
 
-    const approvedPower = target.pendingPowerLevel;
+    const approvedPower = typeof target.pendingPowerLevel === 'number'
+      ? target.pendingPowerLevel
+      : (target.powerLevel || 0);
     const approvedStats = target.pendingStats || target.stats;
     const approvedSpirits = target.pendingSpiritEnhancements || target.spiritEnhancements;
 
@@ -3561,9 +3697,10 @@ export const App: React.FC = () => {
     const primaryClass = approvedClasses.length > 0 ? approvedClasses[0] : (target.characterClass || '');
     const approvedScreenshot = target.pendingStatScreenshotUrl || target.statScreenshotUrl || null;
 
+    const now = Date.now();
     const newHistoryPoint: StatHistoryPoint = {
-      id: `approval_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      date: Date.now(),
+      id: `approval_${now}_${Math.random().toString(36).substring(2, 7)}`,
+      date: now,
       powerLevel: approvedPower,
       level: approvedLevel,
       classes: approvedClasses,
@@ -3583,36 +3720,39 @@ export const App: React.FC = () => {
       : getOrGenerateStatHistory(target);
     const updatedHistory = [...targetHistory, newHistoryPoint];
 
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? {
-              ...u,
-              powerLevel: approvedPower,
-              stats: approvedStats,
-              spiritEnhancements: approvedSpirits,
-              classes: approvedClasses,
-              characterClass: primaryClass,
-              level: approvedLevel,
-              legendClasses: approvedLegendClasses,
-              legendAgathions: approvedLegendAgathions,
-              statHistory: updatedHistory,
-              pendingPowerLevel: null,
-              pendingPowerLevelRequestedAt: null,
-              pendingStats: null,
-              pendingSpiritEnhancements: null,
-              pendingStatScreenshotUrl: null,
-              statScreenshotUrl: approvedScreenshot,
-              pendingClasses: null,
-              pendingLevel: null,
-              pendingLegendClasses: null,
-              pendingLegendAgathions: null,
-              statRejectionReason: null,
-              statRejectionAt: null
-            }
-          : u
-      )
+    const updatedUsers = users.map((u) =>
+      u.id === userId
+        ? {
+            ...u,
+            powerLevel: approvedPower,
+            stats: approvedStats,
+            spiritEnhancements: approvedSpirits,
+            classes: approvedClasses,
+            characterClass: primaryClass,
+            level: approvedLevel,
+            legendClasses: approvedLegendClasses,
+            legendAgathions: approvedLegendAgathions,
+            statHistory: updatedHistory,
+            pendingPowerLevel: null,
+            pendingPowerLevelRequestedAt: null,
+            pendingStats: null,
+            pendingSpiritEnhancements: null,
+            pendingStatScreenshotUrl: null,
+            statScreenshotUrl: approvedScreenshot,
+            pendingClasses: null,
+            pendingLevel: null,
+            pendingLegendClasses: null,
+            pendingLegendAgathions: null,
+            statRejectionReason: null,
+            statRejectionAt: null,
+            statApprovalAt: now,
+            updatedAt: now
+          }
+        : u
     );
+    setUsers(updatedUsers);
+    setCachedUsers(updatedUsers);
+
     if (currentUser && currentUser.id === userId) {
       setCurrentUser((prev) =>
         prev
@@ -3638,11 +3778,51 @@ export const App: React.FC = () => {
               pendingLegendClasses: null,
               pendingLegendAgathions: null,
               statRejectionReason: null,
-              statRejectionAt: null
+              statRejectionAt: null,
+              statApprovalAt: now,
+              updatedAt: now
             }
           : null
       );
     }
+
+    broadcastLiveState(
+      {
+        users: updatedUsers,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Admin'
+    );
+
+    triggerDebouncedAutoBackup(
+      {
+        users: updatedUsers,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Admin',
+      true
+    );
+
     try {
       await updateUserDoc(userId, {
         powerLevel: approvedPower,
@@ -3665,7 +3845,9 @@ export const App: React.FC = () => {
         pendingLegendClasses: null,
         pendingLegendAgathions: null,
         statRejectionReason: null,
-        statRejectionAt: null
+        statRejectionAt: null,
+        statApprovalAt: now,
+        updatedAt: now
       });
 
       showToast(
@@ -3683,27 +3865,30 @@ export const App: React.FC = () => {
   const handleRejectStatUpdate = async (userId: string, reason?: string) => {
     const target = users.find((u) => u.id === userId);
     const rejectionReason = reason || (lang === 'th' ? 'ข้อมูลไม่ตรงกับภาพสกรีนช็อต' : 'Stats do not match screenshot');
+    const now = Date.now();
 
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? {
-              ...u,
-              pendingPowerLevel: null,
-              pendingPowerLevelRequestedAt: null,
-              pendingStats: null,
-              pendingSpiritEnhancements: null,
-              pendingStatScreenshotUrl: null,
-              pendingClasses: null,
-              pendingLevel: null,
-              pendingLegendClasses: null,
-              pendingLegendAgathions: null,
-              statRejectionReason: rejectionReason,
-              statRejectionAt: Date.now()
-            }
-          : u
-      )
+    const updatedUsers = users.map((u) =>
+      u.id === userId
+        ? {
+            ...u,
+            pendingPowerLevel: null,
+            pendingPowerLevelRequestedAt: null,
+            pendingStats: null,
+            pendingSpiritEnhancements: null,
+            pendingStatScreenshotUrl: null,
+            pendingClasses: null,
+            pendingLevel: null,
+            pendingLegendClasses: null,
+            pendingLegendAgathions: null,
+            statRejectionReason: rejectionReason,
+            statRejectionAt: now,
+            updatedAt: now
+          }
+        : u
     );
+    setUsers(updatedUsers);
+    setCachedUsers(updatedUsers);
+
     if (currentUser && currentUser.id === userId) {
       setCurrentUser((prev) =>
         prev
@@ -3719,11 +3904,50 @@ export const App: React.FC = () => {
               pendingLegendClasses: null,
               pendingLegendAgathions: null,
               statRejectionReason: rejectionReason,
-              statRejectionAt: Date.now()
+              statRejectionAt: now,
+              updatedAt: now
             }
           : null
       );
     }
+
+    broadcastLiveState(
+      {
+        users: updatedUsers,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Admin'
+    );
+
+    triggerDebouncedAutoBackup(
+      {
+        users: updatedUsers,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Admin',
+      true
+    );
+
     try {
       await updateUserDoc(userId, {
         pendingPowerLevel: null,
@@ -3736,7 +3960,8 @@ export const App: React.FC = () => {
         pendingLegendClasses: null,
         pendingLegendAgathions: null,
         statRejectionReason: rejectionReason,
-        statRejectionAt: Date.now()
+        statRejectionAt: now,
+        updatedAt: now
       });
       showToast(
         lang === 'th'
@@ -3791,22 +4016,62 @@ export const App: React.FC = () => {
   // Legacy manual power level update fallback
   const handleRequestPowerLevelUpdate = async (userId: string, newPowerLevel: number) => {
     const timestamp = Date.now();
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? { ...u, pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp }
-          : u
-      )
+    const updatedUsers = users.map((u) =>
+      u.id === userId
+        ? { ...u, pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp, updatedAt: timestamp }
+        : u
     );
+    setUsers(updatedUsers);
+    setCachedUsers(updatedUsers);
+
     if (currentUser && currentUser.id === userId) {
       setCurrentUser((prev) =>
-        prev ? { ...prev, pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp } : null
+        prev ? { ...prev, pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp, updatedAt: timestamp } : null
       );
     }
+
+    broadcastLiveState(
+      {
+        users: updatedUsers,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Member'
+    );
+
+    triggerDebouncedAutoBackup(
+      {
+        users: updatedUsers,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Member',
+      true
+    );
+
     try {
       await updateUserDoc(userId, {
         pendingPowerLevel: newPowerLevel,
-        pendingPowerLevelRequestedAt: timestamp
+        pendingPowerLevelRequestedAt: timestamp,
+        updatedAt: timestamp
       });
       showToast(
         lang === 'th'
@@ -3821,24 +4086,27 @@ export const App: React.FC = () => {
   };
 
   const handleCancelPowerLevelRequest = async (userId: string) => {
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? {
-              ...u,
-              pendingPowerLevel: null,
-              pendingPowerLevelRequestedAt: null,
-              pendingStats: null,
-              pendingSpiritEnhancements: null,
-              pendingStatScreenshotUrl: null,
-              pendingClasses: null,
-              pendingLevel: null,
-              pendingLegendClasses: null,
-              pendingLegendAgathions: null
-            }
-          : u
-      )
+    const now = Date.now();
+    const updatedUsers = users.map((u) =>
+      u.id === userId
+        ? {
+            ...u,
+            pendingPowerLevel: null,
+            pendingPowerLevelRequestedAt: null,
+            pendingStats: null,
+            pendingSpiritEnhancements: null,
+            pendingStatScreenshotUrl: null,
+            pendingClasses: null,
+            pendingLevel: null,
+            pendingLegendClasses: null,
+            pendingLegendAgathions: null,
+            updatedAt: now
+          }
+        : u
     );
+    setUsers(updatedUsers);
+    setCachedUsers(updatedUsers);
+
     if (currentUser && currentUser.id === userId) {
       setCurrentUser((prev) =>
         prev
@@ -3852,11 +4120,50 @@ export const App: React.FC = () => {
               pendingClasses: null,
               pendingLevel: null,
               pendingLegendClasses: null,
-              pendingLegendAgathions: null
+              pendingLegendAgathions: null,
+              updatedAt: now
             }
           : null
       );
     }
+
+    broadcastLiveState(
+      {
+        users: updatedUsers,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Member'
+    );
+
+    triggerDebouncedAutoBackup(
+      {
+        users: updatedUsers,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser?.inGameName || 'Member',
+      true
+    );
+
     try {
       await updateUserDoc(userId, {
         pendingPowerLevel: null,
@@ -3867,7 +4174,8 @@ export const App: React.FC = () => {
         pendingClasses: null,
         pendingLevel: null,
         pendingLegendClasses: null,
-        pendingLegendAgathions: null
+        pendingLegendAgathions: null,
+        updatedAt: now
       });
       showToast(
         lang === 'th' ? 'ยกเลิกคำขออัปเดตค่าพลังแล้ว' : 'PL update request cancelled',
@@ -4043,9 +4351,13 @@ export const App: React.FC = () => {
         onOpenPowerFormula={() => setActiveTab('power_formula')}
         onOpenBulkSwap={() => setActiveTab('bulk_swap')}
         onOpenStatApproval={() => setActiveTab('stat_approvals')}
-        pendingStatApprovalCount={users.filter((u) => u.pendingPowerLevel && u.pendingPowerLevel > 0).length}
+        pendingStatApprovalCount={users.filter((u) => isUserStatsPending(u)).length}
+        pendingRegistrationsCount={users.filter((u) => u.status === 'pending_approval' || (u.status as any) === 'pending').length}
         discordEnabled={discordSettings?.enabled}
-        pendingQueueCount={queueItems.filter((i) => i.status === 'queued').length}
+        pendingQueueCount={
+          generalItems.reduce((acc, item) => acc + (item.queueList ? item.queueList.filter((m) => m.status === 'pending').length : 0), 0) +
+          queueItems.reduce((acc, item) => acc + (item.queueList ? item.queueList.filter((m) => m.status === 'pending').length : 0), 0)
+        }
         selectedClanScope={selectedClanScope}
         onSelectClanScope={setSelectedClanScope}
         clans={clans}
@@ -4124,6 +4436,7 @@ export const App: React.FC = () => {
             onOpenQuickItemsModal={() => setShowQuickItemsModal(true)}
             onCreateVaultItem={handleCreateVaultItem}
             onDeleteVaultItem={handleDeleteVaultItem}
+            onEditItem={(item) => setEditingVaultItem(item)}
             onViewImageZoom={(url, title, images, currentIndex) =>
               setImageViewerData({ url, title, images, currentIndex })
             }
@@ -4246,7 +4559,7 @@ export const App: React.FC = () => {
             currentUser={currentUser}
             statUpdateSettings={statUpdateSettings}
             onToggleStatUpdates={handleToggleStatUpdates}
-            pendingUsers={users.filter((u) => u.pendingPowerLevel && u.pendingPowerLevel > 0)}
+            pendingUsers={users.filter((u) => isUserStatsPending(u))}
             lang={lang}
             onApproveStatUpdate={handleApproveStatUpdate}
             onRejectStatUpdate={handleRejectStatUpdate}

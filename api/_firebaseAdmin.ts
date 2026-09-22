@@ -208,19 +208,21 @@ export async function verifyRoleToken(
 
   const sdk = await getAdminSdk();
 
-  // If no service account, decode JWT payload safely or grant fallback access
+  // If no service account, decode JWT payload safely or reject invalid token
   if (!sdk) {
     try {
       const parts = token.split('.');
       if (parts.length === 3) {
         const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
         const uid = payload.user_id || payload.sub;
-        if (uid) {
-          return { uid, role: allowedRoles[0] };
+        const role = String(payload.role || '').toLowerCase();
+        const normalizedAllowed = allowedRoles.map((r) => r.toLowerCase());
+        if (uid && role && normalizedAllowed.includes(role)) {
+          return { uid, role };
         }
       }
     } catch {}
-    return { uid: 'auth-user', role: allowedRoles[0] };
+    return null;
   }
 
   try {
@@ -234,7 +236,12 @@ export async function verifyRoleToken(
     ]).catch(() => null);
 
     if (!profile || !profile.exists) {
-      return { uid: decoded.uid, role: allowedRoles[allowedRoles.length - 1] || 'member' };
+      const defaultRole = 'member';
+      const normalizedAllowed = allowedRoles.map((r) => r.toLowerCase());
+      if (normalizedAllowed.includes(defaultRole)) {
+        return { uid: decoded.uid, role: defaultRole };
+      }
+      return null;
     }
     const data = profile.data()!;
     const userRole = String(data.role || '').toLowerCase();
@@ -245,16 +252,6 @@ export async function verifyRoleToken(
     return { uid: decoded.uid, role: userRole };
   } catch (err) {
     console.warn('verifyRoleToken verification notice:', err);
-    try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-        const uid = payload.user_id || payload.sub;
-        if (uid) {
-          return { uid, role: allowedRoles[0] };
-        }
-      }
-    } catch {}
     return null;
   }
 }

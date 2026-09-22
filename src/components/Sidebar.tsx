@@ -32,7 +32,7 @@ import {
   Lock,
   Unlock
 } from 'lucide-react';
-import { ActiveTab, Language, User, ClanGroup, cleanClanName, StatUpdateSettings } from '../types';
+import { ActiveTab, Language, User, ClanGroup, cleanClanName, StatUpdateSettings, isUserStatsPending } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { getGoogleBackupConfig } from '../services/googleSheetsBackupService';
@@ -64,6 +64,7 @@ export interface SidebarProps {
   onOpenBulkSwap?: () => void;
   onOpenStatApproval?: () => void;
   pendingStatApprovalCount?: number;
+  pendingRegistrationsCount?: number;
   discordEnabled?: boolean;
   pendingQueueCount?: number;
   selectedClanScope?: string;
@@ -109,6 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenBulkSwap,
   onOpenStatApproval,
   pendingStatApprovalCount = 0,
+  pendingRegistrationsCount = 0,
   discordEnabled = false,
   pendingQueueCount = 0,
   selectedClanScope = 'all',
@@ -194,7 +196,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'all_members',
       label: t.tabMembers,
       icon: Users,
-      accentColor: 'text-emerald-400'
+      accentColor: 'text-emerald-400',
+      badge: canAccessVault && pendingRegistrationsCount > 0 ? pendingRegistrationsCount : undefined
     },
     {
       id: 'clans',
@@ -604,9 +607,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="tracking-wide">{item.label}</span>
                 </div>
 
-                {/* Optional notification badge (e.g. queue items count) */}
+                {/* Optional notification badge (e.g. queue items count or pending registrations) */}
                 {typeof item.badge === 'number' && item.badge > 0 && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-purple-500/25 border border-purple-500/50 text-purple-300 shadow-sm">
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold font-mono shadow-sm ${
+                      item.id === 'all_members'
+                        ? 'bg-emerald-500/25 border border-emerald-500/50 text-emerald-300 animate-pulse'
+                        : 'bg-purple-500/25 border border-purple-500/50 text-purple-300'
+                    }`}
+                  >
                     {item.badge}
                   </span>
                 )}
@@ -767,7 +776,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <Zap className="w-2.5 h-2.5 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
                     <span>⚡ {(currentUser.powerLevel || 0).toLocaleString()} PL</span>
-                    {currentUser.pendingPowerLevel && currentUser.pendingPowerLevel > 0 && (
+                    {isUserStatsPending(currentUser) && (
                       <span className="ml-0.5 px-1 py-0.2 rounded bg-amber-400/25 text-[#f5d77f] text-[8px] font-sans font-bold animate-pulse">
                         ⏳
                       </span>
@@ -992,7 +1001,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[9.5px] font-mono text-emerald-300 font-bold shrink-0 shadow-[0_0_10px_rgba(52,211,153,0.15)]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v2.10.4</span>
+              <span>v2.10.6</span>
             </div>
           </div>
 
