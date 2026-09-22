@@ -1273,8 +1273,13 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
     (snapshot) => {
       initialItemsFallbackHandled = true;
       if (snapshot.empty) {
+        const cached = getCachedVaultItems();
+        if (cached.length > 0) {
+          latestItems = cached;
+          emitCombinedItems();
+          return;
+        }
         latestItems = [];
-        setCachedVaultItems([]);
         emitCombinedItems();
         return;
       }
