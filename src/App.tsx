@@ -120,6 +120,9 @@ import {
   unmarkQueueItemAsDeleted,
   markUserAsDeleted,
   unmarkUserAsDeleted,
+  markGeneralItemAsDeleted,
+  markQueueMemberAsRemoved,
+  listenToGlobalTombstones,
   getDeletedUserIds,
   markClaimAsCancelled,
   unmarkClaimAsCancelled,
@@ -158,6 +161,7 @@ import {
   broadcastLiveState,
   getIsApplyingRemoteUpdate,
   setLastBroadcastPayload,
+  applyIncomingSyncMeta,
   BackupDataPayload
 } from './services/googleSheetsBackupService';
 import {
@@ -282,6 +286,7 @@ export const App: React.FC = () => {
   const [showGoogleBackupModal, setShowGoogleBackupModal] = useState(false);
 
   useEffect(() => {
+    const unsubTombstones = listenToGlobalTombstones();
     // Always hydrate from the durable Google snapshot first. Firestore listeners
     // then replace it with newer cloud values when that service is available.
     let cancelled = false;
@@ -338,6 +343,7 @@ export const App: React.FC = () => {
       .then((res) => res.json())
       .then((json) => {
         if (json.modified && json.data) {
+          applyIncomingSyncMeta(json.data);
           setLastBroadcastPayload(json.data);
           if (Array.isArray(json.data.users) && json.data.users.length > 0) {
             setUsers((prev) => {
@@ -423,7 +429,10 @@ export const App: React.FC = () => {
         }
       }
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      unsubTombstones();
+    };
   }, []);
 
   // 5. Modals State
@@ -2758,6 +2767,8 @@ export const App: React.FC = () => {
         users,
         vaultItems,
         queueItems: nextQueues,
+        generalItems,
+        quickItems,
         clans,
         diamondLogs,
         vaultBalance,
@@ -2786,6 +2797,8 @@ export const App: React.FC = () => {
         users,
         vaultItems,
         queueItems: nextQueues,
+        generalItems,
+        quickItems,
         clans,
         diamondLogs,
         vaultBalance,
@@ -2987,6 +3000,9 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteGeneralItem = async (itemId: string) => {
+    // 0. Mark as deleted globally and locally
+    markGeneralItemAsDeleted(itemId);
+
     // 1. Instant Optimistic React State update (<1ms)
     const nextItems = generalItems.filter((entry) => entry.id !== itemId);
     setGeneralItems(nextItems);
@@ -3371,6 +3387,8 @@ export const App: React.FC = () => {
         users: updatedUsers,
         vaultItems,
         queueItems,
+        generalItems,
+        quickItems,
         clans,
         diamondLogs,
         vaultBalance: computeTotalVaultBalance(diamondLogs)
@@ -3385,6 +3403,8 @@ export const App: React.FC = () => {
           users: updatedUsers,
           vaultItems,
           queueItems,
+          generalItems,
+          quickItems,
           clans,
           diamondLogs,
           vaultBalance: computeTotalVaultBalance(diamondLogs)
@@ -3448,6 +3468,8 @@ export const App: React.FC = () => {
         users: updatedUsers,
         vaultItems,
         queueItems,
+        generalItems,
+        quickItems,
         clans,
         diamondLogs,
         vaultBalance: computeTotalVaultBalance(diamondLogs)
@@ -3462,6 +3484,8 @@ export const App: React.FC = () => {
           users: updatedUsers,
           vaultItems,
           queueItems,
+          generalItems,
+          quickItems,
           clans,
           diamondLogs,
           vaultBalance: computeTotalVaultBalance(diamondLogs)
@@ -4209,6 +4233,8 @@ export const App: React.FC = () => {
         users: updatedUsers,
         vaultItems,
         queueItems,
+        generalItems,
+        quickItems,
         clans,
         diamondLogs,
         vaultBalance: computeTotalVaultBalance(diamondLogs)
@@ -4223,6 +4249,8 @@ export const App: React.FC = () => {
           users: updatedUsers,
           vaultItems,
           queueItems,
+          generalItems,
+          quickItems,
           clans,
           diamondLogs,
           vaultBalance: computeTotalVaultBalance(diamondLogs)

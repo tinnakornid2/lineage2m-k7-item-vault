@@ -41,6 +41,7 @@ import {
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { markQueueMemberAsRemoved, unmarkQueueMemberAsRemoved } from '../services/firebase';
 import { GeneralItemQueueCard } from './GeneralItemQueueCard';
 
 interface QueueViewProps {
@@ -339,6 +340,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
       status: 'pending'
     };
 
+    unmarkQueueMemberAsRemoved(queueId, newMember.id, newMember.userId, newMember.name);
     const updated = [...queue.queueList, newMember];
     await onUpdateQueueMembers(queueId, updated);
     setNewPlayerName('');
@@ -352,6 +354,8 @@ export const QueueView: React.FC<QueueViewProps> = ({
     sounds.playClick();
     const queue = queueItems.find((q) => q.id === queueId);
     if (!queue) return;
+    const targetMember = queue.queueList.find((m) => m.id === memberId);
+    markQueueMemberAsRemoved(queueId, memberId, targetMember?.userId, targetMember?.name);
     const updated = queue.queueList.filter((m) => m.id !== memberId);
     await onUpdateQueueMembers(queueId, updated);
   };

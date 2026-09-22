@@ -42,16 +42,20 @@ export interface BackupDataPayload {
   syncMeta?: {
     deletedVaultItems?: Record<string, number>;
     deletedQueueItems?: Record<string, number>;
+    deletedGeneralItems?: Record<string, number>;
     deletedUsers?: Record<string, number>;
     cancelledClaims?: Record<string, number>;
+    removedQueueMembers?: Record<string, number>;
   };
 }
 
 const SYNC_META_KEYS = {
   deletedVaultItems: 'k7_deleted_vault_item_ids',
   deletedQueueItems: 'k7_deleted_queue_item_ids',
+  deletedGeneralItems: 'k7_deleted_general_item_ids',
   deletedUsers: 'k7_deleted_user_ids',
-  cancelledClaims: 'l2m_cancelled_claims_map'
+  cancelledClaims: 'l2m_cancelled_claims_map',
+  removedQueueMembers: 'k7_removed_queue_members'
 } as const;
 
 function readSyncMap(key: string): Record<string, number> {
@@ -67,14 +71,16 @@ function withLocalSyncMeta(payload: BackupDataPayload): BackupDataPayload {
     syncMeta: {
       deletedVaultItems: readSyncMap(SYNC_META_KEYS.deletedVaultItems),
       deletedQueueItems: readSyncMap(SYNC_META_KEYS.deletedQueueItems),
+      deletedGeneralItems: readSyncMap(SYNC_META_KEYS.deletedGeneralItems),
       deletedUsers: readSyncMap(SYNC_META_KEYS.deletedUsers),
       cancelledClaims: readSyncMap(SYNC_META_KEYS.cancelledClaims),
+      removedQueueMembers: readSyncMap(SYNC_META_KEYS.removedQueueMembers),
       ...(payload.syncMeta || {})
     }
   };
 }
 
-function applyIncomingSyncMeta(payload: BackupDataPayload): void {
+export function applyIncomingSyncMeta(payload: BackupDataPayload): void {
   if (!payload.syncMeta) return;
   for (const [field, storageKey] of Object.entries(SYNC_META_KEYS)) {
     const incoming = payload.syncMeta[field as keyof typeof SYNC_META_KEYS] || {};
@@ -89,15 +95,21 @@ function applyIncomingSyncMeta(payload: BackupDataPayload): void {
 function sanitizePayloadForGoogle(payload: BackupDataPayload): BackupDataPayload {
   payload = withLocalSyncMeta(payload);
   const deletedUserMap = payload.syncMeta?.deletedUsers || {};
+  const deletedGeneralMap = payload.syncMeta?.deletedGeneralItems || {};
+  const deletedVaultMap = payload.syncMeta?.deletedVaultItems || {};
+  const deletedQueueMap = payload.syncMeta?.deletedQueueItems || {};
   return {
     ...payload,
     users: (payload.users || [])
       .filter((user) => {
         if (!user || !user.id) return false;
         if (user.id === 'user_owner_eloni' || user.username?.toLowerCase() === 'eloni' || user.inGameName?.toLowerCase() === 'eloni') return true;
-        return (deletedUserMap[user.id] || 0) < Number(user.updatedAt || user.createdAt || 0);
+        return !deletedUserMap[user.id];
       })
       .map(({ password: _password, ...user }) => user as User),
+    generalItems: (payload.generalItems || []).filter((item) => item && item.id && !deletedGeneralMap[item.id]),
+    vaultItems: (payload.vaultItems || []).filter((item) => item && item.id && !deletedVaultMap[item.id]),
+    queueItems: (payload.queueItems || []).filter((item) => item && item.id && !deletedQueueMap[item.id]),
     discordSettings: payload.discordSettings
       ? { ...payload.discordSettings, webhookUrl: '' }
       : payload.discordSettings

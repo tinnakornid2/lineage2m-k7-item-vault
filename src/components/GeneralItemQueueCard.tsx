@@ -44,7 +44,7 @@ import {
   getRarityBorder,
   getRarityTextGlow
 } from '../types';
-import { addDiamondTransactionDoc } from '../services/firebase';
+import { addDiamondTransactionDoc, markQueueMemberAsRemoved } from '../services/firebase';
 import { uploadImageToGoogleDrive } from '../services/googleSheetsBackupService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
@@ -327,6 +327,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     try {
       let updatedQueueList: QueueMember[];
       if (isAlreadyInQueue) {
+        // Record removal tombstone so no background sync or relay resurrects the cancelled queue
+        markQueueMemberAsRemoved(item.id, undefined, currentUser.id, currentUser.inGameName || currentUser.username);
         // Remove user's pending entry
         updatedQueueList = (item.queueList || []).filter(
           (m) => !(m.userId === currentUser.id && m.status === 'pending')
@@ -365,6 +367,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     sounds.playClick();
     setBusyItemId(item.id);
     try {
+      const targetMember = (item.queueList || []).find((m) => m.id === memberId);
+      markQueueMemberAsRemoved(item.id, memberId, targetMember?.userId, targetMember?.name);
       const updatedQueueList = (item.queueList || []).filter((m) => m.id !== memberId);
       await onUpdate(item.id, { queueList: updatedQueueList });
       if (showToast) showToast(th ? 'นำออกจากคิวเรียบร้อย' : 'Removed from queue', 'info');

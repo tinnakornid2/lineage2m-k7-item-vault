@@ -2,6 +2,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { EventEmitter } from "events";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
@@ -346,7 +347,7 @@ async function createApp(options = {}) {
   const ocrRateLimits = /* @__PURE__ */ new Map();
   let sharedGoogleBackupUrl = process.env.GOOGLE_BACKUP_WEB_APP_URL || "";
   let sharedGoogleSheetUrl = "";
-  const DATA_DIR = process.env.VERCEL ? path.join("/tmp", "l2m-data") : fs.existsSync(path.join(process.cwd(), "data")) ? path.join(process.cwd(), "data") : fs.existsSync(path.join(currentDirname, "data")) ? path.join(currentDirname, "data") : path.join(currentDirname, "..", "data");
+  const DATA_DIR = process.env.VERCEL ? path.join(os.tmpdir(), "l2m-data") : fs.existsSync(path.join(process.cwd(), "data")) ? path.join(process.cwd(), "data") : fs.existsSync(path.join(currentDirname, "data")) ? path.join(currentDirname, "data") : path.join(currentDirname, "..", "data");
   if (!fs.existsSync(DATA_DIR)) {
     try {
       fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -648,14 +649,15 @@ async function createApp(options = {}) {
           deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
           deletedGeneralItems: mergeTimestampMaps(previousData.syncMeta?.deletedGeneralItems, data.syncMeta?.deletedGeneralItems),
           deletedUsers: mergeTimestampMaps(previousData.syncMeta?.deletedUsers, data.syncMeta?.deletedUsers),
-          cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims)
+          cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims),
+          removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers)
         };
         const mergeVersionedRecords = (previous, incoming, deleted, mergeClaims = false, mergeQueue = false) => {
           const records = /* @__PURE__ */ new Map();
           for (const record of [...previous || [], ...incoming || []]) {
             if (!record?.id) continue;
             const recordRevision = Number(record.updatedAt || record.createdAt || 0);
-            if ((deleted[record.id] || 0) >= recordRevision) continue;
+            if (deleted && deleted[record.id]) continue;
             const existing = records.get(record.id);
             const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
             if (!existing) {
@@ -699,19 +701,31 @@ async function createApp(options = {}) {
             }
             if (mergeQueue) {
               const queueMap = /* @__PURE__ */ new Map();
-              for (const m of [...older.queueList || [], ...newest.queueList || []]) {
-                if (!m) continue;
+              const removedMap = syncMeta.removedQueueMembers || {};
+              const isMemberRemoved = (m) => {
+                if (!m) return true;
+                const directId = m.id ? `${record.id}_${m.id}` : null;
+                const userKey = m.userId ? `${record.id}_user_${m.userId}` : null;
+                const nameKey = m.name ? `${record.id}_name_${String(m.name).trim().toLowerCase()}` : null;
+                return Boolean(
+                  directId && removedMap[directId] || userKey && removedMap[userKey] || nameKey && removedMap[nameKey]
+                );
+              };
+              const newestMembers = Array.isArray(newest.queueList) ? newest.queueList : [];
+              const olderMembers = Array.isArray(older.queueList) ? older.queueList : [];
+              for (const m of newestMembers) {
+                if (!m || isMemberRemoved(m)) continue;
                 const key = m.id || m.userId || String(m.name || "").trim().toLowerCase();
-                if (!key) continue;
-                const ex = queueMap.get(key);
-                if (!ex) {
+                if (key) queueMap.set(key, m);
+              }
+              const timeWindow = 1e4;
+              for (const m of olderMembers) {
+                if (!m || isMemberRemoved(m)) continue;
+                const key = m.id || m.userId || String(m.name || "").trim().toLowerCase();
+                if (!key || queueMap.has(key)) continue;
+                const joinedAt = Number(m.joinedAt || 0);
+                if (joinedAt && Date.now() - joinedAt <= timeWindow) {
                   queueMap.set(key, m);
-                } else {
-                  if (m.status === "received" || ex.status === "received") {
-                    queueMap.set(key, m.status === "received" ? m : ex);
-                  } else {
-                    queueMap.set(key, m);
-                  }
                 }
               }
               const receiptMap = /* @__PURE__ */ new Map();
@@ -733,6 +747,36 @@ async function createApp(options = {}) {
         data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems, false, true);
         data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
         data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
+        if (Array.isArray(data.vaultItems)) {
+          data.vaultItems = data.vaultItems.filter((it) => it && it.id && !syncMeta.deletedVaultItems?.[it.id]);
+        }
+        if (Array.isArray(data.queueItems)) {
+          data.queueItems = data.queueItems.filter((it) => it && it.id && !syncMeta.deletedQueueItems?.[it.id]);
+        }
+        if (Array.isArray(data.generalItems)) {
+          data.generalItems = data.generalItems.filter((it) => it && it.id && !syncMeta.deletedGeneralItems?.[it.id]);
+        }
+        if (Array.isArray(data.users)) {
+          data.users = data.users.filter((u) => u && u.id && !syncMeta.deletedUsers?.[u.id]);
+        }
+        const filterQueueList = (item) => {
+          if (!item || !Array.isArray(item.queueList)) return item;
+          const removedMap = syncMeta.removedQueueMembers || {};
+          const filteredQueue = item.queueList.filter((m) => {
+            if (!m) return false;
+            const directId = m.id ? `${item.id}_${m.id}` : null;
+            const userKey = m.userId ? `${item.id}_user_${m.userId}` : null;
+            const nameKey = m.name ? `${item.id}_name_${String(m.name).trim().toLowerCase()}` : null;
+            return !(directId && removedMap[directId] || userKey && removedMap[userKey] || nameKey && removedMap[nameKey]);
+          });
+          return { ...item, queueList: filteredQueue };
+        };
+        if (Array.isArray(data.queueItems)) {
+          data.queueItems = data.queueItems.map(filterQueueList);
+        }
+        if (Array.isArray(data.generalItems)) {
+          data.generalItems = data.generalItems.map(filterQueueList);
+        }
         if (Array.isArray(data.users)) {
           data.users = data.users.map((u) => {
             if (!u || typeof u !== "object") return u;

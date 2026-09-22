@@ -170,7 +170,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.6-stat-approval-fix';
+const CACHE_SCHEMA_VERSION = '2.10.7-queue-user-resurrection-fix';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -256,8 +256,9 @@ export const DELETED_VAULT_ITEMS_KEY = 'k7_deleted_vault_item_ids';
 export const DELETED_QUEUE_ITEMS_KEY = 'k7_deleted_queue_item_ids';
 export const DELETED_USERS_KEY = 'k7_deleted_user_ids';
 export const DELETED_GENERAL_ITEMS_KEY = 'k7_deleted_general_item_ids';
+export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 
-const TOMBSTONE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 function getDeletedIdsMap(key: string): Record<string, number> {
   try {
@@ -294,11 +295,143 @@ export function getDeletedUserIds(): Set<string> {
   return new Set(Object.keys(getDeletedIdsMap(DELETED_USERS_KEY)));
 }
 
+/**
+ * Persist tombstones to Firestore cloud storage so ALL clients (and cold starts)
+ * permanently recognize deleted users, vault items, general items, and queue members.
+ */
+export async function syncTombstoneToFirestore(
+  field: 'deletedUsers' | 'deletedVaultItems' | 'deletedGeneralItems' | 'deletedQueueItems' | 'removedQueueMembers' | 'cancelledClaims',
+  map: Record<string, number>
+): Promise<void> {
+  try {
+    const docRef = doc(db, 'system', 'tombstones');
+    await safeFirestoreWrite(
+      setDoc(docRef, { [field]: map, updatedAt: Date.now() }, { merge: true }),
+      1200,
+      'syncTombstoneToFirestore'
+    );
+  } catch (err: any) {
+    console.warn('Notice: Firestore tombstone sync skipped (saved locally):', err?.message);
+  }
+}
+
+export function applyIncomingCloudTombstones(cloudData: any): void {
+  if (!cloudData || typeof cloudData !== 'object') return;
+  const mapping: Record<string, string> = {
+    deletedUsers: DELETED_USERS_KEY,
+    deletedVaultItems: DELETED_VAULT_ITEMS_KEY,
+    deletedGeneralItems: DELETED_GENERAL_ITEMS_KEY,
+    deletedQueueItems: DELETED_QUEUE_ITEMS_KEY,
+    removedQueueMembers: REMOVED_QUEUE_MEMBERS_KEY,
+    cancelledClaims: 'l2m_cancelled_claims_map'
+  };
+
+  for (const [cloudKey, storageKey] of Object.entries(mapping)) {
+    const cloudMap = cloudData[cloudKey];
+    if (cloudMap && typeof cloudMap === 'object') {
+      const local = getDeletedIdsMap(storageKey);
+      let changed = false;
+      for (const [id, ts] of Object.entries(cloudMap)) {
+        if (typeof ts === 'number' && ts > (local[id] || 0)) {
+          local[id] = ts;
+          changed = true;
+        }
+      }
+      if (changed) {
+        saveDeletedIdsMap(storageKey, local);
+      }
+    }
+  }
+
+  // Instantly purge matching items from cache
+  const deletedUsers = getDeletedIdsMap(DELETED_USERS_KEY);
+  inMemoryUsers = inMemoryUsers.filter((u) => !u || !u.id || (u.id !== 'user_owner_eloni' && !deletedUsers[u.id]));
+  setCachedData(CACHE_KEYS.USERS, inMemoryUsers);
+
+  const deletedVault = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
+  inMemoryVaultItems = inMemoryVaultItems.filter((i) => !i || !i.id || !deletedVault[i.id]);
+  setCachedData(CACHE_KEYS.VAULT_ITEMS, inMemoryVaultItems);
+
+  const deletedGeneral = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
+  inMemoryGeneralItems = inMemoryGeneralItems.filter((i) => !i || !i.id || !deletedGeneral[i.id]);
+  setCachedData(CACHE_KEYS.GENERAL_ITEMS, inMemoryGeneralItems);
+
+  const deletedQueues = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
+  inMemoryQueues = inMemoryQueues.filter((q) => !q || !q.id || !deletedQueues[q.id]);
+  setCachedData(CACHE_KEYS.QUEUES, inMemoryQueues);
+}
+
+export function listenToGlobalTombstones(): () => void {
+  try {
+    const docRef = doc(db, 'system', 'tombstones');
+    return onSnapshot(
+      docRef,
+      (snap) => {
+        if (snap.exists()) {
+          applyIncomingCloudTombstones(snap.data());
+        }
+      },
+      (err) => {
+        console.warn('Notice: Firestore global tombstones listener fallback to local:', err?.message);
+      }
+    );
+  } catch {
+    return () => {};
+  }
+}
+
+export function markQueueMemberAsRemoved(itemId: string, memberId?: string, userId?: string, name?: string): void {
+  if (!itemId) return;
+  const map = getDeletedIdsMap(REMOVED_QUEUE_MEMBERS_KEY);
+  const now = Date.now();
+  if (memberId) map[`${itemId}:::${memberId}`] = now;
+  if (userId) map[`${itemId}:::${String(userId).trim().toLowerCase()}`] = now;
+  if (name) map[`${itemId}:::${String(name).trim().toLowerCase()}`] = now;
+  saveDeletedIdsMap(REMOVED_QUEUE_MEMBERS_KEY, map);
+  syncTombstoneToFirestore('removedQueueMembers', map);
+}
+
+export function unmarkQueueMemberAsRemoved(itemId: string, memberId?: string, userId?: string, name?: string): void {
+  if (!itemId) return;
+  const map = getDeletedIdsMap(REMOVED_QUEUE_MEMBERS_KEY);
+  let changed = false;
+  if (memberId && `${itemId}:::${memberId}` in map) {
+    delete map[`${itemId}:::${memberId}`];
+    changed = true;
+  }
+  if (userId && `${itemId}:::${String(userId).trim().toLowerCase()}` in map) {
+    delete map[`${itemId}:::${String(userId).trim().toLowerCase()}`];
+    changed = true;
+  }
+  if (name && `${itemId}:::${String(name).trim().toLowerCase()}` in map) {
+    delete map[`${itemId}:::${String(name).trim().toLowerCase()}`];
+    changed = true;
+  }
+  if (changed) {
+    saveDeletedIdsMap(REMOVED_QUEUE_MEMBERS_KEY, map);
+    syncTombstoneToFirestore('removedQueueMembers', map);
+  }
+}
+
+export function isQueueMemberRemoved(itemId: string, member: QueueMember): boolean {
+  if (!member || !itemId) return false;
+  const map = getDeletedIdsMap(REMOVED_QUEUE_MEMBERS_KEY);
+  const joinedAt = Number(member.joinedAt || 0);
+  const memberKey = member.id ? `${itemId}:::${member.id}` : '';
+  const userKey = member.userId ? `${itemId}:::${String(member.userId).trim().toLowerCase()}` : '';
+  const nameKey = member.name ? `${itemId}:::${String(member.name).trim().toLowerCase()}` : '';
+  if (memberKey && (map[memberKey] || 0) >= joinedAt) return true;
+  if (userKey && (map[userKey] || 0) >= joinedAt) return true;
+  if (nameKey && (map[nameKey] || 0) >= joinedAt) return true;
+  return false;
+}
+
 export function markUserAsDeleted(id: string): void {
   if (!id) return;
   const map = getDeletedIdsMap(DELETED_USERS_KEY);
   map[id] = Date.now();
   saveDeletedIdsMap(DELETED_USERS_KEY, map);
+  syncTombstoneToFirestore('deletedUsers', map);
   const currentCached = getCachedData<User[]>(CACHE_KEYS.USERS, []);
   if (currentCached.some((u) => u.id === id)) {
     setCachedData(CACHE_KEYS.USERS, currentCached.filter((u) => u.id !== id));
@@ -327,7 +460,7 @@ export function getCachedUsers(): User[] {
   return pool.filter((u) => {
     if (!u || !u.id) return false;
     if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
-    return (deletedMap[u.id] || 0) < Number(u.updatedAt || u.createdAt || 0);
+    return !deletedMap[u.id];
   });
 }
 
@@ -336,7 +469,7 @@ export function setCachedUsers(users: User[]): void {
   const clean = (users || []).filter((u) => {
     if (!u || !u.id) return false;
     if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
-    return (deletedMap[u.id] || 0) < Number(u.updatedAt || u.createdAt || 0);
+    return !deletedMap[u.id];
   });
   inMemoryUsers = clean;
   setCachedData(CACHE_KEYS.USERS, clean);
@@ -355,7 +488,7 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
   const isDeleted = (u: User) => {
     if (!u || !u.id) return true;
     if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return false;
-    return (deletedMap[u.id] || 0) >= Number(u.updatedAt || u.createdAt || 0);
+    return Boolean(deletedMap[u.id]);
   };
 
   const currentMap = new Map<string, User>();
@@ -466,6 +599,7 @@ export function markGeneralItemAsDeleted(id: string): void {
   const map = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
   map[id] = Date.now();
   saveDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY, map);
+  syncTombstoneToFirestore('deletedGeneralItems', map);
   const currentCached = getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
   if (currentCached.some((i) => i.id === id)) {
     setCachedData(CACHE_KEYS.GENERAL_ITEMS, currentCached.filter((i) => i.id !== id));
@@ -484,6 +618,12 @@ export function unmarkGeneralItemAsDeleted(id: string): void {
   }
 }
 
+export function isGeneralItemDeleted(id: string): boolean {
+  if (!id) return false;
+  const map = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
+  return Boolean(map[id]);
+}
+
 export function getCachedGeneralItems(): GeneralItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
   let pool = inMemoryGeneralItems;
@@ -491,19 +631,19 @@ export function getCachedGeneralItems(): GeneralItem[] {
     pool = getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
     inMemoryGeneralItems = pool;
   }
-  return pool.filter((item) => item && item.id && (deletedMap[item.id] || 0) < Number(item.updatedAt || item.createdAt || 0));
+  return pool.filter((item) => item && item.id && !deletedMap[item.id]);
 }
 
 export function setCachedGeneralItems(items: GeneralItem[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
-  const clean = (items || []).filter((item) => item && item.id && (deletedMap[item.id] || 0) < Number(item.updatedAt || item.createdAt || 0));
+  const clean = (items || []).filter((item) => item && item.id && !deletedMap[item.id]);
   inMemoryGeneralItems = clean;
   setCachedData(CACHE_KEYS.GENERAL_ITEMS, clean);
 }
 
 export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: GeneralItem[]): GeneralItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
-  const isDeleted = (item: GeneralItem) => (deletedMap[item.id] || 0) >= Number(item.updatedAt || item.createdAt || 0);
+  const isDeleted = (item: GeneralItem) => Boolean(deletedMap[item.id]);
 
   const currentMap = new Map<string, GeneralItem>();
   for (const it of (currentItems || [])) {
@@ -527,29 +667,36 @@ export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: Ge
     const incoming = incomingMap.get(id);
 
     if (local && !incoming) {
-      result.push(local);
+      const filteredQueue = (local.queueList || []).filter((m) => !isQueueMemberRemoved(id, m));
+      result.push({ ...local, queueList: filteredQueue });
     } else if (!local && incoming) {
-      result.push(incoming);
+      const filteredQueue = (incoming.queueList || []).filter((m) => !isQueueMemberRemoved(id, m));
+      result.push({ ...incoming, queueList: filteredQueue });
     } else if (local && incoming) {
       const localRevision = Number(local.updatedAt || local.createdAt || 0);
       const incomingRevision = Number(incoming.updatedAt || incoming.createdAt || 0);
       const newest = incomingRevision >= localRevision ? incoming : local;
       const older = incomingRevision >= localRevision ? local : incoming;
+      const olderRevision = Math.min(localRevision, incomingRevision);
 
-      // Smart merge queueList: combine queue members deduplicating by id / userId / name
+      // Smart merge queueList:
+      // Newest revision is authoritative. NEVER blindly union older members back into the list!
       const queueMap = new Map<string, QueueMember>();
-      for (const m of [...(older.queueList || []), ...(newest.queueList || [])]) {
-        if (!m) continue;
+
+      // 1. Authoritative entries from newest
+      for (const m of (newest.queueList || [])) {
+        if (!m || isQueueMemberRemoved(id, m)) continue;
         const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
-        if (!key) continue;
-        const existing = queueMap.get(key);
-        if (!existing) {
-          queueMap.set(key, m);
-        } else {
-          // If status changed to received in either, prefer received
-          if (m.status === 'received' || existing.status === 'received') {
-            queueMap.set(key, m.status === 'received' ? m : existing);
-          } else {
+        if (key) queueMap.set(key, m);
+      }
+
+      // 2. Only concurrent new joins from older (joined within last 10s of both revisions)
+      for (const m of (older.queueList || [])) {
+        if (!m || isQueueMemberRemoved(id, m)) continue;
+        const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+        if (key && !queueMap.has(key)) {
+          const joinedAt = Number(m.joinedAt || 0);
+          if (joinedAt > (olderRevision - 10000) && joinedAt > (incomingRevision - 10000)) {
             queueMap.set(key, m);
           }
         }
@@ -584,6 +731,7 @@ export function markVaultItemAsDeleted(id: string): void {
   const map = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
   map[id] = Date.now();
   saveDeletedIdsMap(DELETED_VAULT_ITEMS_KEY, map);
+  syncTombstoneToFirestore('deletedVaultItems', map);
   const currentCached = getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, []);
   if (currentCached.some((i) => i.id === id)) {
     setCachedData(CACHE_KEYS.VAULT_ITEMS, currentCached.filter((i) => i.id !== id));
@@ -608,6 +756,7 @@ export function markQueueItemAsDeleted(id: string): void {
   const map = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
   map[id] = Date.now();
   saveDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY, map);
+  syncTombstoneToFirestore('deletedQueueItems', map);
   const currentCached = getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, []);
   if (currentCached.some((q) => q.id === id)) {
     setCachedData(CACHE_KEYS.QUEUES, currentCached.filter((q) => q.id !== id));
@@ -623,6 +772,12 @@ export function unmarkQueueItemAsDeleted(id: string): void {
   }
 }
 
+export function isQueueItemDeleted(id: string): boolean {
+  if (!id) return false;
+  const map = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
+  return Boolean(map[id]);
+}
+
 const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 export function getCancelledClaimsMap(): Record<string, number> {
@@ -635,6 +790,7 @@ export function markClaimAsCancelled(itemId: string, claimantIdOrName: string): 
   const map = getDeletedIdsMap(CANCELLED_CLAIMS_KEY);
   map[key] = Date.now();
   saveDeletedIdsMap(CANCELLED_CLAIMS_KEY, map);
+  syncTombstoneToFirestore('cancelledClaims', map);
 }
 
 export function unmarkClaimAsCancelled(itemId: string, claimantIdOrName: string): void {
@@ -683,7 +839,7 @@ export function isClaimCancelled(itemId: string, claimant: Claimant): boolean {
  */
 export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultItem[]): VaultItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
-  const isDeleted = (item: VaultItem) => (deletedMap[item.id] || 0) >= (item.updatedAt || item.createdAt || 0);
+  const isDeleted = (item: VaultItem) => Boolean(deletedMap[item.id]);
   const currentMap = new Map<string, VaultItem>();
   for (const item of (currentItems || [])) {
     if (item && item.id && !isDeleted(item)) {
@@ -794,7 +950,7 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
 
 export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: QueueItem[]): QueueItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
-  const isDeleted = (item: QueueItem) => (deletedMap[item.id] || 0) >= (item.updatedAt || item.createdAt || 0);
+  const isDeleted = (item: QueueItem) => Boolean(deletedMap[item.id]);
   const currentMap = new Map<string, QueueItem>();
   for (const q of (currentQueues || [])) {
     if (q && q.id && !isDeleted(q)) {
@@ -817,13 +973,40 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
     const incoming = incomingMap.get(id);
 
     if (local && !incoming) {
-      result.push(local);
+      const filteredQueue = (local.queueList || []).filter((m) => !isQueueMemberRemoved(id, m));
+      result.push({ ...local, queueList: filteredQueue });
     } else if (!local && incoming) {
-      result.push(incoming);
+      const filteredQueue = (incoming.queueList || []).filter((m) => !isQueueMemberRemoved(id, m));
+      result.push({ ...incoming, queueList: filteredQueue });
     } else if (local && incoming) {
       const localRevision = local.updatedAt || local.createdAt || 0;
       const incomingRevision = incoming.updatedAt || incoming.createdAt || 0;
-      result.push(incomingRevision >= localRevision ? incoming : local);
+      const newest = incomingRevision >= localRevision ? incoming : local;
+      const older = incomingRevision >= localRevision ? local : incoming;
+
+      // Smart merge queueList: newest is authoritative, filter removed members
+      const queueMap = new Map<string, QueueMember>();
+      for (const m of (newest.queueList || [])) {
+        if (!m || isQueueMemberRemoved(id, m)) continue;
+        const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+        if (key) queueMap.set(key, m);
+      }
+      for (const m of (older.queueList || [])) {
+        if (!m || isQueueMemberRemoved(id, m)) continue;
+        const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+        if (key && !queueMap.has(key)) {
+          const joinedAt = Number(m.joinedAt || 0);
+          if (joinedAt > (localRevision - 10000) && joinedAt > (incomingRevision - 10000)) {
+            queueMap.set(key, m);
+          }
+        }
+      }
+
+      result.push({
+        ...older,
+        ...newest,
+        queueList: Array.from(queueMap.values())
+      });
     }
   }
 
@@ -839,7 +1022,7 @@ export function getCachedVaultItems(): VaultItem[] {
     inMemoryVaultItems = pool;
   }
   return pool
-    .filter((item) => item && item.id && (deletedMap[item.id] || 0) < (item.updatedAt || item.createdAt || 0))
+    .filter((item) => item && item.id && !deletedMap[item.id])
     .map((item) => {
       const norm = normalizeDistributedItem(item);
       return {
@@ -852,7 +1035,7 @@ export function getCachedVaultItems(): VaultItem[] {
 export function setCachedVaultItems(items: VaultItem[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
   const clean = (items || [])
-    .filter((i) => i && i.id && (deletedMap[i.id] || 0) < (i.updatedAt || i.createdAt || 0))
+    .filter((i) => i && i.id && !deletedMap[i.id])
     .map((i) => {
       const norm = normalizeDistributedItem(i);
       return {
@@ -1913,17 +2096,21 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
       }
       const queues: QueueItem[] = [];
       snapshot.forEach((docSnap) => {
+        if (isQueueItemDeleted(docSnap.id)) return;
         const qItem = { ...docSnap.data(), id: docSnap.id } as QueueItem;
         if (qItem.queueList) {
-          qItem.queueList = qItem.queueList.map((qm) => ({
-            ...qm,
-            clan: cleanClanName(qm.clan)
-          }));
+          qItem.queueList = qItem.queueList
+            .filter((qm) => !isQueueMemberRemoved(docSnap.id, qm))
+            .map((qm) => ({
+              ...qm,
+              clan: cleanClanName(qm.clan)
+            }));
         }
         queues.push(qItem);
       });
-      setCachedQueues(queues);
-      callback(queues);
+      const merged = mergeQueueItems(getCachedQueues(), queues);
+      setCachedQueues(merged);
+      callback(merged);
     },
     (err) => {
       console.warn('Firestore queue listener fallback to initial/cached queues:', err);
@@ -2125,28 +2312,8 @@ export function listenToGeneralItems(callback: (items: GeneralItem[]) => void) {
       });
     });
     const cached = getCachedGeneralItems();
-    const itemMap = new Map<string, GeneralItem>();
-    for (const c of cached) {
-      if (c && c.id) itemMap.set(c.id, c);
-    }
-    for (const incoming of items) {
-      const existing = itemMap.get(incoming.id);
-      if (!existing) {
-        itemMap.set(incoming.id, incoming);
-      } else {
-        const queueMap = new Map<string, QueueMember>();
-        for (const m of [...(existing.queueList || []), ...(incoming.queueList || [])]) {
-          const key = m.id || m.userId || m.name;
-          if (key) queueMap.set(key, m);
-        }
-        itemMap.set(incoming.id, {
-          ...existing,
-          ...incoming,
-          queueList: Array.from(queueMap.values())
-        });
-      }
-    }
-    const merged = Array.from(itemMap.values()).sort((a, b) => b.createdAt - a.createdAt);
+    const cleanIncoming = items.filter((it) => it && it.id && !isGeneralItemDeleted(it.id));
+    const merged = mergeGeneralItems(cached, cleanIncoming);
     setCachedGeneralItems(merged);
     callback(merged);
   }, (err) => {
