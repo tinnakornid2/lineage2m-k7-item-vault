@@ -35,7 +35,9 @@ import {
   FileText,
   LayoutGrid,
   CheckSquare,
-  Square
+  Square,
+  Gift,
+  Receipt
 } from 'lucide-react';
 import {
   HunterRecord,
@@ -44,6 +46,7 @@ import {
   QuickItem,
   User,
   VaultItem,
+  DirectDistributionPayload,
   cleanClanName,
   DEFAULT_CLAN,
   isItemDistributed
@@ -68,8 +71,10 @@ interface VaultViewProps {
   vaultItems: VaultItem[];
   quickItems: QuickItem[];
   onOpenQuickItemsModal: () => void;
-  onSelectQuickItemForForm?: (item: QuickItem) => void;
-  onCreateVaultItem: (item: Omit<VaultItem, 'id' | 'createdAt' | 'status' | 'claimants'>) => Promise<void>;
+  onCreateVaultItem: (
+    item: Omit<VaultItem, 'id' | 'createdAt' | 'status' | 'claimants'>,
+    directDistribution?: DirectDistributionPayload
+  ) => Promise<void>;
   onDeleteVaultItem: (itemId: string) => Promise<void>;
   onViewImageZoom: (
     url: string,
@@ -200,6 +205,25 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [isCreating, setIsCreating] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+
+  // Direct Distribution Mode State
+  const [itemEntryMode, setItemEntryMode] = useState<'normal' | 'direct_distribute'>('normal');
+  const [directRecipient, setDirectRecipient] = useState<User | null>(null);
+  const [directReceiptImages, setDirectReceiptImages] = useState<string[]>([]);
+  const [directPaymentStatus, setDirectPaymentStatus] = useState<'pending' | 'paid'>('pending');
+
+  const activeMembersByClan = useMemo(() => {
+    const groups: Record<string, User[]> = {};
+    allMembers.filter((m) => m.status === 'active').forEach((m) => {
+      const clan = m.clan || 'No Clan';
+      if (!groups[clan]) groups[clan] = [];
+      groups[clan].push(m);
+    });
+    Object.keys(groups).forEach((clan) => {
+      groups[clan].sort((a, b) => (b.powerLevel || 0) - (a.powerLevel || 0));
+    });
+    return groups;
+  }, [allMembers]);
 
   // Section 7 Scan Results Copy & View Mode State
   const [hunterResultViewMode, setHunterResultViewMode] = useState<'cards' | 'text'>('cards');
@@ -926,6 +950,47 @@ export const VaultView: React.FC<VaultViewProps> = ({
     }
   };
 
+  // Direct Distribution: Receipt / Bill Upload & Paste handlers
+  const handleDirectReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      try {
+        const compressedList = await Promise.all(
+          (Array.from(files) as File[]).map((file) =>
+            compressImageFile(file, { maxWidth: 1600, maxHeight: 1600, quality: 0.8 })
+          )
+        );
+        setDirectReceiptImages((prev) => [...prev, ...compressedList]);
+      } catch (err) {
+        console.error('Failed to compress receipt image:', err);
+      }
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveDirectReceipt = (idx: number) => {
+    sounds.playClick();
+    setDirectReceiptImages((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handlePasteDirectReceiptZone = async (e: React.ClipboardEvent) => {
+    const images = extractImageFilesFromClipboard(e);
+    if (images.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const compressedList = await Promise.all(
+          images.map((file) =>
+            compressImageFile(file, { maxWidth: 1600, maxHeight: 1600, quality: 0.8 })
+          )
+        );
+        setDirectReceiptImages((prev) => [...prev, ...compressedList]);
+      } catch (err) {
+        console.error('Failed to compress pasted receipt image:', err);
+      }
+    }
+  };
+
   // Direct paste handlers on specific dropzones
   const handlePasteItemImageZone = (e: React.ClipboardEvent) => {
     const images = extractImageFilesFromClipboard(e);
@@ -1029,9 +1094,11 @@ export const VaultView: React.FC<VaultViewProps> = ({
     setFormError('');
     setFormSuccess('');
 
-    if (!name.trim()) {
-      setFormError(lang === 'th' ? 'กรุณาระบุชื่อไอเทม' : 'Item name required');
-      return;
+    if (itemEntryMode === 'direct_distribute') {
+      if (!directRecipient || !directRecipient.inGameName?.trim()) {
+        setFormError(t.recipientRequired);
+        return;
+      }
     }
 
     setIsCreating(true);
@@ -1040,19 +1107,35 @@ export const VaultView: React.FC<VaultViewProps> = ({
       // Ensure strict deduplication before creating item
       const { unique: deduplicatedFinalHunters } = deduplicateHunterList(hunters);
 
+      const directPayload: DirectDistributionPayload | undefined =
+        itemEntryMode === 'direct_distribute' && directRecipient
+          ? {
+              recipient: {
+                name: directRecipient.inGameName.trim(),
+                clan: directRecipient.clan || 'No Clan',
+                userId: directRecipient.id
+              },
+              receiptImages: directReceiptImages,
+              paymentStatus: directPaymentStatus
+            }
+          : undefined;
+
       await Promise.race([
-        onCreateVaultItem({
-          name: name.trim(),
-          price: Number(price) || 0,
-          quantity: Math.max(1, Number(quantity) || 1),
-          minPowerLevel: Number(minPowerLevel) || 0,
-          rarity,
-          imageUrl:
-            itemImageUrl ||
-            'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=400&auto=format&fit=crop&q=80',
-          hunters: deduplicatedFinalHunters,
-          hunterScreenshots
-        }),
+        onCreateVaultItem(
+          {
+            name: name.trim(),
+            price: Number(price) || 0,
+            quantity: Math.max(1, Number(quantity) || 1),
+            minPowerLevel: Number(minPowerLevel) || 0,
+            rarity,
+            imageUrl:
+              itemImageUrl ||
+              'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=400&auto=format&fit=crop&q=80',
+            hunters: deduplicatedFinalHunters,
+            hunterScreenshots
+          },
+          directPayload
+        ),
         new Promise((resolve) => setTimeout(resolve, 3500))
       ]);
 
@@ -1070,9 +1153,9 @@ export const VaultView: React.FC<VaultViewProps> = ({
       }
 
       setFormSuccess(
-        lang === 'th'
-          ? 'เพิ่มไอเทมสำเร็จ!'
-          : 'Item created!'
+        itemEntryMode === 'direct_distribute'
+          ? t.directDistributeSuccess
+          : (lang === 'th' ? 'เพิ่มไอเทมสำเร็จ!' : 'Item created!')
       );
 
       // Reset form
@@ -1086,6 +1169,9 @@ export const VaultView: React.FC<VaultViewProps> = ({
       setHunterScreenshots([]);
       setOcrStatusText('');
       setDuplicatesRemovedCount(null);
+      setDirectRecipient(null);
+      setDirectReceiptImages([]);
+      setDirectPaymentStatus('pending');
     } catch {
       setFormError(t.error);
     } finally {
@@ -1338,10 +1424,68 @@ export const VaultView: React.FC<VaultViewProps> = ({
             onSubmit={handleCreateItemSubmit}
             className="rounded-2xl bg-gradient-to-b from-[#131b2c] via-[#0d1320] to-[#080c14] border border-[#d4af37]/30 p-6 sm:p-8 shadow-2xl space-y-6"
           >
-            <h2 className="text-lg font-bold font-cinzel text-slate-100 flex items-center gap-2">
-              <Plus className="w-5 h-5 text-[#f5d77f]" />
-              <span>{t.addNewItem}</span>
-            </h2>
+            {/* Form Header with Mode Switcher */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                {itemEntryMode === 'direct_distribute' ? (
+                  <Gift className="w-5 h-5 text-emerald-400" />
+                ) : (
+                  <Plus className="w-5 h-5 text-[#f5d77f]" />
+                )}
+                <h2 className="text-lg font-bold font-cinzel text-slate-100">
+                  {itemEntryMode === 'direct_distribute' ? t.modeDirectDistribute : t.addNewItem}
+                </h2>
+              </div>
+
+              {/* Mode Switch Tabs */}
+              <div className="flex items-center bg-[#090d16] p-1 rounded-xl border border-slate-700/80 text-xs shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playClick();
+                    setItemEntryMode('normal');
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                    itemEntryMode === 'normal'
+                      ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-950 shadow-md font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>{t.modeNormalVault}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playClick();
+                    setItemEntryMode('direct_distribute');
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                    itemEntryMode === 'direct_distribute'
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 shadow-md font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Gift className="w-3.5 h-3.5" />
+                  <span>{t.modeDirectDistribute}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Direct Distribute Notice Banner */}
+            {itemEntryMode === 'direct_distribute' && (
+              <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs text-emerald-200 flex items-start gap-2.5 shadow-md">
+                <Gift className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-bold text-emerald-300">
+                    {lang === 'th' ? 'โหมดแจกไอเทมโดยตรง (Direct Distribution Mode)' : 'Direct Distribution Mode'}
+                  </div>
+                  <p className="text-[11px] text-emerald-300/80 leading-relaxed">
+                    {t.directDistributeNotice}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {formError && (
               <div className="p-3 rounded-lg bg-red-950/60 border border-red-800 text-xs text-red-200 flex items-center gap-2">
@@ -1573,6 +1717,200 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 </div></div>
 
             </div>
+
+            {/* Direct Distribution Mode Details (Recipient, Payment Status, Bill/Receipt Slips) */}
+            {itemEntryMode === 'direct_distribute' && (
+              <div className="p-5 rounded-xl bg-gradient-to-b from-[#0b121e] to-[#070b14] border border-emerald-500/40 space-y-4 shadow-lg">
+                <div className="flex items-center justify-between pb-2 border-b border-emerald-500/20">
+                  <div className="flex items-center gap-2">
+                    <Gift className="w-5 h-5 text-emerald-400" />
+                    <span className="text-sm font-bold text-emerald-300">
+                      {lang === 'th' ? 'ข้อมูลการแจกไอเทมโดยตรง (Direct Distribution Details)' : 'Direct Distribution Details'}
+                    </span>
+                  </div>
+                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-600/50 text-emerald-300 font-mono font-semibold">
+                    {lang === 'th' ? 'แจกทันที • ไม่ผ่านคลังเปิดรับ' : 'Instant Distribution'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* 1. Recipient Selection */}
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold text-slate-200 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{t.selectRecipient} *</span>
+                      </span>
+                      {directRecipient && (
+                        <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                          ✓ {directRecipient.inGameName} ({directRecipient.clan})
+                        </span>
+                      )}
+                    </label>
+                    
+                    <select
+                      id="select-direct-recipient"
+                      value={directRecipient?.id || ''}
+                      onChange={(e) => {
+                        const selectedId = e.target.value;
+                        const found = allMembers.find((m) => m.id === selectedId) || null;
+                        setDirectRecipient(found);
+                        sounds.playClick();
+                      }}
+                      className="w-full px-3 py-2.5 rounded-lg bg-[#090d16] border border-emerald-500/50 focus:border-emerald-400 text-slate-100 text-xs sm:text-sm focus:outline-none cursor-pointer"
+                    >
+                      <option value="">{t.selectRecipientPlaceholder}</option>
+                      {(Object.entries(activeMembersByClan) as [string, User[]][]).map(([clanName, cMembers]) => (
+                        <optgroup key={clanName} label={`🏰 ${clanName} (${cMembers.length})`}>
+                          {cMembers.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.inGameName} {m.characterClass ? `• ${m.characterClass}` : ''} {m.powerLevel ? `• PL ${m.powerLevel.toLocaleString()}` : ''}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+
+                    {directRecipient && (
+                      <div className="p-2.5 rounded-lg bg-emerald-950/30 border border-emerald-600/30 flex items-center justify-between text-xs text-emerald-200">
+                        <div className="flex items-center gap-2">
+                          <UserCheck className="w-4 h-4 text-emerald-400" />
+                          <div>
+                            <span className="font-bold">{directRecipient.inGameName}</span>
+                            <span className="text-slate-400 ml-1.5">({directRecipient.clan})</span>
+                          </div>
+                        </div>
+                        {directRecipient.verifiedPowerLevel && (
+                          <span className="text-[11px] font-mono text-amber-300">
+                            PL: {directRecipient.verifiedPowerLevel}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. Payment Status */}
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                      <Gem className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{t.paymentStatusChoice}</span>
+                    </label>
+                    
+                    <div className="grid grid-cols-2 gap-3 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setDirectPaymentStatus('pending');
+                        }}
+                        className={`flex items-center justify-center gap-2 p-3 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                          directPaymentStatus === 'pending'
+                            ? 'bg-amber-950/60 border-amber-500 text-amber-300 ring-1 ring-amber-500/50 shadow-md'
+                            : 'bg-[#090d16] border-slate-700 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Clock className="w-4 h-4 text-amber-400" />
+                        <span>{t.paymentStatusPending}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setDirectPaymentStatus('paid');
+                        }}
+                        className={`flex items-center justify-center gap-2 p-3 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                          directPaymentStatus === 'paid'
+                            ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300 ring-1 ring-emerald-500/50 shadow-md'
+                            : 'bg-[#090d16] border-slate-700 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>{t.paymentStatusPaid}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Receipt / Bill Slips */}
+                <div className="space-y-2 pt-2 border-t border-slate-800">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                        <Receipt className="w-3.5 h-3.5 text-teal-400" />
+                        <span>{t.attachReceiptBills}</span>
+                        <span className="text-[11px] text-slate-400 font-normal">({lang === 'th' ? 'ไม่บังคับ' : 'Optional'})</span>
+                      </label>
+                      <p className="text-[11px] text-slate-400">{t.attachReceiptBillsDesc}</p>
+                    </div>
+
+                    <label
+                      tabIndex={0}
+                      onPaste={handlePasteDirectReceiptZone}
+                      htmlFor="file-direct-receipts"
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-950/60 hover:bg-teal-900/80 border border-dashed border-teal-500/50 hover:border-teal-400 text-xs font-medium text-teal-200 cursor-pointer transition-all shrink-0 outline-none"
+                      title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูปบิล' : 'Click to choose or Ctrl + V to paste bill'}
+                    >
+                      <Upload className="w-3.5 h-3.5 text-teal-300" />
+                      <span>{lang === 'th' ? 'แนบสลิป/บิล (หรือ Ctrl+V)' : 'Upload Bill (or Ctrl+V)'}</span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-teal-900/90 text-teal-200 border border-teal-700">
+                        Ctrl + V
+                      </span>
+                      <input
+                        id="file-direct-receipts"
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleDirectReceiptUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {directReceiptImages.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-teal-300">
+                        <ImageIcon className="w-3.5 h-3.5" />
+                        <span>
+                          {lang === 'th'
+                            ? `แนบรูปบิล/สลิปแล้ว ${directReceiptImages.length} รูป`
+                            : `${directReceiptImages.length} receipt image(s) attached`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 overflow-x-auto p-2 rounded-lg bg-[#0a0f19] border border-teal-900/40">
+                        {directReceiptImages.map((receiptImg, idx) => (
+                          <div key={idx} className="relative group shrink-0 w-24 h-24 rounded-lg overflow-hidden border border-teal-700/50">
+                            <img
+                              src={receiptImg}
+                              alt={`Receipt ${idx + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition-opacity">
+                              <button
+                                type="button"
+                                onClick={() => onViewImageZoom(receiptImg, `Receipt #${idx + 1}`, directReceiptImages, idx)}
+                                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-white"
+                                title="Zoom"
+                              >
+                                <ZoomIn className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveDirectReceipt(idx)}
+                                className="p-1 rounded bg-red-900 hover:bg-red-800 text-white"
+                                title="Remove"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Grid 2: 6. OCR Hunter Scanner & Clan Matcher */}
             <div className="p-5 rounded-xl bg-[#090d16] border border-slate-800 space-y-4">
@@ -2391,9 +2729,17 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 id="btn-submit-create-item"
                 type="submit"
                 disabled={isCreating}
-                className="px-6 py-3 rounded-xl bg-gradient-to-r from-[#d4af37] via-[#e5be49] to-[#aa841c] hover:brightness-110 text-slate-950 font-bold text-sm shadow-xl shadow-amber-950/40 transition-all cursor-pointer disabled:opacity-50"
+                className={`px-6 py-3 rounded-xl font-bold text-sm shadow-xl transition-all cursor-pointer disabled:opacity-50 ${
+                  itemEntryMode === 'direct_distribute'
+                    ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:brightness-110 text-slate-950 shadow-emerald-950/40'
+                    : 'bg-gradient-to-r from-[#d4af37] via-[#e5be49] to-[#aa841c] hover:brightness-110 text-slate-950 shadow-amber-950/40'
+                }`}
               >
-                {isCreating ? t.loading : t.addNewItem}
+                {isCreating
+                  ? t.loading
+                  : itemEntryMode === 'direct_distribute'
+                  ? (lang === 'th' ? '🏆 บันทึกแจกไอเทมทันที' : '🏆 Distribute Item Now')
+                  : t.addNewItem}
               </button>
             </div>
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Zap, ArrowRight, TrendingUp, TrendingDown, Clock, ShieldAlert, Check } from 'lucide-react';
-import { User, Language, cleanClanName } from '../types';
+import { X, Zap, ArrowRight, TrendingUp, TrendingDown, Clock, ShieldAlert, Check, Lock } from 'lucide-react';
+import { User, Language, cleanClanName, StatUpdateSettings } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -9,6 +9,7 @@ interface RequestPowerLevelModalProps {
   onClose: () => void;
   currentUser: User | null;
   lang: Language;
+  statUpdateSettings?: StatUpdateSettings;
   onRequestUpdate: (userId: string, newPowerLevel: number) => Promise<void>;
   onCancelRequest?: (userId: string) => Promise<void>;
 }
@@ -18,10 +19,19 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
   onClose,
   currentUser,
   lang,
+  statUpdateSettings,
   onRequestUpdate,
   onCancelRequest
 }) => {
   const t = translations[lang];
+  const isOwner = currentUser?.role === 'owner';
+  const isAdmin = currentUser?.role === 'admin';
+  const isStatLocked = Boolean(
+    statUpdateSettings &&
+    !statUpdateSettings.allowMemberUpdates &&
+    !isOwner &&
+    !isAdmin
+  );
   const [newPowerLevel, setNewPowerLevel] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -51,6 +61,11 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
+
+    if (isStatLocked) {
+      setErrorMessage(t.statUpdateLockedNotice);
+      return;
+    }
 
     if (!hasValidNewPower) {
       setErrorMessage(lang === 'th' ? 'กรุณากรอกค่าพลังที่ถูกต้องและมากกว่า 0' : 'Please enter a valid PL greater than 0');
@@ -246,15 +261,32 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
             </div>
           )}
 
-          {/* Warning Notice */}
-          <div className="p-3 rounded-xl bg-[#141b2a] border border-sky-500/30 text-[11px] text-sky-200/90 flex items-start gap-2.5">
-            <ShieldAlert className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-            <div className="leading-relaxed">
-              {lang === 'th'
-                ? 'คำขอนี้จะไม่เปลี่ยนค่าพลังทันที แต่จะถูกส่งไปยัง Owner และ Admin เพื่อตรวจสอบและกดยืนยันอนุมัติ'
-                : 'This request will not take effect immediately. It will be sent to the Owner and Admins for review and approval.'}
+          {/* Locked Notice Banner if Owner locked monthly updates */}
+          {isStatLocked ? (
+            <div className="p-3.5 rounded-xl bg-red-950/60 border border-red-500/60 text-xs flex items-center gap-3 text-red-200 shadow-md">
+              <Lock className="w-5 h-5 text-red-400 shrink-0" />
+              <div className="space-y-0.5">
+                <div className="font-bold text-red-300 flex items-center gap-2">
+                  <span>{lang === 'th' ? 'ระบบปิดรับการอัปเดตสเตตัส' : 'Stat Updates Locked'}</span>
+                  <span className="text-[10px] px-2 py-0.2 rounded bg-red-900 text-red-200 border border-red-700 font-mono">
+                    {t.statusLockedBadge}
+                  </span>
+                </div>
+                <p className="text-[11px] text-red-300/80">
+                  {t.statUpdateLockedNotice}
+                </p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="p-3 rounded-xl bg-[#141b2a] border border-sky-500/30 text-[11px] text-sky-200/90 flex items-start gap-2.5">
+              <ShieldAlert className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+              <div className="leading-relaxed">
+                {lang === 'th'
+                  ? 'คำขอนี้จะไม่เปลี่ยนค่าพลังทันที แต่จะถูกส่งไปยัง Owner และ Admin เพื่อตรวจสอบและกดยืนยันอนุมัติ'
+                  : 'This request will not take effect immediately. It will be sent to the Owner and Admins for review and approval.'}
+              </div>
+            </div>
+          )}
 
           {/* Submit Actions */}
           <div className="flex items-center justify-end gap-2.5 pt-2">
@@ -273,11 +305,12 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
             <button
               id="btn-submit-cp-request"
               type="submit"
-              disabled={isSubmitting || !hasValidNewPower || parsedNewPower === currentPower}
+              disabled={isSubmitting || isStatLocked || !hasValidNewPower || parsedNewPower === currentPower}
+              title={isStatLocked ? t.statUpdateLockedBtnDesc : undefined}
               className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#d4af37] via-[#f1c953] to-[#aa841c] hover:brightness-110 active:scale-[0.99] text-slate-950 font-bold text-xs shadow-lg shadow-amber-900/30 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
             >
-              <Zap className="w-3.5 h-3.5" />
-              <span>{isSubmitting ? t.loading : t.requestCpUpdate}</span>
+              {isStatLocked ? <Lock className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
+              <span>{isSubmitting ? t.loading : isStatLocked ? t.statusLockedBadge : t.requestCpUpdate}</span>
             </button>
           </div>
         </form>
