@@ -350,22 +350,12 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     version: 0
   };
 
-  // Restore live hub state from disk or bundled seed if available
+  // Restore live hub state from disk if available
   try {
-    const SEED_FILE = path.join(process.cwd(), 'src', 'data', 'seed-live-state.json');
     if (fs.existsSync(LIVE_STATE_FILE)) {
       const parsedLive = JSON.parse(fs.readFileSync(LIVE_STATE_FILE, 'utf-8'));
       if (parsedLive && typeof parsedLive.version === 'number' && parsedLive.data) {
         liveHubState = parsedLive;
-      }
-    } else if (fs.existsSync(SEED_FILE)) {
-      const parsedSeed = JSON.parse(fs.readFileSync(SEED_FILE, 'utf-8'));
-      if (parsedSeed && parsedSeed.data) {
-        liveHubState = {
-          data: parsedSeed.data,
-          updatedAt: parsedSeed.updatedAt || Date.now(),
-          version: parsedSeed.version || 1
-        };
       }
     }
   } catch {}

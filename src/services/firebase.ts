@@ -213,6 +213,9 @@ if (typeof localStorage !== 'undefined') {
         'l2m_active_tab'
       ];
       LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
+      // Invalidate old item caches so new cloud data hydrates seamlessly
+      Object.values(CACHE_KEYS).forEach((key) => localStorage.removeItem(key));
+      localStorage.removeItem('l2m_google_backup_cache');
       localStorage.setItem(CACHE_SCHEMA_KEY, CACHE_SCHEMA_VERSION);
     }
   } catch (e) {}
@@ -468,28 +471,29 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
       }
       const paymentStatus = newest.paymentStatus || older.paymentStatus || (distributedTo && typeof distributedTo === 'object' ? (distributedTo as any).paymentStatus : undefined);
 
-      // Bulletproof merge of claimants: union all claims from both local and incoming,
-      // deduplicate by userId/inGameName, and filter out any cancelled claims
-      const claimantsMap = new Map<string, Claimant>();
-      const allSourceClaimants = [
-        ...(Array.isArray(older.claimants) ? older.claimants : []),
-        ...(Array.isArray(newest.claimants) ? newest.claimants : [])
-      ];
-      for (const c of allSourceClaimants) {
-        if (!c || isClaimCancelled(id, c)) continue;
-        const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
-        const existing = claimantsMap.get(key);
-        if (!existing) {
-          claimantsMap.set(key, c);
-        } else {
-          const existingTime = existing.claimedAt || 0;
-          const incomingTime = c.claimedAt || 0;
-          if (incomingTime > 0 && (existingTime === 0 || incomingTime < existingTime)) {
+      // Merge claimants with timestamp precedence and strict cancellation filter
+      let mergedClaimants: Claimant[];
+      const localUpdated = local.updatedAt || 0;
+      const incomingUpdated = incoming.updatedAt || 0;
+      if (localUpdated > 0 || incomingUpdated > 0) {
+        mergedClaimants = localUpdated > incomingUpdated ? (local.claimants || []) : (incoming.claimants || []);
+      } else {
+        const claimantsMap = new Map<string, Claimant>();
+        for (const c of (incoming.claimants || [])) {
+          if (!isClaimCancelled(id, c)) {
+            const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
             claimantsMap.set(key, c);
           }
         }
+        for (const c of (local.claimants || [])) {
+          if (!isClaimCancelled(id, c)) {
+            const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
+            claimantsMap.set(key, c);
+          }
+        }
+        mergedClaimants = Array.from(claimantsMap.values());
       }
-      const mergedClaimants = Array.from(claimantsMap.values()).filter((c) => !isClaimCancelled(id, c));
+      mergedClaimants = mergedClaimants.filter((c) => !isClaimCancelled(id, c));
 
       const hunterScreenshots = (newest.hunterScreenshots && newest.hunterScreenshots.length > 0)
         ? newest.hunterScreenshots
@@ -1295,10 +1299,8 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
         }
         items.push(item);
       });
-      const cached = getCachedVaultItems();
-      const mergedList = mergeVaultItems(cached, items);
-      setCachedVaultItems(mergedList);
-      latestItems = mergedList;
+      setCachedVaultItems(items);
+      latestItems = items;
       emitCombinedItems();
     },
     (err) => {
