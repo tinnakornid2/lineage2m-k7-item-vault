@@ -270,7 +270,7 @@ export const App: React.FC = () => {
   const [vaultItems, setVaultItems] = useState<VaultItem[]>(() => getCachedVaultItems());
   const [queueItems, setQueueItems] = useState<QueueItem[]>(() => getCachedQueues());
   const [quickItems, setQuickItems] = useState<QuickItem[]>(INITIAL_QUICK_ITEMS);
-  const [generalItems, setGeneralItems] = useState<GeneralItem[]>([]);
+  const [generalItems, setGeneralItems] = useState<GeneralItem[]>(() => getCachedGeneralItems());
   const [clans, setClans] = useState<ClanGroup[]>(() => getCachedClans());
   const [diamondLogs, setDiamondLogs] = useState<DiamondVaultRecord[]>(() => getCachedDiamondTransactions());
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
@@ -2208,6 +2208,8 @@ export const App: React.FC = () => {
       {
         users,
         vaultItems: nextVaultItems,
+        quickItems,
+        generalItems,
         queueItems,
         clans,
         diamondLogs,
@@ -2221,6 +2223,8 @@ export const App: React.FC = () => {
       {
         users,
         vaultItems: nextVaultItems,
+        quickItems,
+        generalItems,
         queueItems,
         clans,
         diamondLogs,
@@ -2230,6 +2234,13 @@ export const App: React.FC = () => {
       currentUser?.inGameName || currentUser?.username || 'Member',
       true
     );
+
+    // Call server claim endpoint to persist via Admin SDK asynchronously
+    fetch('/api/claim-vault-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId, claimant: newClaimant })
+    }).catch((e) => console.warn('claim-vault-item endpoint notice:', e));
 
     try {
       await updateVaultItemDoc(itemId, { claimants: updatedClaimants, updatedAt: now });
@@ -2306,6 +2317,8 @@ export const App: React.FC = () => {
       {
         users,
         vaultItems: nextVaultItems,
+        quickItems,
+        generalItems,
         queueItems,
         clans,
         diamondLogs,
@@ -2319,6 +2332,8 @@ export const App: React.FC = () => {
       {
         users,
         vaultItems: nextVaultItems,
+        quickItems,
+        generalItems,
         queueItems,
         clans,
         diamondLogs,
@@ -2328,6 +2343,13 @@ export const App: React.FC = () => {
       currentUser?.inGameName || currentUser?.username || 'Member',
       true
     );
+
+    // Call server unclaim endpoint asynchronously
+    fetch('/api/unclaim-vault-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId, userId: userIdToRemove, inGameName: inGameNameToRemove })
+    }).catch((e) => console.warn('unclaim-vault-item endpoint notice:', e));
 
     // 4. Persist to Firestore
     try {

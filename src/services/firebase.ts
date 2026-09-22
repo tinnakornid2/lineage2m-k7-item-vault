@@ -38,6 +38,7 @@ import {
   QuickItem,
   GeneralItem,
   QueueItem,
+  QueueMember,
   DiamondVault,
   DiamondVaultRecord,
   ClanGroup,
@@ -168,7 +169,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.2-2cols-table-grid';
+const CACHE_SCHEMA_VERSION = '2.10.3-resilient-claims';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -239,7 +240,7 @@ function setCachedData<T>(key: string, data: T): void {
   } catch {}
 }
 
-// Cloud-First In-Memory Collections (No stale full-table snapshots in LocalStorage - Tier 2 Eliminated)
+// Resilient Hybrid In-Memory + LocalStorage Collections (Survives F5 Reloads & Zero-Downtime)
 let inMemoryVaultItems: VaultItem[] = [];
 let inMemoryQueues: QueueItem[] = [];
 let inMemoryUsers: User[] = [];
@@ -249,27 +250,39 @@ let inMemoryQuickItems: QuickItem[] = [];
 let inMemoryGeneralItems: GeneralItem[] = [];
 
 export function getCachedUsers(): User[] {
+  if (!inMemoryUsers || inMemoryUsers.length === 0) {
+    inMemoryUsers = getCachedData<User[]>(CACHE_KEYS.USERS, []);
+  }
   return inMemoryUsers;
 }
 
 export function setCachedUsers(users: User[]): void {
   inMemoryUsers = users || [];
+  setCachedData(CACHE_KEYS.USERS, inMemoryUsers);
 }
 
 export function getCachedQuickItems(): QuickItem[] {
+  if (!inMemoryQuickItems || inMemoryQuickItems.length === 0) {
+    inMemoryQuickItems = getCachedData<QuickItem[]>(CACHE_KEYS.QUICK_ITEMS, []);
+  }
   return inMemoryQuickItems;
 }
 
 export function setCachedQuickItems(items: QuickItem[]): void {
   inMemoryQuickItems = items || [];
+  setCachedData(CACHE_KEYS.QUICK_ITEMS, inMemoryQuickItems);
 }
 
 export function getCachedGeneralItems(): GeneralItem[] {
+  if (!inMemoryGeneralItems || inMemoryGeneralItems.length === 0) {
+    inMemoryGeneralItems = getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
+  }
   return inMemoryGeneralItems;
 }
 
 export function setCachedGeneralItems(items: GeneralItem[]): void {
   inMemoryGeneralItems = items || [];
+  setCachedData(CACHE_KEYS.GENERAL_ITEMS, inMemoryGeneralItems);
 }
 
 export const DELETED_VAULT_ITEMS_KEY = 'k7_deleted_vault_item_ids';
@@ -388,13 +401,19 @@ export function isClaimCancelled(itemId: string, claimant: Claimant): boolean {
   if (claimant.userId) {
     const keyUser = `${itemId}:::${claimant.userId.trim().toLowerCase()}`;
     const cancelledAt = map[keyUser];
-    if (cancelledAt && claimedAt <= cancelledAt) return true;
+    if (cancelledAt) {
+      if (claimedAt > 0 && claimedAt <= cancelledAt) return true;
+      if (claimedAt === 0 && Date.now() - cancelledAt < 24 * 60 * 60 * 1000) return true;
+    }
   }
 
   if (claimant.inGameName) {
     const keyName = `${itemId}:::${claimant.inGameName.trim().toLowerCase()}`;
     const cancelledAt = map[keyName];
-    if (cancelledAt && claimedAt <= cancelledAt) return true;
+    if (cancelledAt) {
+      if (claimedAt > 0 && claimedAt <= cancelledAt) return true;
+      if (claimedAt === 0 && Date.now() - cancelledAt < 24 * 60 * 60 * 1000) return true;
+    }
   }
 
   return false;
@@ -560,7 +579,12 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
 
 export function getCachedVaultItems(): VaultItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
-  return inMemoryVaultItems
+  let pool = inMemoryVaultItems;
+  if (!pool || pool.length === 0) {
+    pool = getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, []);
+    inMemoryVaultItems = pool;
+  }
+  return pool
     .filter((item) => item && item.id && (deletedMap[item.id] || 0) < (item.updatedAt || item.createdAt || 0))
     .map((item) => {
       const norm = normalizeDistributedItem(item);
@@ -573,7 +597,7 @@ export function getCachedVaultItems(): VaultItem[] {
 
 export function setCachedVaultItems(items: VaultItem[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
-  inMemoryVaultItems = (items || [])
+  const clean = (items || [])
     .filter((i) => i && i.id && (deletedMap[i.id] || 0) < (i.updatedAt || i.createdAt || 0))
     .map((i) => {
       const norm = normalizeDistributedItem(i);
@@ -582,32 +606,49 @@ export function setCachedVaultItems(items: VaultItem[]): void {
         claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(i.id, c))
       };
     });
+  inMemoryVaultItems = clean;
+  setCachedData(CACHE_KEYS.VAULT_ITEMS, clean);
 }
 
 export function getCachedClans(): ClanGroup[] {
+  if (!inMemoryClans || inMemoryClans.length === 0) {
+    inMemoryClans = getCachedData<ClanGroup[]>(CACHE_KEYS.CLANS, []);
+  }
   return inMemoryClans;
 }
 
 export function setCachedClans(clans: ClanGroup[]): void {
   inMemoryClans = clans || [];
+  setCachedData(CACHE_KEYS.CLANS, inMemoryClans);
 }
 
 export function getCachedQueues(): QueueItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
-  return inMemoryQueues.filter((q) => q && q.id && (deletedMap[q.id] || 0) < (q.updatedAt || q.createdAt || 0));
+  let pool = inMemoryQueues;
+  if (!pool || pool.length === 0) {
+    pool = getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, []);
+    inMemoryQueues = pool;
+  }
+  return pool.filter((q) => q && q.id && (deletedMap[q.id] || 0) < (q.updatedAt || q.createdAt || 0));
 }
 
 export function setCachedQueues(queues: QueueItem[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
-  inMemoryQueues = (queues || []).filter((q) => q && q.id && (deletedMap[q.id] || 0) < (q.updatedAt || q.createdAt || 0));
+  const clean = (queues || []).filter((q) => q && q.id && (deletedMap[q.id] || 0) < (q.updatedAt || q.createdAt || 0));
+  inMemoryQueues = clean;
+  setCachedData(CACHE_KEYS.QUEUES, clean);
 }
 
 export function getCachedDiamondTransactions(): DiamondVaultRecord[] {
+  if (!inMemoryDiamondTxs || inMemoryDiamondTxs.length === 0) {
+    inMemoryDiamondTxs = getCachedData<DiamondVaultRecord[]>(CACHE_KEYS.DIAMOND_TXS, []);
+  }
   return inMemoryDiamondTxs;
 }
 
 export function setCachedDiamondTransactions(records: DiamondVaultRecord[]): void {
   inMemoryDiamondTxs = records || [];
+  setCachedData(CACHE_KEYS.DIAMOND_TXS, inMemoryDiamondTxs);
 }
 
 let onQuotaExceededCallback: ((isQuotaExceeded: boolean) => void) | null = null;
@@ -1259,10 +1300,22 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
     const combinedList = mergedList.map((item) => {
       const claims = latestClaims.filter((claim) => claim.itemId === item.id);
       const combined = [...(item.claimants || []), ...claims];
-      const deduplicated = combined.filter((claim, index, all) =>
-        all.findIndex((candidate) => candidate.userId === claim.userId) === index
-      );
-      return { ...item, claimants: deduplicated };
+      const claimantMap = new Map<string, Claimant>();
+      for (const claim of combined) {
+        if (!claim || isClaimCancelled(item.id, claim)) continue;
+        const key = claim.userId || (claim.inGameName ? claim.inGameName.trim().toLowerCase() : '') || Math.random().toString();
+        const existing = claimantMap.get(key);
+        if (!existing) {
+          claimantMap.set(key, claim);
+        } else {
+          const existingTime = existing.claimedAt || 0;
+          const incomingTime = claim.claimedAt || 0;
+          if (incomingTime > 0 && (existingTime === 0 || incomingTime < existingTime)) {
+            claimantMap.set(key, claim);
+          }
+        }
+      }
+      return { ...item, claimants: Array.from(claimantMap.values()) };
     });
     setCachedVaultItems(combinedList);
     callback(combinedList);
@@ -1791,9 +1844,31 @@ export function listenToGeneralItems(callback: (items: GeneralItem[]) => void) {
         createdAt: data.createdAt || Date.now()
       });
     });
-    const sorted = items.sort((a, b) => b.createdAt - a.createdAt);
-    setCachedGeneralItems(sorted);
-    callback(sorted);
+    const cached = getCachedGeneralItems();
+    const itemMap = new Map<string, GeneralItem>();
+    for (const c of cached) {
+      if (c && c.id) itemMap.set(c.id, c);
+    }
+    for (const incoming of items) {
+      const existing = itemMap.get(incoming.id);
+      if (!existing) {
+        itemMap.set(incoming.id, incoming);
+      } else {
+        const queueMap = new Map<string, QueueMember>();
+        for (const m of [...(existing.queueList || []), ...(incoming.queueList || [])]) {
+          const key = m.id || m.userId || m.name;
+          if (key) queueMap.set(key, m);
+        }
+        itemMap.set(incoming.id, {
+          ...existing,
+          ...incoming,
+          queueList: Array.from(queueMap.values())
+        });
+      }
+    }
+    const merged = Array.from(itemMap.values()).sort((a, b) => b.createdAt - a.createdAt);
+    setCachedGeneralItems(merged);
+    callback(merged);
   }, (err) => {
     console.warn('Firestore general items fallback:', err);
     notifyQuotaExceeded(err);

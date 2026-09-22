@@ -128,7 +128,10 @@ service cloud.firestore {
 
     match /items/{itemId} {
       allow read: if true;
-      allow create, update, delete: if isAdminOrOwner();
+      allow create, delete: if isAdminOrOwner();
+      allow update: if isAdminOrOwner()
+        || (resource.data.status == 'available'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimants', 'updatedAt']));
     }
 
     match /item_claims/{claimId} {

@@ -689,10 +689,148 @@ async function createApp(options = {}) {
         } catch {
         }
         liveStateEmitter.emit("update");
+        (async () => {
+          try {
+            const sdk = await getAdminSdk();
+            if (sdk && sdk.db && Array.isArray(data.vaultItems)) {
+              for (const item of data.vaultItems) {
+                if (item && item.id && Array.isArray(item.claimants) && item.claimants.length > 0) {
+                  await sdk.db.collection("items").doc(item.id).set({
+                    claimants: item.claimants,
+                    updatedAt: item.updatedAt || Date.now()
+                  }, { merge: true });
+                }
+              }
+            }
+          } catch {
+          }
+        })().catch(() => {
+        });
       }
       res.json({ success: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt });
     } catch (err) {
       res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+  app.post("/api/claim-vault-item", async (req, res) => {
+    try {
+      const { itemId, claimant } = req.body;
+      if (!itemId || !claimant || !claimant.userId && !claimant.inGameName) {
+        return res.status(400).json({ success: false, error: "INVALID_CLAIM_PAYLOAD" });
+      }
+      const now = Date.now();
+      const safeClaimant = {
+        userId: claimant.userId || "",
+        inGameName: claimant.inGameName || "",
+        clan: claimant.clan || "VoltZ",
+        powerLevel: Number(claimant.powerLevel || 0),
+        claimedAt: Number(claimant.claimedAt || now)
+      };
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
+        liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item) => {
+          if (item.id === itemId) {
+            const existing = (item.claimants || []).filter((c) => {
+              const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
+              const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
+              return !(matchesUser || matchesName);
+            });
+            return {
+              ...item,
+              claimants: [...existing, safeClaimant],
+              updatedAt: now
+            };
+          }
+          return item;
+        });
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+        liveStateEmitter.emit("update");
+      }
+      try {
+        const sdk = await getAdminSdk();
+        if (sdk && sdk.db) {
+          const docRef = sdk.db.collection("items").doc(itemId);
+          const docSnap = await docRef.get();
+          if (docSnap.exists) {
+            const currentClaimants = (docSnap.data()?.claimants || []).filter((c) => {
+              const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
+              const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
+              return !(matchesUser || matchesName);
+            });
+            await docRef.set({
+              claimants: [...currentClaimants, safeClaimant],
+              updatedAt: now
+            }, { merge: true });
+          }
+        }
+      } catch (dbErr) {
+        console.warn("Notice: Firestore admin claim write skipped:", dbErr?.message || dbErr);
+      }
+      res.json({ success: true, itemId, claimant: safeClaimant });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "FAILED_TO_CLAIM" });
+    }
+  });
+  app.post("/api/unclaim-vault-item", async (req, res) => {
+    try {
+      const { itemId, userId, inGameName } = req.body;
+      if (!itemId || !userId && !inGameName) {
+        return res.status(400).json({ success: false, error: "INVALID_UNCLAIM_PAYLOAD" });
+      }
+      const now = Date.now();
+      const targetUserId = userId ? String(userId).trim().toLowerCase() : "";
+      const targetName = inGameName ? String(inGameName).trim().toLowerCase() : "";
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
+        liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item) => {
+          if (item.id === itemId) {
+            const remaining = (item.claimants || []).filter((c) => {
+              const userMatch = targetUserId && c.userId && String(c.userId).trim().toLowerCase() === targetUserId;
+              const nameMatch = targetName && c.inGameName && String(c.inGameName).trim().toLowerCase() === targetName;
+              return !(userMatch || nameMatch);
+            });
+            return {
+              ...item,
+              claimants: remaining,
+              updatedAt: now
+            };
+          }
+          return item;
+        });
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+        liveStateEmitter.emit("update");
+      }
+      try {
+        const sdk = await getAdminSdk();
+        if (sdk && sdk.db) {
+          const docRef = sdk.db.collection("items").doc(itemId);
+          const docSnap = await docRef.get();
+          if (docSnap.exists) {
+            const currentClaimants = (docSnap.data()?.claimants || []).filter((c) => {
+              const userMatch = targetUserId && c.userId && String(c.userId).trim().toLowerCase() === targetUserId;
+              const nameMatch = targetName && c.inGameName && String(c.inGameName).trim().toLowerCase() === targetName;
+              return !(userMatch || nameMatch);
+            });
+            await docRef.set({
+              claimants: currentClaimants,
+              updatedAt: now
+            }, { merge: true });
+          }
+        }
+      } catch (dbErr) {
+        console.warn("Notice: Firestore admin unclaim write skipped:", dbErr?.message || dbErr);
+      }
+      res.json({ success: true, itemId });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "FAILED_TO_UNCLAIM" });
     }
   });
   app.post("/api/scan-hunters", requireRoles(["owner", "admin", "manager"]), async (req, res) => {
