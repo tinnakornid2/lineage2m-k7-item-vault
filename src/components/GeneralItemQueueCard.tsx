@@ -107,8 +107,14 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
   const th = lang === 'th';
   const isAdminOrOwner = currentUser?.role === 'owner' || currentUser?.role === 'admin';
 
-  // View Mode: 'grid' (4 items per row) vs 'table' (horizontal detailed rows)
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
+  // View Mode: 'grid' (2 items per row) vs 'table' (horizontal detailed rows)
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>(() => {
+    try {
+      const saved = localStorage.getItem('l2m_general_queue_view_mode_v2');
+      if (saved === 'grid' || saved === 'table') return saved;
+    } catch {}
+    return 'grid';
+  });
 
   // Add/Edit Form State
   const [showAddForm, setShowAddForm] = useState(false);
@@ -604,7 +610,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* View Mode Switcher: 4 Items / Row vs Full Table */}
+          {/* View Mode Switcher: 2 Items / Row vs Full Table */}
           <div className="flex items-center p-1 rounded-xl bg-[#090d16] border border-slate-800 shadow-inner">
             <button
               type="button"
@@ -612,16 +618,17 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
               onClick={() => {
                 sounds.playClick();
                 setViewMode('grid');
+                try { localStorage.setItem('l2m_general_queue_view_mode_v2', 'grid'); } catch {}
               }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 viewMode === 'grid'
                   ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
               }`}
-              title={th ? 'แสดงแบบการ์ด 4 แถว (Grid View)' : 'Grid View (4 columns)'}
+              title={th ? 'แสดงแบบการ์ดแถวละ 2 ไอเทม (Grid View)' : 'Grid View (2 items per row)'}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
-              <span>{th ? 'การ์ด 4 แถว' : 'Grid'}</span>
+              <span>{th ? 'การ์ด 2 แถว' : '2 Columns'}</span>
             </button>
             <button
               type="button"
@@ -629,16 +636,17 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
               onClick={() => {
                 sounds.playClick();
                 setViewMode('table');
+                try { localStorage.setItem('l2m_general_queue_view_mode_v2', 'table'); } catch {}
               }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 viewMode === 'table'
                   ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
               }`}
-              title={th ? 'แสดงแบบตารางแนวนอน (Table View)' : 'Table View'}
+              title={th ? 'แสดงแบบตารางแนวนอนเต็มจอ (Table View)' : 'Table View (Full width)'}
             >
               <List className="w-3.5 h-3.5" />
-              <span>{th ? 'ตาราง' : 'Table'}</span>
+              <span>{th ? 'ตารางเต็ม' : 'Table'}</span>
             </button>
           </div>
 
@@ -921,8 +929,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
           )}
         </div>
       ) : viewMode === 'grid' ? (
-        /* COMPACT 4 ITEMS PER ROW (GRID) */
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        /* 2 ITEMS PER ROW (GRID) */
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {items.map((item) => {
             const pendingList = (item.queueList || []).filter((m) => m.status === 'pending');
             const receivedList = (item.queueList || []).filter((m) => m.status === 'received');

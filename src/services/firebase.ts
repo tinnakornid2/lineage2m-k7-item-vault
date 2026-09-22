@@ -52,7 +52,7 @@ import {
   isItemDistributed,
   normalizeDistributedItem
 } from '../types';
-// Production data comes primarily from Firebase Firestore with Google Sheets & Live Relay dual-write resilience (v2.10.0)
+// Production data comes primarily from Firebase Firestore with Google Sheets & Live Relay dual-write resilience (v2.10.1)
 const REAL_BACKUP_MEMBERS: User[] = [];
 const REAL_BACKUP_CLANS: ClanGroup[] = [];
 const REAL_BACKUP_QUEUES: QueueItem[] = [];
@@ -168,7 +168,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.0-direct-distribute-stat-lock';
+const CACHE_SCHEMA_VERSION = '2.10.1-2cols-grid';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',

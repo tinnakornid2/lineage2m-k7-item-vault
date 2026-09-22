@@ -201,7 +201,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [filterAvailableToMe, setFilterAvailableToMe] = React.useState(false);
   const [claimableViewMode, setClaimableViewMode] = React.useState<'grid' | 'table'>(() => {
     try {
-      const saved = localStorage.getItem('l2m_claimable_view_mode');
+      const saved = localStorage.getItem('l2m_claimable_view_mode_v2');
       if (saved === 'grid' || saved === 'table') return saved;
     } catch {}
     return 'grid';
@@ -1321,7 +1321,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* View Mode Switcher: Cards vs Table */}
+            {/* View Mode Switcher: 2 Columns vs Full Table */}
             <div className="flex items-center p-1 rounded-xl bg-[#090d16] border border-slate-800 shadow-inner">
               <button
                 type="button"
@@ -1329,17 +1329,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 onClick={() => {
                   sounds.playClick();
                   setClaimableViewMode('grid');
-                  try { localStorage.setItem('l2m_claimable_view_mode', 'grid'); } catch {}
+                  try { localStorage.setItem('l2m_claimable_view_mode_v2', 'grid'); } catch {}
                 }}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   claimableViewMode === 'grid'
                     ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow font-black'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                 }`}
-                title={lang === 'th' ? 'แสดงแบบการ์ด (Card View)' : 'Card View (Grid)'}
+                title={lang === 'th' ? 'แสดงแบบตารางแถวละ 2 ไอเทม (2 Columns)' : 'Grid View (2 items per row)'}
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
-                <span>{lang === 'th' ? 'การ์ด' : 'Cards'}</span>
+                <span>{lang === 'th' ? 'ตาราง 2 แถว' : '2 Columns'}</span>
               </button>
               <button
                 type="button"
@@ -1347,17 +1347,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 onClick={() => {
                   sounds.playClick();
                   setClaimableViewMode('table');
-                  try { localStorage.setItem('l2m_claimable_view_mode', 'table'); } catch {}
+                  try { localStorage.setItem('l2m_claimable_view_mode_v2', 'table'); } catch {}
                 }}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   claimableViewMode === 'table'
                     ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow font-black'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                 }`}
-                title={lang === 'th' ? 'แสดงแบบตารางแนวนอน (Table View)' : 'Table View'}
+                title={lang === 'th' ? 'แสดงแบบตารางแนวนอนเต็มจอ (Table View)' : 'Table View (Full width)'}
               >
                 <List className="w-3.5 h-3.5" />
-                <span>{lang === 'th' ? 'ตาราง' : 'Table'}</span>
+                <span>{lang === 'th' ? 'ตารางเต็ม' : 'Table'}</span>
               </button>
             </div>
             {/* Filter: Available to me */}
@@ -1485,7 +1485,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         ) : (
           <div className="max-h-[640px] overflow-y-auto pr-1 custom-scrollbar">
             {claimableViewMode === 'grid' ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3">
               {displayedAvailableItems.map((item) => {
                 const hasClaimed = Boolean(
                   currentUser &&
