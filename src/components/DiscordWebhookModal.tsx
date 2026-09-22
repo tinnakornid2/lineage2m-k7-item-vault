@@ -63,13 +63,22 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
     settings?.appBaseUrl || (typeof window !== 'undefined' ? window.location.origin : '')
   );
   const [webhookUrlInput, setWebhookUrlInput] = useState('');
+  const [distributeWebhookUrlInput, setDistributeWebhookUrlInput] = useState('');
 
   const [serverStatus, setServerStatus] = useState<{
     configured: boolean;
     maskedUrl: string | null;
-  }>({ configured: false, maskedUrl: null });
+    distributeConfigured: boolean;
+    maskedDistributeUrl: string | null;
+  }>({
+    configured: false,
+    maskedUrl: null,
+    distributeConfigured: false,
+    maskedDistributeUrl: null
+  });
 
-  const [isTesting, setIsTesting] = useState(false);
+  const [testingChannel, setTestingChannel] = useState<'new_item' | 'distribute' | null>(null);
+  const isTesting = testingChannel !== null;
   const [testResult, setTestResult] = useState<{ success: boolean; message?: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
@@ -89,14 +98,18 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
       setBotName(settings?.botName || 'Lineage 2M Vault');
       setAppBaseUrl(settings?.appBaseUrl || (typeof window !== 'undefined' ? window.location.origin : ''));
       setTestResult(null);
+      setWebhookUrlInput('');
+      setDistributeWebhookUrlInput('');
 
       const existingUrl = settings?.webhookUrl || (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '');
-      if (existingUrl) {
-        setServerStatus({
-          configured: true,
-          maskedUrl: existingUrl.length > 35 ? `${existingUrl.slice(0, 33)}...${existingUrl.slice(-4)}` : existingUrl
-        });
-      }
+      const existingDistUrl = settings?.distributeWebhookUrl || (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_distribute_webhook_url') || '' : '');
+      
+      setServerStatus({
+        configured: Boolean(existingUrl),
+        maskedUrl: existingUrl && existingUrl.length > 35 ? `${existingUrl.slice(0, 33)}...${existingUrl.slice(-4)}` : (existingUrl || null),
+        distributeConfigured: Boolean(existingDistUrl),
+        maskedDistributeUrl: existingDistUrl && existingDistUrl.length > 35 ? `${existingDistUrl.slice(0, 33)}...${existingDistUrl.slice(-4)}` : (existingDistUrl || null)
+      });
 
       // Fetch Discord Webhook status from secure backend
       getCurrentUserIdToken()
@@ -117,7 +130,9 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
           if (data && typeof data.configured === 'boolean') {
             setServerStatus((prev) => ({
               configured: data.configured || prev.configured,
-              maskedUrl: data.maskedUrl || prev.maskedUrl
+              maskedUrl: data.maskedUrl || prev.maskedUrl,
+              distributeConfigured: Boolean(data.distributeConfigured) || prev.distributeConfigured,
+              maskedDistributeUrl: data.maskedDistributeUrl || prev.maskedDistributeUrl
             }));
           }
         })
@@ -159,36 +174,45 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
     }
   };
 
-  const handleTestWebhook = async () => {
-    setIsTesting(true);
+  const handleTestWebhook = async (channel: 'new_item' | 'distribute' = 'new_item') => {
+    setTestingChannel(channel);
     setTestResult(null);
     sounds.playClick();
 
     const cleanRoleId = mentionRoleId.trim().replace(/\D/g, '');
-    const candidateUrl =
+    const isDist = channel === 'distribute';
+
+    const candidateNewItemUrl =
       webhookUrlInput.trim() ||
       settings?.webhookUrl ||
       (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '');
 
-    // Auto-save to backend if user typed a new URL
-    if (webhookUrlInput.trim()) {
-      getCurrentUserIdToken().then((token) => {
-        fetch('/api/save-discord-webhook', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {})
-          },
-          body: JSON.stringify({ webhookUrl: webhookUrlInput.trim() })
-        }).catch(() => undefined);
+    const candidateDistributeUrl =
+      distributeWebhookUrlInput.trim() ||
+      settings?.distributeWebhookUrl ||
+      (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_distribute_webhook_url') || '' : '');
+
+    const candidateUrl = isDist ? candidateDistributeUrl : candidateNewItemUrl;
+
+    if (!candidateUrl) {
+      setTestingChannel(null);
+      sounds.playError();
+      setTestResult({
+        success: false,
+        message: isDist
+          ? (lang === 'th'
+              ? 'กรุณาใส่ Webhook URL ของห้องแจกไอเทมก่อนทดสอบ (ระบบจะไม่ส่งเข้าห้องอื่นเด็ดขาด)'
+              : 'Please enter a Webhook URL for Distribution Channel before testing (strictly no cross-channel sending)')
+          : (lang === 'th'
+              ? 'กรุณาใส่ Webhook URL ของห้องลงไอเทมใหม่ก่อนทดสอบ'
+              : 'Please enter a Webhook URL for New Items Channel before testing')
       });
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('vault_discord_webhook_url', webhookUrlInput.trim());
-      }
+      return;
     }
 
     const tempSettings: DiscordSettings = {
-      webhookUrl: candidateUrl,
+      webhookUrl: candidateNewItemUrl,
+      distributeWebhookUrl: candidateDistributeUrl,
       appBaseUrl: appBaseUrl.trim(),
       enabled: true,
       notifyOnNewItem,
@@ -204,18 +228,21 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
       actorName: currentUser?.inGameName || 'Owner',
       lang,
       webhookUrl: candidateUrl,
+      targetChannel: channel,
       template: messageTemplate
     });
 
-    setIsTesting(false);
+    setTestingChannel(null);
+    const channelNameTh = isDist ? 'ห้องแจกไอเทม' : 'ห้องลงไอเทมใหม่';
+    const channelNameEn = isDist ? 'Distribution Channel' : 'New Items Channel';
     if (res.success) {
       sounds.playSuccess();
       setTestResult({
         success: true,
         message:
           lang === 'th'
-            ? 'ส่งข้อความทดสอบไปยัง Discord สำเร็จแล้ว! ตรวจสอบที่ห้องแชท Discord ได้เลย'
-            : 'Test message delivered to Discord successfully!'
+            ? `ส่งข้อความทดสอบไปยัง ${channelNameTh} สำเร็จแล้ว! ตรวจสอบที่ Discord ได้เลย 🔔`
+            : `Test message delivered to ${channelNameEn} successfully! 🔔`
       });
     } else {
       sounds.playError();
@@ -224,8 +251,8 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
         message:
           res.message ||
           (lang === 'th'
-            ? 'ไม่สามารถส่งข้อความได้ กรุณาตรวจสอบ Webhook URL'
-            : 'Failed to send test message. Please verify URL')
+            ? `ไม่สามารถส่งข้อความไปยัง ${channelNameTh} ได้ กรุณาตรวจสอบ Webhook URL`
+            : `Failed to deliver to ${channelNameEn}. Please verify Webhook URL`)
       });
     }
   };
@@ -290,19 +317,40 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
         }
       }
 
+      const rawDistInput = distributeWebhookUrlInput.trim();
+      let normalizedDistInput = rawDistInput;
+      if (rawDistInput) {
+        const webhookPattern = /(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)?discord(?:app)?\.com\/api\/webhooks\/([0-9]+)\/([A-Za-z0-9_\-]+)/i;
+        const match = rawDistInput.match(webhookPattern);
+        if (match) {
+          normalizedDistInput = `https://discord.com/api/webhooks/${match[1]}/${match[2]}`;
+        }
+      }
+
       const activeUrl =
         normalizedInput ||
         (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_webhook_url') || '' : '') ||
         settings?.webhookUrl ||
         '';
 
-      // Always save active URL to local storage immediately
-      if (typeof window !== 'undefined' && activeUrl) {
-        localStorage.setItem('vault_discord_webhook_url', activeUrl);
+      const activeDistUrl =
+        normalizedDistInput ||
+        (typeof window !== 'undefined' ? localStorage.getItem('vault_discord_distribute_webhook_url') || '' : '') ||
+        settings?.distributeWebhookUrl ||
+        '';
+
+      // Always save active URLs to local storage immediately
+      if (typeof window !== 'undefined') {
+        if (activeUrl) localStorage.setItem('vault_discord_webhook_url', activeUrl);
+        if (activeDistUrl) {
+          localStorage.setItem('vault_discord_distribute_webhook_url', activeDistUrl);
+        } else if (rawDistInput === '' && !settings?.distributeWebhookUrl) {
+          localStorage.removeItem('vault_discord_distribute_webhook_url');
+        }
       }
 
-      // 1. If user entered a new Webhook URL, save it to backend server asynchronously with timeout guard
-      if (normalizedInput) {
+      // 1. If user entered new Webhook URLs, save them to backend server asynchronously with timeout guard
+      if (normalizedInput || normalizedDistInput) {
         try {
           const token = await getCurrentUserIdToken();
           const controller = new AbortController();
@@ -314,18 +362,21 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
               'Content-Type': 'application/json',
               ...(token ? { Authorization: `Bearer ${token}` } : {})
             },
-            body: JSON.stringify({ webhookUrl: normalizedInput })
+            body: JSON.stringify({
+              webhookUrl: normalizedInput || activeUrl,
+              distributeWebhookUrl: normalizedDistInput || activeDistUrl
+            })
           });
           clearTimeout(timeoutId);
           if (res.ok) {
             setServerStatus({
-              configured: true,
-              maskedUrl:
-                normalizedInput.length > 35
-                  ? `${normalizedInput.slice(0, 33)}...${normalizedInput.slice(-4)}`
-                  : normalizedInput
+              configured: Boolean(activeUrl),
+              maskedUrl: activeUrl && activeUrl.length > 35 ? `${activeUrl.slice(0, 33)}...${activeUrl.slice(-4)}` : activeUrl,
+              distributeConfigured: Boolean(activeDistUrl),
+              maskedDistributeUrl: activeDistUrl && activeDistUrl.length > 35 ? `${activeDistUrl.slice(0, 33)}...${activeDistUrl.slice(-4)}` : activeDistUrl
             });
             setWebhookUrlInput('');
+            setDistributeWebhookUrlInput('');
           }
         } catch (serverErr) {
           console.warn('Notice: Backend discord webhook sync skipped/failed:', serverErr);
@@ -341,6 +392,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
 
       const updated: DiscordSettings = {
         webhookUrl: activeUrl,
+        distributeWebhookUrl: activeDistUrl,
         appBaseUrl: cleanAppBaseUrl,
         enabled,
         notifyOnNewItem,
@@ -447,16 +499,17 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
             </button>
           </div>
 
-          {/* Webhook URL Input Section (Owner only) */}
-          <div className="space-y-1.5 p-3.5 rounded-xl bg-[#080d17] border border-slate-800">
+          {/* Channel 1: New Items Channel (⚔️ ห้องลงไอเทมใหม่) */}
+          <div className="space-y-2.5 p-4 rounded-xl bg-[#080d17] border border-slate-800 shadow-sm">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                <Key className="w-3.5 h-3.5 text-amber-400" />
-                <span>{lang === 'th' ? 'Discord Webhook URL:' : 'Discord Webhook URL:'}</span>
+              <label className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                <span className="text-base">⚔️</span>
+                <span>{t.newItemChannelTitle}</span>
               </label>
               {serverStatus.configured ? (
-                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-600/50 text-emerald-300">
-                  ✓ {lang === 'th' ? 'ตั้งค่าแล้ว' : 'Configured'}
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-600/50 text-emerald-300 flex items-center gap-1">
+                  <Check className="w-3 h-3 text-emerald-400" />
+                  <span>{lang === 'th' ? 'ตั้งค่าแล้ว' : 'Configured'}</span>
                 </span>
               ) : (
                 <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-600/50 text-amber-300">
@@ -471,22 +524,125 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
               </div>
             )}
 
-            <input
-              type="text"
-              inputMode="url"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck="false"
-              value={webhookUrlInput}
-              onChange={(e) => setWebhookUrlInput(e.target.value)}
-              placeholder="https://discord.com/api/webhooks/..."
-              className="w-full px-3.5 py-2 rounded-xl bg-[#060a12] border border-slate-700 focus:border-[#5865F2] text-xs text-slate-200 outline-none transition-all font-mono"
-            />
-            <p className="text-[10px] text-slate-500">
-              {lang === 'th'
-                ? 'วาง Webhook URL ที่คัดลอกจาก Discord (ระบบจะเก็บอย่างปลอดภัยและซ่อน URL เสมอ)'
-                : 'Paste the webhook URL copied from Discord. It will be stored securely on the server.'}
-            </p>
+            <div className="space-y-1">
+              <input
+                type="text"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck="false"
+                value={webhookUrlInput}
+                onChange={(e) => setWebhookUrlInput(e.target.value)}
+                placeholder="https://discord.com/api/webhooks/..."
+                className="w-full px-3.5 py-2 rounded-xl bg-[#060a12] border border-slate-700 focus:border-[#5865F2] text-xs text-slate-200 outline-none transition-all font-mono"
+              />
+              <p className="text-[10px] text-slate-500">
+                {lang === 'th'
+                  ? 'Webhook URL สำหรับส่งการ์ดประกาศเมื่อมีไอเทมใหม่เข้าคลัง (New Item Vault Alert)'
+                  : 'Webhook URL for broadcasting new items added to the vault'}
+              </p>
+            </div>
+
+            {/* Trigger & Test for Channel 1 */}
+            <div className="pt-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-slate-800/80">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={notifyOnNewItem}
+                  onChange={(e) => setNotifyOnNewItem(e.target.checked)}
+                  className="w-4 h-4 rounded text-[#5865F2] accent-[#5865F2]"
+                />
+                <span className="text-xs font-semibold text-slate-300">
+                  {lang === 'th' ? 'แจ้งเตือนเมื่อมีไอเทมใหม่เข้าคลัง' : 'Notify when new item is added'}
+                </span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => handleTestWebhook('new_item')}
+                disabled={isTesting}
+                className="px-3 py-1.5 rounded-lg bg-[#1a233d] hover:bg-[#253256] border border-[#5865F2]/40 text-[#8ea1e1] hover:text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                <Send className="w-3 h-3 text-[#5865F2]" />
+                <span>
+                  {testingChannel === 'new_item'
+                    ? (lang === 'th' ? 'กำลังทดสอบ...' : 'Testing...')
+                    : t.testNewItemChannel}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Channel 2: Distributed Items Channel (🏆 ห้องแจกไอเทม) */}
+          <div className="space-y-2.5 p-4 rounded-xl bg-[#080d17] border border-slate-800 shadow-sm">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                <span className="text-base">🏆</span>
+                <span>{t.distributeChannelTitle}</span>
+              </label>
+              {serverStatus.distributeConfigured ? (
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-600/50 text-emerald-300 flex items-center gap-1">
+                  <Check className="w-3 h-3 text-emerald-400" />
+                  <span>{lang === 'th' ? 'ตั้งค่าแล้ว' : 'Configured'}</span>
+                </span>
+              ) : (
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 flex items-center gap-1">
+                  <span>○ {t.fallbackToNewItemNotice}</span>
+                </span>
+              )}
+            </div>
+
+            {serverStatus.maskedDistributeUrl && (
+              <div className="px-3 py-1.5 rounded-lg bg-[#0d1424] border border-slate-700/60 font-mono text-[11px] text-slate-400 truncate">
+                {serverStatus.maskedDistributeUrl}
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <input
+                type="text"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck="false"
+                value={distributeWebhookUrlInput}
+                onChange={(e) => setDistributeWebhookUrlInput(e.target.value)}
+                placeholder="https://discord.com/api/webhooks/..."
+                className="w-full px-3.5 py-2 rounded-xl bg-[#060a12] border border-slate-700 focus:border-[#a855f7] text-xs text-slate-200 outline-none transition-all font-mono"
+              />
+              <p className="text-[10px] text-purple-400/80">
+                ℹ️ {t.distributeWebhookHelp}
+              </p>
+            </div>
+
+            {/* Trigger & Test for Channel 2 */}
+            <div className="pt-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-slate-800/80">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={notifyOnDistribute}
+                  onChange={(e) => setNotifyOnDistribute(e.target.checked)}
+                  className="w-4 h-4 rounded text-purple-500 accent-purple-500"
+                />
+                <span className="text-xs font-semibold text-slate-300">
+                  {lang === 'th' ? 'แจ้งเตือนเมื่อแจกไอเทมให้สมาชิกสำเร็จ' : 'Notify when item is distributed'}
+                </span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => handleTestWebhook('distribute')}
+                disabled={isTesting}
+                className="px-3 py-1.5 rounded-lg bg-[#251838] hover:bg-[#33224d] border border-purple-500/40 text-purple-300 hover:text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                <Send className="w-3 h-3 text-purple-400" />
+                <span>
+                  {testingChannel === 'distribute'
+                    ? (lang === 'th' ? 'กำลังทดสอบ...' : 'Testing...')
+                    : t.testDistributeChannel}
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* Webapp Base URL (for Click to Claim direct link) */}
@@ -536,59 +692,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
             />
           </div>
 
-          {/* Notification Triggers */}
-          <div className="space-y-2 pt-1">
-            <label className="text-xs font-bold text-slate-300">
-              {lang === 'th' ? 'เหตุการณ์ที่ต้องการให้แจ้งเตือนอัตโนมัติ:' : 'Automated Triggers:'}
-            </label>
 
-            <div className="space-y-2">
-              {/* Trigger 1: New Item */}
-              <label className="flex items-center justify-between p-3 rounded-xl bg-[#090f1b] border border-slate-800 cursor-pointer hover:border-slate-700 transition-colors">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-base">⚔️</span>
-                  <div>
-                    <div className="text-xs font-bold text-slate-200">
-                      {lang === 'th' ? 'เมื่อมีไอเทมใหม่เข้าคลัง' : 'When new item is added to vault'}
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      {lang === 'th'
-                        ? 'ส่งการ์ดภาษาอังกฤษตัวหนังสือสี ANSI พร้อมราคาและลิงก์เคลม'
-                        : 'Post ANSI colored English embed with price and claim link'}
-                    </div>
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={notifyOnNewItem}
-                  onChange={(e) => setNotifyOnNewItem(e.target.checked)}
-                  className="w-4 h-4 rounded text-[#5865F2] accent-[#5865F2]"
-                />
-              </label>
-
-              {/* Trigger 2: Distribute Item */}
-              <label className="flex items-center justify-between p-3 rounded-xl bg-[#090f1b] border border-slate-800 cursor-pointer hover:border-slate-700 transition-colors">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-base">🏆</span>
-                  <div>
-                    <div className="text-xs font-bold text-slate-200">
-                      {lang === 'th' ? 'เมื่อแจกไอเทมให้สมาชิกสำเร็จ' : 'When item is distributed'}
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      {lang === 'th' ? 'ประกาศชื่อผู้ได้รับ แคลน และแสดงความยินดีในช่องดิสคอร์ด' : 'Post announcement with recipient name and congratulations'}
-                    </div>
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={notifyOnDistribute}
-                  onChange={(e) => setNotifyOnDistribute(e.target.checked)}
-                  className="w-4 h-4 rounded text-[#5865F2] accent-[#5865F2]"
-                />
-              </label>
-
-            </div>
-          </div>
 
           {/* Discord Message Template Selection & Color Preview */}
           <div className="space-y-2.5 pt-1">
@@ -865,39 +969,23 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
             </div>
           )}
 
-          {/* Test Button & Feedback */}
-          <div className="pt-2 border-t border-slate-800 space-y-2">
-            <button
-              type="button"
-              onClick={handleTestWebhook}
-              disabled={isTesting}
-              className="w-full py-2 px-3 rounded-xl bg-[#1e2746] hover:bg-[#28355e] border border-[#5865F2]/50 text-slate-200 text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer transition-all"
+          {/* Test Feedback Notice */}
+          {testResult && (
+            <div
+              className={`p-3 rounded-xl text-xs flex items-start gap-2 animate-in fade-in duration-200 ${
+                testResult.success
+                  ? 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-300'
+                  : 'bg-rose-950/60 border border-rose-800/80 text-rose-300'
+              }`}
             >
-              <Send className="w-3.5 h-3.5 text-[#5865F2]" />
-              <span>
-                {isTesting
-                  ? (lang === 'th' ? 'กำลังส่งทดสอบ...' : 'Sending...')
-                  : (lang === 'th' ? 'ทดสอบส่งข้อความไปยัง Discord' : 'Send Test Notification')}
-              </span>
-            </button>
-
-            {testResult && (
-              <div
-                className={`p-3 rounded-xl text-xs flex items-start gap-2 ${
-                  testResult.success
-                    ? 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-300'
-                    : 'bg-rose-950/60 border border-rose-800/80 text-rose-300'
-                }`}
-              >
-                {testResult.success ? (
-                  <Check className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
-                )}
-                <span>{testResult.message}</span>
-              </div>
-            )}
-          </div>
+              {testResult.success ? (
+                <Check className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+              ) : (
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+              )}
+              <span className="leading-relaxed">{testResult.message}</span>
+            </div>
+          )}
 
           {/* Guide Helper Box */}
           <div className="p-3 rounded-xl bg-[#080d17] border border-slate-800 text-[11px] text-slate-400 space-y-1">
@@ -914,15 +1002,7 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
 
           {/* Action Footer */}
           <div className="space-y-3 pt-3 border-t border-slate-800">
-            {testResult && !testResult.success && (
-              <div className="p-3 rounded-xl text-xs flex items-start gap-2 bg-rose-950/70 border border-rose-800 text-rose-300 animate-in fade-in duration-200">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
-                <div className="space-y-0.5">
-                  <div className="font-bold">{lang === 'th' ? 'เกิดข้อผิดพลาด' : 'Error Occurred'}</div>
-                  <div className="text-[11px] text-rose-200/90">{testResult.message}</div>
-                </div>
-              </div>
-            )}
+
 
             <div className="flex items-center justify-end gap-2.5">
               <button

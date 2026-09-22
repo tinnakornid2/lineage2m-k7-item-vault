@@ -12,9 +12,11 @@ import {
   Sparkles,
   Zap,
   Bell,
-  KeyRound
+  KeyRound,
+  Lock,
+  Unlock
 } from 'lucide-react';
-import { ActiveTab, Language, User, cleanClanName } from '../types';
+import { ActiveTab, Language, User, cleanClanName, StatUpdateSettings } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -40,6 +42,7 @@ interface NavbarProps {
   onOpenChangePassword?: () => void;
   unreadNotificationCount?: number;
   onOpenNotifications?: () => void;
+  statUpdateSettings?: StatUpdateSettings;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -63,7 +66,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenMyStats,
   onOpenChangePassword,
   unreadNotificationCount,
-  onOpenNotifications
+  onOpenNotifications,
+  statUpdateSettings
 }) => {
   const t = translations[lang];
   const isOwner = currentUser?.role === 'owner';
@@ -138,7 +142,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   CLAN HUB
                 </span>
                 <span className="text-[9px] sm:text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300">
-                  v2.8.17
+                  v2.10.0
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 truncate max-w-[190px] sm:max-w-none">
@@ -288,6 +292,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <span className="text-[11px] text-slate-400">
                       • {cleanClanName(currentUser.clan) || 'No Clan'}
                     </span>
+                    {statUpdateSettings && (
+                      <span
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold border transition-all ${
+                          statUpdateSettings.allowMemberUpdates
+                            ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                            : 'bg-red-950/60 border-red-500/40 text-red-300'
+                        }`}
+                        title={statUpdateSettings.allowMemberUpdates ? t.statUpdateUnlocked : t.statUpdateLocked}
+                      >
+                        {statUpdateSettings.allowMemberUpdates ? (
+                          <Unlock className="w-2.5 h-2.5 text-emerald-400" />
+                        ) : (
+                          <Lock className="w-2.5 h-2.5 text-red-400" />
+                        )}
+                        <span>{statUpdateSettings.allowMemberUpdates ? t.statusUnlockedBadge : t.statusLockedBadge}</span>
+                      </span>
+                    )}
                   </div>
                 </div>
 

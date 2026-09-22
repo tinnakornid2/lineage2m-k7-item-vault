@@ -28,9 +28,11 @@ import {
   FileSpreadsheet,
   KeyRound,
   RefreshCw,
-  Trash2
+  Trash2,
+  Lock,
+  Unlock
 } from 'lucide-react';
-import { ActiveTab, Language, User, ClanGroup, cleanClanName } from '../types';
+import { ActiveTab, Language, User, ClanGroup, cleanClanName, StatUpdateSettings } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { getGoogleBackupConfig } from '../services/googleSheetsBackupService';
@@ -77,6 +79,7 @@ export interface SidebarProps {
   onForceSync?: () => void;
   isSyncingData?: boolean;
   onClearCacheAndReload?: () => void;
+  statUpdateSettings?: StatUpdateSettings;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -120,7 +123,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCheckFirebaseHealth,
   onForceSync,
   isSyncingData = false,
-  onClearCacheAndReload
+  onClearCacheAndReload,
+  statUpdateSettings
 }) => {
   const t = translations[lang];
   const effectiveCurrentTab = currentTab || activeTab || 'dashboard';
@@ -772,6 +776,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span className="text-[10px] text-slate-400 truncate">
                     • {cleanClanName(currentUser.clan) || 'No Clan'}
                   </span>
+                  {statUpdateSettings && (
+                    <span
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold border transition-all shrink-0 ${
+                        statUpdateSettings.allowMemberUpdates
+                          ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                          : 'bg-red-950/60 border-red-500/40 text-red-300'
+                      }`}
+                      title={statUpdateSettings.allowMemberUpdates ? t.statUpdateUnlocked : t.statUpdateLocked}
+                    >
+                      {statUpdateSettings.allowMemberUpdates ? (
+                        <Unlock className="w-2 h-2 text-emerald-400" />
+                      ) : (
+                        <Lock className="w-2 h-2 text-red-400" />
+                      )}
+                      <span>{statUpdateSettings.allowMemberUpdates ? t.statusUnlockedBadge : t.statusLockedBadge}</span>
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -969,9 +990,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               Lineage2M Clan Hub Made By Elon
             </span>
-            <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold shrink-0">
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[9.5px] font-mono text-emerald-300 font-bold shrink-0 shadow-[0_0_10px_rgba(52,211,153,0.15)]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v2.8.17</span>
+              <span>v2.10.0</span>
             </div>
           </div>
 

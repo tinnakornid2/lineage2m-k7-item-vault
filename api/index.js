@@ -82,30 +82,33 @@ async function saveStoredGeminiApiKey(apiKey, updatedBy) {
     console.warn("Cannot save stored gemini key via Admin SDK:", err?.message || err);
   }
 }
-async function getStoredDiscordWebhookUrl() {
+async function getStoredDiscordWebhookUrls() {
   const sdk = await getAdminSdk();
-  if (!sdk) return "";
+  if (!sdk) return { mainUrl: "", distUrl: "" };
   try {
     const snapshot = await Promise.race([
       sdk.db.collection("app_settings").doc("discord_secure").get(),
       new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore read timeout")), 2500))
     ]);
-    const webhookUrl = snapshot?.data()?.webhookUrl;
-    return typeof webhookUrl === "string" ? webhookUrl.trim() : "";
+    const data = snapshot?.data();
+    const mainUrl = typeof data?.webhookUrl === "string" ? data.webhookUrl.trim() : "";
+    const distUrl = typeof data?.distributeWebhookUrl === "string" ? data.distributeWebhookUrl.trim() : "";
+    return { mainUrl, distUrl };
   } catch {
-    return "";
+    return { mainUrl: "", distUrl: "" };
   }
 }
-async function saveStoredDiscordWebhookUrl(webhookUrl, updatedBy) {
+async function saveStoredDiscordWebhookUrls(webhookUrl, distributeWebhookUrl, updatedBy) {
   const sdk = await getAdminSdk();
   if (!sdk) {
-    console.warn("saveStoredDiscordWebhookUrl skipped: No Firebase Admin credentials in environment.");
+    console.warn("saveStoredDiscordWebhookUrls skipped: No Firebase Admin credentials in environment.");
     return;
   }
   try {
     await Promise.race([
       sdk.db.collection("app_settings").doc("discord_secure").set({
         webhookUrl: webhookUrl.trim(),
+        distributeWebhookUrl: distributeWebhookUrl.trim(),
         updatedBy,
         updatedAt: Date.now()
       }, { merge: true }),
@@ -911,39 +914,58 @@ Do not include markdown or explanations. Return pure JSON only.`;
     }
   });
   let diskDiscordWebhookUrl = "";
+  let diskDistributeWebhookUrl = "";
   try {
     if (fs.existsSync(DISCORD_CONFIG_FILE)) {
       const parsedDiscord = JSON.parse(fs.readFileSync(DISCORD_CONFIG_FILE, "utf-8"));
       if (parsedDiscord?.webhookUrl) {
         diskDiscordWebhookUrl = String(parsedDiscord.webhookUrl).trim();
       }
+      if (parsedDiscord?.distributeWebhookUrl) {
+        diskDistributeWebhookUrl = String(parsedDiscord.distributeWebhookUrl).trim();
+      }
     }
   } catch {
   }
-  const getDiscordWebhookUrl = async () => {
+  const getDiscordWebhookUrls = async () => {
     const environmentUrl = process.env.DISCORD_WEBHOOK_URL?.trim();
-    if (environmentUrl) return environmentUrl;
-    if (diskDiscordWebhookUrl) return diskDiscordWebhookUrl;
+    const envDistributeUrl = process.env.DISCORD_DISTRIBUTE_WEBHOOK_URL?.trim();
+    let mainUrl = environmentUrl || diskDiscordWebhookUrl;
+    let distUrl = envDistributeUrl || diskDistributeWebhookUrl;
     try {
       if (fs.existsSync(DISCORD_CONFIG_FILE)) {
         const parsedDiscord = JSON.parse(fs.readFileSync(DISCORD_CONFIG_FILE, "utf-8"));
-        if (parsedDiscord?.webhookUrl) {
-          diskDiscordWebhookUrl = String(parsedDiscord.webhookUrl).trim();
-          return diskDiscordWebhookUrl;
+        if (parsedDiscord?.webhookUrl && !mainUrl) {
+          mainUrl = String(parsedDiscord.webhookUrl).trim();
+        }
+        if (parsedDiscord?.distributeWebhookUrl && !distUrl) {
+          distUrl = String(parsedDiscord.distributeWebhookUrl).trim();
         }
       }
     } catch {
     }
-    return getStoredDiscordWebhookUrl();
+    if (!mainUrl || !distUrl) {
+      const stored = await getStoredDiscordWebhookUrls();
+      if (!mainUrl) mainUrl = stored.mainUrl;
+      if (!distUrl) distUrl = stored.distUrl;
+    }
+    return { mainUrl, distUrl };
+  };
+  const getDiscordWebhookUrl = async () => {
+    const { mainUrl } = await getDiscordWebhookUrls();
+    return mainUrl;
   };
   app.get("/api/discord-status", requireRoles(["owner", "admin"]), async (_req, res) => {
     try {
-      const url = await getDiscordWebhookUrl();
-      if (!url) {
-        return res.json({ configured: false, maskedUrl: null });
-      }
-      const maskedUrl = url.length > 35 ? `${url.slice(0, 33)}...${url.slice(-4)}` : "https://discord.com/api/webhooks/...";
-      return res.json({ configured: true, maskedUrl });
+      const { mainUrl, distUrl } = await getDiscordWebhookUrls();
+      const maskedUrl = mainUrl && mainUrl.length > 35 ? `${mainUrl.slice(0, 33)}...${mainUrl.slice(-4)}` : mainUrl ? "https://discord.com/api/webhooks/..." : null;
+      const maskedDistributeUrl = distUrl && distUrl.length > 35 ? `${distUrl.slice(0, 33)}...${distUrl.slice(-4)}` : distUrl ? "https://discord.com/api/webhooks/..." : null;
+      return res.json({
+        configured: Boolean(mainUrl),
+        maskedUrl,
+        distributeConfigured: Boolean(distUrl),
+        maskedDistributeUrl
+      });
     } catch (error) {
       console.error("Failed to read Discord configuration:", error);
       return res.status(500).json({ error: "CONFIG_READ_FAILED", message: "Failed to read Discord configuration." });
@@ -951,40 +973,61 @@ Do not include markdown or explanations. Return pure JSON only.`;
   });
   app.post("/api/save-discord-webhook", requireRoles(["owner", "admin"]), async (req, res) => {
     try {
-      const { webhookUrl } = req.body;
+      const { webhookUrl, distributeWebhookUrl } = req.body;
       const cleanUrl = typeof webhookUrl === "string" ? webhookUrl.trim() : "";
-      if (!cleanUrl) {
-        diskDiscordWebhookUrl = "";
-        process.env.DISCORD_WEBHOOK_URL = "";
-        try {
+      const cleanDistUrl = typeof distributeWebhookUrl === "string" ? distributeWebhookUrl.trim() : "";
+      const webhookPattern = /(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)?discord(?:app)?\.com\/api\/webhooks\/([0-9]+)\/([A-Za-z0-9_\-]+)/i;
+      let normalizedWebhookUrl = "";
+      if (cleanUrl) {
+        const match = cleanUrl.match(webhookPattern);
+        if (!match) {
+          return res.status(400).json({
+            error: "INVALID_WEBHOOK_URL",
+            message: "\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A Webhook URL \u0E2B\u0E49\u0E2D\u0E07\u0E25\u0E07\u0E44\u0E2D\u0E40\u0E17\u0E21\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 \u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E25\u0E34\u0E07\u0E01\u0E4C Discord Webhook \u0E40\u0E0A\u0E48\u0E19 https://discord.com/api/webhooks/..."
+          });
+        }
+        normalizedWebhookUrl = `https://discord.com/api/webhooks/${match[1]}/${match[2]}`;
+      }
+      let normalizedDistributeWebhookUrl = "";
+      if (cleanDistUrl) {
+        const distMatch = cleanDistUrl.match(webhookPattern);
+        if (!distMatch) {
+          return res.status(400).json({
+            error: "INVALID_WEBHOOK_URL",
+            message: "\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A Webhook URL \u0E2B\u0E49\u0E2D\u0E07\u0E41\u0E08\u0E01\u0E44\u0E2D\u0E40\u0E17\u0E21\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 \u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E25\u0E34\u0E07\u0E01\u0E4C Discord Webhook \u0E40\u0E0A\u0E48\u0E19 https://discord.com/api/webhooks/..."
+          });
+        }
+        normalizedDistributeWebhookUrl = `https://discord.com/api/webhooks/${distMatch[1]}/${distMatch[2]}`;
+      }
+      diskDiscordWebhookUrl = normalizedWebhookUrl;
+      diskDistributeWebhookUrl = normalizedDistributeWebhookUrl;
+      process.env.DISCORD_WEBHOOK_URL = normalizedWebhookUrl;
+      if (normalizedDistributeWebhookUrl) {
+        process.env.DISCORD_DISTRIBUTE_WEBHOOK_URL = normalizedDistributeWebhookUrl;
+      }
+      try {
+        if (!normalizedWebhookUrl && !normalizedDistributeWebhookUrl) {
           if (fs.existsSync(DISCORD_CONFIG_FILE)) {
             fs.unlinkSync(DISCORD_CONFIG_FILE);
           }
-        } catch {
+        } else {
+          fs.writeFileSync(
+            DISCORD_CONFIG_FILE,
+            JSON.stringify({
+              webhookUrl: normalizedWebhookUrl,
+              distributeWebhookUrl: normalizedDistributeWebhookUrl
+            }, null, 2),
+            "utf-8"
+          );
         }
-        await saveStoredDiscordWebhookUrl("", res.locals.actor?.uid || "owner");
-        return res.json({ success: true, message: "\u0E25\u0E1A\u0E01\u0E32\u0E23\u0E15\u0E31\u0E49\u0E07\u0E04\u0E48\u0E32 Discord Webhook \u0E40\u0E23\u0E35\u0E22\u0E1A\u0E23\u0E49\u0E2D\u0E22\u0E41\u0E25\u0E49\u0E27 / Discord Webhook removed." });
-      }
-      const webhookPattern = /(?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)?discord(?:app)?\.com\/api\/webhooks\/([0-9]+)\/([A-Za-z0-9_\-]+)/i;
-      const match = cleanUrl.match(webhookPattern);
-      if (!match) {
-        return res.status(400).json({
-          error: "INVALID_WEBHOOK_URL",
-          message: "\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A Webhook URL \u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 \u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E25\u0E34\u0E07\u0E01\u0E4C Discord Webhook \u0E40\u0E0A\u0E48\u0E19 https://discord.com/api/webhooks/..."
-        });
-      }
-      const normalizedWebhookUrl = `https://discord.com/api/webhooks/${match[1]}/${match[2]}`;
-      diskDiscordWebhookUrl = normalizedWebhookUrl;
-      process.env.DISCORD_WEBHOOK_URL = normalizedWebhookUrl;
-      try {
-        fs.writeFileSync(DISCORD_CONFIG_FILE, JSON.stringify({ webhookUrl: normalizedWebhookUrl }, null, 2), "utf-8");
       } catch {
       }
-      await saveStoredDiscordWebhookUrl(normalizedWebhookUrl, res.locals.actor?.uid || "owner");
+      await saveStoredDiscordWebhookUrls(normalizedWebhookUrl, normalizedDistributeWebhookUrl, res.locals.actor?.uid || "owner");
       return res.json({
         success: true,
         message: "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 Discord Webhook \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 / Discord Webhook saved successfully.",
-        webhookUrl: normalizedWebhookUrl
+        webhookUrl: normalizedWebhookUrl,
+        distributeWebhookUrl: normalizedDistributeWebhookUrl
       });
     } catch (err) {
       console.error("Failed to save discord webhook:", err);
@@ -1026,17 +1069,38 @@ Do not include markdown or explanations. Return pure JSON only.`;
       }
       const clientWebhookUrl = typeof req.body.webhookUrl === "string" ? req.body.webhookUrl.trim() : "";
       const hasValidClientUrl = clientWebhookUrl.startsWith("https://discord.com/api/webhooks/") || clientWebhookUrl.startsWith("https://discordapp.com/api/webhooks/");
-      let webhookUrl = await getDiscordWebhookUrl();
-      if (!webhookUrl && hasValidClientUrl) {
-        webhookUrl = clientWebhookUrl;
-        diskDiscordWebhookUrl = clientWebhookUrl;
-        process.env.DISCORD_WEBHOOK_URL = clientWebhookUrl;
-        try {
-          fs.writeFileSync(DISCORD_CONFIG_FILE, JSON.stringify({ webhookUrl: clientWebhookUrl }, null, 2), "utf-8");
-        } catch {
+      const isDistribute = req.body.event === "distribute" || req.body.targetChannel === "distribute";
+      const { mainUrl, distUrl } = await getDiscordWebhookUrls();
+      let webhookUrl = "";
+      if (isDistribute) {
+        webhookUrl = hasValidClientUrl ? clientWebhookUrl : distUrl;
+        if (!webhookUrl) {
+          console.warn("[Rule 5 / Dual-Channel Discord Guard] Distribution webhook unconfigured. Notification dropped (strictly zero fallback).");
+          return res.json({
+            success: false,
+            dropped: true,
+            message: "Distribution webhook is not configured. Notification dropped (strictly no cross-channel sending)."
+          });
         }
-      } else if (hasValidClientUrl && (res.locals.actor?.role === "owner" || res.locals.actor?.role === "admin")) {
-        webhookUrl = clientWebhookUrl;
+      } else {
+        webhookUrl = hasValidClientUrl ? clientWebhookUrl : mainUrl;
+        if (!webhookUrl && hasValidClientUrl) {
+          diskDiscordWebhookUrl = clientWebhookUrl;
+          process.env.DISCORD_WEBHOOK_URL = clientWebhookUrl;
+          try {
+            fs.writeFileSync(
+              DISCORD_CONFIG_FILE,
+              JSON.stringify({
+                webhookUrl: clientWebhookUrl,
+                distributeWebhookUrl: distUrl || diskDistributeWebhookUrl
+              }, null, 2),
+              "utf-8"
+            );
+          } catch {
+          }
+        } else if (hasValidClientUrl && (res.locals.actor?.role === "owner" || res.locals.actor?.role === "admin")) {
+          webhookUrl = clientWebhookUrl;
+        }
       }
       if (!webhookUrl) {
         return res.status(503).json({

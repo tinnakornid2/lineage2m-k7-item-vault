@@ -99,31 +99,39 @@ export async function saveStoredGeminiApiKey(apiKey: string, updatedBy: string):
   }
 }
 
-export async function getStoredDiscordWebhookUrl(): Promise<string> {
+export async function getStoredDiscordWebhookUrls(): Promise<{ mainUrl: string; distUrl: string }> {
   const sdk = await getAdminSdk();
-  if (!sdk) return '';
+  if (!sdk) return { mainUrl: '', distUrl: '' };
   try {
     const snapshot: any = await Promise.race([
       sdk.db.collection('app_settings').doc('discord_secure').get(),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore read timeout')), 2500))
     ]);
-    const webhookUrl = snapshot?.data()?.webhookUrl;
-    return typeof webhookUrl === 'string' ? webhookUrl.trim() : '';
+    const data = snapshot?.data();
+    const mainUrl = typeof data?.webhookUrl === 'string' ? data.webhookUrl.trim() : '';
+    const distUrl = typeof data?.distributeWebhookUrl === 'string' ? data.distributeWebhookUrl.trim() : '';
+    return { mainUrl, distUrl };
   } catch {
-    return '';
+    return { mainUrl: '', distUrl: '' };
   }
 }
 
-export async function saveStoredDiscordWebhookUrl(webhookUrl: string, updatedBy: string): Promise<void> {
+export async function getStoredDiscordWebhookUrl(): Promise<string> {
+  const { mainUrl } = await getStoredDiscordWebhookUrls();
+  return mainUrl;
+}
+
+export async function saveStoredDiscordWebhookUrls(webhookUrl: string, distributeWebhookUrl: string, updatedBy: string): Promise<void> {
   const sdk = await getAdminSdk();
   if (!sdk) {
-    console.warn('saveStoredDiscordWebhookUrl skipped: No Firebase Admin credentials in environment.');
+    console.warn('saveStoredDiscordWebhookUrls skipped: No Firebase Admin credentials in environment.');
     return;
   }
   try {
     await Promise.race([
       sdk.db.collection('app_settings').doc('discord_secure').set({
         webhookUrl: webhookUrl.trim(),
+        distributeWebhookUrl: distributeWebhookUrl.trim(),
         updatedBy,
         updatedAt: Date.now()
       }, { merge: true }),
@@ -132,6 +140,10 @@ export async function saveStoredDiscordWebhookUrl(webhookUrl: string, updatedBy:
   } catch (err: any) {
     console.warn('Cannot save stored discord webhook via Admin SDK:', err?.message || err);
   }
+}
+
+export async function saveStoredDiscordWebhookUrl(webhookUrl: string, updatedBy: string): Promise<void> {
+  return saveStoredDiscordWebhookUrls(webhookUrl, '', updatedBy);
 }
 
 export async function getKnownMemberProfiles(): Promise<Array<{ inGameName: string; clan: string; powerLevel: number }>> {
