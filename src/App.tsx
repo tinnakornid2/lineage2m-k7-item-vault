@@ -3776,8 +3776,6 @@ export const App: React.FC = () => {
         onOpenNotifications={() => setShowNotificationModal(true)}
         isQuotaExceeded={isQuotaExceeded}
         onCheckFirebaseHealth={handleManualCheckFirebase}
-        onForceSync={handleForceCloudSync}
-        isSyncingData={isSyncingData}
         onClearCacheAndReload={handleClearCacheAndReload}
       />
 
@@ -3831,8 +3829,6 @@ export const App: React.FC = () => {
             queueAnnouncement={queueAnnouncement}
             onSaveQueueAnnouncement={handleSaveQueueAnnouncement}
             showToast={showToast}
-            onForceSync={handleForceCloudSync}
-            isSyncingData={isSyncingData}
             onClearCacheAndReload={handleClearCacheAndReload}
           />
         )}

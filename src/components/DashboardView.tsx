@@ -639,29 +639,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     <span>{lang === 'th' ? 'ระบบออนไลน์' : 'Online'}</span>
                   </div>
-
-                  {/* Force Cloud Sync Button */}
-                  {onForceSync && (
-                    <button
-                      type="button"
-                      id="btn-dashboard-force-sync"
-                      onClick={() => {
-                        sounds.playClick();
-                        onForceSync();
-                      }}
-                      disabled={isSyncingData}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border transition-all cursor-pointer shadow-sm disabled:opacity-50 ${
-                        isSyncingData
-                          ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
-                          : 'bg-sky-950/40 hover:bg-sky-900/60 border-sky-500/30 hover:border-sky-400 text-sky-300 hover:text-white'
-                      }`}
-                      title={isSyncingData ? t.syncingCloudData : t.syncCloudData}
-                      aria-label={t.syncCloudData}
-                    >
-                      <RefreshCw className={`w-3 h-3 ${isSyncingData ? 'animate-spin text-sky-400' : 'text-sky-400'}`} />
-                      <span>{isSyncingData ? t.syncingCloudData : t.syncCloudData}</span>
-                    </button>
-                  )}
                 </div>
               </div>
 

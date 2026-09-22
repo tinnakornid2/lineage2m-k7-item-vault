@@ -272,28 +272,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
 
-          {/* Mobile Force Cloud Sync Button */}
-          {onForceSync && (
-            <button
-              id="btn-mobile-force-sync"
-              type="button"
-              onClick={() => {
-                sounds.playClick();
-                onForceSync();
-              }}
-              disabled={isSyncingData}
-              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-                isSyncingData
-                  ? 'bg-sky-500/20 border-sky-500/60 text-sky-300'
-                  : 'bg-[#0c1424]/80 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
-              }`}
-              title={isSyncingData ? t.syncingCloudData : t.syncCloudData}
-              aria-label={t.syncCloudData}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingData ? 'animate-spin text-sky-400' : ''}`} />
-            </button>
-          )}
-
           {/* In-App Notifications Bell (Admin & Owner) */}
           {canAccessVault && onOpenNotifications && (
             <button
@@ -963,40 +941,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
-          {/* Quick Cloud Sync & Reset Cache Row */}
-          {(onForceSync || onClearCacheAndReload) && (
-            <div className="flex items-center gap-1.5 pt-2">
-              {onForceSync && (
-                <button
-                  id="btn-sidebar-force-sync"
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    onForceSync();
-                  }}
-                  disabled={isSyncingData}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 hover:border-sky-400/50 text-[10px] font-semibold text-sky-300 hover:text-white transition-all cursor-pointer shadow-sm disabled:opacity-50"
-                  title={isSyncingData ? t.syncingCloudData : t.syncCloudData}
-                >
-                  <RefreshCw className={`w-3 h-3 ${isSyncingData ? 'animate-spin text-sky-400' : 'text-sky-400'}`} />
-                  <span>{isSyncingData ? t.syncingCloudData : t.syncCloudData}</span>
-                </button>
-              )}
-              {onClearCacheAndReload && (
-                <button
-                  id="btn-sidebar-clear-cache"
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    onClearCacheAndReload();
-                  }}
-                  className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/25 border border-red-500/30 hover:border-red-400/50 text-red-300 hover:text-white transition-all cursor-pointer shrink-0"
-                  title={t.clearCacheReload}
-                  aria-label={t.clearCacheReload}
-                >
-                  <Trash2 className="w-3 h-3 text-red-400" />
-                </button>
-              )}
+          {/* Reset Cache Row */}
+          {onClearCacheAndReload && (
+            <div className="pt-2">
+              <button
+                id="btn-sidebar-clear-cache"
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  onClearCacheAndReload();
+                }}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-400/50 text-[10px] font-semibold text-red-300 hover:text-white transition-all cursor-pointer shadow-sm"
+                title={t.clearCacheReload}
+                aria-label={t.clearCacheReload}
+              >
+                <Trash2 className="w-3 h-3 text-red-400" />
+                <span>{t.clearCacheReload}</span>
+              </button>
             </div>
           )}
 
@@ -1010,7 +971,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-mono text-emerald-400 font-bold shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v2.8.16</span>
+              <span>v2.8.17</span>
             </div>
           </div>
 
