@@ -88,14 +88,6 @@ export function applyIncomingSyncMeta(payload: BackupDataPayload): void {
     for (const [id, timestamp] of Object.entries(incoming)) {
       if (typeof timestamp === 'number' && timestamp > (local[id] || 0)) local[id] = timestamp;
     }
-    // Clean false boss queue tombstones from previous tests
-    if (field === 'deletedQueueItems') {
-      for (const k of Object.keys(local)) {
-        if (k.startsWith('queue_1790010776111') || local[k] === 1790077037091) {
-          delete local[k];
-        }
-      }
-    }
     try { localStorage.setItem(storageKey, JSON.stringify(local)); } catch {}
   }
 }

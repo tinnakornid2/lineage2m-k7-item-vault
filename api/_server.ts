@@ -462,24 +462,13 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers)
         };
 
-        // Immunize active boss queues and purge stale test tombstones
-        for (const k of Object.keys(syncMeta.deletedQueueItems || {})) {
-          if (k.startsWith('queue_1790010776111') || syncMeta.deletedQueueItems[k] === 1790077037091) {
-            delete syncMeta.deletedQueueItems[k];
-          }
-        }
-
         const mergeVersionedRecords = (previous: any[], incoming: any[], deleted: Record<string, number>, mergeClaims = false, mergeQueue = false) => {
           const records = new Map<string, any>();
           for (const record of [...(previous || []), ...(incoming || [])]) {
             if (!record?.id) continue;
             const recordRevision = Number(record.updatedAt || record.createdAt || 0);
             if (deleted && deleted[record.id]) {
-              if (record.id.startsWith('queue_1790010776111') || deleted[record.id] === 1790077037091) {
-                delete deleted[record.id];
-              } else {
-                continue;
-              }
+              continue;
             }
             const existing = records.get(record.id);
             const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
@@ -605,8 +594,6 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         if (Array.isArray(data.queueItems)) {
           data.queueItems = data.queueItems.filter((it: any) => {
             if (!it?.id) return false;
-            if (it.id.startsWith('queue_1790010776111')) return true;
-            if (syncMeta.deletedQueueItems?.[it.id] === 1790077037091) return true;
             return !syncMeta.deletedQueueItems?.[it.id];
           });
         }

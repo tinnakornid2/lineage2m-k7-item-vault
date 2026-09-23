@@ -44,6 +44,7 @@ service cloud.firestore {
           'pendingClasses', 'pendingLevel', 'pendingLegendClasses',
           'pendingLegendAgathions', 'pendingStatScreenshotUrl',
           'statScreenshotUrl', 'statRejectionReason', 'statRejectionAt',
+          'statApprovalAt',
           'lastStatUpdatedAt', 'verified', 'statHistory', 'screenshots',
           'screenshotUrl', 'spirits', 'kain7Id', 'updatedAt'
         ])
@@ -173,7 +174,7 @@ service cloud.firestore {
     function validGeneralItem(data) {
       return data.keys().hasOnly([
           'id', 'name', 'imageUrl', 'price', 'quantity', 'minPowerLevel',
-          'rarity', 'queueList', 'receiptHistory', 'createdAt'
+          'rarity', 'queueList', 'receiptHistory', 'createdAt', 'updatedAt'
         ])
         && data.keys().hasAll([
           'id', 'name', 'imageUrl', 'price', 'quantity', 'minPowerLevel',
