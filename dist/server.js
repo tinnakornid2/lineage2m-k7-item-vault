@@ -10,25 +10,88 @@ import { GoogleGenAI } from "@google/genai";
 
 // api/_firebaseAdmin.ts
 import { randomUUID } from "node:crypto";
-var PROJECT_ID = "hybrid-box-753bd";
-var DATABASE_ID = "ai-studio-lineage2mk7itemv-4a75381c-cb0d-43f8-9b9b-c337a41dd8b0";
+var EXPECTED_PRODUCTION_PROJECT_ID = "k7-item";
+var DEFAULT_DATABASE_ID = "ai-studio-lineage2mclanhub-4a1794d8-f944-422f-945e-56c12057ad13";
 var testAdminSdk = null;
 function usernameToAuthEmail(username) {
   const normalized = username.trim().toLowerCase();
   const encoded = Buffer.from(normalized, "utf8").toString("hex");
   return `${encoded}@auth.k7-clan.local`;
 }
+function getResolvedProjectId() {
+  const envProjectId = process.env.FIREBASE_PROJECT_ID?.trim();
+  const isEmulator = Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST);
+  if (envProjectId) {
+    if (envProjectId === "hybrid-box-753bd") {
+      return null;
+    }
+    const isProduction = process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
+    if (isProduction && !isEmulator && envProjectId !== EXPECTED_PRODUCTION_PROJECT_ID) {
+      return null;
+    }
+    return envProjectId;
+  }
+  if (isEmulator) {
+    return EXPECTED_PRODUCTION_PROJECT_ID;
+  }
+  return null;
+}
+function parseAndValidateServiceAccount(rawJson, expectedProjectId) {
+  if (!rawJson || typeof rawJson !== "string" || !rawJson.trim()) {
+    return { valid: false, error: "MISSING_SERVICE_ACCOUNT" };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    return { valid: false, error: "MALFORMED_SERVICE_ACCOUNT_JSON" };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return { valid: false, error: "INVALID_SERVICE_ACCOUNT_STRUCTURE" };
+  }
+  if (parsed.project_id === "hybrid-box-753bd") {
+    return { valid: false, error: "STALE_PROJECT_ID_FORBIDDEN" };
+  }
+  if (!parsed.project_id || parsed.project_id !== expectedProjectId) {
+    return { valid: false, error: "SERVICE_ACCOUNT_PROJECT_MISMATCH" };
+  }
+  if (!parsed.private_key || typeof parsed.private_key !== "string") {
+    return { valid: false, error: "MISSING_PRIVATE_KEY" };
+  }
+  if (!parsed.client_email || typeof parsed.client_email !== "string") {
+    return { valid: false, error: "MISSING_CLIENT_EMAIL" };
+  }
+  return { valid: true, serviceAccount: parsed };
+}
+function getDatabaseId() {
+  return process.env.FIREBASE_DATABASE_ID || process.env.FIRESTORE_DATABASE_ID || DEFAULT_DATABASE_ID;
+}
+function getStorageBucketName(projectId) {
+  return process.env.FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`;
+}
 function hasAdminCredentials() {
   if (testAdminSdk !== null) return Boolean(testAdminSdk);
-  return Boolean(
-    process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST || process.env.GOOGLE_APPLICATION_CREDENTIALS
+  const isEmulator = Boolean(
+    process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST
   );
+  if (isEmulator) return true;
+  const projectId = getResolvedProjectId();
+  if (!projectId) return false;
+  const rawSa = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!rawSa) return false;
+  const validation = parseAndValidateServiceAccount(rawSa, projectId);
+  return validation.valid;
 }
 var cachedAdmin = null;
 async function getAdminSdk() {
   if (testAdminSdk !== null) return testAdminSdk;
   if (!hasAdminCredentials()) return null;
   if (cachedAdmin) return cachedAdmin;
+  const projectId = getResolvedProjectId();
+  if (!projectId) return null;
+  const isEmulator = Boolean(
+    process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST
+  );
   try {
     const { cert, getApps, initializeApp } = await import("firebase-admin/app");
     const { getAuth } = await import("firebase-admin/auth");
@@ -36,22 +99,23 @@ async function getAdminSdk() {
     const { getStorage } = await import("firebase-admin/storage");
     let app = getApps().length ? getApps()[0] : null;
     if (!app) {
-      const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-      if (rawServiceAccount) {
-        try {
-          const serviceAccount = JSON.parse(rawServiceAccount);
-          app = initializeApp({ credential: cert(serviceAccount), projectId: PROJECT_ID });
-        } catch (e) {
-          console.warn("Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:", e);
+      if (isEmulator) {
+        app = initializeApp({ projectId });
+      } else {
+        const rawSa = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+        const validation = parseAndValidateServiceAccount(rawSa, projectId);
+        if (!validation.valid || !validation.serviceAccount) {
+          return null;
         }
-      } else if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
-        app = initializeApp({ projectId: PROJECT_ID });
-      } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        app = initializeApp({ projectId: PROJECT_ID });
+        app = initializeApp({
+          credential: cert(validation.serviceAccount),
+          projectId
+        });
       }
     }
     if (!app) return null;
-    const db = process.env.FIRESTORE_EMULATOR_HOST ? getFirestore(app) : getFirestore(app, DATABASE_ID);
+    const databaseId = getDatabaseId();
+    const db = process.env.FIRESTORE_EMULATOR_HOST ? getFirestore(app) : getFirestore(app, databaseId);
     cachedAdmin = {
       app,
       auth: getAuth(app),
@@ -60,7 +124,7 @@ async function getAdminSdk() {
     };
     return cachedAdmin;
   } catch (err) {
-    console.warn("Failed to load firebase-admin dynamically:", err);
+    console.warn("Failed to initialize Firebase Admin SDK:", err instanceof Error ? err.message : "Unknown error");
     return null;
   }
 }
@@ -140,7 +204,8 @@ async function uploadBackgroundImage(buffer, contentType) {
   if (!sdk) {
     throw new Error("Firebase Admin credentials not configured for image upload.");
   }
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "hybrid-box-753bd.firebasestorage.app";
+  const projectId = getResolvedProjectId() || EXPECTED_PRODUCTION_PROJECT_ID;
+  const bucketName = getStorageBucketName(projectId);
   const bucket = sdk.storage.bucket(bucketName);
   const objectName = `app-backgrounds/current-${Date.now()}.${contentType === "image/png" ? "png" : "jpg"}`;
   const downloadToken = randomUUID();
