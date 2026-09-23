@@ -169,6 +169,16 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 
 export const INITIAL_QUEUES: QueueItem[] = [];
 
+/**
+ * Robust numeric parser that guarantees a finite number.
+ * Safely handles undefined, null, "", "abc", NaN, and Infinity.
+ */
+export function toFiniteNumber(val: any, fallback: number = 0): number {
+  if (val === null || val === undefined || val === '') return fallback;
+  const num = typeof val === 'number' ? val : Number(val);
+  return Number.isFinite(num) ? num : fallback;
+}
+
 export function sanitizeVaultItem<T extends Partial<VaultItem>>(item: T): VaultItem {
   if (!item) return item as any;
   const anyItem = item as any;
@@ -177,19 +187,27 @@ export function sanitizeVaultItem<T extends Partial<VaultItem>>(item: T): VaultI
     id: anyItem.id || `item_${Date.now()}`,
     name: anyItem.name || 'Unnamed Item',
     imageUrl: anyItem.imageUrl || '',
-    price: Number(anyItem.price || 0),
-    minPowerLevel: Number(anyItem.minPowerLevel || 0),
+    price: toFiniteNumber(anyItem.price, 0),
+    minPowerLevel: toFiniteNumber(anyItem.minPowerLevel, 0),
     rarity: anyItem.rarity || 'RARE',
-    quantity: Math.max(1, Number(anyItem.quantity || 1)),
+    quantity: Math.max(1, toFiniteNumber(anyItem.quantity, 1)),
     hunters: Array.isArray(anyItem.hunters) ? anyItem.hunters : [],
     hunterScreenshots: Array.isArray(anyItem.hunterScreenshots) ? anyItem.hunterScreenshots : [],
     status: anyItem.status === 'distributed' ? 'distributed' : 'available',
-    claimants: Array.isArray(anyItem.claimants) ? anyItem.claimants : [],
+    claimants: Array.isArray(anyItem.claimants)
+      ? anyItem.claimants.map((c: any) => ({
+          ...c,
+          claimedAt: toFiniteNumber(c?.claimedAt, 0),
+          powerLevel: toFiniteNumber(c?.powerLevel, 0)
+        }))
+      : [],
     distributedTo: anyItem.distributedTo,
     receiptImages: Array.isArray(anyItem.receiptImages) ? anyItem.receiptImages : [],
     paymentStatus: anyItem.paymentStatus || 'pending',
-    createdAt: Number(anyItem.createdAt || Date.now()),
-    updatedAt: anyItem.updatedAt ? Number(anyItem.updatedAt) : undefined
+    createdAt: toFiniteNumber(anyItem.createdAt, Date.now()),
+    updatedAt: anyItem.updatedAt !== undefined && anyItem.updatedAt !== null
+      ? toFiniteNumber(anyItem.updatedAt, undefined as any)
+      : undefined
   } as VaultItem;
 }
 
@@ -203,15 +221,15 @@ export function sanitizeUser<T extends Partial<User>>(user: T): User {
     inGameName: anyUser.inGameName || '',
     clan: anyUser.clan || '',
     role: anyUser.role || 'member',
-    powerLevel: Number(anyUser.powerLevel || 0),
-    level: Number(anyUser.level || 0),
+    powerLevel: toFiniteNumber(anyUser.powerLevel, 0),
+    level: toFiniteNumber(anyUser.level, 0),
     characterClass: anyUser.characterClass || '',
     classes: Array.isArray(anyUser.classes) ? anyUser.classes : [],
     legendClasses: Array.isArray(anyUser.legendClasses) ? anyUser.legendClasses : [],
     legendAgathions: Array.isArray(anyUser.legendAgathions) ? anyUser.legendAgathions : [],
     status: anyUser.status || 'active',
     verified: Boolean(anyUser.verified),
-    createdAt: Number(anyUser.createdAt || Date.now())
+    createdAt: toFiniteNumber(anyUser.createdAt, Date.now())
   } as User;
 }
 
@@ -222,12 +240,12 @@ export function sanitizeGeneralItem<T extends Partial<GeneralItem>>(item: T): Ge
     ...item,
     id: anyItem.id || `gen_${Date.now()}`,
     name: anyItem.name || 'General Item',
-    price: Number(anyItem.price || 0),
-    minPowerLevel: Number(anyItem.minPowerLevel || 0),
-    quantity: Math.max(0, Number(anyItem.quantity || 0)),
+    price: toFiniteNumber(anyItem.price, 0),
+    minPowerLevel: toFiniteNumber(anyItem.minPowerLevel, 0),
+    quantity: Math.max(0, toFiniteNumber(anyItem.quantity, 0)),
     rarity: anyItem.rarity || 'RARE',
     category: anyItem.category || 'other',
-    order: Number(anyItem.order || 0),
+    order: toFiniteNumber(anyItem.order, 0),
     active: anyItem.active !== false
   } as GeneralItem;
 }

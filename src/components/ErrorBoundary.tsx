@@ -6,11 +6,17 @@ interface Props {
   children: ReactNode;
 }
 
+const RELOAD_COUNT_KEY = 'l2m_err_reload_count';
+const RELOAD_TS_KEY = 'l2m_err_reload_ts';
+const MAX_RELOAD_ATTEMPTS = 3;
+const RELOAD_WINDOW_MS = 15000;
+
 interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
   showDetails: boolean;
+  isReloadLoopDetected: boolean;
   lang: 'th' | 'en';
 }
 
@@ -27,11 +33,26 @@ export class ErrorBoundary extends (React.Component as unknown as {
 }) {
   constructor(props: Props) {
     super(props);
+    let loopDetected = false;
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        const now = Date.now();
+        const rawCount = sessionStorage.getItem(RELOAD_COUNT_KEY);
+        const rawTs = sessionStorage.getItem(RELOAD_TS_KEY);
+        const count = rawCount ? parseInt(rawCount, 10) : 0;
+        const ts = rawTs ? parseInt(rawTs, 10) : 0;
+        if (now - ts < RELOAD_WINDOW_MS && count >= MAX_RELOAD_ATTEMPTS) {
+          loopDetected = true;
+        }
+      }
+    } catch {}
+
     this.state = {
       hasError: false,
       error: null,
       errorInfo: null,
       showDetails: false,
+      isReloadLoopDetected: loopDetected,
       lang: (typeof localStorage !== 'undefined' && localStorage.getItem('l2m_lang') === 'en') ? 'en' : 'th'
     };
   }
@@ -42,11 +63,28 @@ export class ErrorBoundary extends (React.Component as unknown as {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('ErrorBoundary caught an unhandled render error:', error, errorInfo);
-    this.setState({ errorInfo });
+    let loopDetected = false;
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        const now = Date.now();
+        const rawCount = sessionStorage.getItem(RELOAD_COUNT_KEY);
+        const rawTs = sessionStorage.getItem(RELOAD_TS_KEY);
+        const count = rawCount ? parseInt(rawCount, 10) : 0;
+        const ts = rawTs ? parseInt(rawTs, 10) : 0;
+        if (now - ts < RELOAD_WINDOW_MS && count >= MAX_RELOAD_ATTEMPTS) {
+          loopDetected = true;
+        }
+      }
+    } catch {}
+    this.setState({ errorInfo, isReloadLoopDetected: loopDetected });
   }
 
   private handleResetCacheAndReload = () => {
     try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem(RELOAD_COUNT_KEY);
+        sessionStorage.removeItem(RELOAD_TS_KEY);
+      }
       clearAllLocalCaches();
     } catch (e) {
       console.error('Failed to clear local caches:', e);
@@ -55,6 +93,18 @@ export class ErrorBoundary extends (React.Component as unknown as {
   };
 
   private handleSimpleReload = () => {
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        const now = Date.now();
+        const rawCount = sessionStorage.getItem(RELOAD_COUNT_KEY);
+        const rawTs = sessionStorage.getItem(RELOAD_TS_KEY);
+        const count = rawCount ? parseInt(rawCount, 10) : 0;
+        const ts = rawTs ? parseInt(rawTs, 10) : 0;
+        const nextCount = (now - ts < RELOAD_WINDOW_MS) ? count + 1 : 1;
+        sessionStorage.setItem(RELOAD_COUNT_KEY, String(nextCount));
+        sessionStorage.setItem(RELOAD_TS_KEY, String(now));
+      }
+    } catch {}
     window.location.reload();
   };
 
@@ -103,6 +153,23 @@ export class ErrorBoundary extends (React.Component as unknown as {
             <h2 className="text-xl font-bold text-white mb-2 font-cinzel">
               {th ? 'พบข้อผิดพลาดในการแสดงผล' : 'Application Display Error'}
             </h2>
+
+            {/* Reload Loop Warning Banner */}
+            {this.state.isReloadLoopDetected && (
+              <div className="mb-4 p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs text-left flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="leading-snug">
+                  <p className="font-semibold text-amber-300">
+                    {th ? 'ตรวจพบการรีโหลดซ้ำต่อเนื่อง' : 'Repeated reload loop detected'}
+                  </p>
+                  <p className="text-[11px] text-amber-200/80 mt-0.5">
+                    {th
+                      ? 'หน้าจอขัดข้องซ้ำกัน กรุณากด "ล้างแคชและโหลดใหม่" ด้านล่าง เพื่อแก้ปัญหาถาวร'
+                      : 'Recurring error detected. Please click "Reset Cache & Reload" below to resolve.'}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Description */}
             <p className="text-xs text-slate-300 leading-relaxed mb-6">
