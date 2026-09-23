@@ -483,53 +483,103 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       delete scrubbed.settings.geminiApiKey;
       delete scrubbed.settings.apiKey;
       delete scrubbed.settings.serviceAccount;
+      delete scrubbed.settings.privateKey;
+      delete scrubbed.settings.secret;
     }
     delete scrubbed.geminiAiSettings;
 
     if (Array.isArray(scrubbed.users)) {
       scrubbed.users = scrubbed.users.map((u: any) => {
         if (!u || typeof u !== 'object') return u;
-        const { password, salt, hash, ...safeUser } = u;
+        const {
+          password,
+          passwordHash,
+          salt,
+          hash,
+          pin,
+          authSecret,
+          email,
+          authUid,
+          tokens,
+          ...safeUser
+        } = u;
         return safeUser;
       });
     }
 
     if (scrubbed.googleBackupConfig && typeof scrubbed.googleBackupConfig === 'object') {
-      scrubbed.googleBackupConfig = { ...scrubbed.googleBackupConfig };
-      delete scrubbed.googleBackupConfig.serviceAccount;
+      const cfg = scrubbed.googleBackupConfig;
+      scrubbed.googleBackupConfig = {
+        isConfigured: Boolean(cfg.webAppUrl || cfg.sheetUrl),
+        autoBackupEnabled: Boolean(cfg.autoBackupEnabled),
+        fallbackOnQuotaExceeded: Boolean(cfg.fallbackOnQuotaExceeded),
+        lastBackupAt: cfg.lastBackupAt || null,
+        lastStatus: cfg.lastStatus || 'idle'
+      };
     }
 
     return scrubbed;
   };
 
+  function canonicalJsonStringify(obj: any): string {
+    if (obj === null || typeof obj !== 'object') {
+      return JSON.stringify(obj);
+    }
+    if (Array.isArray(obj)) {
+      return '[' + obj.map(canonicalJsonStringify).join(',') + ']';
+    }
+    const keys = Object.keys(obj).sort();
+    return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJsonStringify(obj[k])).join(',') + '}';
+  }
+
+  function canonicalSortArray(arr: any[]): any[] {
+    if (!Array.isArray(arr)) return arr;
+    return arr.slice().sort((a: any, b: any) => {
+      const idA = String(a?.id || a?.key || '');
+      const idB = String(b?.id || b?.key || '');
+      return idA.localeCompare(idB);
+    });
+  }
+
   const hashState = (data: any): string => {
     if (!data) return '';
     try {
-      return crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
+      const normalized = {
+        ...data,
+        users: canonicalSortArray(data.users),
+        vaultItems: canonicalSortArray(data.vaultItems),
+        queueItems: canonicalSortArray(data.queueItems),
+        quickItems: canonicalSortArray(data.quickItems),
+        generalItems: canonicalSortArray(data.generalItems),
+        clans: canonicalSortArray(data.clans),
+        diamondLogs: canonicalSortArray(data.diamondLogs)
+      };
+      return crypto.createHash('sha256').update(canonicalJsonStringify(normalized)).digest('hex');
     } catch {
       return '';
     }
   };
 
-  let inFlightRehydration: Promise<{ changed: boolean; version: number; updatedAt: number }> | null = null;
+  let inFlightRehydration: Promise<{ success: boolean; changed: boolean; version: number; updatedAt: number }> | null = null;
   let lastRehydrationTime = 0;
   const REHYDRATION_COOLDOWN_MS = 2000;
+  const liveStateRateLimits = new Map<string, { count: number; resetAt: number }>();
 
-  async function rehydrateAuthoritativeState(): Promise<{ changed: boolean; version: number; updatedAt: number }> {
+  async function rehydrateAuthoritativeState(): Promise<{ success: boolean; changed: boolean; version: number; updatedAt: number }> {
     if (inFlightRehydration) {
       return inFlightRehydration;
     }
 
     const now = Date.now();
     if (now - lastRehydrationTime < REHYDRATION_COOLDOWN_MS && liveHubState.data !== null) {
-      return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+      return { success: true, changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
     }
 
     inFlightRehydration = (async () => {
       try {
         const sdk = await getAdminSdk();
         if (!sdk || !sdk.db) {
-          return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+          return { success: false, changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
         }
 
         const [usersSnap, itemsSnap, queuesSnap, quickSnap, generalSnap, clansSnap, vaultSnap] = await Promise.all([
@@ -542,10 +592,54 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           sdk.db.collection('diamond_vault').get(),
         ]);
 
-        const users: any[] = [];
+        const deletedUserTombstones = (liveHubState.data?.syncMeta?.deletedUsers) || {};
+
+        // 1. Filter out physically deleted or tombstoned users
+        const rawUsers: any[] = [];
         usersSnap.forEach((doc: any) => {
-          users.push({ ...doc.data(), id: doc.id });
+          const data = doc.data();
+          if (!data) return;
+          if (data.status === 'deleted') return;
+          if (deletedUserTombstones[doc.id]) return;
+          rawUsers.push({ ...data, id: doc.id });
         });
+
+        // 2. Deduplicate Auth UID shadow documents against canonical profiles
+        const byUsername = new Map<string, any[]>();
+        for (const u of rawUsers) {
+          const normUser = String(u.username || '').trim().toLowerCase();
+          if (!normUser) continue;
+          if (!byUsername.has(normUser)) {
+            byUsername.set(normUser, []);
+          }
+          byUsername.get(normUser)!.push(u);
+        }
+
+        const users: any[] = [];
+        const processedIds = new Set<string>();
+
+        for (const [_normUser, userList] of byUsername.entries()) {
+          for (const u of userList) {
+            processedIds.add(u.id);
+          }
+
+          if (userList.length === 1) {
+            users.push(userList[0]);
+          } else {
+            // Multiple docs with same username: prefer canonical profile (starts with 'user_' or has custom legacy ID)
+            const canonicalProfile = userList.find((u) => u.id.startsWith('user_'));
+            const picked = canonicalProfile || userList[0];
+            users.push(picked);
+          }
+        }
+
+        // Add any remaining active users (e.g. without username)
+        for (const u of rawUsers) {
+          if (!processedIds.has(u.id)) {
+            users.push(u);
+            processedIds.add(u.id);
+          }
+        }
 
         const vaultItems: any[] = [];
         itemsSnap.forEach((doc: any) => {
@@ -608,13 +702,13 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
             fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8');
           } catch {}
           liveStateEmitter.emit('update');
-          return { changed: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+          return { success: true, changed: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
         }
 
-        return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+        return { success: true, changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
       } catch (err: any) {
         console.warn('Rehydration error:', err?.message || err);
-        return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+        return { success: false, changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
       } finally {
         inFlightRehydration = null;
       }
@@ -626,14 +720,34 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   // Live state relay update endpoint (Model C: client data ignored 100%, authoritative rehydrate from Firestore)
   app.post("/api/live-state", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
     try {
-      await rehydrateAuthoritativeState();
+      const actor = res.locals.actor;
+      if (actor && actor.uid) {
+        const allowed = consumeRateLimit(liveStateRateLimits, actor.uid, 15, 60000);
+        if (!allowed) {
+          return res.status(429).json({
+            success: false,
+            error: 'TOO_MANY_REQUESTS',
+            message: 'ส่งคำขอถี่เกินไป กรุณารอสักครู่ / Too many requests. Please wait a moment.'
+          });
+        }
+      }
+
+      const rehydrateResult = await rehydrateAuthoritativeState();
+      if (!rehydrateResult.success) {
+        return res.status(503).json({
+          success: false,
+          error: 'SERVICE_UNAVAILABLE',
+          message: 'ฐานข้อมูลไม่พร้อมใช้งาน / Database service is unavailable.'
+        });
+      }
+
       res.json({ success: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt });
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_SYNC_LIVE_STATE' });
+      res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE', message: 'ฐานข้อมูลไม่พร้อมใช้งาน / Database service is unavailable.' });
     }
   });
 
-  // Dedicated Vault Item Claim endpoint (Ensures serverless-resilient claim persistence with canonical identity)
+  // Dedicated Vault Item Claim endpoint (Atomic Firestore transaction with canonical identity)
   app.post("/api/claim-vault-item", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
     try {
       const { itemId } = req.body;
@@ -667,23 +781,27 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       }
 
       const docRef = sdk.db.collection('items').doc(itemId);
-      const docSnap = await docRef.get();
-      if (!docSnap.exists) {
-        return res.status(404).json({ success: false, error: 'ITEM_NOT_FOUND' });
-      }
+      let updatedClaimants: any[] = [];
 
-      const itemData = docSnap.data() || {};
-      const currentClaimants = (itemData.claimants || []).filter((c: any) => {
-        const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
-        const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
-        return !(matchesUser || matchesName);
+      await sdk.db.runTransaction(async (transaction: any) => {
+        const docSnap = await transaction.get(docRef);
+        if (!docSnap.exists) {
+          throw new Error('ITEM_NOT_FOUND');
+        }
+
+        const itemData = docSnap.data() || {};
+        const currentClaimants = (itemData.claimants || []).filter((c: any) => {
+          const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
+          const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
+          return !(matchesUser || matchesName);
+        });
+
+        updatedClaimants = [...currentClaimants, safeClaimant];
+        transaction.set(docRef, {
+          claimants: updatedClaimants,
+          updatedAt: now
+        }, { merge: true });
       });
-
-      const updatedClaimants = [...currentClaimants, safeClaimant];
-      await docRef.set({
-        claimants: updatedClaimants,
-        updatedAt: now
-      }, { merge: true });
 
       // Update in-memory liveHubState
       if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
@@ -703,13 +821,16 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         liveStateEmitter.emit('update');
       }
 
-      res.json({ success: true, itemId, claimant: safeClaimant });
+      res.json({ success: true, itemId, claimant: safeClaimant, version: liveHubState.version });
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_CLAIM' });
+      if (err?.message === 'ITEM_NOT_FOUND') {
+        return res.status(404).json({ success: false, error: 'ITEM_NOT_FOUND' });
+      }
+      res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE', message: err?.message || 'FAILED_TO_CLAIM' });
     }
   });
 
-  // Dedicated Vault Item Unclaim endpoint
+  // Dedicated Vault Item Unclaim endpoint (Atomic Firestore transaction with scoped authorization)
   app.post("/api/unclaim-vault-item", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
     try {
       const { itemId, userId, inGameName } = req.body;
@@ -753,44 +874,57 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       }
 
       const docRef = sdk.db.collection('items').doc(itemId);
-      const docSnap = await docRef.get();
-      if (!docSnap.exists) {
-        return res.status(404).json({ success: false, error: 'ITEM_NOT_FOUND' });
-      }
-
-      const itemData = docSnap.data() || {};
-
-      // If admin, enforce clan scope if item has a clan
-      if (actor.role === 'admin' && !isSelf) {
-        if (actor.clan && itemData.clan && actor.clan.trim().toLowerCase() !== String(itemData.clan).trim().toLowerCase()) {
-          return res.status(403).json({
-            success: false,
-            error: 'CLAN_SCOPE_DENIED',
-            message: 'ไม่มีสิทธิ์จัดการไอเทมนอกแคลน / You cannot manage items from other clans.'
-          });
-        }
-      }
-
+      let remainingClaimants: any[] = [];
       const now = Date.now();
-      const currentClaimants = (itemData.claimants || []).filter((c: any) => {
-        const cUserId = c.userId ? String(c.userId).trim().toLowerCase() : '';
-        const cName = c.inGameName ? String(c.inGameName).trim().toLowerCase() : '';
 
-        const userMatch = targetUserId
-          ? (cUserId === targetUserId)
-          : (cUserId === actorCanonicalId || (actorAuthUid && cUserId === actorAuthUid));
+      await sdk.db.runTransaction(async (transaction: any) => {
+        const docSnap = await transaction.get(docRef);
+        if (!docSnap.exists) {
+          throw new Error('ITEM_NOT_FOUND');
+        }
 
-        const nameMatch = targetName
-          ? (cName === targetName)
-          : (actorInGameName && cName === actorInGameName);
+        const itemData = docSnap.data() || {};
 
-        return !(userMatch || nameMatch);
+        // If admin, enforce clan scope if item has a clan
+        if (actor.role === 'admin' && !isSelf) {
+          if (actor.clan && itemData.clan && actor.clan.trim().toLowerCase() !== String(itemData.clan).trim().toLowerCase()) {
+            throw new Error('CLAN_SCOPE_DENIED');
+          }
+        }
+
+        const claimants = itemData.claimants || [];
+
+        // Ambiguity check: if target is only specified by inGameName, fail closed if multiple claimants have the same name with different userIds
+        if (!targetUserId && targetName) {
+          const matchingByName = claimants.filter((c: any) =>
+            c.inGameName && String(c.inGameName).trim().toLowerCase() === targetName
+          );
+          const uniqueUserIds = new Set(matchingByName.map((c: any) => c.userId).filter(Boolean));
+          if (uniqueUserIds.size > 1) {
+            throw new Error('AMBIGUOUS_UNCLAIM_TARGET');
+          }
+        }
+
+        remainingClaimants = claimants.filter((c: any) => {
+          const cUserId = c.userId ? String(c.userId).trim().toLowerCase() : '';
+          const cName = c.inGameName ? String(c.inGameName).trim().toLowerCase() : '';
+
+          const userMatch = targetUserId
+            ? (cUserId === targetUserId)
+            : (cUserId === actorCanonicalId || (actorAuthUid && cUserId === actorAuthUid));
+
+          const nameMatch = targetName
+            ? (cName === targetName)
+            : (actorInGameName && cName === actorInGameName);
+
+          return !(userMatch || nameMatch);
+        });
+
+        transaction.set(docRef, {
+          claimants: remainingClaimants,
+          updatedAt: now
+        }, { merge: true });
       });
-
-      await docRef.set({
-        claimants: currentClaimants,
-        updatedAt: now
-      }, { merge: true });
 
       // Update in-memory liveHubState
       if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
@@ -798,7 +932,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           if (item.id === itemId) {
             return {
               ...item,
-              claimants: currentClaimants,
+              claimants: remainingClaimants,
               updatedAt: now
             };
           }
@@ -812,7 +946,24 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
 
       res.json({ success: true, itemId });
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_UNCLAIM' });
+      if (err?.message === 'ITEM_NOT_FOUND') {
+        return res.status(404).json({ success: false, error: 'ITEM_NOT_FOUND' });
+      }
+      if (err?.message === 'CLAN_SCOPE_DENIED') {
+        return res.status(403).json({
+          success: false,
+          error: 'CLAN_SCOPE_DENIED',
+          message: 'ไม่มีสิทธิ์จัดการไอเทมนอกแคลน / You cannot manage items from other clans.'
+        });
+      }
+      if (err?.message === 'AMBIGUOUS_UNCLAIM_TARGET') {
+        return res.status(409).json({
+          success: false,
+          error: 'AMBIGUOUS_UNCLAIM_TARGET',
+          message: 'พบชื่อผู้เล่นซ้ำกัน กรุณาระบุรหัสผู้ใช้ / Multiple claimants match in-game name. Please specify userId.'
+        });
+      }
+      res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE', message: err?.message || 'FAILED_TO_UNCLAIM' });
     }
   });
 

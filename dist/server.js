@@ -272,29 +272,10 @@ async function verifyRoleToken(authorization, allowedRoles) {
   }
   let matchedUserId = null;
   let matchedUserData = null;
-  try {
-    const directDoc = await Promise.race([
-      sdk.db.collection("users").doc(decoded.uid).get(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore read timeout")), 3e3))
-    ]);
-    if (directDoc && directDoc.exists) {
-      matchedUserId = directDoc.id;
-      matchedUserData = directDoc.data();
-    }
-  } catch (err) {
-    console.warn("Firestore direct user lookup notice:", err?.message || err);
-  }
-  if (!matchedUserData) {
-    const email = typeof decoded.email === "string" ? decoded.email.trim().toLowerCase() : "";
-    const suffix = "@auth.k7-clan.local";
-    if (!email.endsWith(suffix)) {
-      return {
-        success: false,
-        status: 403,
-        code: "USER_PROFILE_NOT_FOUND",
-        message: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E17\u0E35\u0E48\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E42\u0E22\u0E07\u0E01\u0E31\u0E1A\u0E42\u0E17\u0E40\u0E04\u0E47\u0E19\u0E19\u0E35\u0E49 / No user profile linked to this token."
-      };
-    }
+  const email = typeof decoded.email === "string" ? decoded.email.trim().toLowerCase() : "";
+  const suffix = "@auth.k7-clan.local";
+  const isSyntheticEmail = email.endsWith(suffix);
+  if (isSyntheticEmail) {
     const hexPart = email.slice(0, -suffix.length);
     if (!hexPart || hexPart.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(hexPart)) {
       return {
@@ -357,19 +338,72 @@ async function verifyRoleToken(authorization, allowedRoles) {
     const matchingDocs = usersSnapshot.docs.filter((docItem) => {
       const data = docItem.data();
       if (!data) return false;
+      if (data.status === "deleted") return false;
       const uName = typeof data.username === "string" ? data.username.trim().toLowerCase() : "";
       return uName === decodedUsername.toLowerCase();
     });
-    if (matchingDocs.length !== 1) {
+    if (matchingDocs.length === 0) {
       return {
         success: false,
         status: 403,
-        code: matchingDocs.length === 0 ? "USER_PROFILE_NOT_FOUND" : "AMBIGUOUS_USER_PROFILE",
-        message: matchingDocs.length === 0 ? "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A / User profile not found." : "\u0E1E\u0E1A\u0E42\u0E1B\u0E23\u0E44\u0E1F\u0E25\u0E4C\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E0B\u0E49\u0E33\u0E01\u0E31\u0E19 / Multiple user profiles found with the same username."
+        code: "USER_PROFILE_NOT_FOUND",
+        message: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A / User profile not found."
       };
     }
-    matchedUserId = matchingDocs[0].id;
-    matchedUserData = matchingDocs[0].data();
+    const canonicalDocs = matchingDocs.filter((d) => d.id !== decoded.uid);
+    const shadowDocs = matchingDocs.filter((d) => d.id === decoded.uid);
+    let chosenDoc = null;
+    if (canonicalDocs.length === 1) {
+      chosenDoc = canonicalDocs[0];
+    } else if (canonicalDocs.length === 0 && shadowDocs.length === 1) {
+      chosenDoc = shadowDocs[0];
+    } else if (canonicalDocs.length > 1) {
+      return {
+        success: false,
+        status: 403,
+        code: "AMBIGUOUS_USER_PROFILE",
+        message: "\u0E1E\u0E1A\u0E42\u0E1B\u0E23\u0E44\u0E1F\u0E25\u0E4C\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E0B\u0E49\u0E33\u0E01\u0E31\u0E19 / Multiple user profiles found with the same username."
+      };
+    } else {
+      return {
+        success: false,
+        status: 403,
+        code: "USER_PROFILE_NOT_FOUND",
+        message: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A / User profile not found."
+      };
+    }
+    matchedUserId = chosenDoc.id;
+    matchedUserData = chosenDoc.data();
+  } else {
+    try {
+      const directDoc = await Promise.race([
+        sdk.db.collection("users").doc(decoded.uid).get(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore read timeout")), 3e3))
+      ]);
+      if (directDoc && directDoc.exists) {
+        const data = directDoc.data();
+        if (data && data.status !== "deleted") {
+          matchedUserId = directDoc.id;
+          matchedUserData = data;
+        }
+      }
+    } catch (err) {
+      console.warn("Firestore direct user lookup notice:", err?.message || err);
+      return {
+        success: false,
+        status: 503,
+        code: "AUTH_SERVICE_UNAVAILABLE",
+        message: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E40\u0E02\u0E49\u0E32\u0E16\u0E36\u0E07\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E44\u0E14\u0E49 / User database unavailable."
+      };
+    }
+    if (!matchedUserData) {
+      return {
+        success: false,
+        status: 403,
+        code: "USER_PROFILE_NOT_FOUND",
+        message: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E17\u0E35\u0E48\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E42\u0E22\u0E07\u0E01\u0E31\u0E1A\u0E42\u0E17\u0E40\u0E04\u0E47\u0E19\u0E19\u0E35\u0E49 / No user profile linked to this token."
+      };
+    }
   }
   if (!matchedUserData || matchedUserData.status === "deleted" || matchedUserData.status === "suspended") {
     return {
@@ -863,25 +897,72 @@ async function createApp(options = {}) {
       delete scrubbed.settings.geminiApiKey;
       delete scrubbed.settings.apiKey;
       delete scrubbed.settings.serviceAccount;
+      delete scrubbed.settings.privateKey;
+      delete scrubbed.settings.secret;
     }
     delete scrubbed.geminiAiSettings;
     if (Array.isArray(scrubbed.users)) {
       scrubbed.users = scrubbed.users.map((u) => {
         if (!u || typeof u !== "object") return u;
-        const { password, salt, hash, ...safeUser } = u;
+        const {
+          password,
+          passwordHash,
+          salt,
+          hash,
+          pin,
+          authSecret,
+          email,
+          authUid,
+          tokens,
+          ...safeUser
+        } = u;
         return safeUser;
       });
     }
     if (scrubbed.googleBackupConfig && typeof scrubbed.googleBackupConfig === "object") {
-      scrubbed.googleBackupConfig = { ...scrubbed.googleBackupConfig };
-      delete scrubbed.googleBackupConfig.serviceAccount;
+      const cfg = scrubbed.googleBackupConfig;
+      scrubbed.googleBackupConfig = {
+        isConfigured: Boolean(cfg.webAppUrl || cfg.sheetUrl),
+        autoBackupEnabled: Boolean(cfg.autoBackupEnabled),
+        fallbackOnQuotaExceeded: Boolean(cfg.fallbackOnQuotaExceeded),
+        lastBackupAt: cfg.lastBackupAt || null,
+        lastStatus: cfg.lastStatus || "idle"
+      };
     }
     return scrubbed;
   };
+  function canonicalJsonStringify(obj) {
+    if (obj === null || typeof obj !== "object") {
+      return JSON.stringify(obj);
+    }
+    if (Array.isArray(obj)) {
+      return "[" + obj.map(canonicalJsonStringify).join(",") + "]";
+    }
+    const keys = Object.keys(obj).sort();
+    return "{" + keys.map((k) => JSON.stringify(k) + ":" + canonicalJsonStringify(obj[k])).join(",") + "}";
+  }
+  function canonicalSortArray(arr) {
+    if (!Array.isArray(arr)) return arr;
+    return arr.slice().sort((a, b) => {
+      const idA = String(a?.id || a?.key || "");
+      const idB = String(b?.id || b?.key || "");
+      return idA.localeCompare(idB);
+    });
+  }
   const hashState = (data) => {
     if (!data) return "";
     try {
-      return crypto.createHash("sha256").update(JSON.stringify(data)).digest("hex");
+      const normalized = {
+        ...data,
+        users: canonicalSortArray(data.users),
+        vaultItems: canonicalSortArray(data.vaultItems),
+        queueItems: canonicalSortArray(data.queueItems),
+        quickItems: canonicalSortArray(data.quickItems),
+        generalItems: canonicalSortArray(data.generalItems),
+        clans: canonicalSortArray(data.clans),
+        diamondLogs: canonicalSortArray(data.diamondLogs)
+      };
+      return crypto.createHash("sha256").update(canonicalJsonStringify(normalized)).digest("hex");
     } catch {
       return "";
     }
@@ -889,19 +970,20 @@ async function createApp(options = {}) {
   let inFlightRehydration = null;
   let lastRehydrationTime = 0;
   const REHYDRATION_COOLDOWN_MS = 2e3;
+  const liveStateRateLimits = /* @__PURE__ */ new Map();
   async function rehydrateAuthoritativeState() {
     if (inFlightRehydration) {
       return inFlightRehydration;
     }
     const now = Date.now();
     if (now - lastRehydrationTime < REHYDRATION_COOLDOWN_MS && liveHubState.data !== null) {
-      return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+      return { success: true, changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
     }
     inFlightRehydration = (async () => {
       try {
         const sdk = await getAdminSdk();
         if (!sdk || !sdk.db) {
-          return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+          return { success: false, changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
         }
         const [usersSnap, itemsSnap, queuesSnap, quickSnap, generalSnap, clansSnap, vaultSnap] = await Promise.all([
           sdk.db.collection("users").get(),
@@ -912,10 +994,44 @@ async function createApp(options = {}) {
           sdk.db.collection("clans").get(),
           sdk.db.collection("diamond_vault").get()
         ]);
-        const users = [];
+        const deletedUserTombstones = liveHubState.data?.syncMeta?.deletedUsers || {};
+        const rawUsers = [];
         usersSnap.forEach((doc) => {
-          users.push({ ...doc.data(), id: doc.id });
+          const data = doc.data();
+          if (!data) return;
+          if (data.status === "deleted") return;
+          if (deletedUserTombstones[doc.id]) return;
+          rawUsers.push({ ...data, id: doc.id });
         });
+        const byUsername = /* @__PURE__ */ new Map();
+        for (const u of rawUsers) {
+          const normUser = String(u.username || "").trim().toLowerCase();
+          if (!normUser) continue;
+          if (!byUsername.has(normUser)) {
+            byUsername.set(normUser, []);
+          }
+          byUsername.get(normUser).push(u);
+        }
+        const users = [];
+        const processedIds = /* @__PURE__ */ new Set();
+        for (const [_normUser, userList] of byUsername.entries()) {
+          for (const u of userList) {
+            processedIds.add(u.id);
+          }
+          if (userList.length === 1) {
+            users.push(userList[0]);
+          } else {
+            const canonicalProfile = userList.find((u) => u.id.startsWith("user_"));
+            const picked = canonicalProfile || userList[0];
+            users.push(picked);
+          }
+        }
+        for (const u of rawUsers) {
+          if (!processedIds.has(u.id)) {
+            users.push(u);
+            processedIds.add(u.id);
+          }
+        }
         const vaultItems = [];
         itemsSnap.forEach((doc) => {
           vaultItems.push({ ...doc.data(), id: doc.id });
@@ -969,12 +1085,12 @@ async function createApp(options = {}) {
           } catch {
           }
           liveStateEmitter.emit("update");
-          return { changed: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+          return { success: true, changed: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
         }
-        return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+        return { success: true, changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
       } catch (err) {
         console.warn("Rehydration error:", err?.message || err);
-        return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+        return { success: false, changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
       } finally {
         inFlightRehydration = null;
       }
@@ -983,10 +1099,28 @@ async function createApp(options = {}) {
   }
   app.post("/api/live-state", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
     try {
-      await rehydrateAuthoritativeState();
+      const actor = res.locals.actor;
+      if (actor && actor.uid) {
+        const allowed = consumeRateLimit(liveStateRateLimits, actor.uid, 15, 6e4);
+        if (!allowed) {
+          return res.status(429).json({
+            success: false,
+            error: "TOO_MANY_REQUESTS",
+            message: "\u0E2A\u0E48\u0E07\u0E04\u0E33\u0E02\u0E2D\u0E16\u0E35\u0E48\u0E40\u0E01\u0E34\u0E19\u0E44\u0E1B \u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E2D\u0E2A\u0E31\u0E01\u0E04\u0E23\u0E39\u0E48 / Too many requests. Please wait a moment."
+          });
+        }
+      }
+      const rehydrateResult = await rehydrateAuthoritativeState();
+      if (!rehydrateResult.success) {
+        return res.status(503).json({
+          success: false,
+          error: "SERVICE_UNAVAILABLE",
+          message: "\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E44\u0E21\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19 / Database service is unavailable."
+        });
+      }
       res.json({ success: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt });
     } catch (err) {
-      res.status(500).json({ success: false, error: err?.message || "FAILED_TO_SYNC_LIVE_STATE" });
+      res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE", message: "\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E44\u0E21\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19 / Database service is unavailable." });
     }
   });
   app.post("/api/claim-vault-item", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
@@ -1009,21 +1143,24 @@ async function createApp(options = {}) {
         return res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE" });
       }
       const docRef = sdk.db.collection("items").doc(itemId);
-      const docSnap = await docRef.get();
-      if (!docSnap.exists) {
-        return res.status(404).json({ success: false, error: "ITEM_NOT_FOUND" });
-      }
-      const itemData = docSnap.data() || {};
-      const currentClaimants = (itemData.claimants || []).filter((c) => {
-        const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
-        const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
-        return !(matchesUser || matchesName);
+      let updatedClaimants = [];
+      await sdk.db.runTransaction(async (transaction) => {
+        const docSnap = await transaction.get(docRef);
+        if (!docSnap.exists) {
+          throw new Error("ITEM_NOT_FOUND");
+        }
+        const itemData = docSnap.data() || {};
+        const currentClaimants = (itemData.claimants || []).filter((c) => {
+          const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
+          const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
+          return !(matchesUser || matchesName);
+        });
+        updatedClaimants = [...currentClaimants, safeClaimant];
+        transaction.set(docRef, {
+          claimants: updatedClaimants,
+          updatedAt: now
+        }, { merge: true });
       });
-      const updatedClaimants = [...currentClaimants, safeClaimant];
-      await docRef.set({
-        claimants: updatedClaimants,
-        updatedAt: now
-      }, { merge: true });
       if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
         liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item) => {
           if (item.id === itemId) {
@@ -1043,9 +1180,12 @@ async function createApp(options = {}) {
         }
         liveStateEmitter.emit("update");
       }
-      res.json({ success: true, itemId, claimant: safeClaimant });
+      res.json({ success: true, itemId, claimant: safeClaimant, version: liveHubState.version });
     } catch (err) {
-      res.status(500).json({ success: false, error: err?.message || "FAILED_TO_CLAIM" });
+      if (err?.message === "ITEM_NOT_FOUND") {
+        return res.status(404).json({ success: false, error: "ITEM_NOT_FOUND" });
+      }
+      res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE", message: err?.message || "FAILED_TO_CLAIM" });
     }
   });
   app.post("/api/unclaim-vault-item", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
@@ -1073,38 +1213,47 @@ async function createApp(options = {}) {
         return res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE" });
       }
       const docRef = sdk.db.collection("items").doc(itemId);
-      const docSnap = await docRef.get();
-      if (!docSnap.exists) {
-        return res.status(404).json({ success: false, error: "ITEM_NOT_FOUND" });
-      }
-      const itemData = docSnap.data() || {};
-      if (actor.role === "admin" && !isSelf) {
-        if (actor.clan && itemData.clan && actor.clan.trim().toLowerCase() !== String(itemData.clan).trim().toLowerCase()) {
-          return res.status(403).json({
-            success: false,
-            error: "CLAN_SCOPE_DENIED",
-            message: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E44\u0E2D\u0E40\u0E17\u0E21\u0E19\u0E2D\u0E01\u0E41\u0E04\u0E25\u0E19 / You cannot manage items from other clans."
-          });
-        }
-      }
+      let remainingClaimants = [];
       const now = Date.now();
-      const currentClaimants = (itemData.claimants || []).filter((c) => {
-        const cUserId = c.userId ? String(c.userId).trim().toLowerCase() : "";
-        const cName = c.inGameName ? String(c.inGameName).trim().toLowerCase() : "";
-        const userMatch = targetUserId ? cUserId === targetUserId : cUserId === actorCanonicalId || actorAuthUid && cUserId === actorAuthUid;
-        const nameMatch = targetName ? cName === targetName : actorInGameName && cName === actorInGameName;
-        return !(userMatch || nameMatch);
+      await sdk.db.runTransaction(async (transaction) => {
+        const docSnap = await transaction.get(docRef);
+        if (!docSnap.exists) {
+          throw new Error("ITEM_NOT_FOUND");
+        }
+        const itemData = docSnap.data() || {};
+        if (actor.role === "admin" && !isSelf) {
+          if (actor.clan && itemData.clan && actor.clan.trim().toLowerCase() !== String(itemData.clan).trim().toLowerCase()) {
+            throw new Error("CLAN_SCOPE_DENIED");
+          }
+        }
+        const claimants = itemData.claimants || [];
+        if (!targetUserId && targetName) {
+          const matchingByName = claimants.filter(
+            (c) => c.inGameName && String(c.inGameName).trim().toLowerCase() === targetName
+          );
+          const uniqueUserIds = new Set(matchingByName.map((c) => c.userId).filter(Boolean));
+          if (uniqueUserIds.size > 1) {
+            throw new Error("AMBIGUOUS_UNCLAIM_TARGET");
+          }
+        }
+        remainingClaimants = claimants.filter((c) => {
+          const cUserId = c.userId ? String(c.userId).trim().toLowerCase() : "";
+          const cName = c.inGameName ? String(c.inGameName).trim().toLowerCase() : "";
+          const userMatch = targetUserId ? cUserId === targetUserId : cUserId === actorCanonicalId || actorAuthUid && cUserId === actorAuthUid;
+          const nameMatch = targetName ? cName === targetName : actorInGameName && cName === actorInGameName;
+          return !(userMatch || nameMatch);
+        });
+        transaction.set(docRef, {
+          claimants: remainingClaimants,
+          updatedAt: now
+        }, { merge: true });
       });
-      await docRef.set({
-        claimants: currentClaimants,
-        updatedAt: now
-      }, { merge: true });
       if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
         liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item) => {
           if (item.id === itemId) {
             return {
               ...item,
-              claimants: currentClaimants,
+              claimants: remainingClaimants,
               updatedAt: now
             };
           }
@@ -1120,7 +1269,24 @@ async function createApp(options = {}) {
       }
       res.json({ success: true, itemId });
     } catch (err) {
-      res.status(500).json({ success: false, error: err?.message || "FAILED_TO_UNCLAIM" });
+      if (err?.message === "ITEM_NOT_FOUND") {
+        return res.status(404).json({ success: false, error: "ITEM_NOT_FOUND" });
+      }
+      if (err?.message === "CLAN_SCOPE_DENIED") {
+        return res.status(403).json({
+          success: false,
+          error: "CLAN_SCOPE_DENIED",
+          message: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E44\u0E2D\u0E40\u0E17\u0E21\u0E19\u0E2D\u0E01\u0E41\u0E04\u0E25\u0E19 / You cannot manage items from other clans."
+        });
+      }
+      if (err?.message === "AMBIGUOUS_UNCLAIM_TARGET") {
+        return res.status(409).json({
+          success: false,
+          error: "AMBIGUOUS_UNCLAIM_TARGET",
+          message: "\u0E1E\u0E1A\u0E0A\u0E37\u0E48\u0E2D\u0E1C\u0E39\u0E49\u0E40\u0E25\u0E48\u0E19\u0E0B\u0E49\u0E33\u0E01\u0E31\u0E19 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E30\u0E1A\u0E38\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49 / Multiple claimants match in-game name. Please specify userId."
+        });
+      }
+      res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE", message: err?.message || "FAILED_TO_UNCLAIM" });
     }
   });
   app.post("/api/scan-hunters", requireRoles(["owner", "admin", "manager"]), async (req, res) => {

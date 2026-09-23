@@ -125,10 +125,20 @@ function createMockSdk(options = {}) {
       }
     },
     db: {
+      runTransaction: async (updateFunction) => {
+        const transaction = {
+          get: async (docRef) => docRef.get(),
+          set: async (docRef, data, opts) => docRef.set(data, opts),
+          update: async (docRef, data) => docRef.set(data, { merge: true }),
+          delete: async (docRef) => docRef.delete()
+        };
+        return await updateFunction(transaction);
+      },
       collection: (colName) => {
         const col = collections[colName] || (collections[colName] = {});
         return {
           doc: (docId) => ({
+            id: docId,
             get: async () => createMockDocSnapshot(docId, col[docId]),
             set: async (val, opts) => {
               col[docId] = opts?.merge ? { ...(col[docId] || {}), ...val } : val;

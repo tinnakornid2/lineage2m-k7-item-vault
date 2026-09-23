@@ -374,36 +374,12 @@ export async function verifyRoleToken(
   let matchedUserId: string | null = null;
   let matchedUserData: any = null;
 
-  // Condition 1: Check document /users/{decoded.uid} first
-  try {
-    const directDoc = await Promise.race([
-      sdk.db.collection('users').doc(decoded.uid).get(),
-      new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Firestore read timeout')), 3000))
-    ]);
+  const email = typeof decoded.email === 'string' ? decoded.email.trim().toLowerCase() : '';
+  const suffix = '@auth.k7-clan.local';
+  const isSyntheticEmail = email.endsWith(suffix);
 
-    if (directDoc && directDoc.exists) {
-      matchedUserId = directDoc.id;
-      matchedUserData = directDoc.data();
-    }
-  } catch (err: any) {
-    console.warn('Firestore direct user lookup notice:', err?.message || err);
-  }
-
-  // Condition 2: Fallback only when /users/{decoded.uid} does not exist
-  if (!matchedUserData) {
-    // Condition 3: Fallback requires decoded.email to end with @auth.k7-clan.local
-    const email = typeof decoded.email === 'string' ? decoded.email.trim().toLowerCase() : '';
-    const suffix = '@auth.k7-clan.local';
-    if (!email.endsWith(suffix)) {
-      return {
-        success: false,
-        status: 403,
-        code: 'USER_PROFILE_NOT_FOUND',
-        message: 'ไม่พบบัญชีผู้ใช้ที่เชื่อมโยงกับโทเค็นนี้ / No user profile linked to this token.'
-      };
-    }
-
-    // Condition 4: Fallback requires local-part before @auth.k7-clan.local to be a valid even-length hex string
+  if (isSyntheticEmail) {
+    // Condition 1: Legacy account resolution via synthetic auth email
     const hexPart = email.slice(0, -suffix.length);
     if (!hexPart || hexPart.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(hexPart)) {
       return {
@@ -414,7 +390,6 @@ export async function verifyRoleToken(
       };
     }
 
-    // Condition 5: Fallback hex-decodes the local-part as UTF-8 to obtain username
     let decodedUsername = '';
     try {
       decodedUsername = Buffer.from(hexPart, 'hex').toString('utf8');
@@ -436,7 +411,7 @@ export async function verifyRoleToken(
       };
     }
 
-    // Condition 6: Round-trip check: usernameToAuthEmail(decodedUsername) === decoded.email
+    // Condition 2: Round-trip check: usernameToAuthEmail(decodedUsername) === decoded.email
     if (usernameToAuthEmail(decodedUsername) !== email) {
       return {
         success: false,
@@ -446,7 +421,7 @@ export async function verifyRoleToken(
       };
     }
 
-    // Condition 7: Search /users by username case-insensitively
+    // Condition 3: Search /users by username case-insensitively
     let usersSnapshot: any;
     try {
       usersSnapshot = await Promise.race([
@@ -475,24 +450,81 @@ export async function verifyRoleToken(
     const matchingDocs = usersSnapshot.docs.filter((docItem: any) => {
       const data = docItem.data();
       if (!data) return false;
+      if (data.status === 'deleted') return false;
       const uName = typeof data.username === 'string' ? data.username.trim().toLowerCase() : '';
       return uName === decodedUsername.toLowerCase();
     });
 
-    // Condition 8: Uniqueness check: EXACTLY ONE profile must match
-    if (matchingDocs.length !== 1) {
+    if (matchingDocs.length === 0) {
       return {
         success: false,
         status: 403,
-        code: matchingDocs.length === 0 ? 'USER_PROFILE_NOT_FOUND' : 'AMBIGUOUS_USER_PROFILE',
-        message: matchingDocs.length === 0
-          ? 'ไม่พบบัญชีผู้ใช้ในระบบ / User profile not found.'
-          : 'พบโปรไฟล์ผู้ใช้ซ้ำกัน / Multiple user profiles found with the same username.'
+        code: 'USER_PROFILE_NOT_FOUND',
+        message: 'ไม่พบบัญชีผู้ใช้ในระบบ / User profile not found.'
       };
     }
 
-    matchedUserId = matchingDocs[0].id;
-    matchedUserData = matchingDocs[0].data();
+    // Deduplicate Auth UID shadow documents: if a canonical doc (id !== authUid) exists, it takes precedence
+    const canonicalDocs = matchingDocs.filter((d: any) => d.id !== decoded.uid);
+    const shadowDocs = matchingDocs.filter((d: any) => d.id === decoded.uid);
+
+    let chosenDoc: any = null;
+    if (canonicalDocs.length === 1) {
+      chosenDoc = canonicalDocs[0];
+    } else if (canonicalDocs.length === 0 && shadowDocs.length === 1) {
+      chosenDoc = shadowDocs[0];
+    } else if (canonicalDocs.length > 1) {
+      // Ambiguous canonical profiles -> FAIL CLOSED
+      return {
+        success: false,
+        status: 403,
+        code: 'AMBIGUOUS_USER_PROFILE',
+        message: 'พบโปรไฟล์ผู้ใช้ซ้ำกัน / Multiple user profiles found with the same username.'
+      };
+    } else {
+      return {
+        success: false,
+        status: 403,
+        code: 'USER_PROFILE_NOT_FOUND',
+        message: 'ไม่พบบัญชีผู้ใช้ในระบบ / User profile not found.'
+      };
+    }
+
+    matchedUserId = chosenDoc.id;
+    matchedUserData = chosenDoc.data();
+  } else {
+    // Condition 4: Non-synthetic / UID-native user resolution via direct /users/{decoded.uid}
+    try {
+      const directDoc = await Promise.race([
+        sdk.db.collection('users').doc(decoded.uid).get(),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Firestore read timeout')), 3000))
+      ]);
+
+      if (directDoc && directDoc.exists) {
+        const data = directDoc.data();
+        if (data && data.status !== 'deleted') {
+          matchedUserId = directDoc.id;
+          matchedUserData = data;
+        }
+      }
+    } catch (err: any) {
+      console.warn('Firestore direct user lookup notice:', err?.message || err);
+      return {
+        success: false,
+        status: 503,
+        code: 'AUTH_SERVICE_UNAVAILABLE',
+        message: 'ไม่สามารถเข้าถึงฐานข้อมูลผู้ใช้ได้ / User database unavailable.'
+      };
+    }
+
+    if (!matchedUserData) {
+      return {
+        success: false,
+        status: 403,
+        code: 'USER_PROFILE_NOT_FOUND',
+        message: 'ไม่พบบัญชีผู้ใช้ที่เชื่อมโยงกับโทเค็นนี้ / No user profile linked to this token.'
+      };
+    }
   }
 
   // Condition 9: Status check: Matching user profile must NOT be status === 'deleted' or 'suspended'

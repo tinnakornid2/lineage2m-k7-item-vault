@@ -2260,94 +2260,109 @@ export const App: React.FC = () => {
     );
     if (existing) return;
 
-    const now = Date.now();
-
-    // Clear cancellation tombstone if this user previously cancelled
-    if (currentUser.id) {
-      unmarkClaimAsCancelled(itemId, currentUser.id);
-    }
-    if (currentUser.inGameName) {
-      unmarkClaimAsCancelled(itemId, currentUser.inGameName);
-    }
-
-    const newClaimant: Claimant = {
-      userId: currentUser.id,
-      inGameName: currentUser.inGameName,
-      clan: currentUser.clan,
-      powerLevel: currentUser.powerLevel || 0,
-      claimedAt: now
-    };
-
-    const updatedClaimants = [...(item.claimants || []), newClaimant];
-    const nextVaultItems = vaultItems.map((it) =>
-      it.id === itemId ? { ...it, claimants: updatedClaimants, updatedAt: now } : it
-    );
-
-    // Optimistic local state update
-    setVaultItems(nextVaultItems);
-    setCachedVaultItems(nextVaultItems);
-
-    // Real-time broadcast and immediate Google Sheets backup
-    broadcastLiveState(
-      {
-        users,
-        vaultItems: nextVaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
-      currentUser?.inGameName || currentUser?.username || 'Member'
-    );
-
-    triggerDebouncedAutoBackup(
-      {
-        users,
-        vaultItems: nextVaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
-      currentUser?.inGameName || currentUser?.username || 'Member',
-      true
-    );
-
-    // Call server claim endpoint to persist via Admin SDK asynchronously
-    (async () => {
-      try {
-        const token = await getCurrentUserIdToken();
-        if (!token || token.startsWith('local-dev-')) return;
-        await fetch('/api/claim-vault-item', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify({ itemId, claimant: newClaimant })
-        });
-      } catch (e) {
-        console.warn('claim-vault-item endpoint notice:', e);
-      }
-    })();
+    const previousVaultItems = vaultItems;
 
     try {
-      await updateVaultItemDoc(itemId, { claimants: updatedClaimants, updatedAt: now });
+      const token = await getCurrentUserIdToken();
+      if (!token) {
+        showToast(
+          lang === 'th' ? 'กรุณาเข้าสู่ระบบก่อนลงชื่อเคลม' : 'Please login before claiming',
+          'error'
+        );
+        return;
+      }
+
+      const res = await fetch('/api/claim-vault-item', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ itemId })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const errorMsg = errorData.message || (lang === 'th' ? 'การลงชื่อเคลมไม่สำเร็จ' : 'Failed to claim item');
+        showToast(errorMsg, 'error');
+        return;
+      }
+
+      const responseData = await res.json();
+      const authoritativeClaimant: Claimant = responseData.claimant || {
+        userId: currentUser.id,
+        inGameName: currentUser.inGameName,
+        clan: currentUser.clan,
+        powerLevel: currentUser.powerLevel || 0,
+        claimedAt: Date.now()
+      };
+
+      const now = Date.now();
+      const currentClaimants = (item.claimants || []).filter(
+        (c) => c.userId !== authoritativeClaimant.userId &&
+               (!authoritativeClaimant.inGameName || c.inGameName?.trim().toLowerCase() !== authoritativeClaimant.inGameName.trim().toLowerCase())
+      );
+      const updatedClaimants = [...currentClaimants, authoritativeClaimant];
+
+      const nextVaultItems = vaultItems.map((it) =>
+        it.id === itemId ? { ...it, claimants: updatedClaimants, updatedAt: now } : it
+      );
+
+      // Update state and cache
+      setVaultItems(nextVaultItems);
+      setCachedVaultItems(nextVaultItems);
+
+      // Clear cancellation tombstone if this user previously cancelled
+      if (currentUser.id) {
+        unmarkClaimAsCancelled(itemId, currentUser.id);
+      }
+      if (currentUser.inGameName) {
+        unmarkClaimAsCancelled(itemId, currentUser.inGameName);
+      }
+
+      // Real-time broadcast and immediate Google Sheets backup
+      broadcastLiveState(
+        {
+          users,
+          vaultItems: nextVaultItems,
+          quickItems,
+          generalItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
+        },
+        currentUser?.inGameName || currentUser?.username || 'Member'
+      );
+
+      triggerDebouncedAutoBackup(
+        {
+          users,
+          vaultItems: nextVaultItems,
+          quickItems,
+          generalItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
+        },
+        currentUser?.inGameName || currentUser?.username || 'Member',
+        true
+      );
+
       showToast(
         lang === 'th' ? 'ลงชื่อเครมไอเทมสำเร็จ!' : 'Claim submitted successfully!',
         'success'
       );
-    } catch (err) {
-      console.error('Failed to update claim in Firestore:', err);
+    } catch (err: any) {
+      console.error('Failed to claim item via backend:', err);
+      setVaultItems(previousVaultItems);
+      setCachedVaultItems(previousVaultItems);
       showToast(
-        lang === 'th' ? 'ลงชื่อเครมไอเทมสำเร็จ! (โหมดแคช)' : 'Claim submitted successfully! (Cached)',
-        'success'
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการลงชื่อเคลม' : 'Error submitting claim',
+        'error'
       );
     }
   };
@@ -2368,107 +2383,114 @@ export const App: React.FC = () => {
     const item = vaultItems.find((i) => i.id === itemId);
     if (!item || isItemDistributed(item)) return;
 
-    // 1. Record cancellation tombstone immediately so background sync, Google Sheets, or Firestore never resurrects this claim
-    if (userIdToRemove) {
-      markClaimAsCancelled(itemId, userIdToRemove);
-    }
-    if (inGameNameToRemove) {
-      markClaimAsCancelled(itemId, inGameNameToRemove);
-    }
+    const previousVaultItems = vaultItems;
 
-    const updatedClaimants = (item.claimants || []).filter((c) => {
-      if (userIdToRemove && c.userId && c.userId === userIdToRemove) {
-        return false;
-      }
-      if (
-        inGameNameToRemove &&
-        c.inGameName &&
-        c.inGameName.trim().toLowerCase() === inGameNameToRemove.trim().toLowerCase()
-      ) {
-        return false;
-      }
-      return true;
-    });
-
-    const now = Date.now();
-    const nextVaultItems = vaultItems.map((it) =>
-      it.id === itemId ? { ...it, claimants: updatedClaimants, updatedAt: now } : it
-    );
-
-    // 2. Optimistic UI update immediately
-    setVaultItems(nextVaultItems);
-    setCachedVaultItems(nextVaultItems);
-
-    if (claimantsTargetItem && claimantsTargetItem.id === itemId) {
-      setClaimantsTargetItem({
-        ...claimantsTargetItem,
-        claimants: updatedClaimants,
-        updatedAt: now
-      });
-    }
-
-    // 3. Broadcast to Live Relay Server & Google Sheets immediately
-    broadcastLiveState(
-      {
-        users,
-        vaultItems: nextVaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
-      currentUser?.inGameName || currentUser?.username || 'Member'
-    );
-
-    triggerDebouncedAutoBackup(
-      {
-        users,
-        vaultItems: nextVaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
-      currentUser?.inGameName || currentUser?.username || 'Member',
-      true
-    );
-
-    // Call server unclaim endpoint asynchronously
-    (async () => {
-      try {
-        const token = await getCurrentUserIdToken();
-        if (!token || token.startsWith('local-dev-')) return;
-        await fetch('/api/unclaim-vault-item', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify({ itemId, userId: userIdToRemove, inGameName: inGameNameToRemove })
-        });
-      } catch (e) {
-        console.warn('unclaim-vault-item endpoint notice:', e);
-      }
-    })();
-
-    // 4. Persist to Firestore
     try {
-      await updateVaultItemDoc(itemId, { claimants: updatedClaimants, updatedAt: now });
+      const token = await getCurrentUserIdToken();
+      if (!token) {
+        showToast(
+          lang === 'th' ? 'กรุณาเข้าสู่ระบบก่อนยกเลิกการเคลม' : 'Please login before cancelling claim',
+          'error'
+        );
+        return;
+      }
+
+      const res = await fetch('/api/unclaim-vault-item', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ itemId, userId: userIdToRemove, inGameName: inGameNameToRemove })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const errorMsg = errorData.message || (lang === 'th' ? 'ยกเลิกการลงชื่อเคลมไม่สำเร็จ' : 'Failed to cancel claim');
+        showToast(errorMsg, 'error');
+        return;
+      }
+
+      // Record cancellation tombstone
+      if (userIdToRemove) {
+        markClaimAsCancelled(itemId, userIdToRemove);
+      }
+      if (inGameNameToRemove) {
+        markClaimAsCancelled(itemId, inGameNameToRemove);
+      }
+
+      const updatedClaimants = (item.claimants || []).filter((c) => {
+        if (userIdToRemove && c.userId && c.userId === userIdToRemove) {
+          return false;
+        }
+        if (
+          inGameNameToRemove &&
+          c.inGameName &&
+          c.inGameName.trim().toLowerCase() === inGameNameToRemove.trim().toLowerCase()
+        ) {
+          return false;
+        }
+        return true;
+      });
+
+      const now = Date.now();
+      const nextVaultItems = vaultItems.map((it) =>
+        it.id === itemId ? { ...it, claimants: updatedClaimants, updatedAt: now } : it
+      );
+
+      setVaultItems(nextVaultItems);
+      setCachedVaultItems(nextVaultItems);
+
+      if (claimantsTargetItem && claimantsTargetItem.id === itemId) {
+        setClaimantsTargetItem({
+          ...claimantsTargetItem,
+          claimants: updatedClaimants,
+          updatedAt: now
+        });
+      }
+
+      broadcastLiveState(
+        {
+          users,
+          vaultItems: nextVaultItems,
+          quickItems,
+          generalItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
+        },
+        currentUser?.inGameName || currentUser?.username || 'Member'
+      );
+
+      triggerDebouncedAutoBackup(
+        {
+          users,
+          vaultItems: nextVaultItems,
+          quickItems,
+          generalItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings()
+        },
+        currentUser?.inGameName || currentUser?.username || 'Member',
+        true
+      );
+
       showToast(
         lang === 'th' ? 'ยกเลิกการลงชื่อเครมสำเร็จ' : 'Claim cancelled successfully',
         'info'
       );
-    } catch (err) {
-      console.error('Failed to unclaim item in Firestore:', err);
+    } catch (err: any) {
+      console.error('Failed to unclaim item via backend:', err);
+      setVaultItems(previousVaultItems);
+      setCachedVaultItems(previousVaultItems);
       showToast(
-        lang === 'th' ? 'ยกเลิกการลงชื่อเครมสำเร็จ (โหมดแคช)' : 'Claim cancelled successfully (Cached)',
-        'info'
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการยกเลิกการเคลม' : 'Error cancelling claim',
+        'error'
       );
     }
   };
