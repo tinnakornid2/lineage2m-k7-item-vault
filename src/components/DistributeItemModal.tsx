@@ -351,7 +351,7 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
               <span>•</span>
               <span className="text-[#f5d77f] font-mono">{item.rarity}</span>
               <span>•</span>
-              <span>{item.price > 0 ? `💎 ${item.price.toLocaleString()}` : (lang === 'th' ? '🎁 ฟรี (0 เพชร)' : '🎁 FREE (0 Diamonds)')}</span>
+              <span>{Number(item.price || 0) > 0 ? `💎 ${Number(item.price || 0).toLocaleString()}` : (lang === 'th' ? '🎁 ฟรี (0 เพชร)' : '🎁 FREE (0 Diamonds)')}</span>
             </div>
           </div>
         </div>
@@ -409,7 +409,7 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                   const mClasses = (m.classes && m.classes.length > 0) ? m.classes : (m.characterClass ? [m.characterClass] : []);
                   return (
                     <option key={m.id} value={`member:${m.id}`}>
-                      {m.inGameName} | {m.clan} {m.powerLevel ? `(⚡ ${(m.powerLevel).toLocaleString()} PL)` : ''} {mClasses.length > 0 ? `• ${mClasses.join(', ')}` : ''}
+                      {m.inGameName} | {m.clan} {m.powerLevel ? `(⚡ ${Number(m.powerLevel).toLocaleString()} PL)` : ''} {mClasses.length > 0 ? `• ${mClasses.join(', ')}` : ''}
                     </option>
                   );
                 })}
@@ -525,7 +525,7 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                     </option>
                     {dropdownMembers.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.inGameName} | {m.clan} {m.powerLevel ? `(⚡ ${(m.powerLevel).toLocaleString()} PL)` : ''} {m.characterClass ? `• ${m.characterClass}` : ''}
+                        {m.inGameName} | {m.clan} {m.powerLevel ? `(⚡ ${Number(m.powerLevel).toLocaleString()} PL)` : ''} {m.characterClass ? `• ${m.characterClass}` : ''}
                       </option>
                     ))}
                   </select>
@@ -568,7 +568,7 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                           </span>
                         </div>
                         <div className="text-xs text-amber-400 font-mono mt-0.5">
-                          {selectedRecipient.powerLevel ? `⚡ ${selectedRecipient.powerLevel.toLocaleString()} PL` : ''}
+                          {selectedRecipient.powerLevel ? `⚡ ${Number(selectedRecipient.powerLevel).toLocaleString()} PL` : ''}
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           {recClasses.length > 0 ? (
@@ -836,7 +836,7 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
               </div>
               {selectedRecipient.powerLevel ? (
                 <span className="text-amber-400 font-mono font-bold">
-                  ⚡ {selectedRecipient.powerLevel.toLocaleString()} PL
+                  ⚡ {Number(selectedRecipient.powerLevel || 0).toLocaleString()} PL
                 </span>
               ) : null}
             </div>

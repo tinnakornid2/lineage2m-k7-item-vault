@@ -555,7 +555,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                           <span>{members.length} {lang === 'th' ? 'คน' : 'members'}</span>
                           <span>•</span>
                           <span className="text-amber-400 font-mono font-bold">
-                            ⚡ {clanPower.toLocaleString()} PL
+                            ⚡ {Number(clanPower || 0).toLocaleString()} PL
                           </span>
                         </div>
                       </div>

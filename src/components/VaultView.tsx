@@ -1784,7 +1784,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                         <optgroup key={clanName} label={`🏰 ${clanName} (${cMembers.length})`}>
                           {cMembers.map((m) => (
                             <option key={m.id} value={m.id}>
-                              {m.inGameName} {m.characterClass ? `• ${m.characterClass}` : ''} {m.powerLevel ? `• PL ${m.powerLevel.toLocaleString()}` : ''}
+                              {m.inGameName} {m.characterClass ? `• ${m.characterClass}` : ''} {m.powerLevel ? `• PL ${Number(m.powerLevel).toLocaleString()}` : ''}
                             </option>
                           ))}
                         </optgroup>
@@ -2860,12 +2860,12 @@ export const VaultView: React.FC<VaultViewProps> = ({
                       <div className="flex items-center gap-3 mt-1 text-xs">
                         <span className="text-amber-400 font-mono font-bold flex items-center gap-1">
                           <Gem className="size-3 text-amber-400" />
-                          {item.price > 0 ? `${item.price.toLocaleString()} Dia` : (lang === 'th' ? 'ฟรี' : 'Free')}
+                          {Number(item.price || 0) > 0 ? `${Number(item.price || 0).toLocaleString()} Dia` : (lang === 'th' ? 'ฟรี' : 'Free')}
                         </span>
-                        {item.minPowerLevel && item.minPowerLevel > 0 && (
+                        {Number(item.minPowerLevel || 0) > 0 && (
                           <span className="text-cyan-300 font-mono text-[11px] flex items-center gap-0.5">
                             <Zap className="size-3 text-cyan-400" />
-                            {item.minPowerLevel.toLocaleString()} PL
+                            {Number(item.minPowerLevel || 0).toLocaleString()} PL
                           </span>
                         )}
                       </div>
@@ -3069,7 +3069,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                         {item.price > 0 ? (
                           <div className="space-y-1.5">
                             <span className="text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.3)] block text-xs">
-                              {item.price.toLocaleString()} {t.diamonds}
+                              {Number(item.price || 0).toLocaleString()} {t.diamonds}
                             </span>
                             {item.paymentStatus === 'paid' ? (
                               <button
@@ -3510,7 +3510,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     </span>
                     {viewingDistributedHuntersItem.price > 0 ? (
                       <span className="text-xs font-mono text-white font-bold drop-shadow-[0_0_4px_rgba(255,255,255,0.3)]">
-                        {viewingDistributedHuntersItem.price.toLocaleString()} {t.diamonds}
+                        {Number(viewingDistributedHuntersItem.price || 0).toLocaleString()} {t.diamonds}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">

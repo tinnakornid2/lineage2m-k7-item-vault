@@ -114,8 +114,8 @@ function buildTemplateDescription(
   const displayRarity = item.rarity === 'LAGEND' ? 'LEGEND' : item.rarity;
   const ansiColor = getAnsiRarityCode(item.rarity);
   const qty = item.quantity || 1;
-  const priceLabel = item.price > 0
-    ? `${item.price.toLocaleString()} Diamonds`
+  const priceLabel = Number(item.price || 0) > 0
+    ? `${Number(item.price || 0).toLocaleString()} Diamonds`
     : 'FREE (0 Diamonds)';
 
   const noteLine = customNote?.trim() ? `\n💬 *Note: ${customNote.trim()}*` : '';
@@ -413,8 +413,8 @@ export async function sendDiscordNotification(
             },
             {
               name: '💎 Item Value',
-              value: item.price > 0
-                ? `**${item.price.toLocaleString()} Diamonds**`
+              value: Number(item.price || 0) > 0
+                ? `**${Number(item.price || 0).toLocaleString()} Diamonds**`
                 : '**🎁 FREE (0 Diamonds)**',
               inline: true
             },

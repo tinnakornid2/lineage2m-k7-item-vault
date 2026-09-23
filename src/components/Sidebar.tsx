@@ -359,7 +359,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#0d1627]/90 border border-white/25 hover:border-white/50 text-xs font-mono font-bold text-white shadow-sm cursor-pointer transition-all"
           >
             <Gem className="w-3.5 h-3.5 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.6)]" />
-            <span>{vaultBalance.toLocaleString()}</span>
+            <span>{Number(vaultBalance || 0).toLocaleString()}</span>
           </button>
 
           {isOwner && onOpenBgModal && (
@@ -552,7 +552,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <Sparkles className="w-2.5 h-2.5 text-white animate-pulse" />
                   </div>
                   <div className="text-base sm:text-lg font-bold font-mono text-white tracking-tight drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]">
-                    {vaultBalance.toLocaleString()}
+                    {Number(vaultBalance || 0).toLocaleString()}
                   </div>
                 </div>
               </div>
@@ -1001,7 +1001,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[9.5px] font-mono text-emerald-300 font-bold shrink-0 shadow-[0_0_10px_rgba(52,211,153,0.15)]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v2.10.12</span>
+              <span>v2.10.13</span>
             </div>
           </div>
 

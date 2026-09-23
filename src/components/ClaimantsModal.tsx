@@ -169,13 +169,13 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
 
             <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
               <span className="text-amber-400 font-mono font-medium">
-                {item.price > 0 ? `💎 ${item.price.toLocaleString()} ${t.diamonds}` : (lang === 'th' ? '🎁 ฟรี (0 เพชร)' : '🎁 FREE (0 Diamonds)')}
+                {Number(item.price || 0) > 0 ? `💎 ${Number(item.price || 0).toLocaleString()} ${t.diamonds}` : (lang === 'th' ? '🎁 ฟรี (0 เพชร)' : '🎁 FREE (0 Diamonds)')}
               </span>
               <span>•</span>
               <span>
                 {lang === 'th' ? 'เกณฑ์พลังขั้นต่ำ:' : 'Min PL:'}{' '}
                 <strong className="text-slate-200 font-mono">
-                  ⚡ {item.minPowerLevel.toLocaleString()} PL
+                  ⚡ {Number(item.minPowerLevel || 0).toLocaleString()} PL
                 </strong>
               </span>
               <span>•</span>

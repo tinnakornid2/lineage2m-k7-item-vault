@@ -484,7 +484,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
               </div>
               <div className="p-2.5 rounded-lg bg-[#141e33] border border-white/5">
                 <div className="text-lg font-bold text-amber-300 font-mono">
-                  {currentData.vaultBalance.toLocaleString()}
+                  {(Number(currentData.vaultBalance || 0)).toLocaleString()}
                 </div>
                 <div className="text-[11px] text-slate-400">{lang === 'th' ? 'กองทุนไดอา' : 'Diamonds'}</div>
               </div>

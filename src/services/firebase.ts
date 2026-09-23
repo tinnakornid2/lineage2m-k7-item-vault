@@ -169,8 +169,71 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 
 export const INITIAL_QUEUES: QueueItem[] = [];
 
+export function sanitizeVaultItem<T extends Partial<VaultItem>>(item: T): VaultItem {
+  if (!item) return item as any;
+  const anyItem = item as any;
+  return {
+    ...item,
+    id: anyItem.id || `item_${Date.now()}`,
+    name: anyItem.name || 'Unnamed Item',
+    imageUrl: anyItem.imageUrl || '',
+    price: Number(anyItem.price || 0),
+    minPowerLevel: Number(anyItem.minPowerLevel || 0),
+    rarity: anyItem.rarity || 'RARE',
+    quantity: Math.max(1, Number(anyItem.quantity || 1)),
+    hunters: Array.isArray(anyItem.hunters) ? anyItem.hunters : [],
+    hunterScreenshots: Array.isArray(anyItem.hunterScreenshots) ? anyItem.hunterScreenshots : [],
+    status: anyItem.status === 'distributed' ? 'distributed' : 'available',
+    claimants: Array.isArray(anyItem.claimants) ? anyItem.claimants : [],
+    distributedTo: anyItem.distributedTo,
+    receiptImages: Array.isArray(anyItem.receiptImages) ? anyItem.receiptImages : [],
+    paymentStatus: anyItem.paymentStatus || 'pending',
+    createdAt: Number(anyItem.createdAt || Date.now()),
+    updatedAt: anyItem.updatedAt ? Number(anyItem.updatedAt) : undefined
+  } as VaultItem;
+}
+
+export function sanitizeUser<T extends Partial<User>>(user: T): User {
+  if (!user) return user as any;
+  const anyUser = user as any;
+  return {
+    ...user,
+    id: anyUser.id || `user_${Date.now()}`,
+    username: anyUser.username || '',
+    inGameName: anyUser.inGameName || '',
+    clan: anyUser.clan || '',
+    role: anyUser.role || 'member',
+    powerLevel: Number(anyUser.powerLevel || 0),
+    level: Number(anyUser.level || 0),
+    characterClass: anyUser.characterClass || '',
+    classes: Array.isArray(anyUser.classes) ? anyUser.classes : [],
+    legendClasses: Array.isArray(anyUser.legendClasses) ? anyUser.legendClasses : [],
+    legendAgathions: Array.isArray(anyUser.legendAgathions) ? anyUser.legendAgathions : [],
+    status: anyUser.status || 'active',
+    verified: Boolean(anyUser.verified),
+    createdAt: Number(anyUser.createdAt || Date.now())
+  } as User;
+}
+
+export function sanitizeGeneralItem<T extends Partial<GeneralItem>>(item: T): GeneralItem {
+  if (!item) return item as any;
+  const anyItem = item as any;
+  return {
+    ...item,
+    id: anyItem.id || `gen_${Date.now()}`,
+    name: anyItem.name || 'General Item',
+    price: Number(anyItem.price || 0),
+    minPowerLevel: Number(anyItem.minPowerLevel || 0),
+    quantity: Math.max(0, Number(anyItem.quantity || 0)),
+    rarity: anyItem.rarity || 'RARE',
+    category: anyItem.category || 'other',
+    order: Number(anyItem.order || 0),
+    active: anyItem.active !== false
+  } as GeneralItem;
+}
+
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.11-step13-authoritative-delete';
+const CACHE_SCHEMA_VERSION = '2.10.13-cache-sanitization-fix';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -217,6 +280,29 @@ if (typeof localStorage !== 'undefined') {
         'l2m_active_tab'
       ];
       LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
+
+      // Resilient inline sanitization for current v271 caches
+      try {
+        const rawVault = localStorage.getItem(CACHE_KEYS.VAULT_ITEMS);
+        if (rawVault) {
+          const parsed = JSON.parse(rawVault);
+          if (Array.isArray(parsed)) {
+            const sanitized = parsed.map((i: any) => sanitizeVaultItem(i));
+            localStorage.setItem(CACHE_KEYS.VAULT_ITEMS, JSON.stringify(sanitized));
+          }
+        }
+      } catch {}
+
+      try {
+        const rawUsers = localStorage.getItem(CACHE_KEYS.USERS);
+        if (rawUsers) {
+          const parsed = JSON.parse(rawUsers);
+          if (Array.isArray(parsed)) {
+            const sanitized = parsed.map((u: any) => sanitizeUser(u));
+            localStorage.setItem(CACHE_KEYS.USERS, JSON.stringify(sanitized));
+          }
+        }
+      } catch {}
 
       localStorage.setItem(CACHE_SCHEMA_KEY, CACHE_SCHEMA_VERSION);
     }
@@ -480,24 +566,28 @@ export function getCachedUsers(): User[] {
     pool = getCachedData<User[]>(CACHE_KEYS.USERS, []);
     inMemoryUsers = pool;
   }
-  return pool.filter((u) => {
-    if (!u || !u.id) return false;
-    if (u.status === 'deleted') return false;
-    if (u.status === 'shadow' || u.isAuthShadow) return false;
-    if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
-    return !deletedMap[u.id];
-  });
+  return pool
+    .filter((u) => {
+      if (!u || !u.id) return false;
+      if (u.status === 'deleted') return false;
+      if (u.status === 'shadow' || u.isAuthShadow) return false;
+      if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
+      return !deletedMap[u.id];
+    })
+    .map((u) => sanitizeUser(u));
 }
 
 export function setCachedUsers(users: User[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
-  const clean = (users || []).filter((u) => {
-    if (!u || !u.id) return false;
-    if (u.status === 'deleted') return false;
-    if (u.status === 'shadow' || u.isAuthShadow) return false;
-    if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
-    return !deletedMap[u.id];
-  });
+  const clean = (users || [])
+    .filter((u) => {
+      if (!u || !u.id) return false;
+      if (u.status === 'deleted') return false;
+      if (u.status === 'shadow' || u.isAuthShadow) return false;
+      if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
+      return !deletedMap[u.id];
+    })
+    .map((u) => sanitizeUser(u));
   inMemoryUsers = clean;
   setCachedData(CACHE_KEYS.USERS, clean);
 }
@@ -660,12 +750,16 @@ export function getCachedGeneralItems(): GeneralItem[] {
     pool = getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
     inMemoryGeneralItems = pool;
   }
-  return pool.filter((item) => item && item.id && !deletedMap[item.id]);
+  return pool
+    .filter((item) => item && item.id && !deletedMap[item.id])
+    .map((item) => sanitizeGeneralItem(item));
 }
 
 export function setCachedGeneralItems(items: GeneralItem[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
-  const clean = (items || []).filter((item) => item && item.id && !deletedMap[item.id]);
+  const clean = (items || [])
+    .filter((item) => item && item.id && !deletedMap[item.id])
+    .map((item) => sanitizeGeneralItem(item));
   inMemoryGeneralItems = clean;
   setCachedData(CACHE_KEYS.GENERAL_ITEMS, clean);
 }
@@ -978,7 +1072,7 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
   }
 
   result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  return result;
+  return result.map((item) => sanitizeVaultItem(item));
 }
 
 export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: QueueItem[]): QueueItem[] {
@@ -1067,7 +1161,8 @@ export function getCachedVaultItems(): VaultItem[] {
   return pool
     .filter((item) => item && item.id && !deletedMap[item.id])
     .map((item) => {
-      const norm = normalizeDistributedItem(item);
+      const sanitized = sanitizeVaultItem(item);
+      const norm = normalizeDistributedItem(sanitized);
       return {
         ...norm,
         claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(item.id, c))
@@ -1080,7 +1175,8 @@ export function setCachedVaultItems(items: VaultItem[]): void {
   const clean = (items || [])
     .filter((i) => i && i.id && !deletedMap[i.id])
     .map((i) => {
-      const norm = normalizeDistributedItem(i);
+      const sanitized = sanitizeVaultItem(i);
+      const norm = normalizeDistributedItem(sanitized);
       return {
         ...norm,
         claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(i.id, c))

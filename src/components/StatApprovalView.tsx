@@ -91,8 +91,8 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
       if (showToast) {
         showToast(
           lang === 'th'
-            ? `อนุมัติสเตตัสใหม่ของ ${user.inGameName} สำเร็จ (⚡ ${user.pendingPowerLevel?.toLocaleString()} PL) 🎉`
-            : `Approved ${user.inGameName}'s stat update (⚡ ${user.pendingPowerLevel?.toLocaleString()} PL) 🎉`,
+            ? `อนุมัติสเตตัสใหม่ของ ${user.inGameName} สำเร็จ (⚡ ${Number(user.pendingPowerLevel || 0).toLocaleString()} PL) 🎉`
+            : `Approved ${user.inGameName}'s stat update (⚡ ${Number(user.pendingPowerLevel || 0).toLocaleString()} PL) 🎉`,
           'success'
         );
       }
@@ -345,15 +345,15 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
                   {/* Power Level Comparison Badge */}
                   <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-slate-950 border border-slate-750 shadow-inner">
                     <span className="text-xs text-slate-400 font-mono">
-                      {prevPL.toLocaleString()} PL
+                      {Number(prevPL || 0).toLocaleString()} PL
                     </span>
                     <ArrowRight className="size-4 text-slate-500" />
                     <span className="text-lg font-black text-amber-400 font-mono">
-                      ⚡ {nextPL.toLocaleString()} PL
+                      ⚡ {Number(nextPL || 0).toLocaleString()} PL
                     </span>
                     {diffPL > 0 && (
                       <span className="text-xs font-bold text-emerald-400 font-mono bg-emerald-500/15 px-2 py-0.5 rounded-md border border-emerald-500/30">
-                        (+{diffPL.toLocaleString()})
+                        (+{Number(diffPL || 0).toLocaleString()})
                       </span>
                     )}
                   </div>

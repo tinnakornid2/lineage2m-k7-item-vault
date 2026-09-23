@@ -96,9 +96,9 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
   };
 
   const displayRarity = item.rarity === 'LAGEND' ? 'LEGEND' : item.rarity;
-  const priceLabel = item.price > 0 ? `${item.price.toLocaleString()} Diamonds` : (th ? 'ฟรี (0 เพชร)' : 'FREE (0 Diamonds)');
-  const discordPriceLabel = item.price > 0
-    ? `${item.price.toLocaleString()} Diamonds`
+  const priceLabel = Number(item.price || 0) > 0 ? `${Number(item.price || 0).toLocaleString()} Diamonds` : (th ? 'ฟรี (0 เพชร)' : 'FREE (0 Diamonds)');
+  const discordPriceLabel = Number(item.price || 0) > 0
+    ? `${Number(item.price || 0).toLocaleString()} Diamonds`
     : 'FREE (0 Diamonds)';
 
 

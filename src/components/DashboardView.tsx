@@ -470,7 +470,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                   <div className="flex items-baseline gap-1">
                     <span className="text-xl sm:text-2xl font-extrabold font-mono text-white drop-shadow">
-                      💎 {vaultBalance.toLocaleString()}
+                      💎 {Number(vaultBalance || 0).toLocaleString()}
                     </span>
                   </div>
                   <button
@@ -903,9 +903,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                   x{item.quantity || 1}
                                 </span>
                               </div>
-                              {item.price > 0 ? (
+                              {Number(item.price || 0) > 0 ? (
                                 <span className="text-[11px] font-mono text-amber-300 shrink-0 font-bold">
-                                  💎 {item.price.toLocaleString()}
+                                  💎 {Number(item.price || 0).toLocaleString()}
                                 </span>
                               ) : (
                                 <span className="text-[11px] font-bold text-emerald-400 shrink-0">
@@ -1230,7 +1230,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                         <div className="text-right shrink-0 flex flex-col items-end gap-0.5">
                           <div className="text-xs font-mono font-bold text-white">
-                            {item.price > 0 ? `💎 ${item.price.toLocaleString()}` : `🎁 ${t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}`}
+                            {Number(item.price || 0) > 0 ? `💎 ${Number(item.price || 0).toLocaleString()}` : `🎁 ${t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}`}
                           </div>
 
                           {/* Payment Status for non-free distributed item (Status only, no button on dashboard) */}
@@ -1562,10 +1562,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                         {/* Price */}
                         <div className="shrink-0 ml-1">
-                          {item.price > 0 ? (
+                          {Number(item.price || 0) > 0 ? (
                             <div className="flex items-center gap-0.5 font-mono font-bold text-xs text-white">
                               <Gem className="w-3 h-3 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)] shrink-0" />
-                              <span>{item.price.toLocaleString()}</span>
+                              <span>{Number(item.price || 0).toLocaleString()}</span>
                             </div>
                           ) : (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
@@ -1581,10 +1581,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 min-w-0">
                           <div
                             className="flex items-center gap-0.5 text-[9.5px] sm:text-[10px] font-mono shrink-0"
-                            title={`Min Power: ${item.minPowerLevel.toLocaleString()} PL`}
+                            title={`Min Power: ${Number(item.minPowerLevel || 0).toLocaleString()} PL`}
                           >
                             <Zap className="w-2.5 h-2.5 text-amber-400 shrink-0" />
-                            <span className="text-amber-300 font-bold">{item.minPowerLevel.toLocaleString()}</span>
+                            <span className="text-amber-300 font-bold">{Number(item.minPowerLevel || 0).toLocaleString()}</span>
                             {currentUser && (
                               <span className="text-[8.5px] ml-0.5 font-bold">
                                 {hasEnoughPower ? (
@@ -1877,10 +1877,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                           {/* Col 3: Price */}
                           <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                            {item.price > 0 ? (
+                            {Number(item.price || 0) > 0 ? (
                               <div className="inline-flex items-center gap-1 font-mono font-bold text-xs text-white">
                                 <Gem className="w-3 h-3 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)]" />
-                                <span>{item.price.toLocaleString()}</span>
+                                <span>{Number(item.price || 0).toLocaleString()}</span>
                               </div>
                             ) : (
                               <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
@@ -1893,7 +1893,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <td className="py-2.5 px-3 text-center whitespace-nowrap">
                             <div className="inline-flex items-center gap-1 text-[11px] font-mono">
                               <Zap className="w-3 h-3 text-amber-400" />
-                              <span className="text-amber-300 font-bold">{item.minPowerLevel.toLocaleString()}</span>
+                              <span className="text-amber-300 font-bold">{Number(item.minPowerLevel || 0).toLocaleString()}</span>
                               {currentUser && (
                                 <span className="text-[9px] font-bold">
                                   {hasEnoughPower ? (

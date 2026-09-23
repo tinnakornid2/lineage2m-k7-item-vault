@@ -632,13 +632,13 @@ export const BulkSwapClanModal: React.FC<BulkSwapClanModalProps> = ({
                         <span className="truncate">
                           {lang === 'th' ? 'รวม:' : 'Total:'}{' '}
                           <strong className="text-amber-400">
-                            ⚡ {totalClanPL.toLocaleString()}
+                            ⚡ {Number(totalClanPL || 0).toLocaleString()}
                           </strong>
                         </span>
                         <span className="truncate">
                           {lang === 'th' ? 'เฉลี่ย:' : 'Avg:'}{' '}
                           <strong className="text-cyan-400">
-                            {avgClanPL.toLocaleString()}
+                            {Number(avgClanPL || 0).toLocaleString()}
                           </strong>
                         </span>
                       </div>

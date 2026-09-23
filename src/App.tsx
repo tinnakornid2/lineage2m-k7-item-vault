@@ -718,8 +718,8 @@ export const App: React.FC = () => {
             ? `${c.inGameName} (${cleanClanName(c.clan) || 'VoltZ'}) ลงชื่อขอรับไอเทม`
             : `${c.inGameName} (${cleanClanName(c.clan) || 'VoltZ'}) claimed an item`,
           description: th
-            ? `ขอรับ [${item.rarity}] ${item.name} (x${item.quantity || 1}) • ${item.price > 0 ? `💎 ${item.price.toLocaleString()} เพชร` : '🎁 ฟรี'}`
-            : `Claimed [${item.rarity}] ${item.name} (x${item.quantity || 1}) • ${item.price > 0 ? `💎 ${item.price.toLocaleString()} Dia` : '🎁 Free'}`,
+            ? `ขอรับ [${item.rarity}] ${item.name} (x${item.quantity || 1}) • ${Number(item.price || 0) > 0 ? `💎 ${Number(item.price || 0).toLocaleString()} เพชร` : '🎁 ฟรี'}`
+            : `Claimed [${item.rarity}] ${item.name} (x${item.quantity || 1}) • ${Number(item.price || 0) > 0 ? `💎 ${Number(item.price || 0).toLocaleString()} Dia` : '🎁 Free'}`,
           timestamp: c.claimedAt || item.createdAt || Date.now(),
           read: readNotificationIds.includes(notifId),
           item: item,
@@ -766,8 +766,8 @@ export const App: React.FC = () => {
             ? `${m.name} (${cleanClanName(m.clan) || 'VoltZ'}) ขอรับไอเทมทั่วไป`
             : `${m.name} (${cleanClanName(m.clan) || 'VoltZ'}) requested general item`,
           description: th
-            ? `ขอรับ [${gItem.rarity || 'RARE'}] ${gItem.name} (x${gItem.quantity || 1}) • ${gItem.price > 0 ? `💎 ${gItem.price.toLocaleString()} เพชร` : '🎁 ฟรี'} • ⚡ ${m.powerLevel ? `${m.powerLevel.toLocaleString()} PL` : '0 PL'}`
-            : `Requested [${gItem.rarity || 'RARE'}] ${gItem.name} (x${gItem.quantity || 1}) • ${gItem.price > 0 ? `💎 ${gItem.price.toLocaleString()} Dia` : '🎁 Free'} • ⚡ ${m.powerLevel ? `${m.powerLevel.toLocaleString()} PL` : '0 PL'}`,
+            ? `ขอรับ [${gItem.rarity || 'RARE'}] ${gItem.name} (x${gItem.quantity || 1}) • ${Number(gItem.price || 0) > 0 ? `💎 ${Number(gItem.price || 0).toLocaleString()} เพชร` : '🎁 ฟรี'} • ⚡ ${m.powerLevel ? `${Number(m.powerLevel).toLocaleString()} PL` : '0 PL'}`
+            : `Requested [${gItem.rarity || 'RARE'}] ${gItem.name} (x${gItem.quantity || 1}) • ${Number(gItem.price || 0) > 0 ? `💎 ${Number(gItem.price || 0).toLocaleString()} Dia` : '🎁 Free'} • ⚡ ${m.powerLevel ? `${Number(m.powerLevel).toLocaleString()} PL` : '0 PL'}`,
           timestamp: m.joinedAt || gItem.createdAt || Date.now(),
           read: readNotificationIds.includes(notifId),
           generalItem: gItem,
@@ -1728,7 +1728,7 @@ export const App: React.FC = () => {
           amount: delta,
           grossAmount: Math.abs(delta),
           netAmount: delta,
-          note: note || (lang === 'th' ? `ปรับยอดโดย Owner (เป้าหมาย: ${targetBalance.toLocaleString()} เพชร)` : `Owner Balance Adjustment (Target: ${targetBalance.toLocaleString()})`),
+          note: note || (lang === 'th' ? `ปรับยอดโดย Owner (เป้าหมาย: ${Number(targetBalance || 0).toLocaleString()} เพชร)` : `Owner Balance Adjustment (Target: ${Number(targetBalance || 0).toLocaleString()})`),
           clanScope: 'all',
           balanceAfter: targetBalance,
           performedBy: {
@@ -3934,8 +3934,8 @@ export const App: React.FC = () => {
 
       showToast(
         lang === 'th'
-          ? `อนุมัติสเตตัสใหม่ของ ${target.inGameName} (⚡ ${approvedPower.toLocaleString()} PL) สำเร็จ!`
-          : `Approved new stats for ${target.inGameName} (⚡ ${approvedPower.toLocaleString()} PL)!`,
+          ? `อนุมัติสเตตัสใหม่ของ ${target.inGameName} (⚡ ${Number(approvedPower || 0).toLocaleString()} PL) สำเร็จ!`
+          : `Approved new stats for ${target.inGameName} (⚡ ${Number(approvedPower || 0).toLocaleString()} PL)!`,
         'success'
       );
     } catch (err) {
