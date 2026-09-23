@@ -88,6 +88,8 @@ import {
   saveLocalSessionUser,
   clearLocalSessionUser,
   getLocalSessionUser,
+  getCurrentUserIdToken,
+  auth,
   INITIAL_QUICK_ITEMS,
   INITIAL_CLANS,
   DEFAULT_OWNER,
@@ -1290,6 +1292,7 @@ export const App: React.FC = () => {
 
   // Real-time live relay broadcast: whenever state changes locally, immediately notify all other clan members (debounced 300ms)
   useEffect(() => {
+    if (!currentUser || !auth.currentUser) return;
     if (users.length === 0 && vaultItems.length === 0) return;
     if (getIsApplyingRemoteUpdate()) return;
 
@@ -1598,19 +1601,6 @@ export const App: React.FC = () => {
       const updatedUsers = [...users, registered];
       setUsers(updatedUsers);
       setCachedUsers(updatedUsers);
-
-      // Broadcast to live-state relay so other clients see new pending member
-      broadcastLiveState(
-        {
-          users: updatedUsers,
-          vaultItems,
-          queueItems,
-          clans,
-          diamondLogs,
-          vaultBalance: computeTotalVaultBalance(diamondLogs)
-        },
-        registered.inGameName
-      );
 
       // Trigger debounced auto-backup to Google Sheets
       const googleConfig = getGoogleBackupConfig();
@@ -2330,11 +2320,22 @@ export const App: React.FC = () => {
     );
 
     // Call server claim endpoint to persist via Admin SDK asynchronously
-    fetch('/api/claim-vault-item', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ itemId, claimant: newClaimant })
-    }).catch((e) => console.warn('claim-vault-item endpoint notice:', e));
+    (async () => {
+      try {
+        const token = await getCurrentUserIdToken();
+        if (!token || token.startsWith('local-dev-')) return;
+        await fetch('/api/claim-vault-item', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ itemId, claimant: newClaimant })
+        });
+      } catch (e) {
+        console.warn('claim-vault-item endpoint notice:', e);
+      }
+    })();
 
     try {
       await updateVaultItemDoc(itemId, { claimants: updatedClaimants, updatedAt: now });
@@ -2439,11 +2440,22 @@ export const App: React.FC = () => {
     );
 
     // Call server unclaim endpoint asynchronously
-    fetch('/api/unclaim-vault-item', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ itemId, userId: userIdToRemove, inGameName: inGameNameToRemove })
-    }).catch((e) => console.warn('unclaim-vault-item endpoint notice:', e));
+    (async () => {
+      try {
+        const token = await getCurrentUserIdToken();
+        if (!token || token.startsWith('local-dev-')) return;
+        await fetch('/api/unclaim-vault-item', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ itemId, userId: userIdToRemove, inGameName: inGameNameToRemove })
+        });
+      } catch (e) {
+        console.warn('unclaim-vault-item endpoint notice:', e);
+      }
+    })();
 
     // 4. Persist to Firestore
     try {

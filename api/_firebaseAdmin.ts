@@ -21,6 +21,10 @@ export type RoleVerifySuccess = {
     uid: string;
     role: string;
     username: string;
+    inGameName?: string;
+    clan?: string;
+    powerLevel?: number;
+    authUid?: string;
   };
 };
 
@@ -518,7 +522,11 @@ export async function verifyRoleToken(
     actor: {
       uid: matchedUserId!,
       role: userRole,
-      username: String(matchedUserData.username || '')
+      username: String(matchedUserData.username || ''),
+      inGameName: String(matchedUserData.inGameName || matchedUserData.username || ''),
+      clan: matchedUserData.clan ? String(matchedUserData.clan) : undefined,
+      powerLevel: typeof matchedUserData.powerLevel === 'number' ? matchedUserData.powerLevel : (typeof matchedUserData.power === 'number' ? matchedUserData.power : undefined),
+      authUid: decoded.uid
     }
   };
 }

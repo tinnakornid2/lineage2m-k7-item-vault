@@ -3,6 +3,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import os from "os";
+import crypto from "crypto";
 import { EventEmitter } from "events";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
@@ -393,7 +394,11 @@ async function verifyRoleToken(authorization, allowedRoles) {
     actor: {
       uid: matchedUserId,
       role: userRole,
-      username: String(matchedUserData.username || "")
+      username: String(matchedUserData.username || ""),
+      inGameName: String(matchedUserData.inGameName || matchedUserData.username || ""),
+      clan: matchedUserData.clan ? String(matchedUserData.clan) : void 0,
+      powerLevel: typeof matchedUserData.powerLevel === "number" ? matchedUserData.powerLevel : typeof matchedUserData.power === "number" ? matchedUserData.power : void 0,
+      authUid: decoded.uid
     }
   };
 }
@@ -565,13 +570,14 @@ async function createApp(options = {}) {
     version: 0
   };
   try {
+    const isProduction = process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
     const SEED_FILE = path.join(process.cwd(), "src", "data", "seed-live-state.json");
     if (fs.existsSync(LIVE_STATE_FILE)) {
       const parsedLive = JSON.parse(fs.readFileSync(LIVE_STATE_FILE, "utf-8"));
       if (parsedLive && typeof parsedLive.version === "number" && parsedLive.data) {
         liveHubState = parsedLive;
       }
-    } else if (fs.existsSync(SEED_FILE)) {
+    } else if (!isProduction && fs.existsSync(SEED_FILE)) {
       const parsedSeed = JSON.parse(fs.readFileSync(SEED_FILE, "utf-8"));
       if (parsedSeed && parsedSeed.data) {
         liveHubState = {
@@ -775,7 +781,7 @@ async function createApp(options = {}) {
       sheetUrl: sharedGoogleSheetUrl
     });
   });
-  app.post("/api/google-backup-config", async (req, res) => {
+  app.post("/api/google-backup-config", requireRoles(["owner"]), async (req, res) => {
     try {
       const { webAppUrl, sheetUrl } = req.body;
       let hasChanged = false;
@@ -842,268 +848,188 @@ async function createApp(options = {}) {
       }
     });
   });
-  app.post("/api/live-state", (req, res) => {
+  const scrubSensitiveRelayState = (data) => {
+    if (!data || typeof data !== "object") return data;
+    const scrubbed = { ...data };
+    if (scrubbed.discordSettings && typeof scrubbed.discordSettings === "object") {
+      scrubbed.discordSettings = {
+        ...scrubbed.discordSettings,
+        webhookUrl: scrubbed.discordSettings.webhookUrl ? "***CONFIGURED***" : "",
+        isConfigured: Boolean(scrubbed.discordSettings.webhookUrl || scrubbed.discordSettings.isConfigured)
+      };
+    }
+    if (scrubbed.settings && typeof scrubbed.settings === "object") {
+      scrubbed.settings = { ...scrubbed.settings };
+      delete scrubbed.settings.geminiApiKey;
+      delete scrubbed.settings.apiKey;
+      delete scrubbed.settings.serviceAccount;
+    }
+    delete scrubbed.geminiAiSettings;
+    if (Array.isArray(scrubbed.users)) {
+      scrubbed.users = scrubbed.users.map((u) => {
+        if (!u || typeof u !== "object") return u;
+        const { password, salt, hash, ...safeUser } = u;
+        return safeUser;
+      });
+    }
+    if (scrubbed.googleBackupConfig && typeof scrubbed.googleBackupConfig === "object") {
+      scrubbed.googleBackupConfig = { ...scrubbed.googleBackupConfig };
+      delete scrubbed.googleBackupConfig.serviceAccount;
+    }
+    return scrubbed;
+  };
+  const hashState = (data) => {
+    if (!data) return "";
     try {
-      const { data } = req.body;
-      if (data && typeof data === "object") {
-        const previousData = liveHubState.data || {};
-        const mergeTimestampMaps = (left, right) => {
-          const merged = { ...left || {} };
-          for (const [key, value] of Object.entries(right || {})) {
-            if (typeof value === "number" && value > (merged[key] || 0)) merged[key] = value;
+      return crypto.createHash("sha256").update(JSON.stringify(data)).digest("hex");
+    } catch {
+      return "";
+    }
+  };
+  let inFlightRehydration = null;
+  let lastRehydrationTime = 0;
+  const REHYDRATION_COOLDOWN_MS = 2e3;
+  async function rehydrateAuthoritativeState() {
+    if (inFlightRehydration) {
+      return inFlightRehydration;
+    }
+    const now = Date.now();
+    if (now - lastRehydrationTime < REHYDRATION_COOLDOWN_MS && liveHubState.data !== null) {
+      return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+    }
+    inFlightRehydration = (async () => {
+      try {
+        const sdk = await getAdminSdk();
+        if (!sdk || !sdk.db) {
+          return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+        }
+        const [usersSnap, itemsSnap, queuesSnap, quickSnap, generalSnap, clansSnap, vaultSnap] = await Promise.all([
+          sdk.db.collection("users").get(),
+          sdk.db.collection("items").get(),
+          sdk.db.collection("item_queues").get(),
+          sdk.db.collection("quick_items").get(),
+          sdk.db.collection("general_items").get(),
+          sdk.db.collection("clans").get(),
+          sdk.db.collection("diamond_vault").get()
+        ]);
+        const users = [];
+        usersSnap.forEach((doc) => {
+          users.push({ ...doc.data(), id: doc.id });
+        });
+        const vaultItems = [];
+        itemsSnap.forEach((doc) => {
+          vaultItems.push({ ...doc.data(), id: doc.id });
+        });
+        const queueItems = [];
+        queuesSnap.forEach((doc) => {
+          queueItems.push({ ...doc.data(), id: doc.id });
+        });
+        const quickItems = [];
+        quickSnap.forEach((doc) => {
+          quickItems.push({ ...doc.data(), id: doc.id });
+        });
+        const generalItems = [];
+        generalSnap.forEach((doc) => {
+          generalItems.push({ ...doc.data(), id: doc.id });
+        });
+        const clans = [];
+        clansSnap.forEach((doc) => {
+          clans.push({ ...doc.data(), id: doc.id });
+        });
+        const diamondLogs = [];
+        vaultSnap.forEach((doc) => {
+          diamondLogs.push({ ...doc.data(), id: doc.id });
+        });
+        const rehydratedData = scrubSensitiveRelayState({
+          users,
+          vaultItems,
+          queueItems,
+          quickItems,
+          generalItems,
+          clans,
+          diamondLogs,
+          syncMeta: liveHubState.data?.syncMeta || {},
+          discordSettings: liveHubState.data?.discordSettings || null,
+          googleBackupConfig: liveHubState.data?.googleBackupConfig || {
+            webAppUrl: sharedGoogleBackupUrl,
+            sheetUrl: sharedGoogleSheetUrl
           }
-          return merged;
-        };
-        const syncMeta = {
-          deletedVaultItems: mergeTimestampMaps(previousData.syncMeta?.deletedVaultItems, data.syncMeta?.deletedVaultItems),
-          deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
-          deletedGeneralItems: mergeTimestampMaps(previousData.syncMeta?.deletedGeneralItems, data.syncMeta?.deletedGeneralItems),
-          deletedUsers: mergeTimestampMaps(previousData.syncMeta?.deletedUsers, data.syncMeta?.deletedUsers),
-          cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims),
-          removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers)
-        };
-        const mergeVersionedRecords = (previous, incoming, deleted, mergeClaims = false, mergeQueue = false) => {
-          const records = /* @__PURE__ */ new Map();
-          for (const record of [...previous || [], ...incoming || []]) {
-            if (!record?.id) continue;
-            const recordRevision = Number(record.updatedAt || record.createdAt || 0);
-            if (deleted && deleted[record.id]) {
-              continue;
-            }
-            const existing = records.get(record.id);
-            const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
-            if (!existing) {
-              records.set(record.id, record);
-              continue;
-            }
-            let newest = recordRevision >= existingRevision ? { ...existing, ...record } : { ...record, ...existing };
-            const older = recordRevision >= existingRevision ? existing : record;
-            if (newest.pendingPowerLevel !== void 0 || older.pendingPowerLevel !== void 0) {
-              const newestPendingTime = Number(newest.pendingPowerLevelRequestedAt || newest.updatedAt || 0);
-              const olderPendingTime = Number(older.pendingPowerLevelRequestedAt || older.updatedAt || 0);
-              const newestResTime = Math.max(Number(newest.statApprovalAt || 0), Number(newest.statRejectionAt || 0));
-              const olderResTime = Math.max(Number(older.statApprovalAt || 0), Number(older.statRejectionAt || 0));
-              const latestRes = Math.max(newestResTime, olderResTime);
-              const olderHasPending = Boolean((typeof older.pendingPowerLevel === "number" || older.pendingPowerLevelRequestedAt || older.pendingStatScreenshotUrl) && olderPendingTime > latestRes);
-              const newestHasPending = Boolean((typeof newest.pendingPowerLevel === "number" || newest.pendingPowerLevelRequestedAt || newest.pendingStatScreenshotUrl) && newestPendingTime > latestRes);
-              if (olderHasPending && (!newestHasPending || olderPendingTime > newestPendingTime)) {
-                newest = {
-                  ...newest,
-                  pendingPowerLevel: older.pendingPowerLevel,
-                  pendingPowerLevelRequestedAt: older.pendingPowerLevelRequestedAt,
-                  pendingStats: older.pendingStats || newest.pendingStats,
-                  pendingSpiritEnhancements: older.pendingSpiritEnhancements || newest.pendingSpiritEnhancements,
-                  pendingStatScreenshotUrl: older.pendingStatScreenshotUrl || newest.pendingStatScreenshotUrl,
-                  pendingClasses: older.pendingClasses ?? newest.pendingClasses,
-                  pendingLevel: older.pendingLevel ?? newest.pendingLevel,
-                  pendingLegendClasses: older.pendingLegendClasses ?? newest.pendingLegendClasses,
-                  pendingLegendAgathions: older.pendingLegendAgathions ?? newest.pendingLegendAgathions,
-                  statRejectionReason: null,
-                  statRejectionAt: null
-                };
-              }
-            }
-            if (mergeClaims) {
-              const claimantMap = /* @__PURE__ */ new Map();
-              for (const claimant of [...older.claimants || [], ...newest.claimants || []]) {
-                const key = claimant.userId || String(claimant.inGameName || "").trim().toLowerCase();
-                if (key) claimantMap.set(key, claimant);
-              }
-              newest = { ...newest, claimants: Array.from(claimantMap.values()) };
-            }
-            if (mergeQueue) {
-              const queueMap = /* @__PURE__ */ new Map();
-              const removedMap = syncMeta.removedQueueMembers || {};
-              const isMemberRemoved = (m) => {
-                if (!m) return true;
-                const joinedAt = Number(m.joinedAt || 0);
-                const directId = m.id ? `${record.id}:::${m.id}` : null;
-                const legacyDirectId = m.id ? `${record.id}_${m.id}` : null;
-                const userKey = m.userId ? `${record.id}:::${String(m.userId).trim().toLowerCase()}` : null;
-                const legacyUserKey = m.userId ? `${record.id}_user_${m.userId}` : null;
-                const nameKey = m.name ? `${record.id}:::${String(m.name).trim().toLowerCase()}` : null;
-                const legacyNameKey = m.name ? `${record.id}_name_${String(m.name).trim().toLowerCase()}` : null;
-                const removedAt = Math.max(
-                  directId ? removedMap[directId] || 0 : 0,
-                  legacyDirectId ? removedMap[legacyDirectId] || 0 : 0,
-                  userKey ? removedMap[userKey] || 0 : 0,
-                  legacyUserKey ? removedMap[legacyUserKey] || 0 : 0,
-                  nameKey ? removedMap[nameKey] || 0 : 0,
-                  legacyNameKey ? removedMap[legacyNameKey] || 0 : 0
-                );
-                if (!removedAt) return false;
-                if (joinedAt && joinedAt > removedAt) return false;
-                return true;
-              };
-              const newestMembers = Array.isArray(newest.queueList) ? newest.queueList : [];
-              const olderMembers = Array.isArray(older.queueList) ? older.queueList : [];
-              for (const m of newestMembers) {
-                if (!m || isMemberRemoved(m)) continue;
-                const key = m.id || m.userId || String(m.name || "").trim().toLowerCase();
-                if (key) queueMap.set(key, m);
-              }
-              const timeWindow = 1e4;
-              for (const m of olderMembers) {
-                if (!m || isMemberRemoved(m)) continue;
-                const key = m.id || m.userId || String(m.name || "").trim().toLowerCase();
-                if (!key || queueMap.has(key)) continue;
-                const joinedAt = Number(m.joinedAt || 0);
-                if (joinedAt && Date.now() - joinedAt <= timeWindow) {
-                  queueMap.set(key, m);
-                }
-              }
-              const receiptMap = /* @__PURE__ */ new Map();
-              for (const r of [...older.receiptHistory || [], ...newest.receiptHistory || []]) {
-                if (r && r.id) receiptMap.set(r.id, r);
-              }
-              newest = {
-                ...newest,
-                queueList: Array.from(queueMap.values()),
-                receiptHistory: Array.from(receiptMap.values())
-              };
-            }
-            records.set(record.id, newest);
-          }
-          return Array.from(records.values());
-        };
-        data.syncMeta = syncMeta;
-        data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
-        data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems, false, true);
-        data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
-        data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
-        if (Array.isArray(data.vaultItems)) {
-          data.vaultItems = data.vaultItems.filter((it) => it && it.id && !syncMeta.deletedVaultItems?.[it.id]);
-        }
-        if (Array.isArray(data.queueItems)) {
-          data.queueItems = data.queueItems.filter((it) => {
-            if (!it?.id) return false;
-            return !syncMeta.deletedQueueItems?.[it.id];
-          });
-        }
-        if (Array.isArray(data.generalItems)) {
-          data.generalItems = data.generalItems.filter((it) => it && it.id && !syncMeta.deletedGeneralItems?.[it.id]);
-        }
-        if (Array.isArray(data.users)) {
-          data.users = data.users.filter((u) => {
-            if (!u?.id) return false;
-            if (u.id === "user_owner_eloni" || u.username?.toLowerCase() === "eloni") return true;
-            return !syncMeta.deletedUsers?.[u.id];
-          });
-        }
-        const filterQueueList = (item) => {
-          if (!item || !Array.isArray(item.queueList)) return item;
-          const removedMap = syncMeta.removedQueueMembers || {};
-          const filteredQueue = item.queueList.filter((m) => {
-            if (!m) return false;
-            const joinedAt = Number(m.joinedAt || 0);
-            const directId = m.id ? `${item.id}:::${m.id}` : null;
-            const legacyDirectId = m.id ? `${item.id}_${m.id}` : null;
-            const userKey = m.userId ? `${item.id}:::${String(m.userId).trim().toLowerCase()}` : null;
-            const legacyUserKey = m.userId ? `${item.id}_user_${m.userId}` : null;
-            const nameKey = m.name ? `${item.id}:::${String(m.name).trim().toLowerCase()}` : null;
-            const legacyNameKey = m.name ? `${item.id}_name_${String(m.name).trim().toLowerCase()}` : null;
-            const removedAt = Math.max(
-              directId ? removedMap[directId] || 0 : 0,
-              legacyDirectId ? removedMap[legacyDirectId] || 0 : 0,
-              userKey ? removedMap[userKey] || 0 : 0,
-              legacyUserKey ? removedMap[legacyUserKey] || 0 : 0,
-              nameKey ? removedMap[nameKey] || 0 : 0,
-              legacyNameKey ? removedMap[legacyNameKey] || 0 : 0
-            );
-            if (!removedAt) return true;
-            return joinedAt > removedAt;
-          });
-          return { ...item, queueList: filteredQueue };
-        };
-        if (Array.isArray(data.queueItems)) {
-          data.queueItems = data.queueItems.map(filterQueueList);
-        }
-        if (Array.isArray(data.generalItems)) {
-          data.generalItems = data.generalItems.map(filterQueueList);
-        }
-        if (Array.isArray(data.users)) {
-          data.users = data.users.map((u) => {
-            if (!u || typeof u !== "object") return u;
-            const { password: _pw, ...cleanUser } = u;
-            return cleanUser;
-          });
-        }
-        if (Array.isArray(data.vaultItems)) {
-          data.vaultItems = data.vaultItems.map((item) => {
-            const claimants = (item.claimants || []).filter((claimant) => {
-              const claimedAt = Number(claimant.claimedAt || 0);
-              const userKey = claimant.userId ? `${item.id}:::${String(claimant.userId).trim().toLowerCase()}` : "";
-              const nameKey = claimant.inGameName ? `${item.id}:::${String(claimant.inGameName).trim().toLowerCase()}` : "";
-              return !(userKey && claimedAt <= (syncMeta.cancelledClaims[userKey] || 0) || nameKey && claimedAt <= (syncMeta.cancelledClaims[nameKey] || 0));
-            });
-            if (item && item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
-              return { ...item, claimants, status: "distributed" };
-            }
-            return { ...item, claimants };
-          });
-        }
-        liveHubState = {
-          data,
-          updatedAt: Date.now(),
-          version: liveHubState.version + 1
-        };
-        try {
-          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
-        } catch {
-        }
-        liveStateEmitter.emit("update");
-        (async () => {
+        });
+        const previousHash = hashState(liveHubState.data);
+        const nextHash = hashState(rehydratedData);
+        lastRehydrationTime = Date.now();
+        if (previousHash !== nextHash || liveHubState.version === 0) {
+          liveHubState = {
+            data: rehydratedData,
+            updatedAt: Date.now(),
+            version: (liveHubState.version || 0) + 1
+          };
           try {
-            const sdk = await getAdminSdk();
-            if (sdk && sdk.db && Array.isArray(data.vaultItems)) {
-              for (const item of data.vaultItems) {
-                if (item && item.id && Array.isArray(item.claimants) && item.claimants.length > 0) {
-                  await sdk.db.collection("items").doc(item.id).set({
-                    claimants: item.claimants,
-                    updatedAt: item.updatedAt || Date.now()
-                  }, { merge: true });
-                }
-              }
-            }
+            fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
           } catch {
           }
-        })().catch(() => {
-        });
+          liveStateEmitter.emit("update");
+          return { changed: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+        }
+        return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+      } catch (err) {
+        console.warn("Rehydration error:", err?.message || err);
+        return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+      } finally {
+        inFlightRehydration = null;
       }
+    })();
+    return inFlightRehydration;
+  }
+  app.post("/api/live-state", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
+    try {
+      await rehydrateAuthoritativeState();
       res.json({ success: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt });
     } catch (err) {
-      res.status(500).json({ success: false, error: err?.message });
+      res.status(500).json({ success: false, error: err?.message || "FAILED_TO_SYNC_LIVE_STATE" });
     }
   });
-  app.post("/api/claim-vault-item", async (req, res) => {
+  app.post("/api/claim-vault-item", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
     try {
-      const { itemId, claimant } = req.body;
-      if (!itemId || !claimant || !claimant.userId && !claimant.inGameName) {
+      const { itemId } = req.body;
+      if (!itemId || typeof itemId !== "string") {
         return res.status(400).json({ success: false, error: "INVALID_CLAIM_PAYLOAD" });
       }
+      const actor = res.locals.actor;
       const now = Date.now();
       const safeClaimant = {
-        userId: claimant.userId || "",
-        inGameName: claimant.inGameName || "",
-        clan: claimant.clan || "VoltZ",
-        powerLevel: Number(claimant.powerLevel || 0),
-        claimedAt: Number(claimant.claimedAt || now)
+        userId: actor.uid,
+        inGameName: actor.inGameName || actor.username || "",
+        clan: actor.clan || "VoltZ",
+        powerLevel: Number(actor.powerLevel || 0),
+        claimedAt: now
       };
-      const targetItem = (liveHubState?.data?.vaultItems || []).find((i) => i.id === itemId);
-      if (!targetItem) {
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE" });
+      }
+      const docRef = sdk.db.collection("items").doc(itemId);
+      const docSnap = await docRef.get();
+      if (!docSnap.exists) {
         return res.status(404).json({ success: false, error: "ITEM_NOT_FOUND" });
       }
+      const itemData = docSnap.data() || {};
+      const currentClaimants = (itemData.claimants || []).filter((c) => {
+        const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
+        const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
+        return !(matchesUser || matchesName);
+      });
+      const updatedClaimants = [...currentClaimants, safeClaimant];
+      await docRef.set({
+        claimants: updatedClaimants,
+        updatedAt: now
+      }, { merge: true });
       if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
         liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item) => {
           if (item.id === itemId) {
-            const existing = (item.claimants || []).filter((c) => {
-              const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
-              const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
-              return !(matchesUser || matchesName);
-            });
             return {
               ...item,
-              claimants: [...existing, safeClaimant],
+              claimants: updatedClaimants,
               updatedAt: now
             };
           }
@@ -1116,52 +1042,69 @@ async function createApp(options = {}) {
         } catch {
         }
         liveStateEmitter.emit("update");
-      }
-      try {
-        const sdk = await getAdminSdk();
-        if (sdk && sdk.db) {
-          const docRef = sdk.db.collection("items").doc(itemId);
-          const docSnap = await docRef.get();
-          if (docSnap.exists) {
-            const currentClaimants = (docSnap.data()?.claimants || []).filter((c) => {
-              const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
-              const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
-              return !(matchesUser || matchesName);
-            });
-            await docRef.set({
-              claimants: [...currentClaimants, safeClaimant],
-              updatedAt: now
-            }, { merge: true });
-          }
-        }
-      } catch (dbErr) {
-        console.warn("Notice: Firestore admin claim write skipped:", dbErr?.message || dbErr);
       }
       res.json({ success: true, itemId, claimant: safeClaimant });
     } catch (err) {
       res.status(500).json({ success: false, error: err?.message || "FAILED_TO_CLAIM" });
     }
   });
-  app.post("/api/unclaim-vault-item", async (req, res) => {
+  app.post("/api/unclaim-vault-item", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
     try {
       const { itemId, userId, inGameName } = req.body;
-      if (!itemId || !userId && !inGameName) {
+      if (!itemId || typeof itemId !== "string") {
         return res.status(400).json({ success: false, error: "INVALID_UNCLAIM_PAYLOAD" });
       }
-      const now = Date.now();
+      const actor = res.locals.actor;
       const targetUserId = userId ? String(userId).trim().toLowerCase() : "";
       const targetName = inGameName ? String(inGameName).trim().toLowerCase() : "";
+      const actorCanonicalId = actor.uid.toLowerCase();
+      const actorAuthUid = (actor.authUid || "").toLowerCase();
+      const actorInGameName = (actor.inGameName || actor.username || "").toLowerCase();
+      const isSelf = !targetUserId && !targetName || targetUserId && (targetUserId === actorCanonicalId || targetUserId === actorAuthUid) || targetName && targetName === actorInGameName;
+      if (!isSelf && !["owner", "admin"].includes(actor.role)) {
+        return res.status(403).json({
+          success: false,
+          error: "CANNOT_UNCLAIM_OTHER_USER",
+          message: "\u0E2A\u0E21\u0E32\u0E0A\u0E34\u0E01\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01\u0E01\u0E32\u0E23\u0E40\u0E04\u0E25\u0E21\u0E02\u0E2D\u0E07\u0E15\u0E19\u0E40\u0E2D\u0E07\u0E44\u0E14\u0E49\u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19 / Members can only cancel their own claims."
+        });
+      }
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE" });
+      }
+      const docRef = sdk.db.collection("items").doc(itemId);
+      const docSnap = await docRef.get();
+      if (!docSnap.exists) {
+        return res.status(404).json({ success: false, error: "ITEM_NOT_FOUND" });
+      }
+      const itemData = docSnap.data() || {};
+      if (actor.role === "admin" && !isSelf) {
+        if (actor.clan && itemData.clan && actor.clan.trim().toLowerCase() !== String(itemData.clan).trim().toLowerCase()) {
+          return res.status(403).json({
+            success: false,
+            error: "CLAN_SCOPE_DENIED",
+            message: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E44\u0E2D\u0E40\u0E17\u0E21\u0E19\u0E2D\u0E01\u0E41\u0E04\u0E25\u0E19 / You cannot manage items from other clans."
+          });
+        }
+      }
+      const now = Date.now();
+      const currentClaimants = (itemData.claimants || []).filter((c) => {
+        const cUserId = c.userId ? String(c.userId).trim().toLowerCase() : "";
+        const cName = c.inGameName ? String(c.inGameName).trim().toLowerCase() : "";
+        const userMatch = targetUserId ? cUserId === targetUserId : cUserId === actorCanonicalId || actorAuthUid && cUserId === actorAuthUid;
+        const nameMatch = targetName ? cName === targetName : actorInGameName && cName === actorInGameName;
+        return !(userMatch || nameMatch);
+      });
+      await docRef.set({
+        claimants: currentClaimants,
+        updatedAt: now
+      }, { merge: true });
       if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
         liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item) => {
           if (item.id === itemId) {
-            const remaining = (item.claimants || []).filter((c) => {
-              const userMatch = targetUserId && c.userId && String(c.userId).trim().toLowerCase() === targetUserId;
-              const nameMatch = targetName && c.inGameName && String(c.inGameName).trim().toLowerCase() === targetName;
-              return !(userMatch || nameMatch);
-            });
             return {
               ...item,
-              claimants: remaining,
+              claimants: currentClaimants,
               updatedAt: now
             };
           }
@@ -1174,26 +1117,6 @@ async function createApp(options = {}) {
         } catch {
         }
         liveStateEmitter.emit("update");
-      }
-      try {
-        const sdk = await getAdminSdk();
-        if (sdk && sdk.db) {
-          const docRef = sdk.db.collection("items").doc(itemId);
-          const docSnap = await docRef.get();
-          if (docSnap.exists) {
-            const currentClaimants = (docSnap.data()?.claimants || []).filter((c) => {
-              const userMatch = targetUserId && c.userId && String(c.userId).trim().toLowerCase() === targetUserId;
-              const nameMatch = targetName && c.inGameName && String(c.inGameName).trim().toLowerCase() === targetName;
-              return !(userMatch || nameMatch);
-            });
-            await docRef.set({
-              claimants: currentClaimants,
-              updatedAt: now
-            }, { merge: true });
-          }
-        }
-      } catch (dbErr) {
-        console.warn("Notice: Firestore admin unclaim write skipped:", dbErr?.message || dbErr);
       }
       res.json({ success: true, itemId });
     } catch (err) {

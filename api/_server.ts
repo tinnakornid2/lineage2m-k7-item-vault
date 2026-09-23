@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import os from "os";
+import crypto from "crypto";
 import { EventEmitter } from "events";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
@@ -133,15 +134,16 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     version: 0
   };
 
-  // Restore live hub state from disk or bundled seed if available
+  // Restore live hub state from disk or bundled seed if available (non-production only)
   try {
+    const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
     const SEED_FILE = path.join(process.cwd(), 'src', 'data', 'seed-live-state.json');
     if (fs.existsSync(LIVE_STATE_FILE)) {
       const parsedLive = JSON.parse(fs.readFileSync(LIVE_STATE_FILE, 'utf-8'));
       if (parsedLive && typeof parsedLive.version === 'number' && parsedLive.data) {
         liveHubState = parsedLive;
       }
-    } else if (fs.existsSync(SEED_FILE)) {
+    } else if (!isProduction && fs.existsSync(SEED_FILE)) {
       const parsedSeed = JSON.parse(fs.readFileSync(SEED_FILE, 'utf-8'));
       if (parsedSeed && parsedSeed.data) {
         liveHubState = {
@@ -386,7 +388,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     });
   });
 
-  app.post("/api/google-backup-config", async (req, res) => {
+  app.post("/api/google-backup-config", requireRoles(['owner']), async (req, res) => {
     try {
       const { webAppUrl, sheetUrl } = req.body;
       let hasChanged = false;
@@ -463,302 +465,233 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     });
   });
 
-  app.post("/api/live-state", (req, res) => {
+  // Helper to scrub sensitive data from relay state
+  const scrubSensitiveRelayState = (data: any): any => {
+    if (!data || typeof data !== 'object') return data;
+    const scrubbed = { ...data };
+
+    if (scrubbed.discordSettings && typeof scrubbed.discordSettings === 'object') {
+      scrubbed.discordSettings = {
+        ...scrubbed.discordSettings,
+        webhookUrl: scrubbed.discordSettings.webhookUrl ? '***CONFIGURED***' : '',
+        isConfigured: Boolean(scrubbed.discordSettings.webhookUrl || scrubbed.discordSettings.isConfigured)
+      };
+    }
+
+    if (scrubbed.settings && typeof scrubbed.settings === 'object') {
+      scrubbed.settings = { ...scrubbed.settings };
+      delete scrubbed.settings.geminiApiKey;
+      delete scrubbed.settings.apiKey;
+      delete scrubbed.settings.serviceAccount;
+    }
+    delete scrubbed.geminiAiSettings;
+
+    if (Array.isArray(scrubbed.users)) {
+      scrubbed.users = scrubbed.users.map((u: any) => {
+        if (!u || typeof u !== 'object') return u;
+        const { password, salt, hash, ...safeUser } = u;
+        return safeUser;
+      });
+    }
+
+    if (scrubbed.googleBackupConfig && typeof scrubbed.googleBackupConfig === 'object') {
+      scrubbed.googleBackupConfig = { ...scrubbed.googleBackupConfig };
+      delete scrubbed.googleBackupConfig.serviceAccount;
+    }
+
+    return scrubbed;
+  };
+
+  const hashState = (data: any): string => {
+    if (!data) return '';
     try {
-      const { data } = req.body;
-      if (data && typeof data === 'object') {
-        const previousData = liveHubState.data || {};
-        const mergeTimestampMaps = (left: any, right: any) => {
-          const merged: Record<string, number> = { ...(left || {}) };
-          for (const [key, value] of Object.entries(right || {})) {
-            if (typeof value === 'number' && value > (merged[key] || 0)) merged[key] = value;
+      return crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
+    } catch {
+      return '';
+    }
+  };
+
+  let inFlightRehydration: Promise<{ changed: boolean; version: number; updatedAt: number }> | null = null;
+  let lastRehydrationTime = 0;
+  const REHYDRATION_COOLDOWN_MS = 2000;
+
+  async function rehydrateAuthoritativeState(): Promise<{ changed: boolean; version: number; updatedAt: number }> {
+    if (inFlightRehydration) {
+      return inFlightRehydration;
+    }
+
+    const now = Date.now();
+    if (now - lastRehydrationTime < REHYDRATION_COOLDOWN_MS && liveHubState.data !== null) {
+      return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+    }
+
+    inFlightRehydration = (async () => {
+      try {
+        const sdk = await getAdminSdk();
+        if (!sdk || !sdk.db) {
+          return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+        }
+
+        const [usersSnap, itemsSnap, queuesSnap, quickSnap, generalSnap, clansSnap, vaultSnap] = await Promise.all([
+          sdk.db.collection('users').get(),
+          sdk.db.collection('items').get(),
+          sdk.db.collection('item_queues').get(),
+          sdk.db.collection('quick_items').get(),
+          sdk.db.collection('general_items').get(),
+          sdk.db.collection('clans').get(),
+          sdk.db.collection('diamond_vault').get(),
+        ]);
+
+        const users: any[] = [];
+        usersSnap.forEach((doc: any) => {
+          users.push({ ...doc.data(), id: doc.id });
+        });
+
+        const vaultItems: any[] = [];
+        itemsSnap.forEach((doc: any) => {
+          vaultItems.push({ ...doc.data(), id: doc.id });
+        });
+
+        const queueItems: any[] = [];
+        queuesSnap.forEach((doc: any) => {
+          queueItems.push({ ...doc.data(), id: doc.id });
+        });
+
+        const quickItems: any[] = [];
+        quickSnap.forEach((doc: any) => {
+          quickItems.push({ ...doc.data(), id: doc.id });
+        });
+
+        const generalItems: any[] = [];
+        generalSnap.forEach((doc: any) => {
+          generalItems.push({ ...doc.data(), id: doc.id });
+        });
+
+        const clans: any[] = [];
+        clansSnap.forEach((doc: any) => {
+          clans.push({ ...doc.data(), id: doc.id });
+        });
+
+        const diamondLogs: any[] = [];
+        vaultSnap.forEach((doc: any) => {
+          diamondLogs.push({ ...doc.data(), id: doc.id });
+        });
+
+        const rehydratedData = scrubSensitiveRelayState({
+          users,
+          vaultItems,
+          queueItems,
+          quickItems,
+          generalItems,
+          clans,
+          diamondLogs,
+          syncMeta: liveHubState.data?.syncMeta || {},
+          discordSettings: liveHubState.data?.discordSettings || null,
+          googleBackupConfig: liveHubState.data?.googleBackupConfig || {
+            webAppUrl: sharedGoogleBackupUrl,
+            sheetUrl: sharedGoogleSheetUrl
           }
-          return merged;
-        };
-        const syncMeta = {
-          deletedVaultItems: mergeTimestampMaps(previousData.syncMeta?.deletedVaultItems, data.syncMeta?.deletedVaultItems),
-          deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
-          deletedGeneralItems: mergeTimestampMaps(previousData.syncMeta?.deletedGeneralItems, data.syncMeta?.deletedGeneralItems),
-          deletedUsers: mergeTimestampMaps(previousData.syncMeta?.deletedUsers, data.syncMeta?.deletedUsers),
-          cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims),
-          removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers)
-        };
+        });
 
-        const mergeVersionedRecords = (previous: any[], incoming: any[], deleted: Record<string, number>, mergeClaims = false, mergeQueue = false) => {
-          const records = new Map<string, any>();
-          for (const record of [...(previous || []), ...(incoming || [])]) {
-            if (!record?.id) continue;
-            const recordRevision = Number(record.updatedAt || record.createdAt || 0);
-            if (deleted && deleted[record.id]) {
-              continue;
-            }
-            const existing = records.get(record.id);
-            const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
-            if (!existing) {
-              records.set(record.id, record);
-              continue;
-            }
-            let newest = recordRevision >= existingRevision ? { ...existing, ...record } : { ...record, ...existing };
-            const older = recordRevision >= existingRevision ? existing : record;
+        const previousHash = hashState(liveHubState.data);
+        const nextHash = hashState(rehydratedData);
 
-            // Smart user pending stat preservation
-            if (newest.pendingPowerLevel !== undefined || older.pendingPowerLevel !== undefined) {
-              const newestPendingTime = Number(newest.pendingPowerLevelRequestedAt || newest.updatedAt || 0);
-              const olderPendingTime = Number(older.pendingPowerLevelRequestedAt || older.updatedAt || 0);
-              const newestResTime = Math.max(Number(newest.statApprovalAt || 0), Number(newest.statRejectionAt || 0));
-              const olderResTime = Math.max(Number(older.statApprovalAt || 0), Number(older.statRejectionAt || 0));
-              const latestRes = Math.max(newestResTime, olderResTime);
+        lastRehydrationTime = Date.now();
 
-              const olderHasPending = Boolean((typeof older.pendingPowerLevel === 'number' || older.pendingPowerLevelRequestedAt || older.pendingStatScreenshotUrl) && olderPendingTime > latestRes);
-              const newestHasPending = Boolean((typeof newest.pendingPowerLevel === 'number' || newest.pendingPowerLevelRequestedAt || newest.pendingStatScreenshotUrl) && newestPendingTime > latestRes);
-
-              if (olderHasPending && (!newestHasPending || olderPendingTime > newestPendingTime)) {
-                newest = {
-                  ...newest,
-                  pendingPowerLevel: older.pendingPowerLevel,
-                  pendingPowerLevelRequestedAt: older.pendingPowerLevelRequestedAt,
-                  pendingStats: older.pendingStats || newest.pendingStats,
-                  pendingSpiritEnhancements: older.pendingSpiritEnhancements || newest.pendingSpiritEnhancements,
-                  pendingStatScreenshotUrl: older.pendingStatScreenshotUrl || newest.pendingStatScreenshotUrl,
-                  pendingClasses: older.pendingClasses ?? newest.pendingClasses,
-                  pendingLevel: older.pendingLevel ?? newest.pendingLevel,
-                  pendingLegendClasses: older.pendingLegendClasses ?? newest.pendingLegendClasses,
-                  pendingLegendAgathions: older.pendingLegendAgathions ?? newest.pendingLegendAgathions,
-                  statRejectionReason: null,
-                  statRejectionAt: null
-                };
-              }
-            }
-
-            if (mergeClaims) {
-              const claimantMap = new Map<string, any>();
-              for (const claimant of [...(older.claimants || []), ...(newest.claimants || [])]) {
-                const key = claimant.userId || String(claimant.inGameName || '').trim().toLowerCase();
-                if (key) claimantMap.set(key, claimant);
-              }
-              newest = { ...newest, claimants: Array.from(claimantMap.values()) };
-            }
-
-            if (mergeQueue) {
-              const queueMap = new Map<string, any>();
-              const removedMap = syncMeta.removedQueueMembers || {};
-              const isMemberRemoved = (m: any) => {
-                if (!m) return true;
-                const joinedAt = Number(m.joinedAt || 0);
-                const directId = m.id ? `${record.id}:::${m.id}` : null;
-                const legacyDirectId = m.id ? `${record.id}_${m.id}` : null;
-                const userKey = m.userId ? `${record.id}:::${String(m.userId).trim().toLowerCase()}` : null;
-                const legacyUserKey = m.userId ? `${record.id}_user_${m.userId}` : null;
-                const nameKey = m.name ? `${record.id}:::${String(m.name).trim().toLowerCase()}` : null;
-                const legacyNameKey = m.name ? `${record.id}_name_${String(m.name).trim().toLowerCase()}` : null;
-
-                const removedAt = Math.max(
-                  directId ? (removedMap[directId] || 0) : 0,
-                  legacyDirectId ? (removedMap[legacyDirectId] || 0) : 0,
-                  userKey ? (removedMap[userKey] || 0) : 0,
-                  legacyUserKey ? (removedMap[legacyUserKey] || 0) : 0,
-                  nameKey ? (removedMap[nameKey] || 0) : 0,
-                  legacyNameKey ? (removedMap[legacyNameKey] || 0) : 0
-                );
-
-                if (!removedAt) return false;
-                if (joinedAt && joinedAt > removedAt) return false;
-                return true;
-              };
-
-              const newestMembers = Array.isArray(newest.queueList) ? newest.queueList : [];
-              const olderMembers = Array.isArray(older.queueList) ? older.queueList : [];
-
-              for (const m of newestMembers) {
-                if (!m || isMemberRemoved(m)) continue;
-                const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
-                if (key) queueMap.set(key, m);
-              }
-
-              // Only include members from older if they were concurrently added very recently (within 10s) and not removed
-              const timeWindow = 10000;
-              for (const m of olderMembers) {
-                if (!m || isMemberRemoved(m)) continue;
-                const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
-                if (!key || queueMap.has(key)) continue;
-                const joinedAt = Number(m.joinedAt || 0);
-                if (joinedAt && (Date.now() - joinedAt) <= timeWindow) {
-                  queueMap.set(key, m);
-                }
-              }
-
-              const receiptMap = new Map<string, any>();
-              for (const r of [...(older.receiptHistory || []), ...(newest.receiptHistory || [])]) {
-                if (r && r.id) receiptMap.set(r.id, r);
-              }
-              newest = {
-                ...newest,
-                queueList: Array.from(queueMap.values()),
-                receiptHistory: Array.from(receiptMap.values())
-              };
-            }
-
-            records.set(record.id, newest);
-          }
-          return Array.from(records.values());
-        };
-
-        data.syncMeta = syncMeta;
-        data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
-        data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems, false, true);
-        data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
-        data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
-
-        // Strict tombstone filtering after merge
-        if (Array.isArray(data.vaultItems)) {
-          data.vaultItems = data.vaultItems.filter((it: any) => it && it.id && !syncMeta.deletedVaultItems?.[it.id]);
-        }
-        if (Array.isArray(data.queueItems)) {
-          data.queueItems = data.queueItems.filter((it: any) => {
-            if (!it?.id) return false;
-            return !syncMeta.deletedQueueItems?.[it.id];
-          });
-        }
-        if (Array.isArray(data.generalItems)) {
-          data.generalItems = data.generalItems.filter((it: any) => it && it.id && !syncMeta.deletedGeneralItems?.[it.id]);
-        }
-        if (Array.isArray(data.users)) {
-          data.users = data.users.filter((u: any) => {
-            if (!u?.id) return false;
-            if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni') return true;
-            return !syncMeta.deletedUsers?.[u.id];
-          });
-        }
-
-        // Scrub removed members from all queueLists
-        const filterQueueList = (item: any) => {
-          if (!item || !Array.isArray(item.queueList)) return item;
-          const removedMap = syncMeta.removedQueueMembers || {};
-          const filteredQueue = item.queueList.filter((m: any) => {
-            if (!m) return false;
-            const joinedAt = Number(m.joinedAt || 0);
-            const directId = m.id ? `${item.id}:::${m.id}` : null;
-            const legacyDirectId = m.id ? `${item.id}_${m.id}` : null;
-            const userKey = m.userId ? `${item.id}:::${String(m.userId).trim().toLowerCase()}` : null;
-            const legacyUserKey = m.userId ? `${item.id}_user_${m.userId}` : null;
-            const nameKey = m.name ? `${item.id}:::${String(m.name).trim().toLowerCase()}` : null;
-            const legacyNameKey = m.name ? `${item.id}_name_${String(m.name).trim().toLowerCase()}` : null;
-
-            const removedAt = Math.max(
-              directId ? (removedMap[directId] || 0) : 0,
-              legacyDirectId ? (removedMap[legacyDirectId] || 0) : 0,
-              userKey ? (removedMap[userKey] || 0) : 0,
-              legacyUserKey ? (removedMap[legacyUserKey] || 0) : 0,
-              nameKey ? (removedMap[nameKey] || 0) : 0,
-              legacyNameKey ? (removedMap[legacyNameKey] || 0) : 0
-            );
-
-            if (!removedAt) return true;
-            return joinedAt > removedAt;
-          });
-          return { ...item, queueList: filteredQueue };
-        };
-        if (Array.isArray(data.queueItems)) {
-          data.queueItems = data.queueItems.map(filterQueueList);
-        }
-        if (Array.isArray(data.generalItems)) {
-          data.generalItems = data.generalItems.map(filterQueueList);
-        }
-
-        if (Array.isArray(data.users)) {
-          data.users = data.users.map((u: any) => {
-            if (!u || typeof u !== 'object') return u;
-            const { password: _pw, ...cleanUser } = u;
-            return cleanUser;
-          });
-        }
-        if (Array.isArray(data.vaultItems)) {
-          data.vaultItems = data.vaultItems.map((item: any) => {
-            const claimants = (item.claimants || []).filter((claimant: any) => {
-              const claimedAt = Number(claimant.claimedAt || 0);
-              const userKey = claimant.userId ? `${item.id}:::${String(claimant.userId).trim().toLowerCase()}` : '';
-              const nameKey = claimant.inGameName ? `${item.id}:::${String(claimant.inGameName).trim().toLowerCase()}` : '';
-              return !(
-                (userKey && claimedAt <= (syncMeta.cancelledClaims[userKey] || 0)) ||
-                (nameKey && claimedAt <= (syncMeta.cancelledClaims[nameKey] || 0))
-              );
-            });
-            if (item && item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
-              return { ...item, claimants, status: 'distributed' };
-            }
-            return { ...item, claimants };
-          });
-        }
-        liveHubState = {
-          data,
-          updatedAt: Date.now(),
-          version: liveHubState.version + 1
-        };
-        // Persist to disk asynchronously
-        try {
-          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8');
-        } catch {}
-        // Instantly notify all connected clan members!
-        liveStateEmitter.emit('update');
-
-        // Asynchronously persist claimants to Firestore using Admin SDK if available
-        (async () => {
+        if (previousHash !== nextHash || liveHubState.version === 0) {
+          liveHubState = {
+            data: rehydratedData,
+            updatedAt: Date.now(),
+            version: (liveHubState.version || 0) + 1
+          };
           try {
-            const sdk = await getAdminSdk();
-            if (sdk && sdk.db && Array.isArray(data.vaultItems)) {
-              for (const item of data.vaultItems) {
-                if (item && item.id && Array.isArray(item.claimants) && item.claimants.length > 0) {
-                  await sdk.db.collection('items').doc(item.id).set({
-                    claimants: item.claimants,
-                    updatedAt: item.updatedAt || Date.now()
-                  }, { merge: true });
-                }
-              }
-            }
+            fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8');
           } catch {}
-        })().catch(() => {});
+          liveStateEmitter.emit('update');
+          return { changed: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+        }
+
+        return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+      } catch (err: any) {
+        console.warn('Rehydration error:', err?.message || err);
+        return { changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
+      } finally {
+        inFlightRehydration = null;
       }
+    })();
+
+    return inFlightRehydration;
+  }
+
+  // Live state relay update endpoint (Model C: client data ignored 100%, authoritative rehydrate from Firestore)
+  app.post("/api/live-state", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
+    try {
+      await rehydrateAuthoritativeState();
       res.json({ success: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt });
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message });
+      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_SYNC_LIVE_STATE' });
     }
   });
 
-  // Dedicated Vault Item Claim endpoint (Ensures serverless-resilient claim persistence)
-  app.post("/api/claim-vault-item", async (req, res) => {
+  // Dedicated Vault Item Claim endpoint (Ensures serverless-resilient claim persistence with canonical identity)
+  app.post("/api/claim-vault-item", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
     try {
-      const { itemId, claimant } = req.body;
-      if (!itemId || !claimant || (!claimant.userId && !claimant.inGameName)) {
+      const { itemId } = req.body;
+      if (!itemId || typeof itemId !== 'string') {
         return res.status(400).json({ success: false, error: 'INVALID_CLAIM_PAYLOAD' });
       }
 
-      const now = Date.now();
-      const safeClaimant = {
-        userId: claimant.userId || '',
-        inGameName: claimant.inGameName || '',
-        clan: claimant.clan || 'VoltZ',
-        powerLevel: Number(claimant.powerLevel || 0),
-        claimedAt: Number(claimant.claimedAt || now)
+      const actor = res.locals.actor as {
+        uid: string;
+        role: string;
+        username: string;
+        inGameName?: string;
+        clan?: string;
+        powerLevel?: number;
+        authUid?: string;
       };
 
-      // Check if item exists in vault
-      const targetItem = (liveHubState?.data?.vaultItems || []).find((i: any) => i.id === itemId);
-      if (!targetItem) {
+      const now = Date.now();
+      // Canonical profile ID and verified attributes only (client claimant ignored)
+      const safeClaimant = {
+        userId: actor.uid,
+        inGameName: actor.inGameName || actor.username || '',
+        clan: actor.clan || 'VoltZ',
+        powerLevel: Number(actor.powerLevel || 0),
+        claimedAt: now
+      };
+
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE' });
+      }
+
+      const docRef = sdk.db.collection('items').doc(itemId);
+      const docSnap = await docRef.get();
+      if (!docSnap.exists) {
         return res.status(404).json({ success: false, error: 'ITEM_NOT_FOUND' });
       }
 
-      // 1. Update in-memory liveHubState
+      const itemData = docSnap.data() || {};
+      const currentClaimants = (itemData.claimants || []).filter((c: any) => {
+        const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
+        const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
+        return !(matchesUser || matchesName);
+      });
+
+      const updatedClaimants = [...currentClaimants, safeClaimant];
+      await docRef.set({
+        claimants: updatedClaimants,
+        updatedAt: now
+      }, { merge: true });
+
+      // Update in-memory liveHubState
       if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
         liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item: any) => {
           if (item.id === itemId) {
-            const existing = (item.claimants || []).filter((c: any) => {
-              const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
-              const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
-              return !(matchesUser || matchesName);
-            });
             return {
               ...item,
-              claimants: [...existing, safeClaimant],
+              claimants: updatedClaimants,
               updatedAt: now
             };
           }
@@ -768,28 +701,6 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         liveHubState.version = (liveHubState.version || 0) + 1;
         try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
         liveStateEmitter.emit('update');
-      }
-
-      // 2. Persist to Firestore via Admin SDK
-      try {
-        const sdk = await getAdminSdk();
-        if (sdk && sdk.db) {
-          const docRef = sdk.db.collection('items').doc(itemId);
-          const docSnap = await docRef.get();
-          if (docSnap.exists) {
-            const currentClaimants = (docSnap.data()?.claimants || []).filter((c: any) => {
-              const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
-              const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
-              return !(matchesUser || matchesName);
-            });
-            await docRef.set({
-              claimants: [...currentClaimants, safeClaimant],
-              updatedAt: now
-            }, { merge: true });
-          }
-        }
-      } catch (dbErr: any) {
-        console.warn('Notice: Firestore admin claim write skipped:', dbErr?.message || dbErr);
       }
 
       res.json({ success: true, itemId, claimant: safeClaimant });
@@ -799,29 +710,95 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   });
 
   // Dedicated Vault Item Unclaim endpoint
-  app.post("/api/unclaim-vault-item", async (req, res) => {
+  app.post("/api/unclaim-vault-item", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
     try {
       const { itemId, userId, inGameName } = req.body;
-      if (!itemId || (!userId && !inGameName)) {
+      if (!itemId || typeof itemId !== 'string') {
         return res.status(400).json({ success: false, error: 'INVALID_UNCLAIM_PAYLOAD' });
       }
 
-      const now = Date.now();
+      const actor = res.locals.actor as {
+        uid: string;
+        role: string;
+        username: string;
+        inGameName?: string;
+        clan?: string;
+        powerLevel?: number;
+        authUid?: string;
+      };
+
       const targetUserId = userId ? String(userId).trim().toLowerCase() : '';
       const targetName = inGameName ? String(inGameName).trim().toLowerCase() : '';
 
-      // 1. Update in-memory liveHubState
+      const actorCanonicalId = actor.uid.toLowerCase();
+      const actorAuthUid = (actor.authUid || '').toLowerCase();
+      const actorInGameName = (actor.inGameName || actor.username || '').toLowerCase();
+
+      // Check self-unclaim vs admin/owner
+      const isSelf = (!targetUserId && !targetName)
+        || (targetUserId && (targetUserId === actorCanonicalId || targetUserId === actorAuthUid))
+        || (targetName && targetName === actorInGameName);
+
+      if (!isSelf && !['owner', 'admin'].includes(actor.role)) {
+        return res.status(403).json({
+          success: false,
+          error: 'CANNOT_UNCLAIM_OTHER_USER',
+          message: 'สมาชิกสามารถยกเลิกการเคลมของตนเองได้เท่านั้น / Members can only cancel their own claims.'
+        });
+      }
+
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE' });
+      }
+
+      const docRef = sdk.db.collection('items').doc(itemId);
+      const docSnap = await docRef.get();
+      if (!docSnap.exists) {
+        return res.status(404).json({ success: false, error: 'ITEM_NOT_FOUND' });
+      }
+
+      const itemData = docSnap.data() || {};
+
+      // If admin, enforce clan scope if item has a clan
+      if (actor.role === 'admin' && !isSelf) {
+        if (actor.clan && itemData.clan && actor.clan.trim().toLowerCase() !== String(itemData.clan).trim().toLowerCase()) {
+          return res.status(403).json({
+            success: false,
+            error: 'CLAN_SCOPE_DENIED',
+            message: 'ไม่มีสิทธิ์จัดการไอเทมนอกแคลน / You cannot manage items from other clans.'
+          });
+        }
+      }
+
+      const now = Date.now();
+      const currentClaimants = (itemData.claimants || []).filter((c: any) => {
+        const cUserId = c.userId ? String(c.userId).trim().toLowerCase() : '';
+        const cName = c.inGameName ? String(c.inGameName).trim().toLowerCase() : '';
+
+        const userMatch = targetUserId
+          ? (cUserId === targetUserId)
+          : (cUserId === actorCanonicalId || (actorAuthUid && cUserId === actorAuthUid));
+
+        const nameMatch = targetName
+          ? (cName === targetName)
+          : (actorInGameName && cName === actorInGameName);
+
+        return !(userMatch || nameMatch);
+      });
+
+      await docRef.set({
+        claimants: currentClaimants,
+        updatedAt: now
+      }, { merge: true });
+
+      // Update in-memory liveHubState
       if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
         liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item: any) => {
           if (item.id === itemId) {
-            const remaining = (item.claimants || []).filter((c: any) => {
-              const userMatch = targetUserId && c.userId && String(c.userId).trim().toLowerCase() === targetUserId;
-              const nameMatch = targetName && c.inGameName && String(c.inGameName).trim().toLowerCase() === targetName;
-              return !(userMatch || nameMatch);
-            });
             return {
               ...item,
-              claimants: remaining,
+              claimants: currentClaimants,
               updatedAt: now
             };
           }
@@ -831,28 +808,6 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         liveHubState.version = (liveHubState.version || 0) + 1;
         try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
         liveStateEmitter.emit('update');
-      }
-
-      // 2. Persist to Firestore via Admin SDK
-      try {
-        const sdk = await getAdminSdk();
-        if (sdk && sdk.db) {
-          const docRef = sdk.db.collection('items').doc(itemId);
-          const docSnap = await docRef.get();
-          if (docSnap.exists) {
-            const currentClaimants = (docSnap.data()?.claimants || []).filter((c: any) => {
-              const userMatch = targetUserId && c.userId && String(c.userId).trim().toLowerCase() === targetUserId;
-              const nameMatch = targetName && c.inGameName && String(c.inGameName).trim().toLowerCase() === targetName;
-              return !(userMatch || nameMatch);
-            });
-            await docRef.set({
-              claimants: currentClaimants,
-              updatedAt: now
-            }, { merge: true });
-          }
-        }
-      } catch (dbErr: any) {
-        console.warn('Notice: Firestore admin unclaim write skipped:', dbErr?.message || dbErr);
       }
 
       res.json({ success: true, itemId });

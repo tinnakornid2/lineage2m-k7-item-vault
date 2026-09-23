@@ -13,6 +13,7 @@ import {
   isItemDistributed,
   normalizeDistributedItem
 } from '../types';
+import { getCurrentUserIdToken } from './firebase';
 
 export interface GoogleBackupConfig {
   webAppUrl: string;
@@ -169,14 +170,23 @@ export function saveGoogleBackupConfig(
       (updates.webAppUrl !== undefined || updates.sheetUrl !== undefined) &&
       (updates.webAppUrl !== current.webAppUrl || updates.sheetUrl !== current.sheetUrl)
     ) {
-      fetch('/api/google-backup-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webAppUrl: updated.webAppUrl,
-          sheetUrl: updated.sheetUrl
-        })
-      }).catch(() => {});
+      (async () => {
+        try {
+          const token = await getCurrentUserIdToken();
+          if (!token || token.startsWith('local-dev-')) return;
+          await fetch('/api/google-backup-config', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              webAppUrl: updated.webAppUrl,
+              sheetUrl: updated.sheetUrl
+            })
+          });
+        } catch {}
+      })();
     }
 
     return updated;
@@ -664,9 +674,17 @@ export async function broadcastLiveState(
       return { success: true, version: currentLocalVersion };
     }
 
+    const token = await getCurrentUserIdToken();
+    if (!token || token.startsWith('local-dev-')) {
+      return { success: false };
+    }
+
     const res = await fetch('/api/live-state', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
       body: JSON.stringify({
         data: payload,
         performedBy
