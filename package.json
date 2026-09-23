@@ -1,7 +1,7 @@
 {
   "name": "lineage2m-k7-item-vault",
   "private": true,
-  "version": "2.10.9",
+  "version": "2.10.10",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-emulator.mjs",
@@ -9,6 +9,7 @@
     "dev:emulator": "node scripts/dev-emulator.mjs",
     "emulators": "firebase emulators:start --only auth,firestore",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore.rules.test.mjs\"",
+    "test:security": "node --test tests/patch-2a1-security.test.mjs",
     "migrate:auth:dry-run": "node scripts/migrate-firebase-auth.mjs",
     "backup:firestore": "node scripts/backup-firestore-encrypted.mjs",
     "restore:firestore": "node scripts/restore-firestore-encrypted.mjs",

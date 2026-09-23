@@ -12,13 +12,21 @@ import { GoogleGenAI } from "@google/genai";
 import { randomUUID } from "node:crypto";
 var PROJECT_ID = "hybrid-box-753bd";
 var DATABASE_ID = "ai-studio-lineage2mk7itemv-4a75381c-cb0d-43f8-9b9b-c337a41dd8b0";
+var testAdminSdk = null;
+function usernameToAuthEmail(username) {
+  const normalized = username.trim().toLowerCase();
+  const encoded = Buffer.from(normalized, "utf8").toString("hex");
+  return `${encoded}@auth.k7-clan.local`;
+}
 function hasAdminCredentials() {
+  if (testAdminSdk !== null) return Boolean(testAdminSdk);
   return Boolean(
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST || process.env.GOOGLE_APPLICATION_CREDENTIALS
   );
 }
 var cachedAdmin = null;
 async function getAdminSdk() {
+  if (testAdminSdk !== null) return testAdminSdk;
   if (!hasAdminCredentials()) return null;
   if (cachedAdmin) return cachedAdmin;
   try {
@@ -70,18 +78,16 @@ async function getStoredGeminiApiKey() {
 async function saveStoredGeminiApiKey(apiKey, updatedBy) {
   const sdk = await getAdminSdk();
   if (!sdk) {
-    console.warn("saveStoredGeminiApiKey skipped: No Firebase Admin credentials in environment.");
-    return;
+    throw new Error("AUTH_SERVICE_UNAVAILABLE");
   }
-  try {
-    await sdk.db.collection("app_settings").doc("gemini_ai").set({
+  await Promise.race([
+    sdk.db.collection("app_settings").doc("gemini_ai").set({
       apiKey,
       updatedBy,
       updatedAt: Date.now()
-    }, { merge: true });
-  } catch (err) {
-    console.warn("Cannot save stored gemini key via Admin SDK:", err?.message || err);
-  }
+    }, { merge: true }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore write timeout")), 2500))
+  ]);
 }
 async function getStoredDiscordWebhookUrls() {
   const sdk = await getAdminSdk();
@@ -102,22 +108,17 @@ async function getStoredDiscordWebhookUrls() {
 async function saveStoredDiscordWebhookUrls(webhookUrl, distributeWebhookUrl, updatedBy) {
   const sdk = await getAdminSdk();
   if (!sdk) {
-    console.warn("saveStoredDiscordWebhookUrls skipped: No Firebase Admin credentials in environment.");
-    return;
+    throw new Error("AUTH_SERVICE_UNAVAILABLE");
   }
-  try {
-    await Promise.race([
-      sdk.db.collection("app_settings").doc("discord_secure").set({
-        webhookUrl: webhookUrl.trim(),
-        distributeWebhookUrl: distributeWebhookUrl.trim(),
-        updatedBy,
-        updatedAt: Date.now()
-      }, { merge: true }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore write timeout")), 2500))
-    ]);
-  } catch (err) {
-    console.warn("Cannot save stored discord webhook via Admin SDK:", err?.message || err);
-  }
+  await Promise.race([
+    sdk.db.collection("app_settings").doc("discord_secure").set({
+      webhookUrl: webhookUrl.trim(),
+      distributeWebhookUrl: distributeWebhookUrl.trim(),
+      updatedBy,
+      updatedAt: Date.now()
+    }, { merge: true }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore write timeout")), 2500))
+  ]);
 }
 async function getKnownMemberProfiles() {
   const sdk = await getAdminSdk();
@@ -156,98 +157,220 @@ async function uploadBackgroundImage(buffer, contentType) {
 }
 async function verifyRoleToken(authorization, allowedRoles) {
   const token = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
-  if (!token) return null;
-  if (token.startsWith("local-dev-")) {
-    const parts = token.split("-");
-    const role = (parts[parts.length - 1] || "").toLowerCase();
-    const uid = parts.slice(2, parts.length - 1).join("-");
-    const normalizedAllowed = allowedRoles.map((r) => r.toLowerCase());
-    if (normalizedAllowed.includes(role)) {
-      return { uid: uid || "local-user", role };
-    }
-    return null;
+  if (!token) {
+    return {
+      success: false,
+      status: 401,
+      code: "UNAUTHORIZED",
+      message: "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E01\u0E48\u0E2D\u0E19\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19 / Missing authorization token."
+    };
   }
   const sdk = await getAdminSdk();
   if (!sdk) {
-    try {
-      const parts = token.split(".");
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
-        const uid = payload.user_id || payload.sub;
-        const role = String(payload.role || "").toLowerCase();
-        const normalizedAllowed = allowedRoles.map((r) => r.toLowerCase());
-        if (uid && role && normalizedAllowed.includes(role)) {
-          return { uid, role };
-        }
-      }
-    } catch {
-    }
-    return null;
+    return {
+      success: false,
+      status: 503,
+      code: "AUTH_SERVICE_UNAVAILABLE",
+      message: "\u0E23\u0E30\u0E1A\u0E1A\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21 / Authorization service is unavailable."
+    };
   }
+  let decoded;
   try {
-    const decoded = await Promise.race([
+    decoded = await Promise.race([
       sdk.auth.verifyIdToken(token),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Auth verifyIdToken timeout")), 2500))
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Auth verifyIdToken timeout")), 3500))
     ]);
-    const profile = await Promise.race([
-      sdk.db.collection("users").doc(decoded.uid).get(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore user profile timeout")), 2500))
-    ]).catch(() => null);
-    if (!profile || !profile.exists) {
-      const defaultRole = "member";
-      const normalizedAllowed2 = allowedRoles.map((r) => r.toLowerCase());
-      if (normalizedAllowed2.includes(defaultRole)) {
-        return { uid: decoded.uid, role: defaultRole };
-      }
-      return null;
-    }
-    const data = profile.data();
-    const userRole = String(data.role || "").toLowerCase();
-    const normalizedAllowed = allowedRoles.map((r) => r.toLowerCase());
-    if (data.status === "suspended" || !normalizedAllowed.includes(userRole)) {
-      return null;
-    }
-    return { uid: decoded.uid, role: userRole };
   } catch (err) {
-    console.warn("verifyRoleToken verification notice:", err);
-    return null;
+    if (err?.message?.includes("timeout") || err?.code === "app/network-timeout") {
+      return {
+        success: false,
+        status: 503,
+        code: "AUTH_SERVICE_TIMEOUT",
+        message: "\u0E23\u0E30\u0E1A\u0E1A\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E43\u0E0A\u0E49\u0E40\u0E27\u0E25\u0E32\u0E19\u0E32\u0E19\u0E40\u0E01\u0E34\u0E19\u0E44\u0E1B / Authorization service timed out."
+      };
+    }
+    return {
+      success: false,
+      status: 401,
+      code: "UNAUTHORIZED",
+      message: "\u0E42\u0E17\u0E40\u0E04\u0E47\u0E19\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07\u0E2B\u0E23\u0E37\u0E2D\u0E2B\u0E21\u0E14\u0E2D\u0E32\u0E22\u0E38\u0E41\u0E25\u0E49\u0E27 / Token is invalid or expired."
+    };
   }
+  if (!decoded || !decoded.uid) {
+    return {
+      success: false,
+      status: 401,
+      code: "UNAUTHORIZED",
+      message: "\u0E42\u0E17\u0E40\u0E04\u0E47\u0E19\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 / Invalid token claims."
+    };
+  }
+  let matchedUserId = null;
+  let matchedUserData = null;
+  try {
+    const directDoc = await Promise.race([
+      sdk.db.collection("users").doc(decoded.uid).get(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore read timeout")), 3e3))
+    ]);
+    if (directDoc && directDoc.exists) {
+      matchedUserId = directDoc.id;
+      matchedUserData = directDoc.data();
+    }
+  } catch (err) {
+    console.warn("Firestore direct user lookup notice:", err?.message || err);
+  }
+  if (!matchedUserData) {
+    const email = typeof decoded.email === "string" ? decoded.email.trim().toLowerCase() : "";
+    const suffix = "@auth.k7-clan.local";
+    if (!email.endsWith(suffix)) {
+      return {
+        success: false,
+        status: 403,
+        code: "USER_PROFILE_NOT_FOUND",
+        message: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E17\u0E35\u0E48\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E42\u0E22\u0E07\u0E01\u0E31\u0E1A\u0E42\u0E17\u0E40\u0E04\u0E47\u0E19\u0E19\u0E35\u0E49 / No user profile linked to this token."
+      };
+    }
+    const hexPart = email.slice(0, -suffix.length);
+    if (!hexPart || hexPart.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(hexPart)) {
+      return {
+        success: false,
+        status: 403,
+        code: "INVALID_AUTH_IDENTITY",
+        message: "\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E23\u0E30\u0E1A\u0E38\u0E15\u0E31\u0E27\u0E15\u0E19\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 / Invalid auth identity format."
+      };
+    }
+    let decodedUsername = "";
+    try {
+      decodedUsername = Buffer.from(hexPart, "hex").toString("utf8");
+    } catch {
+      return {
+        success: false,
+        status: 403,
+        code: "INVALID_AUTH_IDENTITY",
+        message: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E41\u0E1B\u0E25\u0E07\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E23\u0E30\u0E1A\u0E38\u0E15\u0E31\u0E27\u0E15\u0E19\u0E44\u0E14\u0E49 / Failed to decode auth identity."
+      };
+    }
+    if (!decodedUsername) {
+      return {
+        success: false,
+        status: 403,
+        code: "INVALID_AUTH_IDENTITY",
+        message: "\u0E0A\u0E37\u0E48\u0E2D\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E27\u0E48\u0E32\u0E07\u0E40\u0E1B\u0E25\u0E48\u0E32 / Empty username decoded."
+      };
+    }
+    if (usernameToAuthEmail(decodedUsername) !== email) {
+      return {
+        success: false,
+        status: 403,
+        code: "AUTH_IDENTITY_MISMATCH",
+        message: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E23\u0E30\u0E1A\u0E38\u0E15\u0E31\u0E27\u0E15\u0E19\u0E44\u0E21\u0E48\u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A\u0E01\u0E32\u0E23\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E22\u0E49\u0E2D\u0E19\u0E01\u0E25\u0E31\u0E1A / Identity verification mismatch."
+      };
+    }
+    let usersSnapshot;
+    try {
+      usersSnapshot = await Promise.race([
+        sdk.db.collection("users").get(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore users query timeout")), 3e3))
+      ]);
+    } catch (err) {
+      console.warn("Firestore users collection lookup error:", err?.message || err);
+      return {
+        success: false,
+        status: 503,
+        code: "AUTH_SERVICE_UNAVAILABLE",
+        message: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E40\u0E02\u0E49\u0E32\u0E16\u0E36\u0E07\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E44\u0E14\u0E49 / User database unavailable."
+      };
+    }
+    if (!usersSnapshot) {
+      return {
+        success: false,
+        status: 503,
+        code: "AUTH_SERVICE_UNAVAILABLE",
+        message: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E40\u0E02\u0E49\u0E32\u0E16\u0E36\u0E07\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E44\u0E14\u0E49 / User database unavailable."
+      };
+    }
+    const matchingDocs = usersSnapshot.docs.filter((docItem) => {
+      const data = docItem.data();
+      if (!data) return false;
+      const uName = typeof data.username === "string" ? data.username.trim().toLowerCase() : "";
+      return uName === decodedUsername.toLowerCase();
+    });
+    if (matchingDocs.length !== 1) {
+      return {
+        success: false,
+        status: 403,
+        code: matchingDocs.length === 0 ? "USER_PROFILE_NOT_FOUND" : "AMBIGUOUS_USER_PROFILE",
+        message: matchingDocs.length === 0 ? "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A / User profile not found." : "\u0E1E\u0E1A\u0E42\u0E1B\u0E23\u0E44\u0E1F\u0E25\u0E4C\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E0B\u0E49\u0E33\u0E01\u0E31\u0E19 / Multiple user profiles found with the same username."
+      };
+    }
+    matchedUserId = matchingDocs[0].id;
+    matchedUserData = matchingDocs[0].data();
+  }
+  if (!matchedUserData || matchedUserData.status === "deleted" || matchedUserData.status === "suspended") {
+    return {
+      success: false,
+      status: 403,
+      code: "USER_ACCOUNT_INACTIVE",
+      message: "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E19\u0E35\u0E49\u0E16\u0E39\u0E01\u0E23\u0E30\u0E07\u0E31\u0E1A\u0E2B\u0E23\u0E37\u0E2D\u0E16\u0E39\u0E01\u0E25\u0E1A\u0E41\u0E25\u0E49\u0E27 / User account is deleted or suspended."
+    };
+  }
+  const userRole = String(matchedUserData.role || "member").toLowerCase();
+  const normalizedAllowed = allowedRoles.map((r) => r.toLowerCase());
+  if (!normalizedAllowed.includes(userRole)) {
+    return {
+      success: false,
+      status: 403,
+      code: "FORBIDDEN",
+      message: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E1F\u0E31\u0E07\u0E01\u0E4C\u0E0A\u0E31\u0E19\u0E19\u0E35\u0E49 / You do not have permission to use this feature."
+    };
+  }
+  return {
+    success: true,
+    actor: {
+      uid: matchedUserId,
+      role: userRole,
+      username: String(matchedUserData.username || "")
+    }
+  };
 }
 async function deleteManagedUser(actor, targetUid) {
-  if (!targetUid || actor.uid === targetUid) return { allowed: false, reason: "SELF_DELETE_DENIED" };
+  if (!targetUid || actor.uid === targetUid) {
+    return { allowed: false, reason: "SELF_DELETE_DENIED", status: 403 };
+  }
   const sdk = await getAdminSdk();
   if (!sdk) {
-    console.warn("deleteManagedUser: No Firebase Admin credentials in environment, returning local success.");
-    return { allowed: true };
+    return { allowed: false, reason: "AUTH_SERVICE_UNAVAILABLE", status: 503 };
   }
   const targetRef = sdk.db.collection("users").doc(targetUid);
   const target = await targetRef.get();
-  if (!target.exists) return { allowed: false, reason: "USER_NOT_FOUND" };
+  if (!target.exists) {
+    return { allowed: false, reason: "USER_NOT_FOUND", status: 404 };
+  }
   const targetRole = String(target.data()?.role || "member");
   const allowed = actor.role === "owner" && targetRole !== "owner" || actor.role === "admin" && ["party_leader", "member"].includes(targetRole);
-  if (!allowed) return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
+  if (!allowed) {
+    return { allowed: false, reason: "ROLE_HIERARCHY_DENIED", status: 403 };
+  }
   try {
     await sdk.auth.deleteUser(targetUid);
   } catch (error) {
     if (error?.code !== "auth/user-not-found") throw error;
   }
   await targetRef.delete();
-  return { allowed: true };
+  return { allowed: true, status: 200 };
 }
 async function changeManagedUserPassword(actor, targetUid, newPassword) {
   if (!targetUid || typeof newPassword !== "string" || newPassword.length < 6 || newPassword.length > 128) {
-    return { allowed: false, reason: "INVALID_PASSWORD" };
+    return { allowed: false, reason: "INVALID_PASSWORD", status: 400 };
   }
   const isSelf = actor.uid === targetUid;
   const isOwner = actor.role === "owner";
   const isAdmin = actor.role === "admin";
   if (!isSelf && !isOwner && !isAdmin) {
-    return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
+    return { allowed: false, reason: "ROLE_HIERARCHY_DENIED", status: 403 };
   }
   const sdk = await getAdminSdk();
   if (!sdk) {
-    console.warn("changeManagedUserPassword: No Firebase Admin credentials in environment, returning local success.");
-    return { allowed: true };
+    return { allowed: false, reason: "AUTH_SERVICE_UNAVAILABLE", status: 503 };
   }
   const targetRef = sdk.db.collection("users").doc(targetUid);
   const target = await targetRef.get();
@@ -255,7 +378,7 @@ async function changeManagedUserPassword(actor, targetUid, newPassword) {
     const targetRole = String(target.data()?.role || "member");
     if (isAdmin && !isSelf) {
       if (targetRole === "owner" || targetRole === "admin") {
-        return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
+        return { allowed: false, reason: "ROLE_HIERARCHY_DENIED", status: 403 };
       }
     }
   }
@@ -285,7 +408,7 @@ async function changeManagedUserPassword(actor, targetUid, newPassword) {
     } catch (e) {
     }
   }
-  return { allowed: true };
+  return { allowed: true, status: 200 };
 }
 
 // api/_server.ts
@@ -404,15 +527,16 @@ async function createApp(options = {}) {
   };
   const requireRoles = (roles) => async (req, res, next) => {
     try {
-      const actor = await verifyRoleToken(req.headers.authorization, roles);
-      if (!actor) {
-        return res.status(403).json({
+      const result = await verifyRoleToken(req.headers.authorization, roles);
+      if (!result.success) {
+        const failure = result;
+        return res.status(failure.status || 403).json({
           success: false,
-          error: "FORBIDDEN",
-          message: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E1F\u0E31\u0E07\u0E01\u0E4C\u0E0A\u0E31\u0E19\u0E19\u0E35\u0E49 / You do not have permission to use this feature."
+          error: failure.code || "FORBIDDEN",
+          message: failure.message || "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E1F\u0E31\u0E07\u0E01\u0E4C\u0E0A\u0E31\u0E19\u0E19\u0E35\u0E49 / You do not have permission to use this feature."
         });
       }
-      res.locals.actor = actor;
+      res.locals.actor = result.actor;
       next();
     } catch (error) {
       console.error("Firebase authorization failed:", error);
@@ -458,6 +582,13 @@ async function createApp(options = {}) {
       const targetUserId = req.params.userId;
       const result = await deleteManagedUser(res.locals.actor, targetUserId);
       if (!result.allowed) {
+        if (result.status === 503 || result.reason === "AUTH_SERVICE_UNAVAILABLE") {
+          return res.status(503).json({
+            success: false,
+            error: "AUTH_SERVICE_UNAVAILABLE",
+            message: "\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21 / User management service is unavailable."
+          });
+        }
         const notFound = result.reason === "USER_NOT_FOUND";
         return res.status(notFound ? 404 : 403).json({
           success: false,
@@ -502,6 +633,13 @@ async function createApp(options = {}) {
       }
       const result = await changeManagedUserPassword(res.locals.actor, req.params.userId, newPassword);
       if (!result.allowed) {
+        if (result.status === 503 || result.reason === "AUTH_SERVICE_UNAVAILABLE") {
+          return res.status(503).json({
+            success: false,
+            error: "AUTH_SERVICE_UNAVAILABLE",
+            message: "\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21 / User management service is unavailable."
+          });
+        }
         const notFound = result.reason === "USER_NOT_FOUND";
         return res.status(notFound ? 404 : 403).json({
           success: false,
@@ -545,6 +683,13 @@ async function createApp(options = {}) {
       });
     } catch (err) {
       console.error("Gemini API Key verification failed:", err);
+      if (err?.message === "AUTH_SERVICE_UNAVAILABLE") {
+        return res.status(503).json({
+          success: false,
+          error: "AUTH_SERVICE_UNAVAILABLE",
+          message: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E01\u0E32\u0E23\u0E15\u0E31\u0E49\u0E07\u0E04\u0E48\u0E32\u0E25\u0E07\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E44\u0E14\u0E49 / Database service is unavailable."
+        });
+      }
       let friendlyError = err.message || "\u0E01\u0E32\u0E23\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A API Key \u0E25\u0E49\u0E21\u0E40\u0E2B\u0E25\u0E27";
       if (friendlyError.includes("API_KEY_INVALID") || friendlyError.includes("API key not valid")) {
         friendlyError = "API Key \u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E04\u0E35\u0E22\u0E4C\u0E17\u0E35\u0E48\u0E04\u0E31\u0E14\u0E25\u0E2D\u0E01\u0E08\u0E32\u0E01 Google AI Studio \u0E2D\u0E35\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07";
@@ -1336,6 +1481,13 @@ Do not include markdown or explanations. Return pure JSON only.`;
       });
     } catch (err) {
       console.error("Failed to save discord webhook:", err);
+      if (err?.message === "AUTH_SERVICE_UNAVAILABLE") {
+        return res.status(503).json({
+          success: false,
+          error: "AUTH_SERVICE_UNAVAILABLE",
+          message: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E01\u0E32\u0E23\u0E15\u0E31\u0E49\u0E07\u0E04\u0E48\u0E32\u0E25\u0E07\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E44\u0E14\u0E49 / Database service is unavailable."
+        });
+      }
       return res.status(500).json({ error: "SAVE_FAILED", message: "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 Discord Webhook \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
     }
   });

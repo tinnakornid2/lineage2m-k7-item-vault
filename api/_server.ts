@@ -170,15 +170,16 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
 
   const requireRoles = (roles: string[]): express.RequestHandler => async (req, res, next) => {
     try {
-      const actor = await verifyRoleToken(req.headers.authorization, roles);
-      if (!actor) {
-        return res.status(403).json({
+      const result = await verifyRoleToken(req.headers.authorization, roles);
+      if (!result.success) {
+        const failure = result as { status: number; code: string; message: string };
+        return res.status(failure.status || 403).json({
           success: false,
-          error: 'FORBIDDEN',
-          message: 'ไม่มีสิทธิ์ใช้งานฟังก์ชันนี้ / You do not have permission to use this feature.'
+          error: failure.code || 'FORBIDDEN',
+          message: failure.message || 'ไม่มีสิทธิ์ใช้งานฟังก์ชันนี้ / You do not have permission to use this feature.'
         });
       }
-      res.locals.actor = actor;
+      res.locals.actor = result.actor;
       next();
     } catch (error) {
       console.error('Firebase authorization failed:', error);
@@ -234,6 +235,13 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       const targetUserId = req.params.userId;
       const result = await deleteManagedUser(res.locals.actor, targetUserId);
       if (!result.allowed) {
+        if (result.status === 503 || result.reason === 'AUTH_SERVICE_UNAVAILABLE') {
+          return res.status(503).json({
+            success: false,
+            error: 'AUTH_SERVICE_UNAVAILABLE',
+            message: 'ระบบจัดการผู้ใช้ยังไม่พร้อม / User management service is unavailable.'
+          });
+        }
         const notFound = result.reason === 'USER_NOT_FOUND';
         return res.status(notFound ? 404 : 403).json({
           success: false,
@@ -284,6 +292,13 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
 
       const result = await changeManagedUserPassword(res.locals.actor, req.params.userId, newPassword);
       if (!result.allowed) {
+        if (result.status === 503 || result.reason === 'AUTH_SERVICE_UNAVAILABLE') {
+          return res.status(503).json({
+            success: false,
+            error: 'AUTH_SERVICE_UNAVAILABLE',
+            message: 'ระบบจัดการผู้ใช้ยังไม่พร้อม / User management service is unavailable.'
+          });
+        }
         const notFound = result.reason === 'USER_NOT_FOUND';
         return res.status(notFound ? 404 : 403).json({
           success: false,
@@ -341,6 +356,13 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       });
     } catch (err: any) {
       console.error("Gemini API Key verification failed:", err);
+      if (err?.message === 'AUTH_SERVICE_UNAVAILABLE') {
+        return res.status(503).json({
+          success: false,
+          error: 'AUTH_SERVICE_UNAVAILABLE',
+          message: 'ไม่สามารถบันทึกการตั้งค่าลงฐานข้อมูลได้ / Database service is unavailable.'
+        });
+      }
       let friendlyError = err.message || "การตรวจสอบ API Key ล้มเหลว";
       if (friendlyError.includes("API_KEY_INVALID") || friendlyError.includes("API key not valid")) {
         friendlyError = "API Key ไม่ถูกต้อง กรุณาตรวจสอบคีย์ที่คัดลอกจาก Google AI Studio อีกครั้ง";
@@ -1233,6 +1255,13 @@ Do not include markdown or explanations. Return pure JSON only.`;
       });
     } catch (err: any) {
       console.error('Failed to save discord webhook:', err);
+      if (err?.message === 'AUTH_SERVICE_UNAVAILABLE') {
+        return res.status(503).json({
+          success: false,
+          error: 'AUTH_SERVICE_UNAVAILABLE',
+          message: 'ไม่สามารถบันทึกการตั้งค่าลงฐานข้อมูลได้ / Database service is unavailable.'
+        });
+      }
       return res.status(500).json({ error: 'SAVE_FAILED', message: 'บันทึก Discord Webhook ไม่สำเร็จ' });
     }
   });
