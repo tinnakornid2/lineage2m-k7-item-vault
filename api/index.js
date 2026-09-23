@@ -488,22 +488,34 @@ async function deleteManagedUser(actor, targetUid, options) {
   if (!allowed) {
     return { allowed: false, reason: "ROLE_HIERARCHY_DENIED", status: 403 };
   }
-  if (targetData.status === "deleted") {
-    return { allowed: true, status: 200, alreadyDeleted: true };
-  }
-  const now = Date.now();
   const deleteReason = options?.deleteReason || "admin_removal";
   const canonicalUserId = options?.canonicalUserId || null;
-  if (options?.deleteAuthAccount === true && deleteReason !== "duplicate_account") {
-    const authUidToDelete = targetData.authUid || targetUid;
-    try {
-      await sdk.auth.deleteUser(authUidToDelete);
-    } catch (error) {
-      if (error?.code !== "auth/user-not-found") {
-        console.warn("Notice: Firebase Auth deleteUser notice:", error?.message);
+  if (targetData.status === "deleted") {
+    if (options?.deleteAuthAccount === true && deleteReason !== "duplicate_account") {
+      const authUidToDelete = targetData.authUid || targetUid;
+      try {
+        await sdk.auth.deleteUser(authUidToDelete);
+        return { allowed: true, status: 200, alreadyDeleted: true, profileDeleted: true, authDeleted: true };
+      } catch (authErr) {
+        if (authErr?.code === "auth/user-not-found") {
+          return { allowed: true, status: 200, alreadyDeleted: true, profileDeleted: true, authDeleted: true };
+        }
+        console.warn("Notice: Firebase Auth deleteUser retry failed:", authErr?.message || authErr);
+        return {
+          allowed: true,
+          status: 207,
+          partial: true,
+          alreadyDeleted: true,
+          profileDeleted: true,
+          authDeleted: false,
+          code: "PROFILE_DELETED_AUTH_CLEANUP_FAILED",
+          reason: "PROFILE_DELETED_AUTH_CLEANUP_FAILED"
+        };
       }
     }
+    return { allowed: true, status: 200, alreadyDeleted: true, profileDeleted: true, authDeleted: false };
   }
+  const now = Date.now();
   const softDeletePayload = {
     status: "deleted",
     deletedAt: now,
@@ -514,7 +526,39 @@ async function deleteManagedUser(actor, targetUid, options) {
     softDeletePayload.canonicalUserId = canonicalUserId;
   }
   await targetRef.set(softDeletePayload, { merge: true });
-  return { allowed: true, status: 200 };
+  let authDeleted = false;
+  let partialFailure = false;
+  if (options?.deleteAuthAccount === true && deleteReason !== "duplicate_account") {
+    const authUidToDelete = targetData.authUid || targetUid;
+    try {
+      await sdk.auth.deleteUser(authUidToDelete);
+      authDeleted = true;
+    } catch (error) {
+      if (error?.code === "auth/user-not-found") {
+        authDeleted = true;
+      } else {
+        console.warn("Notice: Firebase Auth deleteUser failed:", error?.message || error);
+        partialFailure = true;
+      }
+    }
+  }
+  if (partialFailure) {
+    return {
+      allowed: true,
+      status: 207,
+      partial: true,
+      profileDeleted: true,
+      authDeleted: false,
+      code: "PROFILE_DELETED_AUTH_CLEANUP_FAILED",
+      reason: "PROFILE_DELETED_AUTH_CLEANUP_FAILED"
+    };
+  }
+  return {
+    allowed: true,
+    status: 200,
+    profileDeleted: true,
+    authDeleted: options?.deleteAuthAccount === true ? authDeleted : false
+  };
 }
 async function changeManagedUserPassword(actor, targetUid, newPassword) {
   if (!targetUid || typeof newPassword !== "string" || newPassword.length < 6 || newPassword.length > 128) {
@@ -775,7 +819,23 @@ async function createApp(options = {}) {
         }
         liveStateEmitter.emit("update");
       }
-      return res.json({ success: true, alreadyDeleted: !!result.alreadyDeleted });
+      if (result.partial || result.status === 207) {
+        return res.status(207).json({
+          success: true,
+          partial: true,
+          code: result.code || "PROFILE_DELETED_AUTH_CLEANUP_FAILED",
+          profileDeleted: true,
+          authDeleted: false,
+          alreadyDeleted: !!result.alreadyDeleted,
+          message: "\u0E42\u0E1B\u0E23\u0E44\u0E1F\u0E25\u0E4C\u0E16\u0E39\u0E01\u0E1B\u0E0F\u0E34\u0E40\u0E2A\u0E18/\u0E25\u0E1A\u0E40\u0E23\u0E35\u0E22\u0E1A\u0E23\u0E49\u0E2D\u0E22\u0E41\u0E25\u0E49\u0E27 \u0E41\u0E15\u0E48\u0E01\u0E32\u0E23\u0E25\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35 Auth \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E01\u0E14\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E2D\u0E35\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07 / Profile was soft-deleted, but Auth account cleanup failed. Please retry."
+        });
+      }
+      return res.json({
+        success: true,
+        alreadyDeleted: !!result.alreadyDeleted,
+        profileDeleted: true,
+        authDeleted: !!result.authDeleted
+      });
     } catch (error) {
       console.error("Failed to delete managed user:", error);
       return res.status(500).json({

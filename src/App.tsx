@@ -3411,28 +3411,19 @@ export const App: React.FC = () => {
 
   const handleRejectMember = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
-    markUserAsDeleted(userId);
-    const updatedUsers = users.filter((u) => u.id !== userId);
-    setUsers(updatedUsers);
-    setCachedUsers(updatedUsers);
+    try {
+      const res = await deleteUserDoc(userId, {
+        deleteReason: 'registration_rejected',
+        deleteAuthAccount: true,
+        deletedBy: currentUser?.id
+      });
 
-    broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        queueItems,
-        generalItems,
-        quickItems,
-        clans,
-        diamondLogs,
-        vaultBalance: computeTotalVaultBalance(diamondLogs)
-      },
-      currentUser?.inGameName || 'Admin'
-    );
+      markUserAsDeleted(userId);
+      const updatedUsers = users.filter((u) => u.id !== userId);
+      setUsers(updatedUsers);
+      setCachedUsers(updatedUsers);
 
-    const googleConfig = getGoogleBackupConfig();
-    if (googleConfig.webAppUrl) {
-      triggerDebouncedAutoBackup(
+      broadcastLiveState(
         {
           users: updatedUsers,
           vaultItems,
@@ -3443,30 +3434,49 @@ export const App: React.FC = () => {
           diamondLogs,
           vaultBalance: computeTotalVaultBalance(diamondLogs)
         },
-        'Reject Member',
-        true
+        currentUser?.inGameName || 'Admin'
       );
-    }
 
-    try {
-      await deleteUserDoc(userId, {
-        deleteReason: 'registration_rejected',
-        deleteAuthAccount: true,
-        deletedBy: currentUser?.id
-      });
+      const googleConfig = getGoogleBackupConfig();
+      if (googleConfig.webAppUrl) {
+        triggerDebouncedAutoBackup(
+          {
+            users: updatedUsers,
+            vaultItems,
+            queueItems,
+            generalItems,
+            quickItems,
+            clans,
+            diamondLogs,
+            vaultBalance: computeTotalVaultBalance(diamondLogs)
+          },
+          'Reject Member',
+          true
+        );
+      }
+
+      if (res?.partial) {
+        showToast(
+          lang === 'th'
+            ? `ปฏิเสธคำขอของ ${target?.inGameName || ''} สำเร็จ แต่ลบบัญชี Auth ไม่สำเร็จ (กรุณากดปฏิเสธอีกครั้งเพื่อลองล้างบัญชี Auth)`
+            : `Rejected registration for ${target?.inGameName || ''}, but Auth cleanup failed (please retry rejection to complete Auth cleanup)`,
+          'warning'
+        );
+      } else {
+        showToast(
+          lang === 'th'
+            ? `ปฏิเสธคำขอสมัครของ ${target?.inGameName || ''} แล้ว`
+            : `Rejected registration for ${target?.inGameName || ''}`,
+          'info'
+        );
+      }
+    } catch (err: any) {
+      console.error('Failed to reject member via authoritative backend:', err);
       showToast(
         lang === 'th'
-          ? `ปฏิเสธคำขอสมัครของ ${target?.inGameName || ''} แล้ว`
-          : `Rejected registration for ${target?.inGameName || ''}`,
-        'info'
-      );
-    } catch (err) {
-      console.warn('Failed to reject member in Firestore (fallback mode active):', err);
-      showToast(
-        lang === 'th'
-          ? `ปฏิเสธคำขอสมัครของ ${target?.inGameName || ''} แล้ว`
-          : `Rejected registration for ${target?.inGameName || ''}`,
-        'info'
+          ? `ปฏิเสธคำขอสมัครล้มเหลว: ${err?.message || 'ข้อผิดพลาดเครือข่ายหรือสิทธิ์ไม่เพียงพอ'}`
+          : `Failed to reject registration: ${err?.message || 'Network error or permission denied'}`,
+        'error'
       );
     }
   };
@@ -3496,28 +3506,19 @@ export const App: React.FC = () => {
 
   const handleDeleteMember = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
-    markUserAsDeleted(userId);
-    const updatedUsers = users.filter((u) => u.id !== userId);
-    setUsers(updatedUsers);
-    setCachedUsers(updatedUsers);
+    try {
+      await deleteUserDoc(userId, {
+        deleteReason: 'admin_removal',
+        deleteAuthAccount: false,
+        deletedBy: currentUser?.id
+      });
 
-    broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        queueItems,
-        generalItems,
-        quickItems,
-        clans,
-        diamondLogs,
-        vaultBalance: computeTotalVaultBalance(diamondLogs)
-      },
-      currentUser?.inGameName || 'Admin'
-    );
+      markUserAsDeleted(userId);
+      const updatedUsers = users.filter((u) => u.id !== userId);
+      setUsers(updatedUsers);
+      setCachedUsers(updatedUsers);
 
-    const googleConfig = getGoogleBackupConfig();
-    if (googleConfig.webAppUrl) {
-      triggerDebouncedAutoBackup(
+      broadcastLiveState(
         {
           users: updatedUsers,
           vaultItems,
@@ -3528,26 +3529,41 @@ export const App: React.FC = () => {
           diamondLogs,
           vaultBalance: computeTotalVaultBalance(diamondLogs)
         },
-        'Delete Member',
-        true
+        currentUser?.inGameName || 'Admin'
       );
-    }
 
-    try {
-      await deleteUserDoc(userId, {
-        deleteReason: 'admin_removal',
-        deleteAuthAccount: false,
-        deletedBy: currentUser?.id
-      });
+      const googleConfig = getGoogleBackupConfig();
+      if (googleConfig.webAppUrl) {
+        triggerDebouncedAutoBackup(
+          {
+            users: updatedUsers,
+            vaultItems,
+            queueItems,
+            generalItems,
+            quickItems,
+            clans,
+            diamondLogs,
+            vaultBalance: computeTotalVaultBalance(diamondLogs)
+          },
+          'Delete Member',
+          true
+        );
+      }
+
       showToast(
         lang === 'th'
           ? `ลบสมาชิก ${target?.inGameName || ''} สำเร็จ`
           : `Deleted member ${target?.inGameName || ''}`,
         'info'
       );
-    } catch (err) {
-      console.error('Failed to delete member in Firestore:', err);
-      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการลบสมาชิก' : 'Failed to delete member', 'error');
+    } catch (err: any) {
+      console.error('Failed to delete member via authoritative backend:', err);
+      showToast(
+        lang === 'th'
+          ? `ลบสมาชิกล้มเหลว: ${err?.message || 'ข้อผิดพลาดเครือข่ายหรือสิทธิ์ไม่เพียงพอ'}`
+          : `Failed to delete member: ${err?.message || 'Network error or permission denied'}`,
+        'error'
+      );
     }
   };
 
@@ -4261,32 +4277,31 @@ export const App: React.FC = () => {
   };
 
   const handleBatchDeleteMembers = async (userIds: string[]) => {
-    const idSet = new Set(userIds);
-    const count = userIds.length;
+    const succeededIds: string[] = [];
+    const failedIds: string[] = [];
+
     for (const uid of userIds) {
-      markUserAsDeleted(uid);
+      try {
+        await deleteUserDoc(uid, {
+          deleteReason: 'batch_admin_removal',
+          deleteAuthAccount: false,
+          deletedBy: currentUser?.id
+        });
+        markUserAsDeleted(uid);
+        succeededIds.push(uid);
+      } catch (err) {
+        console.error(`Failed to delete member ${uid} in batch:`, err);
+        failedIds.push(uid);
+      }
     }
-    const updatedUsers = users.filter((u) => !idSet.has(u.id));
-    setUsers(updatedUsers);
-    setCachedUsers(updatedUsers);
 
-    broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        queueItems,
-        generalItems,
-        quickItems,
-        clans,
-        diamondLogs,
-        vaultBalance: computeTotalVaultBalance(diamondLogs)
-      },
-      currentUser?.inGameName || 'Admin'
-    );
+    if (succeededIds.length > 0) {
+      const succSet = new Set(succeededIds);
+      const updatedUsers = users.filter((u) => !succSet.has(u.id));
+      setUsers(updatedUsers);
+      setCachedUsers(updatedUsers);
 
-    const googleConfig = getGoogleBackupConfig();
-    if (googleConfig.webAppUrl) {
-      triggerDebouncedAutoBackup(
+      broadcastLiveState(
         {
           users: updatedUsers,
           vaultItems,
@@ -4297,26 +4312,49 @@ export const App: React.FC = () => {
           diamondLogs,
           vaultBalance: computeTotalVaultBalance(diamondLogs)
         },
-        'Batch Delete Members',
-        true
+        currentUser?.inGameName || 'Admin'
       );
+
+      const googleConfig = getGoogleBackupConfig();
+      if (googleConfig.webAppUrl) {
+        triggerDebouncedAutoBackup(
+          {
+            users: updatedUsers,
+            vaultItems,
+            queueItems,
+            generalItems,
+            quickItems,
+            clans,
+            diamondLogs,
+            vaultBalance: computeTotalVaultBalance(diamondLogs)
+          },
+          'Batch Delete Members',
+          true
+        );
+      }
     }
 
-    try {
-      for (const uid of userIds) {
-        await deleteUserDoc(uid, {
-          deleteReason: 'batch_admin_removal',
-          deleteAuthAccount: false,
-          deletedBy: currentUser?.id
-        });
-      }
+    if (failedIds.length === 0) {
       showToast(
-        lang === 'th' ? `ลบสมาชิกทั้งหมด ${count} คนสำเร็จ` : `Deleted ${count} members successfully`,
+        lang === 'th'
+          ? `ลบสมาชิกทั้งหมด ${succeededIds.length} คนสำเร็จ`
+          : `Deleted all ${succeededIds.length} members successfully`,
         'info'
       );
-    } catch (err) {
-      console.error('Failed to batch delete member:', err);
-      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการลบสมาชิกแบบกลุ่ม' : 'Failed to batch delete members', 'error');
+    } else if (succeededIds.length > 0) {
+      showToast(
+        lang === 'th'
+          ? `ลบสำเร็จ ${succeededIds.length} คน, ล้มเหลว ${failedIds.length} คน`
+          : `Deleted ${succeededIds.length} members, ${failedIds.length} failed`,
+        'warning'
+      );
+    } else {
+      showToast(
+        lang === 'th'
+          ? `ลบสมาชิกล้มเหลวทั้งหมด (${failedIds.length} คน)`
+          : `Failed to delete all ${failedIds.length} members`,
+        'error'
+      );
     }
   };
 
@@ -4881,11 +4919,19 @@ export const App: React.FC = () => {
         }}
         onDataRestored={async (restored) => {
           if (restored.users && restored.users.length > 0) {
+            // Anti-resurrection guard: Do NOT unmark deleted users. Filter out soft-deleted and shadow users.
+            const deletedUserIds = getDeletedUserIds();
+            const safeRestoredUsers = restored.users.filter((u) => {
+              if (!u || !u.id) return false;
+              if (u.status === 'deleted' || u.status === 'shadow' || u.isAuthShadow) return false;
+              if (deletedUserIds.has(u.id)) return false;
+              return true;
+            });
             const restoredAt = Date.now();
-            restored.users = restored.users.map((u) => ({ ...u, updatedAt: restoredAt }));
-            restored.users.forEach((u) => unmarkUserAsDeleted(u.id));
-            setUsers(restored.users);
-            setCachedUsers(restored.users);
+            const finalUsers = safeRestoredUsers.map((u) => ({ ...u, updatedAt: restoredAt }));
+            setUsers(finalUsers);
+            setCachedUsers(finalUsers);
+            restored.users = finalUsers;
           }
           if (restored.vaultItems && restored.vaultItems.length > 0) {
             const restoredAt = Date.now();

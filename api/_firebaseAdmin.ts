@@ -598,6 +598,17 @@ export async function verifyRoleToken(
   };
 }
 
+export interface DeleteManagedUserResult {
+  allowed: boolean;
+  reason?: string;
+  code?: string;
+  status?: number;
+  alreadyDeleted?: boolean;
+  profileDeleted?: boolean;
+  authDeleted?: boolean;
+  partial?: boolean;
+}
+
 export async function deleteManagedUser(
   actor: { uid: string; role: string },
   targetUid: string,
@@ -606,7 +617,7 @@ export async function deleteManagedUser(
     canonicalUserId?: string;
     deleteAuthAccount?: boolean;
   }
-): Promise<{ allowed: boolean; reason?: string; status?: number; alreadyDeleted?: boolean }> {
+): Promise<DeleteManagedUserResult> {
   if (!targetUid || actor.uid === targetUid) {
     return { allowed: false, reason: 'SELF_DELETE_DENIED', status: 403 };
   }
@@ -629,29 +640,40 @@ export async function deleteManagedUser(
     return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED', status: 403 };
   }
 
-  // Idempotency: If already deleted, preserve original deletedAt and return success
-  if (targetData.status === 'deleted') {
-    return { allowed: true, status: 200, alreadyDeleted: true };
-  }
-
-  const now = Date.now();
   const deleteReason = options?.deleteReason || 'admin_removal';
   const canonicalUserId = options?.canonicalUserId || null;
 
-  // Separate Firebase Auth account deletion:
-  // ONLY delete Auth account if explicitly requested, AND NEVER if this is duplicate_account cleanup
-  if (options?.deleteAuthAccount === true && deleteReason !== 'duplicate_account') {
-    const authUidToDelete = targetData.authUid || targetUid;
-    try {
-      await sdk.auth.deleteUser(authUidToDelete);
-    } catch (error: any) {
-      if (error?.code !== 'auth/user-not-found') {
-        console.warn('Notice: Firebase Auth deleteUser notice:', error?.message);
+  // Idempotency: If already deleted, preserve original deletedAt
+  if (targetData.status === 'deleted') {
+    // If Auth account deletion was requested, retry it safely
+    if (options?.deleteAuthAccount === true && deleteReason !== 'duplicate_account') {
+      const authUidToDelete = targetData.authUid || targetUid;
+      try {
+        await sdk.auth.deleteUser(authUidToDelete);
+        return { allowed: true, status: 200, alreadyDeleted: true, profileDeleted: true, authDeleted: true };
+      } catch (authErr: any) {
+        if (authErr?.code === 'auth/user-not-found') {
+          return { allowed: true, status: 200, alreadyDeleted: true, profileDeleted: true, authDeleted: true };
+        }
+        console.warn('Notice: Firebase Auth deleteUser retry failed:', authErr?.message || authErr);
+        return {
+          allowed: true,
+          status: 207,
+          partial: true,
+          alreadyDeleted: true,
+          profileDeleted: true,
+          authDeleted: false,
+          code: 'PROFILE_DELETED_AUTH_CLEANUP_FAILED',
+          reason: 'PROFILE_DELETED_AUTH_CLEANUP_FAILED'
+        };
       }
     }
+    return { allowed: true, status: 200, alreadyDeleted: true, profileDeleted: true, authDeleted: false };
   }
 
-  // Entity Soft Delete in Firestore (NEVER deleteDoc/targetRef.delete)
+  const now = Date.now();
+
+  // Phase 1: Entity Soft Delete in Firestore FIRST (NEVER deleteDoc/targetRef.delete)
   const softDeletePayload: any = {
     status: 'deleted',
     deletedAt: now,
@@ -663,7 +685,45 @@ export async function deleteManagedUser(
   }
 
   await targetRef.set(softDeletePayload, { merge: true });
-  return { allowed: true, status: 200 };
+
+  // Phase 2: Separate Firebase Auth account deletion ONLY after Phase 1 commits
+  let authDeleted = false;
+  let partialFailure = false;
+
+  // NEVER delete Auth account if this is duplicate_account cleanup
+  if (options?.deleteAuthAccount === true && deleteReason !== 'duplicate_account') {
+    const authUidToDelete = targetData.authUid || targetUid;
+    try {
+      await sdk.auth.deleteUser(authUidToDelete);
+      authDeleted = true;
+    } catch (error: any) {
+      if (error?.code === 'auth/user-not-found') {
+        authDeleted = true;
+      } else {
+        console.warn('Notice: Firebase Auth deleteUser failed:', error?.message || error);
+        partialFailure = true;
+      }
+    }
+  }
+
+  if (partialFailure) {
+    return {
+      allowed: true,
+      status: 207,
+      partial: true,
+      profileDeleted: true,
+      authDeleted: false,
+      code: 'PROFILE_DELETED_AUTH_CLEANUP_FAILED',
+      reason: 'PROFILE_DELETED_AUTH_CLEANUP_FAILED'
+    };
+  }
+
+  return {
+    allowed: true,
+    status: 200,
+    profileDeleted: true,
+    authDeleted: options?.deleteAuthAccount === true ? authDeleted : false
+  };
 }
 
 export async function changeManagedUserPassword(

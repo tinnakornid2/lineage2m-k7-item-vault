@@ -327,6 +327,7 @@ export async function backupAllDataToGoogleSheets(
         queueItems: safePayload.queueItems,
         clans: safePayload.clans,
         diamondLogs: safePayload.diamondLogs,
+        syncMeta: safePayload.syncMeta,
         formulaSettings: safePayload.formulaSettings,
         announcementSettings: safePayload.announcementSettings,
         backgroundSettings: safePayload.backgroundSettings,

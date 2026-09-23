@@ -275,7 +275,24 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         liveStateEmitter.emit('update');
       }
 
-      return res.json({ success: true, alreadyDeleted: !!result.alreadyDeleted });
+      if (result.partial || result.status === 207) {
+        return res.status(207).json({
+          success: true,
+          partial: true,
+          code: result.code || 'PROFILE_DELETED_AUTH_CLEANUP_FAILED',
+          profileDeleted: true,
+          authDeleted: false,
+          alreadyDeleted: !!result.alreadyDeleted,
+          message: 'โปรไฟล์ถูกปฏิเสธ/ลบเรียบร้อยแล้ว แต่การลบบัญชี Auth ไม่สำเร็จ กรุณากดลองใหม่อีกครั้ง / Profile was soft-deleted, but Auth account cleanup failed. Please retry.'
+        });
+      }
+
+      return res.json({
+        success: true,
+        alreadyDeleted: !!result.alreadyDeleted,
+        profileDeleted: true,
+        authDeleted: !!result.authDeleted
+      });
     } catch (error) {
       console.error('Failed to delete managed user:', error);
       return res.status(500).json({

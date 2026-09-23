@@ -87,17 +87,17 @@ try {
   for (const [collectionName, documents] of Object.entries(backup.collections)) {
     const existing = await db.collection(collectionName).get();
     if (collectionName === 'users') {
-      const existingDeletedDocs = new Map();
+      const existingProtectedDocs = new Map();
       existing.docs.forEach((doc) => {
         const data = doc.data();
-        if (data && data.status === 'deleted') {
-          existingDeletedDocs.set(doc.id, data);
+        if (data && (data.status === 'deleted' || data.status === 'shadow' || data.isAuthShadow)) {
+          existingProtectedDocs.set(doc.id, data);
         }
       });
 
-      // Anti-resurrection guard: Existing soft-deleted documents are never resurrected or overwritten by backup
-      const docsToRestore = documents.filter((doc) => !existingDeletedDocs.has(doc.id));
-      const docsToDelete = existing.docs.filter((doc) => !existingDeletedDocs.has(doc.id));
+      // Anti-resurrection guard: Existing soft-deleted and shadow documents are never resurrected, overwritten, or physically deleted
+      const docsToRestore = documents.filter((doc) => !existingProtectedDocs.has(doc.id));
+      const docsToDelete = existing.docs.filter((doc) => !existingProtectedDocs.has(doc.id));
 
       await commitInChunks(docsToDelete.map((document) => (batch) => batch.delete(document.ref)));
       await commitInChunks(docsToRestore.map((document) => (batch) =>

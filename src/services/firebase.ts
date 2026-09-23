@@ -170,7 +170,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.10-step12-durable-deletion';
+const CACHE_SCHEMA_VERSION = '2.10.11-step13-authoritative-delete';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -1277,6 +1277,15 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
   }
 }
 
+export interface DeleteUserResult {
+  success: boolean;
+  partial?: boolean;
+  code?: string;
+  alreadyDeleted?: boolean;
+  authDeleted?: boolean;
+  message?: string;
+}
+
 export async function deleteUserDoc(
   userId: string,
   options?: {
@@ -1285,58 +1294,58 @@ export async function deleteUserDoc(
     deleteAuthAccount?: boolean;
     deletedBy?: string;
   }
-) {
-  if (!userId) return;
-  // 1. Immediately tombstone locally so that no sync or refresh can resurrect the user
-  markUserAsDeleted(userId);
-  const current = getCachedUsers().filter((u) => u.id !== userId);
-  setCachedUsers(current);
+): Promise<DeleteUserResult> {
+  if (!userId) {
+    throw new Error('User ID is required');
+  }
 
-  const now = Date.now();
   const deleteReason = options?.deleteReason || 'admin_removal';
   const canonicalUserId = options?.canonicalUserId;
-  const deletedBy = options?.deletedBy;
 
-  // 2. Client-side direct Firestore soft-delete with timeout guard (Entity Soft Delete)
-  try {
-    const ref = doc(db, USERS_COLLECTION, userId);
-    const softDeletePayload: any = {
-      status: 'deleted',
-      deletedAt: now,
-      deleteReason
+  // Authoritative server-side deletion via API (Backend commits Firestore soft-delete and handles Auth delete)
+  const token = await getCurrentUserIdToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    headers,
+    body: JSON.stringify({
+      deleteReason,
+      canonicalUserId,
+      deleteAuthAccount: options?.deleteAuthAccount === true
+    })
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (response.status === 207) {
+    return {
+      success: true,
+      partial: true,
+      code: result.code || 'PROFILE_DELETED_AUTH_CLEANUP_FAILED',
+      authDeleted: false,
+      alreadyDeleted: !!result.alreadyDeleted,
+      message: result.message
     };
-    if (deletedBy) softDeletePayload.deletedBy = deletedBy;
-    if (canonicalUserId) softDeletePayload.canonicalUserId = canonicalUserId;
-    await safeFirestoreWrite(updateDoc(ref, sanitizeForFirestore(softDeletePayload)), 1200, 'deleteUserDoc');
-  } catch (err: any) {
-    console.warn('Notice: Failed to soft-delete user directly from Firestore (marked deleted locally):', err?.message);
-    notifyQuotaExceeded(err);
   }
 
-  // 3. Server-side deletion via API (handles Auth delete if requested and handles relay live state)
-  try {
-    const token = await getCurrentUserIdToken();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
-    const response = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
-      method: 'DELETE',
-      headers,
-      body: JSON.stringify({
-        deleteReason,
-        canonicalUserId,
-        deleteAuthAccount: options?.deleteAuthAccount === true
-      })
-    });
-    if (!response.ok) {
-      const result = await response.json().catch(() => null);
-      console.warn(`Notice: /api/users/${userId} returned status ${response.status}:`, result?.message);
-    }
-  } catch (err: any) {
-    console.warn('Notice: /api/users endpoint unreachable or error (user tombstoned locally):', err?.message);
+  if (!response.ok) {
+    const errorMsg = result?.message || result?.error || `HTTP ${response.status}: Failed to delete user`;
+    const err = new Error(errorMsg) as any;
+    err.status = response.status;
+    err.code = result?.error;
+    throw err;
   }
+
+  return {
+    success: true,
+    partial: false,
+    alreadyDeleted: !!result.alreadyDeleted,
+    authDeleted: !!result.authDeleted
+  };
 }
 
 export function canChangePassword(currentUser: User | null, targetUser: User | null): boolean {
@@ -3150,6 +3159,10 @@ export async function syncBackupToFirestore(payload: {
   generalItems?: GeneralItem[];
   clans?: ClanGroup[];
   diamondLogs?: DiamondVaultRecord[];
+  syncMeta?: {
+    deletedUsers?: Record<string, number>;
+    [key: string]: any;
+  };
   formulaSettings?: FormulaSettings;
   announcementSettings?: AnnouncementSettings | null;
   backgroundSettings?: BackgroundSettingsData | null;
@@ -3174,7 +3187,54 @@ export async function syncBackupToFirestore(payload: {
     };
 
     if (payload.users && payload.users.length > 0) {
-      await writeInBatches(payload.users, USERS_COLLECTION);
+      let existingUsersSnap: any = null;
+      try {
+        existingUsersSnap = await getDocs(collection(db, USERS_COLLECTION));
+      } catch (e) {
+        console.warn('Notice: Could not read existing users for sync guard:', e);
+      }
+      const existingUserMap = new Map<string, any>();
+      if (existingUsersSnap) {
+        existingUsersSnap.forEach((d: any) => existingUserMap.set(d.id, d.data()));
+      }
+
+      const deletedUserMap: Record<string, number> = {
+        ...getDeletedIdsMap(DELETED_USERS_KEY),
+        ...(payload.syncMeta?.deletedUsers || {})
+      };
+
+      const safeUsersToWrite = payload.users.filter((incomingUser) => {
+        if (!incomingUser || !incomingUser.id) return false;
+        // Never restore shadow or deleted users from backup
+        if (incomingUser.status === 'deleted' || incomingUser.status === 'shadow' || incomingUser.isAuthShadow) {
+          return false;
+        }
+
+        const existing = existingUserMap.get(incomingUser.id);
+        if (existing) {
+          // If Firestore currently has status 'deleted', preserve it! Never overwrite to active!
+          if (existing.status === 'deleted') return false;
+          // If Firestore currently has status 'shadow' or isAuthShadow, preserve it!
+          if (existing.status === 'shadow' || existing.isAuthShadow) return false;
+
+          // Conflict resolution: preserve newer existing updatedAt
+          const existingRev = Number(existing.updatedAt || existing.createdAt || 0);
+          const incomingRev = Number(incomingUser.updatedAt || incomingUser.createdAt || 0);
+          if (existingRev > incomingRev) return false;
+        } else {
+          // If doc does not exist yet (e.g. empty database disaster recovery):
+          // Check if user is known to be deleted in tombstones
+          if (deletedUserMap[incomingUser.id]) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+
+      if (safeUsersToWrite.length > 0) {
+        await writeInBatches(safeUsersToWrite, USERS_COLLECTION);
+      }
     }
     if (payload.vaultItems && payload.vaultItems.length > 0) {
       await writeInBatches(payload.vaultItems, ITEMS_COLLECTION);
