@@ -194,7 +194,7 @@ describe('PATCH 2A-CONSOLIDATED: Model C Live-State, Zero-Trust Claims, Scoped U
     mockSdk = createMockSdk({ validTokens });
     _setTestAdminSdk(mockSdk);
 
-    const expressApp = await createApp();
+    const expressApp = await createApp({ serveFrontend: false });
     appServer = http.createServer(expressApp);
     await new Promise((resolve) => {
       appServer.listen(0, '127.0.0.1', () => {

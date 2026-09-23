@@ -14,7 +14,13 @@ if (!PROJECT_ID || !DATABASE_ID) {
 if (PROJECT_ID === 'hybrid-box-753bd') {
   throw new Error('Stale legacy project hybrid-box-753bd is strictly rejected.');
 }
+if (DATABASE_ID === 'ai-studio-lineage2mk7itemv-4a75381c-cb0d-43f8-9b9b-c337a41dd8b0') {
+  throw new Error('Stale database ID ai-studio-lineage2mk7itemv-4a75381c-cb0d-43f8-9b9b-c337a41dd8b0 is strictly rejected.');
+}
 const useEmulators = process.env.K7_USE_EMULATORS === 'true';
+if (!useEmulators && PROJECT_ID === 'k7-item' && DATABASE_ID === '(default)') {
+  throw new Error('Project k7-item does not use (default) database. Specific database ID required.');
+}
 const passphrase = process.env.K7_BACKUP_PASSPHRASE || '';
 const backupArgument = process.argv.find((argument) => argument.endsWith('.k7backup'));
 
@@ -80,11 +86,31 @@ try {
   const restoredCounts = {};
   for (const [collectionName, documents] of Object.entries(backup.collections)) {
     const existing = await db.collection(collectionName).get();
-    await commitInChunks(existing.docs.map((document) => (batch) => batch.delete(document.ref)));
-    await commitInChunks(documents.map((document) => (batch) =>
-      batch.set(db.collection(collectionName).doc(document.id), decodeValue(document.data))
-    ));
-    restoredCounts[collectionName] = documents.length;
+    if (collectionName === 'users') {
+      const existingDeletedDocs = new Map();
+      existing.docs.forEach((doc) => {
+        const data = doc.data();
+        if (data && data.status === 'deleted') {
+          existingDeletedDocs.set(doc.id, data);
+        }
+      });
+
+      // Anti-resurrection guard: Existing soft-deleted documents are never resurrected or overwritten by backup
+      const docsToRestore = documents.filter((doc) => !existingDeletedDocs.has(doc.id));
+      const docsToDelete = existing.docs.filter((doc) => !existingDeletedDocs.has(doc.id));
+
+      await commitInChunks(docsToDelete.map((document) => (batch) => batch.delete(document.ref)));
+      await commitInChunks(docsToRestore.map((document) => (batch) =>
+        batch.set(db.collection(collectionName).doc(document.id), decodeValue(document.data))
+      ));
+      restoredCounts[collectionName] = docsToRestore.length;
+    } else {
+      await commitInChunks(existing.docs.map((document) => (batch) => batch.delete(document.ref)));
+      await commitInChunks(documents.map((document) => (batch) =>
+        batch.set(db.collection(collectionName).doc(document.id), decodeValue(document.data))
+      ));
+      restoredCounts[collectionName] = documents.length;
+    }
   }
   console.log(JSON.stringify({ restored: true, restoredCounts }, null, 2));
 } finally {

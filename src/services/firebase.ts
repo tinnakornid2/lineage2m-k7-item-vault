@@ -170,7 +170,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.10-patch2a1-backend-security';
+const CACHE_SCHEMA_VERSION = '2.10.10-step12-durable-deletion';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -482,6 +482,8 @@ export function getCachedUsers(): User[] {
   }
   return pool.filter((u) => {
     if (!u || !u.id) return false;
+    if (u.status === 'deleted') return false;
+    if (u.status === 'shadow' || u.isAuthShadow) return false;
     if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
     return !deletedMap[u.id];
   });
@@ -491,6 +493,8 @@ export function setCachedUsers(users: User[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
   const clean = (users || []).filter((u) => {
     if (!u || !u.id) return false;
+    if (u.status === 'deleted') return false;
+    if (u.status === 'shadow' || u.isAuthShadow) return false;
     if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
     return !deletedMap[u.id];
   });
@@ -510,6 +514,8 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
   const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
   const isDeleted = (u: User) => {
     if (!u || !u.id) return true;
+    if (u.status === 'deleted') return true;
+    if (u.status === 'shadow' || u.isAuthShadow) return true;
     if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return false;
     return Boolean(deletedMap[u.id]);
   };
@@ -1229,6 +1235,8 @@ export function listenToUsers(callback: (users: User[]) => void) {
       const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
       const isDeleted = (u: User) => {
         if (!u || !u.id) return true;
+        if (u.status === 'deleted') return true;
+        if (u.status === 'shadow' || u.isAuthShadow) return true;
         if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return false;
         return (deletedMap[u.id] || 0) >= Number(u.updatedAt || u.createdAt || 0);
       };
@@ -1269,28 +1277,58 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
   }
 }
 
-export async function deleteUserDoc(userId: string) {
+export async function deleteUserDoc(
+  userId: string,
+  options?: {
+    deleteReason?: string;
+    canonicalUserId?: string;
+    deleteAuthAccount?: boolean;
+    deletedBy?: string;
+  }
+) {
   if (!userId) return;
   // 1. Immediately tombstone locally so that no sync or refresh can resurrect the user
   markUserAsDeleted(userId);
   const current = getCachedUsers().filter((u) => u.id !== userId);
   setCachedUsers(current);
 
-  // 2. Client-side direct Firestore delete with timeout guard (Zero-Downtime Rule 6)
+  const now = Date.now();
+  const deleteReason = options?.deleteReason || 'admin_removal';
+  const canonicalUserId = options?.canonicalUserId;
+  const deletedBy = options?.deletedBy;
+
+  // 2. Client-side direct Firestore soft-delete with timeout guard (Entity Soft Delete)
   try {
     const ref = doc(db, USERS_COLLECTION, userId);
-    await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteUserDoc');
+    const softDeletePayload: any = {
+      status: 'deleted',
+      deletedAt: now,
+      deleteReason
+    };
+    if (deletedBy) softDeletePayload.deletedBy = deletedBy;
+    if (canonicalUserId) softDeletePayload.canonicalUserId = canonicalUserId;
+    await safeFirestoreWrite(updateDoc(ref, sanitizeForFirestore(softDeletePayload)), 1200, 'deleteUserDoc');
   } catch (err: any) {
-    console.warn('Notice: Failed to delete user directly from Firestore (marked deleted locally):', err?.message);
+    console.warn('Notice: Failed to soft-delete user directly from Firestore (marked deleted locally):', err?.message);
     notifyQuotaExceeded(err);
   }
 
-  // 3. Server-side deletion via API (deletes from Auth and handles relay live state)
+  // 3. Server-side deletion via API (handles Auth delete if requested and handles relay live state)
   try {
     const token = await getCurrentUserIdToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
     const response = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
       method: 'DELETE',
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
+      headers,
+      body: JSON.stringify({
+        deleteReason,
+        canonicalUserId,
+        deleteAuthAccount: options?.deleteAuthAccount === true
+      })
     });
     if (!response.ok) {
       const result = await response.json().catch(() => null);

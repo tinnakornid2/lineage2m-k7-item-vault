@@ -464,9 +464,15 @@ export async function verifyRoleToken(
       };
     }
 
-    // Deduplicate Auth UID shadow documents: if a canonical doc (id !== authUid) exists, it takes precedence
-    const canonicalDocs = matchingDocs.filter((d: any) => d.id !== decoded.uid);
-    const shadowDocs = matchingDocs.filter((d: any) => d.id === decoded.uid);
+    // Deduplicate Auth UID shadow documents: if a canonical doc exists, it takes precedence
+    const canonicalDocs = matchingDocs.filter((d: any) => {
+      const data = d.data();
+      return d.id !== decoded.uid && !data?.isAuthShadow && data?.status !== 'shadow';
+    });
+    const shadowDocs = matchingDocs.filter((d: any) => {
+      const data = d.data();
+      return d.id === decoded.uid || data?.isAuthShadow || data?.status === 'shadow';
+    });
 
     let chosenDoc: any = null;
     if (canonicalDocs.length === 1) {
@@ -492,6 +498,19 @@ export async function verifyRoleToken(
 
     matchedUserId = chosenDoc.id;
     matchedUserData = chosenDoc.data();
+
+    // If chosenDoc is a shadow document with a canonical pointer, resolve to canonical
+    if ((matchedUserData.isAuthShadow || matchedUserData.status === 'shadow') && matchedUserData.canonicalUserId) {
+      try {
+        const canonicalDoc = await sdk.db.collection('users').doc(matchedUserData.canonicalUserId).get();
+        if (canonicalDoc.exists && canonicalDoc.data()?.status !== 'deleted') {
+          matchedUserId = canonicalDoc.id;
+          matchedUserData = canonicalDoc.data();
+        }
+      } catch (err: any) {
+        console.warn('Notice: Error resolving canonical pointer for shadow doc:', err?.message || err);
+      }
+    }
   } else {
     // Condition 4: Non-synthetic / UID-native user resolution via direct /users/{decoded.uid}
     try {
@@ -503,8 +522,24 @@ export async function verifyRoleToken(
       if (directDoc && directDoc.exists) {
         const data = directDoc.data();
         if (data && data.status !== 'deleted') {
-          matchedUserId = directDoc.id;
-          matchedUserData = data;
+          if ((data.status === 'shadow' || data.isAuthShadow) && data.canonicalUserId) {
+            try {
+              const canonicalDoc = await sdk.db.collection('users').doc(data.canonicalUserId).get();
+              if (canonicalDoc.exists && canonicalDoc.data()?.status !== 'deleted') {
+                matchedUserId = canonicalDoc.id;
+                matchedUserData = canonicalDoc.data();
+              } else {
+                matchedUserId = directDoc.id;
+                matchedUserData = data;
+              }
+            } catch {
+              matchedUserId = directDoc.id;
+              matchedUserData = data;
+            }
+          } else {
+            matchedUserId = directDoc.id;
+            matchedUserData = data;
+          }
         }
       }
     } catch (err: any) {
@@ -565,8 +600,13 @@ export async function verifyRoleToken(
 
 export async function deleteManagedUser(
   actor: { uid: string; role: string },
-  targetUid: string
-): Promise<{ allowed: boolean; reason?: string; status?: number }> {
+  targetUid: string,
+  options?: {
+    deleteReason?: string;
+    canonicalUserId?: string;
+    deleteAuthAccount?: boolean;
+  }
+): Promise<{ allowed: boolean; reason?: string; status?: number; alreadyDeleted?: boolean }> {
   if (!targetUid || actor.uid === targetUid) {
     return { allowed: false, reason: 'SELF_DELETE_DENIED', status: 403 };
   }
@@ -581,19 +621,48 @@ export async function deleteManagedUser(
   if (!target.exists) {
     return { allowed: false, reason: 'USER_NOT_FOUND', status: 404 };
   }
-  const targetRole = String(target.data()?.role || 'member');
+  const targetData = target.data() || {};
+  const targetRole = String(targetData.role || 'member');
   const allowed = (actor.role === 'owner' && targetRole !== 'owner')
     || (actor.role === 'admin' && ['party_leader', 'member'].includes(targetRole));
   if (!allowed) {
     return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED', status: 403 };
   }
 
-  try {
-    await sdk.auth.deleteUser(targetUid);
-  } catch (error: any) {
-    if (error?.code !== 'auth/user-not-found') throw error;
+  // Idempotency: If already deleted, preserve original deletedAt and return success
+  if (targetData.status === 'deleted') {
+    return { allowed: true, status: 200, alreadyDeleted: true };
   }
-  await targetRef.delete();
+
+  const now = Date.now();
+  const deleteReason = options?.deleteReason || 'admin_removal';
+  const canonicalUserId = options?.canonicalUserId || null;
+
+  // Separate Firebase Auth account deletion:
+  // ONLY delete Auth account if explicitly requested, AND NEVER if this is duplicate_account cleanup
+  if (options?.deleteAuthAccount === true && deleteReason !== 'duplicate_account') {
+    const authUidToDelete = targetData.authUid || targetUid;
+    try {
+      await sdk.auth.deleteUser(authUidToDelete);
+    } catch (error: any) {
+      if (error?.code !== 'auth/user-not-found') {
+        console.warn('Notice: Firebase Auth deleteUser notice:', error?.message);
+      }
+    }
+  }
+
+  // Entity Soft Delete in Firestore (NEVER deleteDoc/targetRef.delete)
+  const softDeletePayload: any = {
+    status: 'deleted',
+    deletedAt: now,
+    deletedBy: actor.uid,
+    deleteReason
+  };
+  if (canonicalUserId) {
+    softDeletePayload.canonicalUserId = canonicalUserId;
+  }
+
+  await targetRef.set(softDeletePayload, { merge: true });
   return { allowed: true, status: 200 };
 }
 

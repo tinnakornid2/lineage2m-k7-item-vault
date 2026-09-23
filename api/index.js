@@ -350,8 +350,14 @@ async function verifyRoleToken(authorization, allowedRoles) {
         message: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A / User profile not found."
       };
     }
-    const canonicalDocs = matchingDocs.filter((d) => d.id !== decoded.uid);
-    const shadowDocs = matchingDocs.filter((d) => d.id === decoded.uid);
+    const canonicalDocs = matchingDocs.filter((d) => {
+      const data = d.data();
+      return d.id !== decoded.uid && !data?.isAuthShadow && data?.status !== "shadow";
+    });
+    const shadowDocs = matchingDocs.filter((d) => {
+      const data = d.data();
+      return d.id === decoded.uid || data?.isAuthShadow || data?.status === "shadow";
+    });
     let chosenDoc = null;
     if (canonicalDocs.length === 1) {
       chosenDoc = canonicalDocs[0];
@@ -374,6 +380,17 @@ async function verifyRoleToken(authorization, allowedRoles) {
     }
     matchedUserId = chosenDoc.id;
     matchedUserData = chosenDoc.data();
+    if ((matchedUserData.isAuthShadow || matchedUserData.status === "shadow") && matchedUserData.canonicalUserId) {
+      try {
+        const canonicalDoc = await sdk.db.collection("users").doc(matchedUserData.canonicalUserId).get();
+        if (canonicalDoc.exists && canonicalDoc.data()?.status !== "deleted") {
+          matchedUserId = canonicalDoc.id;
+          matchedUserData = canonicalDoc.data();
+        }
+      } catch (err) {
+        console.warn("Notice: Error resolving canonical pointer for shadow doc:", err?.message || err);
+      }
+    }
   } else {
     try {
       const directDoc = await Promise.race([
@@ -383,8 +400,24 @@ async function verifyRoleToken(authorization, allowedRoles) {
       if (directDoc && directDoc.exists) {
         const data = directDoc.data();
         if (data && data.status !== "deleted") {
-          matchedUserId = directDoc.id;
-          matchedUserData = data;
+          if ((data.status === "shadow" || data.isAuthShadow) && data.canonicalUserId) {
+            try {
+              const canonicalDoc = await sdk.db.collection("users").doc(data.canonicalUserId).get();
+              if (canonicalDoc.exists && canonicalDoc.data()?.status !== "deleted") {
+                matchedUserId = canonicalDoc.id;
+                matchedUserData = canonicalDoc.data();
+              } else {
+                matchedUserId = directDoc.id;
+                matchedUserData = data;
+              }
+            } catch {
+              matchedUserId = directDoc.id;
+              matchedUserData = data;
+            }
+          } else {
+            matchedUserId = directDoc.id;
+            matchedUserData = data;
+          }
         }
       }
     } catch (err) {
@@ -436,7 +469,7 @@ async function verifyRoleToken(authorization, allowedRoles) {
     }
   };
 }
-async function deleteManagedUser(actor, targetUid) {
+async function deleteManagedUser(actor, targetUid, options) {
   if (!targetUid || actor.uid === targetUid) {
     return { allowed: false, reason: "SELF_DELETE_DENIED", status: 403 };
   }
@@ -449,17 +482,38 @@ async function deleteManagedUser(actor, targetUid) {
   if (!target.exists) {
     return { allowed: false, reason: "USER_NOT_FOUND", status: 404 };
   }
-  const targetRole = String(target.data()?.role || "member");
+  const targetData = target.data() || {};
+  const targetRole = String(targetData.role || "member");
   const allowed = actor.role === "owner" && targetRole !== "owner" || actor.role === "admin" && ["party_leader", "member"].includes(targetRole);
   if (!allowed) {
     return { allowed: false, reason: "ROLE_HIERARCHY_DENIED", status: 403 };
   }
-  try {
-    await sdk.auth.deleteUser(targetUid);
-  } catch (error) {
-    if (error?.code !== "auth/user-not-found") throw error;
+  if (targetData.status === "deleted") {
+    return { allowed: true, status: 200, alreadyDeleted: true };
   }
-  await targetRef.delete();
+  const now = Date.now();
+  const deleteReason = options?.deleteReason || "admin_removal";
+  const canonicalUserId = options?.canonicalUserId || null;
+  if (options?.deleteAuthAccount === true && deleteReason !== "duplicate_account") {
+    const authUidToDelete = targetData.authUid || targetUid;
+    try {
+      await sdk.auth.deleteUser(authUidToDelete);
+    } catch (error) {
+      if (error?.code !== "auth/user-not-found") {
+        console.warn("Notice: Firebase Auth deleteUser notice:", error?.message);
+      }
+    }
+  }
+  const softDeletePayload = {
+    status: "deleted",
+    deletedAt: now,
+    deletedBy: actor.uid,
+    deleteReason
+  };
+  if (canonicalUserId) {
+    softDeletePayload.canonicalUserId = canonicalUserId;
+  }
+  await targetRef.set(softDeletePayload, { merge: true });
   return { allowed: true, status: 200 };
 }
 async function changeManagedUserPassword(actor, targetUid, newPassword) {
@@ -685,7 +739,12 @@ async function createApp(options = {}) {
   app.delete("/api/users/:userId", requireRoles(["owner", "admin"]), async (req, res) => {
     try {
       const targetUserId = req.params.userId;
-      const result = await deleteManagedUser(res.locals.actor, targetUserId);
+      const { deleteReason, canonicalUserId, deleteAuthAccount } = req.body || {};
+      const result = await deleteManagedUser(res.locals.actor, targetUserId, {
+        deleteReason,
+        canonicalUserId,
+        deleteAuthAccount: deleteAuthAccount === true
+      });
       if (!result.allowed) {
         if (result.status === 503 || result.reason === "AUTH_SERVICE_UNAVAILABLE") {
           return res.status(503).json({
@@ -716,7 +775,7 @@ async function createApp(options = {}) {
         }
         liveStateEmitter.emit("update");
       }
-      return res.json({ success: true });
+      return res.json({ success: true, alreadyDeleted: !!result.alreadyDeleted });
     } catch (error) {
       console.error("Failed to delete managed user:", error);
       return res.status(500).json({
@@ -902,7 +961,7 @@ async function createApp(options = {}) {
     }
     delete scrubbed.geminiAiSettings;
     if (Array.isArray(scrubbed.users)) {
-      scrubbed.users = scrubbed.users.map((u) => {
+      scrubbed.users = scrubbed.users.filter((u) => u && typeof u === "object" && u.status !== "deleted" && u.status !== "shadow" && !u.isAuthShadow).map((u) => {
         if (!u || typeof u !== "object") return u;
         const {
           password,
@@ -1000,6 +1059,7 @@ async function createApp(options = {}) {
           const data = doc.data();
           if (!data) return;
           if (data.status === "deleted") return;
+          if (data.status === "shadow" || data.isAuthShadow) return;
           if (deletedUserTombstones[doc.id]) return;
           rawUsers.push({ ...data, id: doc.id });
         });
@@ -1021,8 +1081,8 @@ async function createApp(options = {}) {
           if (userList.length === 1) {
             users.push(userList[0]);
           } else {
-            const canonicalProfile = userList.find((u) => u.id.startsWith("user_"));
-            const picked = canonicalProfile || userList[0];
+            const canonicalProfile = userList.find((u) => !u.isAuthShadow && u.status !== "shadow" && (u.id.startsWith("user_") || u.id !== u.authUid));
+            const picked = canonicalProfile || userList.find((u) => !u.isAuthShadow && u.status !== "shadow") || userList[0];
             users.push(picked);
           }
         }

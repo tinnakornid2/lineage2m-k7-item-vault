@@ -14,11 +14,17 @@ if (!PROJECT_ID || !DATABASE_ID) {
 if (PROJECT_ID === 'hybrid-box-753bd') {
   throw new Error('Stale legacy project hybrid-box-753bd is strictly rejected.');
 }
+if (DATABASE_ID === 'ai-studio-lineage2mk7itemv-4a75381c-cb0d-43f8-9b9b-c337a41dd8b0') {
+  throw new Error('Stale database ID ai-studio-lineage2mk7itemv-4a75381c-cb0d-43f8-9b9b-c337a41dd8b0 is strictly rejected.');
+}
+const useEmulators = process.env.K7_USE_EMULATORS === 'true';
+if (!useEmulators && PROJECT_ID === 'k7-item' && DATABASE_ID === '(default)') {
+  throw new Error('Project k7-item does not use (default) database. Specific database ID required.');
+}
 const COLLECTIONS = [
   'users', 'items', 'item_claims', 'item_queues', 'quick_items',
   'clans', 'diamond_vault', 'app_settings', 'system_meta'
 ];
-const useEmulators = process.env.K7_USE_EMULATORS === 'true';
 const passphrase = process.env.K7_BACKUP_PASSPHRASE || '';
 
 if (passphrase.length < 16) {
@@ -57,11 +63,21 @@ try {
   const counts = {};
   for (const collectionName of COLLECTIONS) {
     const snapshot = await db.collection(collectionName).get();
-    collections[collectionName] = snapshot.docs.map((document) => ({
+    let docs = snapshot.docs;
+    if (collectionName === 'users') {
+      docs = docs.filter((document) => {
+        const data = document.data();
+        if (!data) return false;
+        if (data.status === 'deleted') return false;
+        if (data.status === 'shadow' || data.isAuthShadow) return false;
+        return true;
+      });
+    }
+    collections[collectionName] = docs.map((document) => ({
       id: document.id,
       data: encodeValue(document.data())
     }));
-    counts[collectionName] = snapshot.size;
+    counts[collectionName] = docs.length;
   }
 
   const plaintext = Buffer.from(JSON.stringify({

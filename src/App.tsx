@@ -3449,7 +3449,11 @@ export const App: React.FC = () => {
     }
 
     try {
-      await deleteUserDoc(userId);
+      await deleteUserDoc(userId, {
+        deleteReason: 'registration_rejected',
+        deleteAuthAccount: true,
+        deletedBy: currentUser?.id
+      });
       showToast(
         lang === 'th'
           ? `ปฏิเสธคำขอสมัครของ ${target?.inGameName || ''} แล้ว`
@@ -3530,7 +3534,11 @@ export const App: React.FC = () => {
     }
 
     try {
-      await deleteUserDoc(userId);
+      await deleteUserDoc(userId, {
+        deleteReason: 'admin_removal',
+        deleteAuthAccount: false,
+        deletedBy: currentUser?.id
+      });
       showToast(
         lang === 'th'
           ? `ลบสมาชิก ${target?.inGameName || ''} สำเร็จ`
@@ -4296,7 +4304,11 @@ export const App: React.FC = () => {
 
     try {
       for (const uid of userIds) {
-        await deleteUserDoc(uid);
+        await deleteUserDoc(uid, {
+          deleteReason: 'batch_admin_removal',
+          deleteAuthAccount: false,
+          deletedBy: currentUser?.id
+        });
       }
       showToast(
         lang === 'th' ? `ลบสมาชิกทั้งหมด ${count} คนสำเร็จ` : `Deleted ${count} members successfully`,

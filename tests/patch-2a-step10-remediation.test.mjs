@@ -234,7 +234,7 @@ describe('STEP 10: Pre-Production Blocker Remediation Suite', () => {
     mockSdk = createStep10MockSdk({ validTokens });
     _setTestAdminSdk(mockSdk);
 
-    const app = await createApp();
+    const app = await createApp({ serveFrontend: false });
     appServer = http.createServer(app);
     await new Promise((resolve) => {
       appServer.listen(0, '127.0.0.1', () => {

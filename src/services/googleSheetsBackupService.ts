@@ -104,6 +104,8 @@ function sanitizePayloadForGoogle(payload: BackupDataPayload): BackupDataPayload
     users: (payload.users || [])
       .filter((user) => {
         if (!user || !user.id) return false;
+        if (user.status === 'deleted') return false;
+        if (user.status === 'shadow' || user.isAuthShadow) return false;
         if (user.id === 'user_owner_eloni' || user.username?.toLowerCase() === 'eloni' || user.inGameName?.toLowerCase() === 'eloni') return true;
         return !deletedUserMap[user.id];
       })

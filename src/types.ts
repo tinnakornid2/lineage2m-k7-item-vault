@@ -69,7 +69,7 @@ export const getRarityTextGlow = (r: ItemRarity) => {
 
 export type UserRole = 'owner' | 'admin' | 'manager' | 'party_leader' | 'member';
 
-export type UserStatus = 'active' | 'pending_approval';
+export type UserStatus = 'active' | 'pending_approval' | 'deleted' | 'shadow';
 
 export interface User {
   id: string;
@@ -89,6 +89,13 @@ export interface User {
   lastLoginAt?: number;
   pendingPowerLevel?: number | null;
   pendingPowerLevelRequestedAt?: number | null;
+  // Soft Delete & Shadow Alias Metadata
+  deletedAt?: number;
+  deletedBy?: string;
+  deleteReason?: string;
+  canonicalUserId?: string;
+  isAuthShadow?: boolean;
+  shadowForUsername?: string;
   // Dynamic Stats & Verification
   stats?: Record<string, number>;
   spiritEnhancements?: Record<string, number>;

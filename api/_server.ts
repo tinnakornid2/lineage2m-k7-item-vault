@@ -235,7 +235,12 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   app.delete("/api/users/:userId", requireRoles(['owner', 'admin']), async (req, res) => {
     try {
       const targetUserId = req.params.userId;
-      const result = await deleteManagedUser(res.locals.actor, targetUserId);
+      const { deleteReason, canonicalUserId, deleteAuthAccount } = req.body || {};
+      const result = await deleteManagedUser(res.locals.actor, targetUserId, {
+        deleteReason,
+        canonicalUserId,
+        deleteAuthAccount: deleteAuthAccount === true
+      });
       if (!result.allowed) {
         if (result.status === 503 || result.reason === 'AUTH_SERVICE_UNAVAILABLE') {
           return res.status(503).json({
@@ -270,7 +275,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         liveStateEmitter.emit('update');
       }
 
-      return res.json({ success: true });
+      return res.json({ success: true, alreadyDeleted: !!result.alreadyDeleted });
     } catch (error) {
       console.error('Failed to delete managed user:', error);
       return res.status(500).json({
@@ -489,7 +494,9 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     delete scrubbed.geminiAiSettings;
 
     if (Array.isArray(scrubbed.users)) {
-      scrubbed.users = scrubbed.users.map((u: any) => {
+      scrubbed.users = scrubbed.users
+        .filter((u: any) => u && typeof u === 'object' && u.status !== 'deleted' && u.status !== 'shadow' && !u.isAuthShadow)
+        .map((u: any) => {
         if (!u || typeof u !== 'object') return u;
         const {
           password,
@@ -600,6 +607,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           const data = doc.data();
           if (!data) return;
           if (data.status === 'deleted') return;
+          if (data.status === 'shadow' || data.isAuthShadow) return;
           if (deletedUserTombstones[doc.id]) return;
           rawUsers.push({ ...data, id: doc.id });
         });
@@ -627,8 +635,8 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
             users.push(userList[0]);
           } else {
             // Multiple docs with same username: prefer canonical profile (starts with 'user_' or has custom legacy ID)
-            const canonicalProfile = userList.find((u) => u.id.startsWith('user_'));
-            const picked = canonicalProfile || userList[0];
+            const canonicalProfile = userList.find((u) => !u.isAuthShadow && u.status !== 'shadow' && (u.id.startsWith('user_') || u.id !== u.authUid));
+            const picked = canonicalProfile || userList.find((u) => !u.isAuthShadow && u.status !== 'shadow') || userList[0];
             users.push(picked);
           }
         }
