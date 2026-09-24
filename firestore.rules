@@ -200,7 +200,8 @@ service cloud.firestore {
       allow delete: if isAdminOrOwner();
       allow update: if validGeneralItem(request.resource.data)
         && request.resource.data.id == resource.data.id
-        && isAdminOrOwner();
+        && isAdminOrOwner()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['queueList']);
     }
 
     match /clans/{clanId} {
