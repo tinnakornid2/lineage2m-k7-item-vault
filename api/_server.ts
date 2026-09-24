@@ -606,7 +606,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           return { success: false, changed: false, version: liveHubState.version, updatedAt: liveHubState.updatedAt };
         }
 
-        const [usersSnap, itemsSnap, queuesSnap, quickSnap, generalSnap, clansSnap, vaultSnap] = await Promise.all([
+        const [usersSnap, itemsSnap, queuesSnap, quickSnap, generalSnap, clansSnap, vaultSnap, tombstonesDoc] = await Promise.all([
           sdk.db.collection('users').get(),
           sdk.db.collection('items').get(),
           sdk.db.collection('item_queues').get(),
@@ -614,9 +614,38 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           sdk.db.collection('general_items').get(),
           sdk.db.collection('clans').get(),
           sdk.db.collection('diamond_vault').get(),
+          sdk.db.collection('system').doc('tombstones').get().catch(() => null)
         ]);
 
-        const deletedUserTombstones = (liveHubState.data?.syncMeta?.deletedUsers) || {};
+        const cloudTombstones: Record<string, any> = (tombstonesDoc && tombstonesDoc.exists) ? (tombstonesDoc.data() || {}) : {};
+        const mergedSyncMeta = {
+          deletedUsers: {
+            ...(cloudTombstones.deletedUsers || {}),
+            ...(liveHubState.data?.syncMeta?.deletedUsers || {})
+          },
+          deletedVaultItems: {
+            ...(cloudTombstones.deletedVaultItems || {}),
+            ...(liveHubState.data?.syncMeta?.deletedVaultItems || {})
+          },
+          deletedQueueItems: {
+            ...(cloudTombstones.deletedQueueItems || {}),
+            ...(liveHubState.data?.syncMeta?.deletedQueueItems || {})
+          },
+          deletedGeneralItems: {
+            ...(cloudTombstones.deletedGeneralItems || {}),
+            ...(liveHubState.data?.syncMeta?.deletedGeneralItems || {})
+          },
+          removedQueueMembers: {
+            ...(cloudTombstones.removedQueueMembers || {}),
+            ...(liveHubState.data?.syncMeta?.removedQueueMembers || {})
+          },
+          cancelledClaims: {
+            ...(cloudTombstones.cancelledClaims || {}),
+            ...(liveHubState.data?.syncMeta?.cancelledClaims || {})
+          }
+        };
+
+        const deletedUserTombstones = mergedSyncMeta.deletedUsers || {};
 
         // 1. Filter out physically deleted or tombstoned users
         const rawUsers: any[] = [];
@@ -704,7 +733,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           generalItems,
           clans,
           diamondLogs,
-          syncMeta: liveHubState.data?.syncMeta || {},
+          syncMeta: mergedSyncMeta,
           discordSettings: liveHubState.data?.discordSettings || null,
           googleBackupConfig: liveHubState.data?.googleBackupConfig || {
             webAppUrl: sharedGoogleBackupUrl,
@@ -806,10 +835,15 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       }
 
       const docRef = sdk.db.collection('items').doc(itemId);
+      const tombRef = sdk.db.collection('system').doc('tombstones');
       let updatedClaimants: any[] = [];
 
       await sdk.db.runTransaction(async (transaction: any) => {
-        const docSnap = await transaction.get(docRef);
+        const [docSnap, tombSnap] = await Promise.all([
+          transaction.get(docRef),
+          transaction.get(tombRef).catch(() => null)
+        ]);
+
         if (!docSnap.exists) {
           throw new Error('ITEM_NOT_FOUND');
         }
@@ -826,20 +860,42 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           claimants: updatedClaimants,
           updatedAt: now
         }, { merge: true });
+
+        // If re-claiming, atomically clear any cancellation marker from system/tombstones
+        if (tombSnap && tombSnap.exists) {
+          const tombData = tombSnap.data() || {};
+          const cancelledClaims = { ...(tombData.cancelledClaims || {}) };
+          const keyUser = `${itemId}:::${safeClaimant.userId.toLowerCase()}`;
+          const keyName = safeClaimant.inGameName ? `${itemId}:::${safeClaimant.inGameName.toLowerCase()}` : '';
+          let tombChanged = false;
+          if (keyUser in cancelledClaims) { delete cancelledClaims[keyUser]; tombChanged = true; }
+          if (keyName && keyName in cancelledClaims) { delete cancelledClaims[keyName]; tombChanged = true; }
+          if (tombChanged) {
+            transaction.set(tombRef, { cancelledClaims, updatedAt: now }, { merge: true });
+          }
+        }
       });
 
       // Update in-memory liveHubState
-      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
-        liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item: any) => {
-          if (item.id === itemId) {
-            return {
-              ...item,
-              claimants: updatedClaimants,
-              updatedAt: now
-            };
+      if (liveHubState && liveHubState.data) {
+        if (Array.isArray(liveHubState.data.vaultItems)) {
+          liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item: any) => {
+            if (item.id === itemId) {
+              return {
+                ...item,
+                claimants: updatedClaimants,
+                updatedAt: now
+              };
+            }
+            return item;
+          });
+        }
+        if (liveHubState.data.syncMeta?.cancelledClaims) {
+          delete liveHubState.data.syncMeta.cancelledClaims[`${itemId}:::${safeClaimant.userId.toLowerCase()}`];
+          if (safeClaimant.inGameName) {
+            delete liveHubState.data.syncMeta.cancelledClaims[`${itemId}:::${safeClaimant.inGameName.toLowerCase()}`];
           }
-          return item;
-        });
+        }
         liveHubState.updatedAt = now;
         liveHubState.version = (liveHubState.version || 0) + 1;
         try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
@@ -899,16 +955,23 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       }
 
       const docRef = sdk.db.collection('items').doc(itemId);
+      const tombRef = sdk.db.collection('system').doc('tombstones');
       let remainingClaimants: any[] = [];
+      const newCancelledMarkers: Record<string, number> = {};
       const now = Date.now();
 
       await sdk.db.runTransaction(async (transaction: any) => {
-        const docSnap = await transaction.get(docRef);
+        const [docSnap, tombSnap] = await Promise.all([
+          transaction.get(docRef),
+          transaction.get(tombRef).catch(() => null)
+        ]);
+
         if (!docSnap.exists) {
           throw new Error('ITEM_NOT_FOUND');
         }
 
         const itemData = docSnap.data() || {};
+        const tombData = (tombSnap && tombSnap.exists) ? (tombSnap.data() || {}) : {};
 
         // If admin, enforce clan scope if item has a clan
         if (actor.role === 'admin' && !isSelf) {
@@ -930,6 +993,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           }
         }
 
+        const removedClaimants: any[] = [];
         remainingClaimants = claimants.filter((c: any) => {
           const cUserId = c.userId ? String(c.userId).trim().toLowerCase() : '';
           const cName = c.inGameName ? String(c.inGameName).trim().toLowerCase() : '';
@@ -942,27 +1006,80 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
             ? (cName === targetName)
             : (actorInGameName && cName === actorInGameName);
 
-          return !(userMatch || nameMatch);
+          const isRemoved = Boolean(userMatch || nameMatch);
+          if (isRemoved) {
+            removedClaimants.push(c);
+          }
+          return !isRemoved;
         });
 
+        // Build cancellation markers with item ID, user ID, inGameName, and timestamp
+        const cancelledClaims = { ...(tombData.cancelledClaims || {}) };
+
+        // 1. Add markers for each claimant specifically removed
+        for (const rem of removedClaimants) {
+          if (rem.userId) {
+            const k = `${itemId}:::${String(rem.userId).trim().toLowerCase()}`;
+            cancelledClaims[k] = now;
+            newCancelledMarkers[k] = now;
+          }
+          if (rem.inGameName) {
+            const k = `${itemId}:::${String(rem.inGameName).trim().toLowerCase()}`;
+            cancelledClaims[k] = now;
+            newCancelledMarkers[k] = now;
+          }
+        }
+
+        // 2. Also ensure canonical actor / target IDs are marked
+        const primaryUserId = targetUserId || actorCanonicalId;
+        if (primaryUserId) {
+          const k = `${itemId}:::${primaryUserId}`;
+          cancelledClaims[k] = now;
+          newCancelledMarkers[k] = now;
+        }
+        if (actorAuthUid && actorAuthUid !== actorCanonicalId) {
+          const k = `${itemId}:::${actorAuthUid}`;
+          cancelledClaims[k] = now;
+          newCancelledMarkers[k] = now;
+        }
+        const primaryName = targetName || actorInGameName;
+        if (primaryName) {
+          const k = `${itemId}:::${primaryName}`;
+          cancelledClaims[k] = now;
+          newCancelledMarkers[k] = now;
+        }
+
+        // Atomically update both items/{itemId} and system/tombstones in the same transaction
         transaction.set(docRef, {
           claimants: remainingClaimants,
+          updatedAt: now
+        }, { merge: true });
+
+        transaction.set(tombRef, {
+          cancelledClaims,
           updatedAt: now
         }, { merge: true });
       });
 
       // Update in-memory liveHubState
-      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
-        liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item: any) => {
-          if (item.id === itemId) {
-            return {
-              ...item,
-              claimants: remainingClaimants,
-              updatedAt: now
-            };
-          }
-          return item;
-        });
+      if (liveHubState && liveHubState.data) {
+        if (Array.isArray(liveHubState.data.vaultItems)) {
+          liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item: any) => {
+            if (item.id === itemId) {
+              return {
+                ...item,
+                claimants: remainingClaimants,
+                updatedAt: now
+              };
+            }
+            return item;
+          });
+        }
+        liveHubState.data.syncMeta = liveHubState.data.syncMeta || {};
+        liveHubState.data.syncMeta.cancelledClaims = {
+          ...(liveHubState.data.syncMeta.cancelledClaims || {}),
+          ...newCancelledMarkers
+        };
         liveHubState.updatedAt = now;
         liveHubState.version = (liveHubState.version || 0) + 1;
         try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}

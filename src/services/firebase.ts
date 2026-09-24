@@ -251,7 +251,7 @@ export function sanitizeGeneralItem<T extends Partial<GeneralItem>>(item: T): Ge
 }
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.13-cache-sanitization-fix';
+const CACHE_SCHEMA_VERSION = '2.10.14-unclaim-resurrection-fix';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -1042,27 +1042,48 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
       }
       const paymentStatus = newest.paymentStatus || older.paymentStatus || (distributedTo && typeof distributedTo === 'object' ? (distributedTo as any).paymentStatus : undefined);
 
-      // Bulletproof merge of claimants: union all claims from both local and incoming,
-      // deduplicate by userId/inGameName, and filter out any cancelled claims
+      // Bulletproof merge of claimants:
+      // Authoritative newer item state wins. Stale cached claimants cannot resurrect.
       const claimantsMap = new Map<string, Claimant>();
-      const allSourceClaimants = [
-        ...(Array.isArray(older.claimants) ? older.claimants : []),
-        ...(Array.isArray(newest.claimants) ? newest.claimants : [])
-      ];
-      for (const c of allSourceClaimants) {
-        if (!c || isClaimCancelled(id, c)) continue;
-        const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
-        const existing = claimantsMap.get(key);
-        if (!existing) {
+
+      if (incomingRevision >= localRevision) {
+        // Remote state (Firestore / live-state / restore) is newer or equal:
+        // Remote claimants list is authoritative. Filter by tombstones.
+        for (const c of (newest.claimants || [])) {
+          if (!c || isClaimCancelled(id, c)) continue;
+          const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
           claimantsMap.set(key, c);
-        } else {
-          const existingTime = existing.claimedAt || 0;
-          const incomingTime = c.claimedAt || 0;
-          if (incomingTime > 0 && (existingTime === 0 || incomingTime < existingTime)) {
+        }
+        // Only preserve local claimant if it represents a newer in-flight optimistic claim
+        // created strictly AFTER incomingRevision, NOT an old stale claim.
+        for (const c of (older.claimants || [])) {
+          if (!c || isClaimCancelled(id, c)) continue;
+          const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '');
+          if (!key || claimantsMap.has(key)) continue;
+          const claimedAt = Number(c.claimedAt || 0);
+          if (claimedAt > incomingRevision) {
+            claimantsMap.set(key, c);
+          }
+        }
+      } else {
+        // Local state is strictly newer (optimistic claim/unclaim performed locally):
+        for (const c of (newest.claimants || [])) {
+          if (!c || isClaimCancelled(id, c)) continue;
+          const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
+          claimantsMap.set(key, c);
+        }
+        // Only accept incoming claim if it occurred concurrently AFTER local was modified
+        for (const c of (older.claimants || [])) {
+          if (!c || isClaimCancelled(id, c)) continue;
+          const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '');
+          if (!key || claimantsMap.has(key)) continue;
+          const claimedAt = Number(c.claimedAt || 0);
+          if (claimedAt > localRevision) {
             claimantsMap.set(key, c);
           }
         }
       }
+
       const mergedClaimants = Array.from(claimantsMap.values()).filter((c) => !isClaimCancelled(id, c));
 
       const hunterScreenshots = (newest.hunterScreenshots && newest.hunterScreenshots.length > 0)
@@ -3401,6 +3422,45 @@ export async function syncBackupToFirestore(payload: {
           await safeFirestoreWrite(deleteDoc(doc(db, QUEUES_COLLECTION, delId)), 1200, 'syncBackup_deleteQueueItem');
         } catch {}
       }
+    }
+
+    // Sync all tombstones to Firestore cloud storage so they survive restore/failover
+    const tombstonePayload: Record<string, any> = {
+      deletedUsers: {
+        ...getDeletedIdsMap(DELETED_USERS_KEY),
+        ...(payload.syncMeta?.deletedUsers || {})
+      },
+      deletedVaultItems: {
+        ...getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY),
+        ...(payload.syncMeta?.deletedVaultItems || {})
+      },
+      deletedQueueItems: {
+        ...getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY),
+        ...(payload.syncMeta?.deletedQueueItems || {})
+      },
+      deletedGeneralItems: {
+        ...getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY),
+        ...(payload.syncMeta?.deletedGeneralItems || {})
+      },
+      removedQueueMembers: {
+        ...getDeletedIdsMap(REMOVED_QUEUE_MEMBERS_KEY),
+        ...(payload.syncMeta?.removedQueueMembers || {})
+      },
+      cancelledClaims: {
+        ...getDeletedIdsMap('l2m_cancelled_claims_map'),
+        ...(payload.syncMeta?.cancelledClaims || {})
+      },
+      updatedAt: Date.now()
+    };
+    try {
+      await safeFirestoreWrite(
+        setDoc(doc(db, 'system', 'tombstones'), tombstonePayload, { merge: true }),
+        1200,
+        'syncBackup_tombstones'
+      );
+      writtenCount++;
+    } catch (e) {
+      console.warn('Notice: Firestore tombstone sync in syncBackupToFirestore skipped:', e);
     }
 
     return {
