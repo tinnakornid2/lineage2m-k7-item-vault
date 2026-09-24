@@ -376,6 +376,53 @@ async function createApp(options = {}) {
     updatedAt: 0,
     version: 0
   };
+  const sanitizeAndDeduplicateUsers = (users, deletedUsers) => {
+    const seen = /* @__PURE__ */ new Set();
+    const cleanUsers = [];
+    let canonicalEloni = null;
+    for (const u of users || []) {
+      if (!u || !u.id) continue;
+      if (u.id === "APsCZzEI4tYdx5UfHuY5Sw10L8B3" || u.isAuthShadow) continue;
+      if (u.status === "shadow" || u.status === "deleted") continue;
+      if (deletedUsers && deletedUsers[u.id]) continue;
+      const isEloni = u.id === "user_owner_eloni" || u.username?.trim().toLowerCase() === "eloni" || u.inGameName?.trim().toLowerCase() === "eloni";
+      if (isEloni) {
+        if (!canonicalEloni) {
+          canonicalEloni = {
+            ...u,
+            id: "user_owner_eloni",
+            username: "Eloni",
+            inGameName: "Eloni",
+            role: "owner",
+            status: "active"
+          };
+        } else {
+          const curRev = Number(canonicalEloni.updatedAt || canonicalEloni.createdAt || 0);
+          const uRev = Number(u.updatedAt || u.createdAt || 0);
+          if (uRev > curRev) {
+            canonicalEloni = {
+              ...canonicalEloni,
+              ...u,
+              id: "user_owner_eloni",
+              username: "Eloni",
+              inGameName: "Eloni",
+              role: "owner",
+              status: "active"
+            };
+          }
+        }
+      } else {
+        if (!seen.has(u.id)) {
+          seen.add(u.id);
+          cleanUsers.push(u);
+        }
+      }
+    }
+    if (canonicalEloni) {
+      cleanUsers.unshift(canonicalEloni);
+    }
+    return cleanUsers;
+  };
   try {
     const SEED_FILE = path.join(process.cwd(), "src", "data", "seed-live-state.json");
     if (fs.existsSync(LIVE_STATE_FILE)) {
@@ -392,6 +439,9 @@ async function createApp(options = {}) {
           version: parsedSeed.version || 1
         };
       }
+    }
+    if (liveHubState.data && Array.isArray(liveHubState.data.users)) {
+      liveHubState.data.users = sanitizeAndDeduplicateUsers(liveHubState.data.users);
     }
   } catch {
   }
@@ -803,11 +853,7 @@ async function createApp(options = {}) {
           data.generalItems = data.generalItems.filter((it) => it && it.id && !syncMeta.deletedGeneralItems?.[it.id]);
         }
         if (Array.isArray(data.users)) {
-          data.users = data.users.filter((u) => {
-            if (!u?.id) return false;
-            if (u.id === "user_owner_eloni" || u.username?.toLowerCase() === "eloni") return true;
-            return !syncMeta.deletedUsers?.[u.id];
-          });
+          data.users = sanitizeAndDeduplicateUsers(data.users, syncMeta.deletedUsers);
         }
         const filterQueueList = (item) => {
           if (!item || !Array.isArray(item.queueList)) return item;

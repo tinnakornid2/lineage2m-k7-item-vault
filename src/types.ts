@@ -69,7 +69,7 @@ export const getRarityTextGlow = (r: ItemRarity) => {
 
 export type UserRole = 'owner' | 'admin' | 'manager' | 'party_leader' | 'member';
 
-export type UserStatus = 'active' | 'pending_approval';
+export type UserStatus = 'active' | 'pending_approval' | 'shadow' | 'deleted';
 
 export interface User {
   id: string;

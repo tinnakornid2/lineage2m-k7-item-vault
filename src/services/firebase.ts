@@ -170,9 +170,9 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.10-authoritative-cloud-sync';
+const CACHE_SCHEMA_VERSION = '2.10.11-single-owner-canonical';
 export const CACHE_KEYS = {
-  USERS: 'l2m_cached_users_v271',
+  USERS: 'l2m_cached_users_v272',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
   QUEUES: 'l2m_cached_queues_v271',
   CLANS: 'l2m_cached_clans_v271',
@@ -214,6 +214,7 @@ if (typeof localStorage !== 'undefined') {
         'l2m_cached_clans_v260',
         'l2m_cached_diamond_txs_v260',
         'l2m_cached_quick_items_v260',
+        'l2m_cached_users_v271',
         'l2m_active_tab'
       ];
       LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
@@ -473,6 +474,79 @@ export function unmarkUserAsDeleted(id: string): void {
   }
 }
 
+export function isValidActiveUser(u: any): boolean {
+  if (!u || !u.id) return false;
+  if (u.id === 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' || u.isAuthShadow) return false;
+  if (u.status === 'shadow' || u.status === 'deleted') return false;
+  return true;
+}
+
+export function deduplicateUsers(users: User[]): User[] {
+  const result: User[] = [];
+  const idMap = new Map<string, User>();
+  let canonicalEloni: User | null = null;
+
+  for (const u of users || []) {
+    if (!isValidActiveUser(u)) continue;
+
+    const isEloni =
+      u.id === 'user_owner_eloni' ||
+      u.username?.trim().toLowerCase() === 'eloni' ||
+      u.inGameName?.trim().toLowerCase() === 'eloni';
+
+    if (isEloni) {
+      if (!canonicalEloni) {
+        canonicalEloni = {
+          ...DEFAULT_OWNER,
+          ...u,
+          id: 'user_owner_eloni',
+          username: 'Eloni',
+          inGameName: 'Eloni',
+          role: 'owner',
+          status: 'active'
+        };
+      } else {
+        const curRev = Number(canonicalEloni.updatedAt || canonicalEloni.createdAt || 0);
+        const uRev = Number(u.updatedAt || u.createdAt || 0);
+        if (uRev > curRev) {
+          canonicalEloni = {
+            ...canonicalEloni,
+            ...u,
+            id: 'user_owner_eloni',
+            username: 'Eloni',
+            inGameName: 'Eloni',
+            role: 'owner',
+            status: 'active'
+          };
+        }
+      }
+    } else {
+      const existing = idMap.get(u.id);
+      if (!existing) {
+        idMap.set(u.id, u);
+      } else {
+        const curRev = Number(existing.updatedAt || existing.createdAt || 0);
+        const uRev = Number(u.updatedAt || u.createdAt || 0);
+        if (uRev > curRev) {
+          idMap.set(u.id, { ...existing, ...u });
+        }
+      }
+    }
+  }
+
+  if (canonicalEloni) {
+    result.push(canonicalEloni);
+  } else {
+    result.push(DEFAULT_OWNER);
+  }
+
+  for (const nonOwner of idMap.values()) {
+    result.push(nonOwner);
+  }
+
+  return result;
+}
+
 export function getCachedUsers(): User[] {
   const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
   let pool = inMemoryUsers;
@@ -480,22 +554,24 @@ export function getCachedUsers(): User[] {
     pool = getCachedData<User[]>(CACHE_KEYS.USERS, []);
     inMemoryUsers = pool;
   }
-  return pool.filter((u) => {
-    if (!u || !u.id) return false;
-    if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
+  const filtered = pool.filter((u) => {
+    if (!isValidActiveUser(u)) return false;
+    if (u.id === 'user_owner_eloni') return true;
     return !deletedMap[u.id];
   });
+  return deduplicateUsers(filtered);
 }
 
 export function setCachedUsers(users: User[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
   const clean = (users || []).filter((u) => {
-    if (!u || !u.id) return false;
-    if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
+    if (!isValidActiveUser(u)) return false;
+    if (u.id === 'user_owner_eloni') return true;
     return !deletedMap[u.id];
   });
-  inMemoryUsers = clean;
-  setCachedData(CACHE_KEYS.USERS, clean);
+  const deduped = deduplicateUsers(clean);
+  inMemoryUsers = deduped;
+  setCachedData(CACHE_KEYS.USERS, deduped);
 }
 
 /**
@@ -505,12 +581,13 @@ export function setCachedUsers(users: User[]): void {
  * - When conflict occurs, picks the newest revision (updatedAt || createdAt)
  * - Preserves active unresolved pending stat updates so stale snapshots never wipe them out
  * - Correctly reconciles 'pending_approval' vs 'active' statuses
+ * - Ensures exactly ONE canonical Eloni profile (user_owner_eloni) is returned
  */
 export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] {
   const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
   const isDeleted = (u: User) => {
-    if (!u || !u.id) return true;
-    if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return false;
+    if (!isValidActiveUser(u)) return true;
+    if (u.id === 'user_owner_eloni') return false;
     return Boolean(deletedMap[u.id]);
   };
 
@@ -540,8 +617,8 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
     } else if (!local && incoming) {
       result.push(incoming);
     } else if (local && incoming) {
-      if (id === 'user_owner_eloni' || local.username?.toLowerCase() === 'eloni') {
-        result.push({ ...local, ...incoming, role: 'owner', status: 'active' });
+      if (id === 'user_owner_eloni') {
+        result.push({ ...DEFAULT_OWNER, ...local, ...incoming, id: 'user_owner_eloni', role: 'owner', status: 'active' });
       } else {
         const localRev = Number(local.updatedAt || local.createdAt || 0);
         const incomingRev = Number(incoming.updatedAt || incoming.createdAt || 0);
@@ -598,7 +675,7 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
     }
   }
 
-  return result;
+  return deduplicateUsers(result);
 }
 
 export function getCachedQuickItems(): QuickItem[] {
@@ -1228,8 +1305,8 @@ export function listenToUsers(callback: (users: User[]) => void) {
       }
       const deletedMap = getDeletedIdsMap(DELETED_USERS_KEY);
       const isDeleted = (u: User) => {
-        if (!u || !u.id) return true;
-        if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return false;
+        if (!isValidActiveUser(u)) return true;
+        if (u.id === 'user_owner_eloni') return false;
         return (deletedMap[u.id] || 0) >= Number(u.updatedAt || u.createdAt || 0);
       };
       const users: User[] = [];
@@ -1240,8 +1317,9 @@ export function listenToUsers(callback: (users: User[]) => void) {
           users.push(u);
         }
       });
-      setCachedUsers(users);
-      callback(users);
+      const dedupedUsers = deduplicateUsers(users);
+      setCachedUsers(dedupedUsers);
+      callback(dedupedUsers);
     },
     (err) => {
       console.warn('Firestore users listener fallback to cached/initial state:', err);

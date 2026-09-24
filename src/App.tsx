@@ -263,6 +263,7 @@ export const App: React.FC = () => {
     const u = getLocalSessionUser();
     if (u) {
       if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') {
+        u.id = 'user_owner_eloni';
         u.role = 'owner';
         u.status = 'active';
         if (!u.powerLevel || u.powerLevel === 0) {
@@ -1111,46 +1112,20 @@ export const App: React.FC = () => {
     if (isQuotaExceeded) return;
     ensureFirebaseAuthSession(currentUser);
     const unsubUsers = listenToUsers((updatedUsers) => {
-      // Ensure Eloni is always owner in the users list
-      const normalizedUsers = updatedUsers.map((u) => {
-        if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') {
-          return { ...u, role: 'owner' as UserRole, status: 'active' as UserStatus };
-        }
-        return u;
-      });
-
-      // Consolidate & deduplicate into exactly ONE Eloni profile (user_owner_eloni)
-      const seen = new Set<string>();
-      const finalUsers: User[] = [];
-      for (const u of normalizedUsers) {
-        const isEloni = u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni';
-        if (isEloni) {
-          if (!seen.has('user_owner_eloni')) {
-            seen.add('user_owner_eloni');
-            const primaryEloni = normalizedUsers.find((x) => x.id === 'user_owner_eloni') || u;
-            finalUsers.push({
-              ...primaryEloni,
-              role: 'owner' as UserRole,
-              status: 'active' as UserStatus
-            });
-          }
-        } else {
-          finalUsers.push(u);
-        }
-      }
-
-      setUsers(finalUsers);
+      // updatedUsers is pre-filtered and deduplicated to guarantee exactly ONE canonical Eloni (user_owner_eloni)
+      const cleanUsers = (updatedUsers || []).filter((u) => u && u.id && u.id !== 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' && u.status !== 'shadow' && u.status !== 'deleted');
+      setUsers(cleanUsers);
 
       // Keep currentUser in sync if updated
       const current = currentUserRef.current;
       if (current) {
         const isCurrentEloni = current.id === 'user_owner_eloni' || current.username?.toLowerCase() === 'eloni' || current.inGameName?.toLowerCase() === 'eloni';
         const found = isCurrentEloni
-          ? finalUsers.find((u) => u.id === 'user_owner_eloni') || finalUsers.find((u) => u.username?.toLowerCase() === 'eloni')
-          : finalUsers.find((u) => u.id === current.id);
+          ? cleanUsers.find((u) => u.id === 'user_owner_eloni') || cleanUsers.find((u) => u.username?.toLowerCase() === 'eloni')
+          : cleanUsers.find((u) => u.id === current.id);
         if (found) {
           const safeUser: User = isCurrentEloni
-            ? { ...found, role: 'owner' as UserRole, status: 'active' as UserStatus }
+            ? { ...found, id: 'user_owner_eloni', role: 'owner' as UserRole, status: 'active' as UserStatus }
             : found;
           setCurrentUser(safeUser);
           saveLocalSessionUser(safeUser);
