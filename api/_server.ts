@@ -1135,6 +1135,572 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     }
   });
 
+  // Dedicated General Item Queue Join endpoint (Atomic Firestore transaction with canonical identity)
+  app.post("/api/join-general-queue", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
+    try {
+      const { itemId } = req.body;
+      if (!itemId || typeof itemId !== 'string') {
+        return res.status(400).json({ success: false, error: 'INVALID_PAYLOAD' });
+      }
+
+      const actor = res.locals.actor as {
+        uid: string;
+        role: string;
+        username: string;
+        inGameName?: string;
+        clan?: string;
+        powerLevel?: number;
+        status?: string;
+        authUid?: string;
+      };
+
+      if (actor.role !== 'owner' && actor.status !== 'active') {
+        return res.status(403).json({
+          success: false,
+          error: 'USER_NOT_ACTIVE',
+          message: 'บัญชีของคุณยังไม่ได้รับการอนุมัติ / Your account is not active.'
+        });
+      }
+
+      const now = Date.now();
+      const safeMember = {
+        id: `gqm_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        userId: actor.uid,
+        name: actor.inGameName || actor.username || '',
+        clan: actor.clan || 'VoltZ',
+        powerLevel: Number(actor.powerLevel || 0),
+        status: 'pending',
+        joinedAt: now
+      };
+
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE' });
+      }
+
+      const docRef = sdk.db.collection('general_items').doc(itemId);
+      const tombRef = sdk.db.collection('system').doc('tombstones');
+      let updatedQueueList: any[] = [];
+      let wasAlreadyJoined = false;
+
+      await sdk.db.runTransaction(async (transaction: any) => {
+        const [docSnap, tombSnap] = await Promise.all([
+          transaction.get(docRef),
+          transaction.get(tombRef).catch(() => null)
+        ]);
+
+        if (!docSnap.exists) {
+          throw new Error('ITEM_NOT_FOUND');
+        }
+
+        const itemData = docSnap.data() || {};
+        const isPrivileged = actor.role === 'owner' || actor.role === 'admin';
+        const requiredPower = Number(itemData.minPowerLevel || 0);
+
+        if (!isPrivileged && requiredPower > 0 && safeMember.powerLevel < requiredPower) {
+          throw new Error('INSUFFICIENT_POWER_LEVEL');
+        }
+
+        const existingQueueList = itemData.queueList || [];
+        const alreadyJoined = existingQueueList.some((m: any) =>
+          (m.userId && m.userId.toLowerCase() === actor.uid.toLowerCase()) ||
+          (m.name && safeMember.name && m.name.trim().toLowerCase() === safeMember.name.trim().toLowerCase())
+        );
+
+        if (alreadyJoined) {
+          wasAlreadyJoined = true;
+          updatedQueueList = existingQueueList;
+          return;
+        }
+
+        updatedQueueList = [...existingQueueList, safeMember];
+        transaction.set(docRef, {
+          queueList: updatedQueueList,
+          updatedAt: now
+        }, { merge: true });
+
+        // If rejoining, atomically clear any removal marker from system/tombstones.removedQueueMembers
+        if (tombSnap && tombSnap.exists) {
+          const tombData = tombSnap.data() || {};
+          const removedMap = { ...(tombData.removedQueueMembers || {}) };
+          const userKey = `${itemId}:::${actor.uid.toLowerCase()}`;
+          const nameKey = safeMember.name ? `${itemId}:::${safeMember.name.toLowerCase()}` : '';
+          let tombChanged = false;
+          if (userKey in removedMap) { delete removedMap[userKey]; tombChanged = true; }
+          if (nameKey && nameKey in removedMap) { delete removedMap[nameKey]; tombChanged = true; }
+          if (tombChanged) {
+            transaction.set(tombRef, { removedQueueMembers: removedMap, updatedAt: now }, { merge: true });
+          }
+        }
+      });
+
+      // Update in-memory liveHubState
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.generalItems)) {
+        liveHubState.data.generalItems = liveHubState.data.generalItems.map((item: any) => {
+          if (item.id === itemId) {
+            return {
+              ...item,
+              queueList: updatedQueueList,
+              updatedAt: now
+            };
+          }
+          return item;
+        });
+        if (liveHubState.data.syncMeta?.removedQueueMembers) {
+          delete liveHubState.data.syncMeta.removedQueueMembers[`${itemId}:::${actor.uid.toLowerCase()}`];
+          if (safeMember.name) {
+            delete liveHubState.data.syncMeta.removedQueueMembers[`${itemId}:::${safeMember.name.toLowerCase()}`];
+          }
+        }
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
+        liveStateEmitter.emit('update');
+      }
+
+      res.json({
+        success: true,
+        itemId,
+        member: safeMember,
+        queueList: updatedQueueList,
+        alreadyJoined: wasAlreadyJoined,
+        version: liveHubState?.version
+      });
+    } catch (err: any) {
+      if (err?.message === 'ITEM_NOT_FOUND') {
+        return res.status(404).json({ success: false, error: 'ITEM_NOT_FOUND' });
+      }
+      if (err?.message === 'INSUFFICIENT_POWER_LEVEL') {
+        return res.status(403).json({
+          success: false,
+          error: 'INSUFFICIENT_POWER_LEVEL',
+          message: 'ค่าพลังของคุณไม่ถึงเกณฑ์ขั้นต่ำ / Insufficient power level for this item.'
+        });
+      }
+      res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE', message: err?.message || 'FAILED_TO_JOIN' });
+    }
+  });
+
+  // Dedicated General Item Queue Leave endpoint (Atomic Firestore transaction with removal tombstone)
+  app.post("/api/leave-general-queue", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
+    try {
+      const { itemId, userId, inGameName } = req.body;
+      if (!itemId || typeof itemId !== 'string') {
+        return res.status(400).json({ success: false, error: 'INVALID_PAYLOAD' });
+      }
+
+      const actor = res.locals.actor as {
+        uid: string;
+        role: string;
+        username: string;
+        inGameName?: string;
+        authUid?: string;
+      };
+
+      const targetUserId = userId ? String(userId).trim().toLowerCase() : '';
+      const targetName = inGameName ? String(inGameName).trim().toLowerCase() : '';
+
+      const actorCanonicalId = actor.uid.toLowerCase();
+      const actorAuthUid = (actor.authUid || '').toLowerCase();
+      const actorInGameName = (actor.inGameName || actor.username || '').toLowerCase();
+
+      const isSelf = (!targetUserId && !targetName)
+        || (targetUserId && (targetUserId === actorCanonicalId || targetUserId === actorAuthUid))
+        || (targetName && targetName === actorInGameName);
+
+      if (!isSelf && !['owner', 'admin'].includes(actor.role)) {
+        return res.status(403).json({
+          success: false,
+          error: 'CANNOT_LEAVE_FOR_OTHER_USER',
+          message: 'สมาชิกสามารถยกเลิกคิวของตนเองได้เท่านั้น / Members can only leave their own queue.'
+        });
+      }
+
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE' });
+      }
+
+      const docRef = sdk.db.collection('general_items').doc(itemId);
+      const tombRef = sdk.db.collection('system').doc('tombstones');
+      let remainingQueueList: any[] = [];
+      const newRemovalMarkers: Record<string, number> = {};
+      const now = Date.now();
+
+      await sdk.db.runTransaction(async (transaction: any) => {
+        const [docSnap, tombSnap] = await Promise.all([
+          transaction.get(docRef),
+          transaction.get(tombRef).catch(() => null)
+        ]);
+
+        if (!docSnap.exists) {
+          throw new Error('ITEM_NOT_FOUND');
+        }
+
+        const itemData = docSnap.data() || {};
+        const tombData = (tombSnap && tombSnap.exists) ? (tombSnap.data() || {}) : {};
+        const existingQueueList = itemData.queueList || [];
+
+        const removedMembers: any[] = [];
+        remainingQueueList = existingQueueList.filter((m: any) => {
+          const mUserId = m.userId ? String(m.userId).trim().toLowerCase() : '';
+          const mName = m.name ? String(m.name).trim().toLowerCase() : '';
+
+          const userMatch = targetUserId
+            ? (mUserId === targetUserId)
+            : (mUserId === actorCanonicalId || (actorAuthUid && mUserId === actorAuthUid));
+
+          const nameMatch = targetName
+            ? (mName === targetName)
+            : (actorInGameName && mName === actorInGameName);
+
+          const isRemoved = Boolean(userMatch || nameMatch);
+          if (isRemoved) {
+            removedMembers.push(m);
+          }
+          return !isRemoved;
+        });
+
+        // Build removal markers
+        const removedQueueMembers = { ...(tombData.removedQueueMembers || {}) };
+        for (const rem of removedMembers) {
+          if (rem.id) {
+            const k = `${itemId}:::${rem.id}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+          if (rem.userId) {
+            const k = `${itemId}:::${String(rem.userId).trim().toLowerCase()}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+          if (rem.name) {
+            const k = `${itemId}:::${String(rem.name).trim().toLowerCase()}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+        }
+
+        const primaryUserId = targetUserId || actorCanonicalId;
+        if (primaryUserId) {
+          const k = `${itemId}:::${primaryUserId}`;
+          removedQueueMembers[k] = now;
+          newRemovalMarkers[k] = now;
+        }
+
+        transaction.set(docRef, {
+          queueList: remainingQueueList,
+          updatedAt: now
+        }, { merge: true });
+
+        transaction.set(tombRef, {
+          removedQueueMembers,
+          updatedAt: now
+        }, { merge: true });
+      });
+
+      // Update in-memory liveHubState
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.generalItems)) {
+        liveHubState.data.generalItems = liveHubState.data.generalItems.map((item: any) => {
+          if (item.id === itemId) {
+            return {
+              ...item,
+              queueList: remainingQueueList,
+              updatedAt: now
+            };
+          }
+          return item;
+        });
+        liveHubState.data.syncMeta = liveHubState.data.syncMeta || {};
+        liveHubState.data.syncMeta.removedQueueMembers = {
+          ...(liveHubState.data.syncMeta.removedQueueMembers || {}),
+          ...newRemovalMarkers
+        };
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
+        liveStateEmitter.emit('update');
+      }
+
+      res.json({ success: true, itemId, queueList: remainingQueueList, version: liveHubState?.version });
+    } catch (err: any) {
+      if (err?.message === 'ITEM_NOT_FOUND') {
+        return res.status(404).json({ success: false, error: 'ITEM_NOT_FOUND' });
+      }
+      res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE', message: err?.message || 'FAILED_TO_LEAVE' });
+    }
+  });
+
+  // Dedicated Admin/Owner Queue Member Removal endpoint (Atomic Firestore transaction with cloud tombstone)
+  app.post("/api/remove-queue-member", requireRoles(['owner', 'admin']), async (req, res) => {
+    try {
+      const { queueType, queueId, memberId, userId, inGameName } = req.body;
+      if (!queueId || typeof queueId !== 'string') {
+        return res.status(400).json({ success: false, error: 'INVALID_PAYLOAD' });
+      }
+
+      const collectionName = (queueType === 'general' || queueId.startsWith('gi_')) ? 'general_items' : 'item_queues';
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE' });
+      }
+
+      const docRef = sdk.db.collection(collectionName).doc(queueId);
+      const tombRef = sdk.db.collection('system').doc('tombstones');
+      let remainingQueueList: any[] = [];
+      const newRemovalMarkers: Record<string, number> = {};
+      const now = Date.now();
+
+      await sdk.db.runTransaction(async (transaction: any) => {
+        const [docSnap, tombSnap] = await Promise.all([
+          transaction.get(docRef),
+          transaction.get(tombRef).catch(() => null)
+        ]);
+
+        if (!docSnap.exists) {
+          throw new Error('QUEUE_NOT_FOUND');
+        }
+
+        const qData = docSnap.data() || {};
+        const tombData = (tombSnap && tombSnap.exists) ? (tombSnap.data() || {}) : {};
+        const existingList = qData.queueList || [];
+
+        const removedMembers: any[] = [];
+        remainingQueueList = existingList.filter((m: any) => {
+          const matchId = memberId && m.id === memberId;
+          const matchUser = userId && m.userId && String(m.userId).trim().toLowerCase() === String(userId).trim().toLowerCase();
+          const matchName = inGameName && m.name && String(m.name).trim().toLowerCase() === String(inGameName).trim().toLowerCase();
+          const isMatch = Boolean(matchId || matchUser || matchName);
+          if (isMatch) removedMembers.push(m);
+          return !isMatch;
+        });
+
+        const removedQueueMembers = { ...(tombData.removedQueueMembers || {}) };
+        for (const rem of removedMembers) {
+          if (rem.id) {
+            const k = `${queueId}:::${rem.id}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+          if (rem.userId) {
+            const k = `${queueId}:::${String(rem.userId).trim().toLowerCase()}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+          if (rem.name) {
+            const k = `${queueId}:::${String(rem.name).trim().toLowerCase()}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+        }
+
+        if (memberId) {
+          const k = `${queueId}:::${memberId}`;
+          removedQueueMembers[k] = now;
+          newRemovalMarkers[k] = now;
+        }
+        if (userId) {
+          const k = `${queueId}:::${String(userId).trim().toLowerCase()}`;
+          removedQueueMembers[k] = now;
+          newRemovalMarkers[k] = now;
+        }
+        if (inGameName) {
+          const k = `${queueId}:::${String(inGameName).trim().toLowerCase()}`;
+          removedQueueMembers[k] = now;
+          newRemovalMarkers[k] = now;
+        }
+
+        transaction.set(docRef, {
+          queueList: remainingQueueList,
+          updatedAt: now
+        }, { merge: true });
+
+        transaction.set(tombRef, {
+          removedQueueMembers,
+          updatedAt: now
+        }, { merge: true });
+      });
+
+      // Update in-memory liveHubState
+      if (liveHubState && liveHubState.data) {
+        const stateKey = collectionName === 'general_items' ? 'generalItems' : 'queueItems';
+        if (Array.isArray(liveHubState.data[stateKey])) {
+          liveHubState.data[stateKey] = liveHubState.data[stateKey].map((item: any) => {
+            if (item.id === queueId) {
+              return {
+                ...item,
+                queueList: remainingQueueList,
+                updatedAt: now
+              };
+            }
+            return item;
+          });
+        }
+        liveHubState.data.syncMeta = liveHubState.data.syncMeta || {};
+        liveHubState.data.syncMeta.removedQueueMembers = {
+          ...(liveHubState.data.syncMeta.removedQueueMembers || {}),
+          ...newRemovalMarkers
+        };
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
+        liveStateEmitter.emit('update');
+      }
+
+      res.json({ success: true, queueId, queueType: collectionName === 'general_items' ? 'general' : 'boss', queueList: remainingQueueList });
+    } catch (err: any) {
+      if (err?.message === 'QUEUE_NOT_FOUND') {
+        return res.status(404).json({ success: false, error: 'QUEUE_NOT_FOUND' });
+      }
+      res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE', message: err?.message || 'FAILED_TO_REMOVE' });
+    }
+  });
+
+  // Dedicated Admin/Owner Add Queue Member endpoint (Canonical identity, deduplicated & clear tombstone)
+  app.post("/api/add-queue-member", requireRoles(['owner', 'admin']), async (req, res) => {
+    try {
+      const { queueType, queueId, userId, name, clan, powerLevel } = req.body;
+      if (!queueId || typeof queueId !== 'string') {
+        return res.status(400).json({ success: false, error: 'INVALID_PAYLOAD' });
+      }
+
+      const collectionName = (queueType === 'general' || queueId.startsWith('gi_')) ? 'general_items' : 'item_queues';
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE' });
+      }
+
+      // Canonical identity resolution for Owner/Admin
+      let canonicalUserId = userId ? String(userId).trim() : '';
+      let canonicalName = name ? String(name).trim() : '';
+      let canonicalClan = clan ? String(clan).trim() : 'VoltZ';
+      let canonicalPL = typeof powerLevel === 'number' ? powerLevel : 0;
+
+      if (canonicalUserId === 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' || canonicalName.toLowerCase() === 'eloni') {
+        canonicalUserId = 'user_owner_eloni';
+        canonicalName = 'Eloni';
+      }
+
+      // If user profile exists in Firestore, pull canonical verified stats
+      if (canonicalUserId) {
+        try {
+          const uDoc = await sdk.db.collection('users').doc(canonicalUserId).get();
+          if (uDoc.exists) {
+            const uData = uDoc.data() || {};
+            canonicalName = uData.inGameName || uData.username || canonicalName;
+            canonicalClan = uData.clan || canonicalClan;
+            canonicalPL = Number(uData.powerLevel || canonicalPL);
+          }
+        } catch {}
+      }
+
+      const now = Date.now();
+      const prefix = collectionName === 'general_items' ? 'gqm' : 'qm';
+      const newMember = {
+        id: `${prefix}_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        userId: canonicalUserId || undefined,
+        name: canonicalName,
+        clan: canonicalClan,
+        powerLevel: canonicalPL,
+        status: 'pending',
+        joinedAt: now
+      };
+
+      const docRef = sdk.db.collection(collectionName).doc(queueId);
+      const tombRef = sdk.db.collection('system').doc('tombstones');
+      let updatedQueueList: any[] = [];
+      let wasAlreadyInQueue = false;
+
+      await sdk.db.runTransaction(async (transaction: any) => {
+        const [docSnap, tombSnap] = await Promise.all([
+          transaction.get(docRef),
+          transaction.get(tombRef).catch(() => null)
+        ]);
+
+        if (!docSnap.exists) {
+          throw new Error('QUEUE_NOT_FOUND');
+        }
+
+        const qData = docSnap.data() || {};
+        const existingList = qData.queueList || [];
+
+        // Check if member already in queue (deduplicate)
+        const alreadyInQueue = existingList.some((m: any) =>
+          (canonicalUserId && m.userId && String(m.userId).trim().toLowerCase() === canonicalUserId.toLowerCase()) ||
+          (canonicalName && m.name && String(m.name).trim().toLowerCase() === canonicalName.toLowerCase())
+        );
+
+        if (alreadyInQueue) {
+          wasAlreadyInQueue = true;
+          updatedQueueList = existingList;
+          return;
+        }
+
+        updatedQueueList = [...existingList, newMember];
+
+        transaction.set(docRef, {
+          queueList: updatedQueueList,
+          updatedAt: now
+        }, { merge: true });
+
+        // Clear any previous removal tombstone from system/tombstones
+        if (tombSnap && tombSnap.exists) {
+          const tombData = tombSnap.data() || {};
+          const removedMap = { ...(tombData.removedQueueMembers || {}) };
+          let tombChanged = false;
+          const userKey = canonicalUserId ? `${queueId}:::${canonicalUserId.toLowerCase()}` : '';
+          const nameKey = canonicalName ? `${queueId}:::${canonicalName.toLowerCase()}` : '';
+
+          if (userKey && userKey in removedMap) { delete removedMap[userKey]; tombChanged = true; }
+          if (nameKey && nameKey in removedMap) { delete removedMap[nameKey]; tombChanged = true; }
+
+          if (tombChanged) {
+            transaction.set(tombRef, { removedQueueMembers: removedMap, updatedAt: now }, { merge: true });
+          }
+        }
+      });
+
+      // Update in-memory liveHubState
+      if (liveHubState && liveHubState.data) {
+        const stateKey = collectionName === 'general_items' ? 'generalItems' : 'queueItems';
+        if (Array.isArray(liveHubState.data[stateKey])) {
+          liveHubState.data[stateKey] = liveHubState.data[stateKey].map((item: any) => {
+            if (item.id === queueId) {
+              return {
+                ...item,
+                queueList: updatedQueueList,
+                updatedAt: now
+              };
+            }
+            return item;
+          });
+        }
+        if (liveHubState.data.syncMeta?.removedQueueMembers) {
+          if (canonicalUserId) delete liveHubState.data.syncMeta.removedQueueMembers[`${queueId}:::${canonicalUserId.toLowerCase()}`];
+          if (canonicalName) delete liveHubState.data.syncMeta.removedQueueMembers[`${queueId}:::${canonicalName.toLowerCase()}`];
+        }
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
+        liveStateEmitter.emit('update');
+      }
+
+      res.json({
+        success: true,
+        queueId,
+        member: newMember,
+        queueList: updatedQueueList,
+        alreadyInQueue: wasAlreadyInQueue,
+        version: liveHubState?.version
+      });
+    } catch (err: any) {
+      if (err?.message === 'QUEUE_NOT_FOUND') {
+        return res.status(404).json({ success: false, error: 'QUEUE_NOT_FOUND' });
+      }
+      res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE', message: err?.message || 'FAILED_TO_ADD' });
+    }
+  });
+
   // OCR Hunter scanner endpoint using Gemini 2.5 Flash with Multi-Image & Deduplication support
   app.post("/api/scan-hunters", requireRoles(['owner', 'admin', 'manager']), async (req, res) => {
     try {

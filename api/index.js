@@ -1541,6 +1541,491 @@ async function createApp(options = {}) {
       res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE", message: err?.message || "FAILED_TO_UNCLAIM" });
     }
   });
+  app.post("/api/join-general-queue", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
+    try {
+      const { itemId } = req.body;
+      if (!itemId || typeof itemId !== "string") {
+        return res.status(400).json({ success: false, error: "INVALID_PAYLOAD" });
+      }
+      const actor = res.locals.actor;
+      if (actor.role !== "owner" && actor.status !== "active") {
+        return res.status(403).json({
+          success: false,
+          error: "USER_NOT_ACTIVE",
+          message: "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\u0E23\u0E31\u0E1A\u0E01\u0E32\u0E23\u0E2D\u0E19\u0E38\u0E21\u0E31\u0E15\u0E34 / Your account is not active."
+        });
+      }
+      const now = Date.now();
+      const safeMember = {
+        id: `gqm_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        userId: actor.uid,
+        name: actor.inGameName || actor.username || "",
+        clan: actor.clan || "VoltZ",
+        powerLevel: Number(actor.powerLevel || 0),
+        status: "pending",
+        joinedAt: now
+      };
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE" });
+      }
+      const docRef = sdk.db.collection("general_items").doc(itemId);
+      const tombRef = sdk.db.collection("system").doc("tombstones");
+      let updatedQueueList = [];
+      let wasAlreadyJoined = false;
+      await sdk.db.runTransaction(async (transaction) => {
+        const [docSnap, tombSnap] = await Promise.all([
+          transaction.get(docRef),
+          transaction.get(tombRef).catch(() => null)
+        ]);
+        if (!docSnap.exists) {
+          throw new Error("ITEM_NOT_FOUND");
+        }
+        const itemData = docSnap.data() || {};
+        const isPrivileged = actor.role === "owner" || actor.role === "admin";
+        const requiredPower = Number(itemData.minPowerLevel || 0);
+        if (!isPrivileged && requiredPower > 0 && safeMember.powerLevel < requiredPower) {
+          throw new Error("INSUFFICIENT_POWER_LEVEL");
+        }
+        const existingQueueList = itemData.queueList || [];
+        const alreadyJoined = existingQueueList.some(
+          (m) => m.userId && m.userId.toLowerCase() === actor.uid.toLowerCase() || m.name && safeMember.name && m.name.trim().toLowerCase() === safeMember.name.trim().toLowerCase()
+        );
+        if (alreadyJoined) {
+          wasAlreadyJoined = true;
+          updatedQueueList = existingQueueList;
+          return;
+        }
+        updatedQueueList = [...existingQueueList, safeMember];
+        transaction.set(docRef, {
+          queueList: updatedQueueList,
+          updatedAt: now
+        }, { merge: true });
+        if (tombSnap && tombSnap.exists) {
+          const tombData = tombSnap.data() || {};
+          const removedMap = { ...tombData.removedQueueMembers || {} };
+          const userKey = `${itemId}:::${actor.uid.toLowerCase()}`;
+          const nameKey = safeMember.name ? `${itemId}:::${safeMember.name.toLowerCase()}` : "";
+          let tombChanged = false;
+          if (userKey in removedMap) {
+            delete removedMap[userKey];
+            tombChanged = true;
+          }
+          if (nameKey && nameKey in removedMap) {
+            delete removedMap[nameKey];
+            tombChanged = true;
+          }
+          if (tombChanged) {
+            transaction.set(tombRef, { removedQueueMembers: removedMap, updatedAt: now }, { merge: true });
+          }
+        }
+      });
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.generalItems)) {
+        liveHubState.data.generalItems = liveHubState.data.generalItems.map((item) => {
+          if (item.id === itemId) {
+            return {
+              ...item,
+              queueList: updatedQueueList,
+              updatedAt: now
+            };
+          }
+          return item;
+        });
+        if (liveHubState.data.syncMeta?.removedQueueMembers) {
+          delete liveHubState.data.syncMeta.removedQueueMembers[`${itemId}:::${actor.uid.toLowerCase()}`];
+          if (safeMember.name) {
+            delete liveHubState.data.syncMeta.removedQueueMembers[`${itemId}:::${safeMember.name.toLowerCase()}`];
+          }
+        }
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+        liveStateEmitter.emit("update");
+      }
+      res.json({
+        success: true,
+        itemId,
+        member: safeMember,
+        queueList: updatedQueueList,
+        alreadyJoined: wasAlreadyJoined,
+        version: liveHubState?.version
+      });
+    } catch (err) {
+      if (err?.message === "ITEM_NOT_FOUND") {
+        return res.status(404).json({ success: false, error: "ITEM_NOT_FOUND" });
+      }
+      if (err?.message === "INSUFFICIENT_POWER_LEVEL") {
+        return res.status(403).json({
+          success: false,
+          error: "INSUFFICIENT_POWER_LEVEL",
+          message: "\u0E04\u0E48\u0E32\u0E1E\u0E25\u0E31\u0E07\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13\u0E44\u0E21\u0E48\u0E16\u0E36\u0E07\u0E40\u0E01\u0E13\u0E11\u0E4C\u0E02\u0E31\u0E49\u0E19\u0E15\u0E48\u0E33 / Insufficient power level for this item."
+        });
+      }
+      res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE", message: err?.message || "FAILED_TO_JOIN" });
+    }
+  });
+  app.post("/api/leave-general-queue", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
+    try {
+      const { itemId, userId, inGameName } = req.body;
+      if (!itemId || typeof itemId !== "string") {
+        return res.status(400).json({ success: false, error: "INVALID_PAYLOAD" });
+      }
+      const actor = res.locals.actor;
+      const targetUserId = userId ? String(userId).trim().toLowerCase() : "";
+      const targetName = inGameName ? String(inGameName).trim().toLowerCase() : "";
+      const actorCanonicalId = actor.uid.toLowerCase();
+      const actorAuthUid = (actor.authUid || "").toLowerCase();
+      const actorInGameName = (actor.inGameName || actor.username || "").toLowerCase();
+      const isSelf = !targetUserId && !targetName || targetUserId && (targetUserId === actorCanonicalId || targetUserId === actorAuthUid) || targetName && targetName === actorInGameName;
+      if (!isSelf && !["owner", "admin"].includes(actor.role)) {
+        return res.status(403).json({
+          success: false,
+          error: "CANNOT_LEAVE_FOR_OTHER_USER",
+          message: "\u0E2A\u0E21\u0E32\u0E0A\u0E34\u0E01\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01\u0E04\u0E34\u0E27\u0E02\u0E2D\u0E07\u0E15\u0E19\u0E40\u0E2D\u0E07\u0E44\u0E14\u0E49\u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19 / Members can only leave their own queue."
+        });
+      }
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE" });
+      }
+      const docRef = sdk.db.collection("general_items").doc(itemId);
+      const tombRef = sdk.db.collection("system").doc("tombstones");
+      let remainingQueueList = [];
+      const newRemovalMarkers = {};
+      const now = Date.now();
+      await sdk.db.runTransaction(async (transaction) => {
+        const [docSnap, tombSnap] = await Promise.all([
+          transaction.get(docRef),
+          transaction.get(tombRef).catch(() => null)
+        ]);
+        if (!docSnap.exists) {
+          throw new Error("ITEM_NOT_FOUND");
+        }
+        const itemData = docSnap.data() || {};
+        const tombData = tombSnap && tombSnap.exists ? tombSnap.data() || {} : {};
+        const existingQueueList = itemData.queueList || [];
+        const removedMembers = [];
+        remainingQueueList = existingQueueList.filter((m) => {
+          const mUserId = m.userId ? String(m.userId).trim().toLowerCase() : "";
+          const mName = m.name ? String(m.name).trim().toLowerCase() : "";
+          const userMatch = targetUserId ? mUserId === targetUserId : mUserId === actorCanonicalId || actorAuthUid && mUserId === actorAuthUid;
+          const nameMatch = targetName ? mName === targetName : actorInGameName && mName === actorInGameName;
+          const isRemoved = Boolean(userMatch || nameMatch);
+          if (isRemoved) {
+            removedMembers.push(m);
+          }
+          return !isRemoved;
+        });
+        const removedQueueMembers = { ...tombData.removedQueueMembers || {} };
+        for (const rem of removedMembers) {
+          if (rem.id) {
+            const k = `${itemId}:::${rem.id}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+          if (rem.userId) {
+            const k = `${itemId}:::${String(rem.userId).trim().toLowerCase()}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+          if (rem.name) {
+            const k = `${itemId}:::${String(rem.name).trim().toLowerCase()}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+        }
+        const primaryUserId = targetUserId || actorCanonicalId;
+        if (primaryUserId) {
+          const k = `${itemId}:::${primaryUserId}`;
+          removedQueueMembers[k] = now;
+          newRemovalMarkers[k] = now;
+        }
+        transaction.set(docRef, {
+          queueList: remainingQueueList,
+          updatedAt: now
+        }, { merge: true });
+        transaction.set(tombRef, {
+          removedQueueMembers,
+          updatedAt: now
+        }, { merge: true });
+      });
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.generalItems)) {
+        liveHubState.data.generalItems = liveHubState.data.generalItems.map((item) => {
+          if (item.id === itemId) {
+            return {
+              ...item,
+              queueList: remainingQueueList,
+              updatedAt: now
+            };
+          }
+          return item;
+        });
+        liveHubState.data.syncMeta = liveHubState.data.syncMeta || {};
+        liveHubState.data.syncMeta.removedQueueMembers = {
+          ...liveHubState.data.syncMeta.removedQueueMembers || {},
+          ...newRemovalMarkers
+        };
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+        liveStateEmitter.emit("update");
+      }
+      res.json({ success: true, itemId, queueList: remainingQueueList, version: liveHubState?.version });
+    } catch (err) {
+      if (err?.message === "ITEM_NOT_FOUND") {
+        return res.status(404).json({ success: false, error: "ITEM_NOT_FOUND" });
+      }
+      res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE", message: err?.message || "FAILED_TO_LEAVE" });
+    }
+  });
+  app.post("/api/remove-queue-member", requireRoles(["owner", "admin"]), async (req, res) => {
+    try {
+      const { queueType, queueId, memberId, userId, inGameName } = req.body;
+      if (!queueId || typeof queueId !== "string") {
+        return res.status(400).json({ success: false, error: "INVALID_PAYLOAD" });
+      }
+      const collectionName = queueType === "general" || queueId.startsWith("gi_") ? "general_items" : "item_queues";
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE" });
+      }
+      const docRef = sdk.db.collection(collectionName).doc(queueId);
+      const tombRef = sdk.db.collection("system").doc("tombstones");
+      let remainingQueueList = [];
+      const newRemovalMarkers = {};
+      const now = Date.now();
+      await sdk.db.runTransaction(async (transaction) => {
+        const [docSnap, tombSnap] = await Promise.all([
+          transaction.get(docRef),
+          transaction.get(tombRef).catch(() => null)
+        ]);
+        if (!docSnap.exists) {
+          throw new Error("QUEUE_NOT_FOUND");
+        }
+        const qData = docSnap.data() || {};
+        const tombData = tombSnap && tombSnap.exists ? tombSnap.data() || {} : {};
+        const existingList = qData.queueList || [];
+        const removedMembers = [];
+        remainingQueueList = existingList.filter((m) => {
+          const matchId = memberId && m.id === memberId;
+          const matchUser = userId && m.userId && String(m.userId).trim().toLowerCase() === String(userId).trim().toLowerCase();
+          const matchName = inGameName && m.name && String(m.name).trim().toLowerCase() === String(inGameName).trim().toLowerCase();
+          const isMatch = Boolean(matchId || matchUser || matchName);
+          if (isMatch) removedMembers.push(m);
+          return !isMatch;
+        });
+        const removedQueueMembers = { ...tombData.removedQueueMembers || {} };
+        for (const rem of removedMembers) {
+          if (rem.id) {
+            const k = `${queueId}:::${rem.id}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+          if (rem.userId) {
+            const k = `${queueId}:::${String(rem.userId).trim().toLowerCase()}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+          if (rem.name) {
+            const k = `${queueId}:::${String(rem.name).trim().toLowerCase()}`;
+            removedQueueMembers[k] = now;
+            newRemovalMarkers[k] = now;
+          }
+        }
+        if (memberId) {
+          const k = `${queueId}:::${memberId}`;
+          removedQueueMembers[k] = now;
+          newRemovalMarkers[k] = now;
+        }
+        if (userId) {
+          const k = `${queueId}:::${String(userId).trim().toLowerCase()}`;
+          removedQueueMembers[k] = now;
+          newRemovalMarkers[k] = now;
+        }
+        if (inGameName) {
+          const k = `${queueId}:::${String(inGameName).trim().toLowerCase()}`;
+          removedQueueMembers[k] = now;
+          newRemovalMarkers[k] = now;
+        }
+        transaction.set(docRef, {
+          queueList: remainingQueueList,
+          updatedAt: now
+        }, { merge: true });
+        transaction.set(tombRef, {
+          removedQueueMembers,
+          updatedAt: now
+        }, { merge: true });
+      });
+      if (liveHubState && liveHubState.data) {
+        const stateKey = collectionName === "general_items" ? "generalItems" : "queueItems";
+        if (Array.isArray(liveHubState.data[stateKey])) {
+          liveHubState.data[stateKey] = liveHubState.data[stateKey].map((item) => {
+            if (item.id === queueId) {
+              return {
+                ...item,
+                queueList: remainingQueueList,
+                updatedAt: now
+              };
+            }
+            return item;
+          });
+        }
+        liveHubState.data.syncMeta = liveHubState.data.syncMeta || {};
+        liveHubState.data.syncMeta.removedQueueMembers = {
+          ...liveHubState.data.syncMeta.removedQueueMembers || {},
+          ...newRemovalMarkers
+        };
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+        liveStateEmitter.emit("update");
+      }
+      res.json({ success: true, queueId, queueType: collectionName === "general_items" ? "general" : "boss", queueList: remainingQueueList });
+    } catch (err) {
+      if (err?.message === "QUEUE_NOT_FOUND") {
+        return res.status(404).json({ success: false, error: "QUEUE_NOT_FOUND" });
+      }
+      res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE", message: err?.message || "FAILED_TO_REMOVE" });
+    }
+  });
+  app.post("/api/add-queue-member", requireRoles(["owner", "admin"]), async (req, res) => {
+    try {
+      const { queueType, queueId, userId, name, clan, powerLevel } = req.body;
+      if (!queueId || typeof queueId !== "string") {
+        return res.status(400).json({ success: false, error: "INVALID_PAYLOAD" });
+      }
+      const collectionName = queueType === "general" || queueId.startsWith("gi_") ? "general_items" : "item_queues";
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) {
+        return res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE" });
+      }
+      let canonicalUserId = userId ? String(userId).trim() : "";
+      let canonicalName = name ? String(name).trim() : "";
+      let canonicalClan = clan ? String(clan).trim() : "VoltZ";
+      let canonicalPL = typeof powerLevel === "number" ? powerLevel : 0;
+      if (canonicalUserId === "APsCZzEI4tYdx5UfHuY5Sw10L8B3" || canonicalName.toLowerCase() === "eloni") {
+        canonicalUserId = "user_owner_eloni";
+        canonicalName = "Eloni";
+      }
+      if (canonicalUserId) {
+        try {
+          const uDoc = await sdk.db.collection("users").doc(canonicalUserId).get();
+          if (uDoc.exists) {
+            const uData = uDoc.data() || {};
+            canonicalName = uData.inGameName || uData.username || canonicalName;
+            canonicalClan = uData.clan || canonicalClan;
+            canonicalPL = Number(uData.powerLevel || canonicalPL);
+          }
+        } catch {
+        }
+      }
+      const now = Date.now();
+      const prefix = collectionName === "general_items" ? "gqm" : "qm";
+      const newMember = {
+        id: `${prefix}_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        userId: canonicalUserId || void 0,
+        name: canonicalName,
+        clan: canonicalClan,
+        powerLevel: canonicalPL,
+        status: "pending",
+        joinedAt: now
+      };
+      const docRef = sdk.db.collection(collectionName).doc(queueId);
+      const tombRef = sdk.db.collection("system").doc("tombstones");
+      let updatedQueueList = [];
+      let wasAlreadyInQueue = false;
+      await sdk.db.runTransaction(async (transaction) => {
+        const [docSnap, tombSnap] = await Promise.all([
+          transaction.get(docRef),
+          transaction.get(tombRef).catch(() => null)
+        ]);
+        if (!docSnap.exists) {
+          throw new Error("QUEUE_NOT_FOUND");
+        }
+        const qData = docSnap.data() || {};
+        const existingList = qData.queueList || [];
+        const alreadyInQueue = existingList.some(
+          (m) => canonicalUserId && m.userId && String(m.userId).trim().toLowerCase() === canonicalUserId.toLowerCase() || canonicalName && m.name && String(m.name).trim().toLowerCase() === canonicalName.toLowerCase()
+        );
+        if (alreadyInQueue) {
+          wasAlreadyInQueue = true;
+          updatedQueueList = existingList;
+          return;
+        }
+        updatedQueueList = [...existingList, newMember];
+        transaction.set(docRef, {
+          queueList: updatedQueueList,
+          updatedAt: now
+        }, { merge: true });
+        if (tombSnap && tombSnap.exists) {
+          const tombData = tombSnap.data() || {};
+          const removedMap = { ...tombData.removedQueueMembers || {} };
+          let tombChanged = false;
+          const userKey = canonicalUserId ? `${queueId}:::${canonicalUserId.toLowerCase()}` : "";
+          const nameKey = canonicalName ? `${queueId}:::${canonicalName.toLowerCase()}` : "";
+          if (userKey && userKey in removedMap) {
+            delete removedMap[userKey];
+            tombChanged = true;
+          }
+          if (nameKey && nameKey in removedMap) {
+            delete removedMap[nameKey];
+            tombChanged = true;
+          }
+          if (tombChanged) {
+            transaction.set(tombRef, { removedQueueMembers: removedMap, updatedAt: now }, { merge: true });
+          }
+        }
+      });
+      if (liveHubState && liveHubState.data) {
+        const stateKey = collectionName === "general_items" ? "generalItems" : "queueItems";
+        if (Array.isArray(liveHubState.data[stateKey])) {
+          liveHubState.data[stateKey] = liveHubState.data[stateKey].map((item) => {
+            if (item.id === queueId) {
+              return {
+                ...item,
+                queueList: updatedQueueList,
+                updatedAt: now
+              };
+            }
+            return item;
+          });
+        }
+        if (liveHubState.data.syncMeta?.removedQueueMembers) {
+          if (canonicalUserId) delete liveHubState.data.syncMeta.removedQueueMembers[`${queueId}:::${canonicalUserId.toLowerCase()}`];
+          if (canonicalName) delete liveHubState.data.syncMeta.removedQueueMembers[`${queueId}:::${canonicalName.toLowerCase()}`];
+        }
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+        liveStateEmitter.emit("update");
+      }
+      res.json({
+        success: true,
+        queueId,
+        member: newMember,
+        queueList: updatedQueueList,
+        alreadyInQueue: wasAlreadyInQueue,
+        version: liveHubState?.version
+      });
+    } catch (err) {
+      if (err?.message === "QUEUE_NOT_FOUND") {
+        return res.status(404).json({ success: false, error: "QUEUE_NOT_FOUND" });
+      }
+      res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE", message: err?.message || "FAILED_TO_ADD" });
+    }
+  });
   app.post("/api/scan-hunters", requireRoles(["owner", "admin", "manager"]), async (req, res) => {
     try {
       const { imageBase64, imagesBase64 } = req.body;

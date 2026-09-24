@@ -44,7 +44,12 @@ import {
   getRarityBorder,
   getRarityTextGlow
 } from '../types';
-import { addDiamondTransactionDoc, markQueueMemberAsRemoved, unmarkQueueMemberAsRemoved } from '../services/firebase';
+import {
+  addDiamondTransactionDoc,
+  getCurrentUserIdToken,
+  markQueueMemberAsRemoved,
+  unmarkQueueMemberAsRemoved
+} from '../services/firebase';
 import { uploadImageToGoogleDrive } from '../services/googleSheetsBackupService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
@@ -325,36 +330,79 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     setBusyItemId(item.id);
     sounds.playClick();
     try {
-      let updatedQueueList: QueueMember[];
+      const token = await getCurrentUserIdToken();
+      if (!token) {
+        if (showToast) {
+          showToast(th ? 'กรุณาเข้าสู่ระบบก่อนทำรายการ' : 'Please login to perform this action', 'error');
+        }
+        return;
+      }
+
       if (isAlreadyInQueue) {
-        // Record removal tombstone so no background sync or relay resurrects the cancelled queue
+        // Authoritative Leave via backend
+        const res = await fetch('/api/leave-general-queue', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            itemId: item.id,
+            userId: currentUser.id,
+            inGameName: currentUser.inGameName || currentUser.username
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || (th ? 'ยกเลิกคิวไม่สำเร็จ' : 'Failed to leave queue'));
+        }
+
+        const data = await res.json();
+        // Record local removal tombstone
         markQueueMemberAsRemoved(item.id, undefined, currentUser.id, currentUser.inGameName || currentUser.username);
-        // Remove user's pending entry
-        updatedQueueList = (item.queueList || []).filter(
+
+        const updatedQueueList = data.queueList || (item.queueList || []).filter(
           (m) => !(m.userId === currentUser.id && m.status === 'pending')
         );
+        await onUpdate(item.id, { queueList: updatedQueueList });
+
+        if (showToast) {
+          showToast(th ? 'ยกเลิกการต่อคิวเรียบร้อย' : 'Left queue successfully', 'info');
+        }
       } else {
-        // Add user to queue
-        const newMember: QueueMember = {
-          id: `gqm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          userId: currentUser.id,
-          name: currentUser.inGameName || currentUser.username,
-          clan: cleanClanName(currentUser.clan) || 'VoltZ',
-          powerLevel: currentUser.powerLevel || 0,
-          status: 'pending',
-          joinedAt: Date.now()
-        };
-        unmarkQueueMemberAsRemoved(item.id, newMember.id, newMember.userId, newMember.name);
-        updatedQueueList = [...(item.queueList || []), newMember];
-      }
-      await onUpdate(item.id, { queueList: updatedQueueList });
-      if (showToast) {
-        showToast(
-          isAlreadyInQueue
-            ? (th ? 'ยกเลิกการต่อคิวเรียบร้อย' : 'Left queue successfully')
-            : (th ? 'ลงชื่อขอรับไอเทมสำเร็จ!' : 'Requested item successfully!'),
-          isAlreadyInQueue ? 'info' : 'success'
-        );
+        // Authoritative Join via backend
+        const res = await fetch('/api/join-general-queue', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ itemId: item.id })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || (th ? 'ลงชื่อขอรับไอเทมไม่สำเร็จ' : 'Failed to join queue'));
+        }
+
+        const data = await res.json();
+        const safeMember = data.member;
+        if (safeMember) {
+          unmarkQueueMemberAsRemoved(item.id, safeMember.id, safeMember.userId, safeMember.name);
+        }
+
+        const updatedQueueList = data.queueList || (safeMember ? [...(item.queueList || []), safeMember] : item.queueList);
+        await onUpdate(item.id, { queueList: updatedQueueList });
+
+        if (showToast) {
+          showToast(
+            data.alreadyJoined
+              ? (th ? 'คุณอยู่ในคิวนี้อยู่แล้ว' : 'You are already in this queue')
+              : (th ? 'ลงชื่อขอรับไอเทมสำเร็จ!' : 'Requested item successfully!'),
+            'success'
+          );
+        }
       }
     } catch (err: any) {
       if (showToast) showToast(err?.message || (th ? 'เกิดข้อผิดพลาด' : 'An error occurred'), 'error');
@@ -369,8 +417,38 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     setBusyItemId(item.id);
     try {
       const targetMember = (item.queueList || []).find((m) => m.id === memberId);
+      const token = await getCurrentUserIdToken();
+
+      let updatedQueueList: QueueMember[] = (item.queueList || []).filter((m) => m.id !== memberId);
+
+      if (token) {
+        const res = await fetch('/api/remove-queue-member', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            queueType: 'general',
+            queueId: item.id,
+            memberId,
+            userId: targetMember?.userId,
+            inGameName: targetMember?.name
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || (th ? 'นำออกจากคิวไม่สำเร็จ' : 'Failed to remove member from queue'));
+        }
+
+        const resData = await res.json();
+        if (resData.queueList) {
+          updatedQueueList = resData.queueList;
+        }
+      }
+
       markQueueMemberAsRemoved(item.id, memberId, targetMember?.userId, targetMember?.name);
-      const updatedQueueList = (item.queueList || []).filter((m) => m.id !== memberId);
       await onUpdate(item.id, { queueList: updatedQueueList });
       if (showToast) showToast(th ? 'นำออกจากคิวเรียบร้อย' : 'Removed from queue', 'info');
     } catch (err: any) {
@@ -392,21 +470,53 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     sounds.playClick();
     setBusyItemId(itemId);
     try {
-      const newMember: QueueMember = {
-        id: `gqm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        userId: mem.id,
-        name: mem.inGameName || mem.username,
-        clan: cleanClanName(mem.clan) || 'VoltZ',
-        powerLevel: mem.powerLevel || 0,
-        status: 'pending',
-        joinedAt: Date.now()
-      };
-      unmarkQueueMemberAsRemoved(itemId, newMember.id, newMember.userId, newMember.name);
-      const updatedQueue = [...(item.queueList || []), newMember];
+      const token = await getCurrentUserIdToken();
+      let updatedQueue: QueueMember[] = [];
+
+      if (token) {
+        const res = await fetch('/api/add-queue-member', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            queueType: 'general',
+            queueId: itemId,
+            userId: mem.id,
+            name: mem.inGameName || mem.username,
+            clan: cleanClanName(mem.clan) || 'VoltZ',
+            powerLevel: mem.powerLevel || 0
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || (th ? 'เพิ่มไม่สำเร็จ' : 'Failed to add member'));
+        }
+
+        const resData = await res.json();
+        updatedQueue = resData.queueList || [];
+      }
+
+      if (!updatedQueue || updatedQueue.length === 0) {
+        const newMember: QueueMember = {
+          id: `gqm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          userId: mem.id,
+          name: mem.inGameName || mem.username,
+          clan: cleanClanName(mem.clan) || 'VoltZ',
+          powerLevel: mem.powerLevel || 0,
+          status: 'pending',
+          joinedAt: Date.now()
+        };
+        updatedQueue = [...(item.queueList || []), newMember];
+      }
+
+      unmarkQueueMemberAsRemoved(itemId, undefined, mem.id, mem.inGameName || mem.username);
       await onUpdate(itemId, { queueList: updatedQueue });
       setActiveQueueIdForAdd(null);
       setSelectedMemberIdForQueue('');
-      if (showToast) showToast(th ? `เพิ่ม ${mem.inGameName} ลงคิวสำเร็จ` : `Added ${mem.inGameName} to queue`, 'success');
+      if (showToast) showToast(th ? `เพิ่ม ${mem.inGameName || mem.username} ลงคิวสำเร็จ` : `Added ${mem.inGameName || mem.username} to queue`, 'success');
     } catch (err: any) {
       if (showToast) showToast(err?.message || (th ? 'เพิ่มไม่สำเร็จ' : 'Failed to add member'), 'error');
     } finally {

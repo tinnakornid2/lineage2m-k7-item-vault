@@ -41,7 +41,11 @@ import {
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
-import { markQueueMemberAsRemoved, unmarkQueueMemberAsRemoved } from '../services/firebase';
+import {
+  getCurrentUserIdToken,
+  markQueueMemberAsRemoved,
+  unmarkQueueMemberAsRemoved
+} from '../services/firebase';
 import { GeneralItemQueueCard } from './GeneralItemQueueCard';
 
 interface QueueViewProps {
@@ -331,23 +335,78 @@ export const QueueView: React.FC<QueueViewProps> = ({
         m.inGameName.toLowerCase() === newPlayerName.trim().toLowerCase()
     );
 
-    const newMember: QueueMember = {
-      id: 'qm_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-      userId: matched?.id,
-      name: newPlayerName.trim() || matched?.inGameName || '',
-      clan: cleanClanName(newPlayerClan.trim() || matched?.clan) || 'VoltZ',
-      powerLevel: matched?.powerLevel,
-      status: 'pending',
-      joinedAt: Date.now()
-    };
+    const playerName = newPlayerName.trim() || matched?.inGameName || '';
+    const playerClan = cleanClanName(newPlayerClan.trim() || matched?.clan) || 'VoltZ';
+    const playerPL = Number(matched?.powerLevel || 0);
+    const playerUserId = matched?.id;
 
-    unmarkQueueMemberAsRemoved(queueId, newMember.id, newMember.userId, newMember.name);
-    const updated = [...queue.queueList, newMember];
-    await onUpdateQueueMembers(queueId, updated);
-    setNewPlayerName('');
-    setNewPlayerClan('');
-    setSelectedMemberIdForQueue('');
-    setActiveQueueIdForAdd(null);
+    try {
+      const token = await getCurrentUserIdToken();
+      let updated: QueueMember[] = [];
+
+      if (token) {
+        const res = await fetch('/api/add-queue-member', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            queueType: 'boss',
+            queueId,
+            userId: playerUserId,
+            name: playerName,
+            clan: playerClan,
+            powerLevel: playerPL
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || (lang === 'th' ? 'เพิ่มสมาชิกลงคิวไม่สำเร็จ' : 'Failed to add member to queue'));
+        }
+
+        const resData = await res.json();
+        updated = resData.queueList || [];
+      }
+
+      if (!updated || updated.length === 0) {
+        // Fallback optimistic deduplication
+        const alreadyIn = queue.queueList.some((m) =>
+          (playerUserId && m.userId === playerUserId) ||
+          (m.name.toLowerCase() === playerName.toLowerCase())
+        );
+        if (alreadyIn) {
+          if (showToast) showToast(lang === 'th' ? 'สมาชิกอยู่ในคิวนี้แล้ว' : 'Member is already in queue', 'warning');
+          return;
+        }
+
+        const newMember: QueueMember = {
+          id: 'qm_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+          userId: playerUserId,
+          name: playerName,
+          clan: playerClan,
+          powerLevel: playerPL,
+          status: 'pending',
+          joinedAt: Date.now()
+        };
+        updated = [...queue.queueList, newMember];
+      }
+
+      unmarkQueueMemberAsRemoved(queueId, undefined, playerUserId, playerName);
+      await onUpdateQueueMembers(queueId, updated);
+      setNewPlayerName('');
+      setNewPlayerClan('');
+      setSelectedMemberIdForQueue('');
+      setActiveQueueIdForAdd(null);
+      if (showToast) {
+        showToast(lang === 'th' ? `เพิ่ม ${playerName} ลงคิวเรียบร้อย` : `Added ${playerName} to queue`, 'success');
+      }
+    } catch (err: any) {
+      if (showToast) {
+        showToast(err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการเพิ่มสมาชิก' : 'Error adding member'), 'error');
+      }
+    }
   };
 
   // Remove member from queue
@@ -356,9 +415,48 @@ export const QueueView: React.FC<QueueViewProps> = ({
     const queue = queueItems.find((q) => q.id === queueId);
     if (!queue) return;
     const targetMember = queue.queueList.find((m) => m.id === memberId);
-    markQueueMemberAsRemoved(queueId, memberId, targetMember?.userId, targetMember?.name);
-    const updated = queue.queueList.filter((m) => m.id !== memberId);
-    await onUpdateQueueMembers(queueId, updated);
+
+    try {
+      const token = await getCurrentUserIdToken();
+      let updated = queue.queueList.filter((m) => m.id !== memberId);
+
+      if (token) {
+        const res = await fetch('/api/remove-queue-member', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            queueType: 'boss',
+            queueId,
+            memberId,
+            userId: targetMember?.userId,
+            inGameName: targetMember?.name
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || (lang === 'th' ? 'นำออกจากคิวไม่สำเร็จ' : 'Failed to remove member'));
+        }
+
+        const resData = await res.json();
+        if (resData.queueList) {
+          updated = resData.queueList;
+        }
+      }
+
+      markQueueMemberAsRemoved(queueId, memberId, targetMember?.userId, targetMember?.name);
+      await onUpdateQueueMembers(queueId, updated);
+      if (showToast) {
+        showToast(lang === 'th' ? 'นำออกจากคิวเรียบร้อย' : 'Removed from queue', 'info');
+      }
+    } catch (err: any) {
+      if (showToast) {
+        showToast(err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการนำออกจากคิว' : 'Error removing member'), 'error');
+      }
+    }
   };
 
   // Toggle status (received / pending)

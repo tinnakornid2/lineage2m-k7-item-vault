@@ -251,7 +251,7 @@ export function sanitizeGeneralItem<T extends Partial<GeneralItem>>(item: T): Ge
 }
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.14-unclaim-resurrection-fix';
+const CACHE_SCHEMA_VERSION = '2.10.15-queue-membership-authoritative-fix';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -408,16 +408,8 @@ export async function syncTombstoneToFirestore(
   field: 'deletedUsers' | 'deletedVaultItems' | 'deletedGeneralItems' | 'deletedQueueItems' | 'removedQueueMembers' | 'cancelledClaims',
   map: Record<string, number>
 ): Promise<void> {
-  try {
-    const docRef = doc(db, 'system', 'tombstones');
-    await safeFirestoreWrite(
-      setDoc(docRef, { [field]: map, updatedAt: Date.now() }, { merge: true }),
-      1200,
-      'syncTombstoneToFirestore'
-    );
-  } catch (err: any) {
-    console.warn('Notice: Firestore tombstone sync skipped (saved locally):', err?.message);
-  }
+  // Durable cloud tombstones on system/tombstones are written authoritatively via backend Admin SDK endpoints.
+  // Client SDK direct writes are restricted by security rules. Client maintains local storage persistence.
 }
 
 export function applyIncomingCloudTombstones(cloudData: any): void {
@@ -454,21 +446,39 @@ export function applyIncomingCloudTombstones(cloudData: any): void {
   setCachedData(CACHE_KEYS.USERS, inMemoryUsers);
 
   const deletedVault = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
-  inMemoryVaultItems = inMemoryVaultItems.filter((i) => !i || !i.id || !deletedVault[i.id]);
+  inMemoryVaultItems = inMemoryVaultItems
+    .filter((i) => !i || !i.id || !deletedVault[i.id])
+    .map((vi) => {
+      if (!vi.claimants || vi.claimants.length === 0) return vi;
+      const filtered = vi.claimants.filter((c) => !isClaimCancelled(vi.id, c));
+      return filtered.length !== vi.claimants.length ? { ...vi, claimants: filtered } : vi;
+    });
   setCachedData(CACHE_KEYS.VAULT_ITEMS, inMemoryVaultItems);
 
   const deletedGeneral = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
-  inMemoryGeneralItems = inMemoryGeneralItems.filter((i) => !i || !i.id || !deletedGeneral[i.id]);
+  inMemoryGeneralItems = inMemoryGeneralItems
+    .filter((i) => !i || !i.id || !deletedGeneral[i.id])
+    .map((gi) => {
+      if (!gi.queueList || gi.queueList.length === 0) return gi;
+      const filtered = gi.queueList.filter((m) => !isQueueMemberRemoved(gi.id, m));
+      return filtered.length !== gi.queueList.length ? { ...gi, queueList: filtered } : gi;
+    });
   setCachedData(CACHE_KEYS.GENERAL_ITEMS, inMemoryGeneralItems);
 
   const deletedQueues = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
-  inMemoryQueues = inMemoryQueues.filter((q) => {
-    if (!q || !q.id) return false;
-    const delAt = deletedQueues[q.id];
-    if (!delAt) return true;
-    const rev = Number(q.updatedAt || q.createdAt || 0);
-    return rev > delAt;
-  });
+  inMemoryQueues = inMemoryQueues
+    .filter((q) => {
+      if (!q || !q.id) return false;
+      const delAt = deletedQueues[q.id];
+      if (!delAt) return true;
+      const rev = Number(q.updatedAt || q.createdAt || 0);
+      return rev > delAt;
+    })
+    .map((q) => {
+      if (!q.queueList || q.queueList.length === 0) return q;
+      const filtered = q.queueList.filter((m) => !isQueueMemberRemoved(q.id, m));
+      return filtered.length !== q.queueList.length ? { ...q, queueList: filtered } : q;
+    });
   setCachedData(CACHE_KEYS.QUEUES, inMemoryQueues);
 }
 
@@ -817,27 +827,45 @@ export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: Ge
       const localRevision = Number(local.updatedAt || local.createdAt || 0);
       const incomingRevision = Number(incoming.updatedAt || incoming.createdAt || 0);
       const newest = incomingRevision >= localRevision ? incoming : local;
-      const older = incomingRevision >= localRevision ? local : incoming;
-      const olderRevision = Math.min(localRevision, incomingRevision);
+      const older = newest === local ? incoming : local;
 
       // Smart merge queueList:
-      // Newest revision is authoritative. NEVER blindly union older members back into the list!
+      // Authoritative newer item state wins. Stale cached members cannot resurrect.
       const queueMap = new Map<string, QueueMember>();
 
-      // 1. Authoritative entries from newest
-      for (const m of (newest.queueList || [])) {
-        if (!m || isQueueMemberRemoved(id, m)) continue;
-        const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
-        if (key) queueMap.set(key, m);
-      }
-
-      // 2. Only concurrent new joins from older (joined within last 10s of both revisions)
-      for (const m of (older.queueList || [])) {
-        if (!m || isQueueMemberRemoved(id, m)) continue;
-        const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
-        if (key && !queueMap.has(key)) {
+      if (incomingRevision >= localRevision) {
+        // Remote state (Firestore / live-state) is newer or equal:
+        // Remote queue list is authoritative. Filter by tombstones.
+        for (const m of (newest.queueList || [])) {
+          if (!m || isQueueMemberRemoved(id, m)) continue;
+          const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+          if (key) queueMap.set(key, m);
+        }
+        // Only preserve local member if it represents a newer in-flight optimistic join
+        // created strictly AFTER incomingRevision, NOT an old stale queue join.
+        for (const m of (older.queueList || [])) {
+          if (!m || isQueueMemberRemoved(id, m)) continue;
+          const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+          if (!key || queueMap.has(key)) continue;
           const joinedAt = Number(m.joinedAt || 0);
-          if (joinedAt > (olderRevision - 10000) && joinedAt > (incomingRevision - 10000)) {
+          if (joinedAt > incomingRevision) {
+            queueMap.set(key, m);
+          }
+        }
+      } else {
+        // Local state is strictly newer (optimistic join/leave performed locally):
+        for (const m of (newest.queueList || [])) {
+          if (!m || isQueueMemberRemoved(id, m)) continue;
+          const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+          if (key) queueMap.set(key, m);
+        }
+        // Only accept incoming member if it joined concurrently AFTER local was modified
+        for (const m of (older.queueList || [])) {
+          if (!m || isQueueMemberRemoved(id, m)) continue;
+          const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+          if (!key || queueMap.has(key)) continue;
+          const joinedAt = Number(m.joinedAt || 0);
+          if (joinedAt > localRevision) {
             queueMap.set(key, m);
           }
         }
@@ -1158,21 +1186,42 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
       const localRevision = local.updatedAt || local.createdAt || 0;
       const incomingRevision = incoming.updatedAt || incoming.createdAt || 0;
       const newest = incomingRevision >= localRevision ? incoming : local;
-      const older = incomingRevision >= localRevision ? local : incoming;
+      const older = newest === local ? incoming : local;
 
       // Smart merge queueList: newest is authoritative, filter removed members
       const queueMap = new Map<string, QueueMember>();
-      for (const m of (newest.queueList || [])) {
-        if (!m || isQueueMemberRemoved(id, m)) continue;
-        const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
-        if (key) queueMap.set(key, m);
-      }
-      for (const m of (older.queueList || [])) {
-        if (!m || isQueueMemberRemoved(id, m)) continue;
-        const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
-        if (key && !queueMap.has(key)) {
+
+      if (incomingRevision >= localRevision) {
+        // Remote queue list is authoritative. Filter by tombstones.
+        for (const m of (newest.queueList || [])) {
+          if (!m || isQueueMemberRemoved(id, m)) continue;
+          const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+          if (key) queueMap.set(key, m);
+        }
+        // Only preserve local member if it represents a newer in-flight optimistic join
+        // created strictly AFTER incomingRevision
+        for (const m of (older.queueList || [])) {
+          if (!m || isQueueMemberRemoved(id, m)) continue;
+          const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+          if (!key || queueMap.has(key)) continue;
           const joinedAt = Number(m.joinedAt || 0);
-          if (joinedAt > (localRevision - 10000) && joinedAt > (incomingRevision - 10000)) {
+          if (joinedAt > incomingRevision) {
+            queueMap.set(key, m);
+          }
+        }
+      } else {
+        // Local state is strictly newer
+        for (const m of (newest.queueList || [])) {
+          if (!m || isQueueMemberRemoved(id, m)) continue;
+          const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+          if (key) queueMap.set(key, m);
+        }
+        for (const m of (older.queueList || [])) {
+          if (!m || isQueueMemberRemoved(id, m)) continue;
+          const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
+          if (!key || queueMap.has(key)) continue;
+          const joinedAt = Number(m.joinedAt || 0);
+          if (joinedAt > localRevision) {
             queueMap.set(key, m);
           }
         }
@@ -1181,7 +1230,8 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
       result.push({
         ...older,
         ...newest,
-        queueList: Array.from(queueMap.values())
+        queueList: Array.from(queueMap.values()),
+        updatedAt: Math.max(localRevision, incomingRevision) || Date.now()
       });
     }
   }
