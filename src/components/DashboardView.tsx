@@ -904,11 +904,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 </span>
                               </div>
                               {Number(item.price || 0) > 0 ? (
-                                <span className="text-[11px] font-mono text-amber-300 shrink-0 font-bold">
+                                <span className="l2m-price-paid text-[10px] shrink-0">
                                   💎 {Number(item.price || 0).toLocaleString()}
                                 </span>
                               ) : (
-                                <span className="text-[11px] font-bold text-emerald-400 shrink-0">
+                                <span className="l2m-price-free text-[10px] shrink-0">
                                   🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
                                 </span>
                               )}
@@ -1229,8 +1229,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </div>
 
                         <div className="text-right shrink-0 flex flex-col items-end gap-0.5">
-                          <div className="text-xs font-mono font-bold text-white">
-                            {Number(item.price || 0) > 0 ? `💎 ${Number(item.price || 0).toLocaleString()}` : `🎁 ${t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}`}
+                          <div>
+                            {Number(item.price || 0) > 0 ? (
+                              <span className="l2m-price-paid text-xs">
+                                💎 {Number(item.price || 0).toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="l2m-price-free text-[10px]">
+                                🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
+                              </span>
+                            )}
                           </div>
 
                           {/* Payment Status for non-free distributed item (Status only, no button on dashboard) */}
@@ -1563,12 +1571,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         {/* Price */}
                         <div className="shrink-0 ml-1">
                           {Number(item.price || 0) > 0 ? (
-                            <div className="flex items-center gap-0.5 font-mono font-bold text-xs text-white">
-                              <Gem className="w-3 h-3 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)] shrink-0" />
-                              <span>{Number(item.price || 0).toLocaleString()}</span>
-                            </div>
+                            <span className="l2m-price-paid text-[10px] sm:text-[11px] shrink-0">
+                              💎 {Number(item.price || 0).toLocaleString()}
+                            </span>
                           ) : (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                            <span className="l2m-price-free text-[9.5px] sm:text-[10px] shrink-0">
                               🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
                             </span>
                           )}
@@ -1878,12 +1885,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           {/* Col 3: Price */}
                           <td className="py-2.5 px-3 text-center whitespace-nowrap">
                             {Number(item.price || 0) > 0 ? (
-                              <div className="inline-flex items-center gap-1 font-mono font-bold text-xs text-white">
-                                <Gem className="w-3 h-3 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)]" />
-                                <span>{Number(item.price || 0).toLocaleString()}</span>
-                              </div>
+                              <span className="l2m-price-paid text-xs">
+                                💎 {Number(item.price || 0).toLocaleString()}
+                              </span>
                             ) : (
-                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                              <span className="l2m-price-free">
                                 🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
                               </span>
                             )}

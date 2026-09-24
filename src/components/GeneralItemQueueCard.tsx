@@ -1094,11 +1094,17 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs">
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap text-xs">
                       {/* Diamond Price */}
-                      <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono font-bold text-[11px] shrink-0">
-                        {Number(item.price || 0) > 0 ? `${Number(item.price || 0).toLocaleString()} 💎` : (th ? 'ฟรี (0 💎)' : 'FREE')}
-                      </span>
+                      {Number(item.price || 0) > 0 ? (
+                        <span className="l2m-price-paid text-[11px] shrink-0">
+                          💎 {Number(item.price || 0).toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="l2m-price-free text-[11px] shrink-0">
+                          🎁 {th ? 'ฟรี' : 'FREE'}
+                        </span>
+                      )}
                       {/* Quantity */}
                       <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono font-bold text-[11px] shrink-0">
                         {item.quantity} {th ? 'ชิ้น' : 'pcs'}
@@ -1120,7 +1126,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                 </div>
 
                 {/* Row 2: Requesters Button & Action Buttons */}
-                <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-slate-800/80 flex-wrap">
+                <div className="flex flex-col xs:flex-row items-stretch xs:items-center justify-between gap-2 pt-2.5 border-t border-slate-800/80">
                   {/* Requesters button */}
                   <button
                     type="button"
@@ -1128,7 +1134,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                       sounds.playClick();
                       setViewingRequestersItem(item);
                     }}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 hover:border-blue-400 text-blue-200 transition-all cursor-pointer font-semibold text-xs shadow-sm group shrink-0"
+                    className="flex items-center justify-center xs:justify-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 hover:border-blue-400 text-blue-200 transition-all cursor-pointer font-semibold text-xs shadow-sm group shrink-0 min-h-[36px]"
                     title={th ? 'คลิกเพื่อดูรายชื่อคนขอรับทั้งหมด' : 'Click to view all requesters'}
                   >
                     <Users className="w-3.5 h-3.5 text-blue-400 group-hover:scale-110 transition-transform shrink-0" />
@@ -1137,12 +1143,12 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                   </button>
 
                   {/* Actions Toolbar */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
                     {isAdminOrOwner && (
                       <button
                         type="button"
                         onClick={() => openDeliverModal(item)}
-                        className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                        className="btn-touch-target px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1 shrink-0"
                         title={th ? 'แจกไอเทม & บันทึก Log' : 'Distribute item & record log'}
                       >
                         <Gift className="w-3.5 h-3.5 text-amber-300" />
@@ -1336,9 +1342,15 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
 
                       {/* Diamond Price Badge */}
                       <td className="py-3 px-3">
-                        <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono font-bold text-xs inline-block">
-                          {Number(item.price || 0) > 0 ? `${Number(item.price || 0).toLocaleString()} 💎` : (th ? 'ฟรี (0 💎)' : 'FREE')}
-                        </span>
+                        {Number(item.price || 0) > 0 ? (
+                          <span className="l2m-price-paid text-xs inline-block">
+                            💎 {Number(item.price || 0).toLocaleString()}
+                          </span>
+                        ) : (
+                          <span className="l2m-price-free text-xs inline-block">
+                            🎁 {th ? 'ฟรี' : 'FREE'}
+                          </span>
+                        )}
                       </td>
 
                       {/* Quantity Badge */}

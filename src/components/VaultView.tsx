@@ -2857,14 +2857,19 @@ export const VaultView: React.FC<VaultViewProps> = ({
                       <h3 className="font-bold text-sm text-slate-100 truncate mt-1" title={item.name}>
                         {item.name}
                       </h3>
-                      <div className="flex items-center gap-3 mt-1 text-xs">
-                        <span className="text-amber-400 font-mono font-bold flex items-center gap-1">
-                          <Gem className="size-3 text-amber-400" />
-                          {Number(item.price || 0) > 0 ? `${Number(item.price || 0).toLocaleString()} Dia` : (lang === 'th' ? 'ฟรี' : 'Free')}
-                        </span>
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs">
+                        {Number(item.price || 0) > 0 ? (
+                          <span className="l2m-price-paid text-xs font-bold shrink-0">
+                            💎 {Number(item.price || 0).toLocaleString()}
+                          </span>
+                        ) : (
+                          <span className="l2m-price-free text-xs font-bold shrink-0">
+                            🎁 {lang === 'th' ? 'ฟรี' : 'Free'}
+                          </span>
+                        )}
                         {Number(item.minPowerLevel || 0) > 0 && (
-                          <span className="text-cyan-300 font-mono text-[11px] flex items-center gap-0.5">
-                            <Zap className="size-3 text-cyan-400" />
+                          <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/30 text-sky-300 font-mono font-bold text-[11px] shrink-0 flex items-center gap-0.5">
+                            <Zap className="size-3 text-sky-400" />
                             {Number(item.minPowerLevel || 0).toLocaleString()} PL
                           </span>
                         )}
@@ -2894,7 +2899,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                             sounds.playClick();
                             onEditItem(item);
                           }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-xs font-semibold transition cursor-pointer"
+                          className="btn-touch-target flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-semibold transition cursor-pointer min-h-[36px]"
                           title={t.editItem}
                         >
                           <Edit className="size-3.5" />
@@ -2907,7 +2912,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                           sounds.playClick();
                           setItemToDelete(item);
                         }}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/50 text-xs font-semibold transition cursor-pointer"
+                        className="btn-touch-target flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/50 text-xs font-semibold transition cursor-pointer min-h-[36px]"
                         title={lang === 'th' ? 'ลบไอเทมนี้' : 'Delete item'}
                       >
                         <Trash2 className="size-3.5" />
@@ -3068,8 +3073,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
                       <td className="py-3 px-4 font-mono font-bold">
                         {item.price > 0 ? (
                           <div className="space-y-1.5">
-                            <span className="text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.3)] block text-xs">
-                              {Number(item.price || 0).toLocaleString()} {t.diamonds}
+                            <span className="l2m-price-paid text-xs">
+                              💎 {Number(item.price || 0).toLocaleString()} {t.diamonds}
                             </span>
                             {item.paymentStatus === 'paid' ? (
                               <button
@@ -3119,7 +3124,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                             )}
                           </div>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                          <span className="l2m-price-free">
                             🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
                           </span>
                         )}
