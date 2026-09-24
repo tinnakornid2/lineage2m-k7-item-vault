@@ -252,7 +252,7 @@ export function sanitizeGeneralItem<T extends Partial<GeneralItem>>(item: T): Ge
 }
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.19-firestore-read-access-hardening';
+const CACHE_SCHEMA_VERSION = '2.10.20-bundled-seed-secret-sanitization';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
