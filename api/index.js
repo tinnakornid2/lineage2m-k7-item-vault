@@ -461,6 +461,7 @@ async function verifyRoleToken(authorization, allowedRoles) {
     actor: {
       uid: matchedUserId,
       role: userRole,
+      status: String(matchedUserData.status || "active"),
       username: String(matchedUserData.username || ""),
       inGameName: String(matchedUserData.inGameName || matchedUserData.username || ""),
       clan: matchedUserData.clan ? String(matchedUserData.clan) : void 0,
