@@ -14,6 +14,7 @@ import {
   normalizeDistributedItem
 } from '../types';
 import { getCurrentUserIdToken } from './firebase';
+import { computeTotalVaultBalance } from '../utils/diamondHelper';
 
 export interface GoogleBackupConfig {
   webAppUrl: string;
@@ -448,8 +449,10 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
         generalItems: Array.isArray(json.data.generalItems) ? json.data.generalItems : [],
         queueItems: Array.isArray(json.data.queueItems) ? json.data.queueItems : [],
         clans: Array.isArray(json.data.clans) ? json.data.clans : [],
-        diamondLogs: Array.isArray(json.data.diamondLogs) ? json.data.diamondLogs : [],
-        vaultBalance: Number(json.vaultBalance || 0),
+        diamondLogs: (Array.isArray(json.data.diamondLogs) ? (json.data.diamondLogs as DiamondVaultRecord[]) : []).sort(
+          (a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0)
+        ),
+        vaultBalance: computeTotalVaultBalance(Array.isArray(json.data.diamondLogs) ? json.data.diamondLogs : []),
         formulaSettings: json.data.formulaSettings || undefined,
         syncMeta: json.data.syncMeta || undefined
       };

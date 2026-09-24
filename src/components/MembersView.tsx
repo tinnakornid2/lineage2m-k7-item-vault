@@ -589,9 +589,9 @@ export const MembersView: React.FC<MembersViewProps> = ({
                                   <Crown className="w-3 h-3 text-amber-400 shrink-0" />
                                 )}
                               </div>
-                              <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-1 flex-wrap">
+                              <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate">
                                 {primaryClass && (
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-950/50 border border-purple-800/50 text-purple-300 font-medium truncate shrink-0">
+                                  <span className="inline-flex items-center gap-1 text-purple-300 font-medium truncate">
                                     {meta?.icon && (
                                       <img
                                         src={meta.icon}
@@ -605,7 +605,8 @@ export const MembersView: React.FC<MembersViewProps> = ({
                                     <span className="truncate">{primaryClass}</span>
                                   </span>
                                 )}
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-950/50 border border-amber-800/50 text-amber-300 font-mono font-semibold shrink-0">
+                                {primaryClass && <span>•</span>}
+                                <span className="text-amber-400 font-mono font-semibold shrink-0">
                                   ⚡ {(mem.powerLevel || 0).toLocaleString()}
                                 </span>
                               </div>

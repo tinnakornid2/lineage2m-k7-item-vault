@@ -31,6 +31,7 @@ import {
 } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
 import { validateRegistration } from '../utils/registration';
+import { calculateDiamondNetChange } from '../utils/diamondHelper';
 import {
   User,
   VaultItem,
@@ -251,7 +252,7 @@ export function sanitizeGeneralItem<T extends Partial<GeneralItem>>(item: T): Ge
 }
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.15-queue-membership-authoritative-fix';
+const CACHE_SCHEMA_VERSION = '2.10.19-firestore-read-access-hardening';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -1457,8 +1458,9 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
     const cleanUpdates = sanitizeForFirestore(sanitizedUpdates);
     await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateUserDoc');
   } catch (err: any) {
-    console.warn('Notice: Failed to update user in Firestore (saved locally):', err);
+    console.warn('Notice: Failed to update user in Firestore:', err);
     notifyQuotaExceeded(err);
+    throw err;
   }
 }
 
@@ -1632,7 +1634,9 @@ const LEGACY_LOGGED_KEY = 'k7_logged_user';
 
 export function saveLocalSessionUser(user: User) {
   try {
-    const raw = JSON.stringify(user);
+    const safeUser = { ...user };
+    delete (safeUser as any).password;
+    const raw = JSON.stringify(safeUser);
     localStorage.setItem(SESSION_KEY, raw);
     localStorage.setItem(LEGACY_LOGGED_KEY, raw);
   } catch {}
@@ -1699,8 +1703,7 @@ export async function registerUserDoc(data: {
     pendingPowerLevelRequestedAt: null,
     role: 'member',
     status: 'pending_approval',
-    createdAt: Date.now(),
-    password: data.password
+    createdAt: Date.now()
   };
 
   // 2. Try Firestore setDoc with timeout & quota safeguard
@@ -1816,8 +1819,18 @@ export async function loginUserQuery(
   if (matchedUser) {
     const userPass = (matchedUser as any).password;
     if (userPass && (userPass === pass || userPass === cleanPass)) {
-      saveLocalSessionUser(matchedUser);
-      return matchedUser;
+      try {
+        await signInWithEmailAndPassword(
+          auth,
+          usernameToAuthEmail(matchedUser.username || cleanUsername),
+          pass
+        );
+      } catch (authErr: any) {
+        console.warn('Firebase Auth sign-in notice during in-memory match:', authErr?.code || authErr?.message);
+      }
+      const { password: _p, ...cleanUser } = matchedUser as any;
+      saveLocalSessionUser(cleanUser as User);
+      return cleanUser as User;
     }
   }
 
@@ -1839,8 +1852,18 @@ export async function loginUserQuery(
         if (foundInLive) {
           const userPass = (foundInLive as any).password;
           if (userPass && (userPass === pass || userPass === cleanPass)) {
-            saveLocalSessionUser(foundInLive);
-            return foundInLive;
+            try {
+              await signInWithEmailAndPassword(
+                auth,
+                usernameToAuthEmail(foundInLive.username || cleanUsername),
+                pass
+              );
+            } catch (authErr: any) {
+              console.warn('Firebase Auth sign-in notice during live match:', authErr?.code || authErr?.message);
+            }
+            const { password: _p, ...cleanUser } = foundInLive as any;
+            saveLocalSessionUser(cleanUser as User);
+            return cleanUser as User;
           }
         }
       }
@@ -1896,8 +1919,9 @@ export async function loginUserQuery(
         };
       }
 
-      saveLocalSessionUser(matched);
-      return matched;
+      const { password: _p, ...cleanUser } = matched as any;
+      saveLocalSessionUser(cleanUser as User);
+      return cleanUser as User;
     }
   } catch (authErr: any) {
     // Expected if email/password auth is disabled or user not in Firebase Auth
@@ -1923,8 +1947,16 @@ export async function loginUserQuery(
     });
 
     if (matchedFromDb) {
-      saveLocalSessionUser(matchedFromDb);
-      return matchedFromDb;
+      try {
+        await signInWithEmailAndPassword(
+          auth,
+          usernameToAuthEmail((matchedFromDb as User).username || cleanUsername),
+          pass
+        );
+      } catch {}
+      const { password: _p, ...cleanUser } = matchedFromDb as any;
+      saveLocalSessionUser(cleanUser as User);
+      return cleanUser as User;
     }
   } catch (dbErr: any) {
     notifyQuotaExceeded(dbErr);
@@ -1943,16 +1975,36 @@ export function usernameToAuthEmail(username: string): string {
   return `${encoded}@auth.k7-clan.local`;
 }
 
-export function ensureFirebaseAuthSession(currentUser: User | null) {
-  if (!currentUser) return;
-  if (auth.currentUser) return;
+export async function ensureFirebaseAuthSession(currentUser: User | null): Promise<boolean> {
+  if (!currentUser) return false;
+  if (auth.currentUser) {
+    const isOwner = currentUser.role === 'owner' || currentUser.id === 'user_owner_eloni';
+    if (isOwner || auth.currentUser.uid === currentUser.id) {
+      return true;
+    }
+  }
+  if (typeof (auth as any).authStateReady === 'function') {
+    try {
+      await (auth as any).authStateReady();
+      if (auth.currentUser) {
+        const isOwner = currentUser.role === 'owner' || currentUser.id === 'user_owner_eloni';
+        if (isOwner || auth.currentUser.uid === currentUser.id) {
+          return true;
+        }
+      }
+    } catch {}
+  }
   const isEloni =
     currentUser.id === 'user_owner_eloni' ||
     currentUser.username?.toLowerCase() === 'eloni' ||
     currentUser.inGameName?.toLowerCase() === 'eloni';
   if (isEloni) {
-    signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334').catch(() => {});
+    try {
+      await signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334');
+      return true;
+    } catch {}
   }
+  return Boolean(auth.currentUser);
 }
 
 export function listenToAuthenticatedUser(callback: (profile: User | null) => void) {
@@ -2482,7 +2534,16 @@ export async function clearAllQueuesDoc(): Promise<number> {
 }
 
 export async function clearDiamondTransactionsDoc(): Promise<number> {
-  const snap = await getDocs(collection(db, VAULT_COLLECTION));
+  const cached = getCachedDiamondTransactions();
+  setCachedDiamondTransactions([]);
+
+  const snap = await safeFirestoreWrite(
+    getDocs(collection(db, VAULT_COLLECTION)),
+    1200,
+    'clearDiamondTransactionsDoc_getDocs'
+  );
+  if (!snap) return cached.length;
+
   const batch = writeBatch(db);
   let count = 0;
   snap.forEach((docSnap) => {
@@ -2490,9 +2551,9 @@ export async function clearDiamondTransactionsDoc(): Promise<number> {
     count++;
   });
   if (count > 0) {
-    await safeFirestoreWrite(batch.commit(), 2000, 'clearAllQueues_batchCommit');
+    await safeFirestoreWrite(batch.commit(), 1200, 'clearDiamondTransactionsDoc_batchCommit');
   }
-  return count;
+  return Math.max(count, cached.length);
 }
 
 // 4. Quick Items Firestore functions
@@ -2729,19 +2790,72 @@ export async function deleteClanDoc(clanId: string) {
 }
 
 // 6. Diamond Vault Transactions Firestore functions
+export function mergeDiamondTransactions(
+  currentLogs: DiamondVaultRecord[],
+  incomingLogs: DiamondVaultRecord[]
+): DiamondVaultRecord[] {
+  const map = new Map<string, DiamondVaultRecord>();
+
+  for (const log of (currentLogs || [])) {
+    if (log && log.id) {
+      map.set(log.id, { ...log });
+    }
+  }
+
+  for (const log of (incomingLogs || [])) {
+    if (!log || !log.id) continue;
+    const existing = map.get(log.id);
+    if (!existing) {
+      map.set(log.id, { ...log });
+    } else {
+      map.set(log.id, {
+        ...existing,
+        ...log,
+        note: (log.note !== undefined && log.note !== '') ? log.note : (existing.note || ''),
+        proofImageUrl: log.proofImageUrl || existing.proofImageUrl,
+        timestamp: Math.max(Number(existing.timestamp || 0), Number(log.timestamp || 0))
+      });
+    }
+  }
+
+  const allRecords = Array.from(map.values());
+
+  // Sort chronologically ascending to calculate running balanceAfter accurately
+  allRecords.sort((a, b) => {
+    const timeDiff = Number(a.timestamp || 0) - Number(b.timestamp || 0);
+    if (timeDiff !== 0) return timeDiff;
+    return (a.id || '').localeCompare(b.id || '');
+  });
+
+  let runningBalance = 0;
+  for (const tx of allRecords) {
+    const net = calculateDiamondNetChange(tx);
+    runningBalance = Math.max(0, runningBalance + net);
+    tx.balanceAfter = runningBalance;
+  }
+
+  // Return sorted descending (newest first) for consistent UI display and pagination
+  allRecords.sort((a, b) => {
+    const timeDiff = Number(b.timestamp || 0) - Number(a.timestamp || 0);
+    if (timeDiff !== 0) return timeDiff;
+    return (b.id || '').localeCompare(a.id || '');
+  });
+
+  return allRecords;
+}
+
 export function listenToDiamondTransactions(
-  callback: (logs: DiamondVaultRecord[]) => void,
-  maxLogs: number = 50
+  callback: (logs: DiamondVaultRecord[]) => void
 ) {
   const initialTxs = getCachedDiamondTransactions();
   callback(initialTxs);
 
   let initialTxsFallbackHandled = false;
-  // Limit to latest transactions to prevent uncontrolled document reads
+  // The displayed balance is derived from the complete ledger, so this listener
+  // must not truncate the collection. A partial ledger would produce a false balance.
   const q = query(
     collection(db, VAULT_COLLECTION),
-    orderBy('timestamp', 'desc'),
-    limit(maxLogs)
+    orderBy('timestamp', 'desc')
   );
   return onSnapshot(
     q,
@@ -2751,10 +2865,11 @@ export function listenToDiamondTransactions(
       snapshot.forEach((docSnap) => {
         records.push({ ...docSnap.data(), id: docSnap.id } as DiamondVaultRecord);
       });
-      // Sort newest first
-      records.sort((a, b) => b.timestamp - a.timestamp);
-      setCachedData(CACHE_KEYS.DIAMOND_TXS, records);
-      callback(records);
+      // Merge snapshot records with local cached records to prevent losing in-flight writes
+      const cached = getCachedDiamondTransactions();
+      const merged = mergeDiamondTransactions(cached, records);
+      setCachedDiamondTransactions(merged);
+      callback(merged);
     },
     (err) => {
       console.warn('Firestore diamond transactions fallback to cache:', err);
@@ -2767,7 +2882,11 @@ export function listenToDiamondTransactions(
   );
 }
 
-export async function addDiamondTransactionDoc(record: Omit<DiamondVaultRecord, 'id' | 'timestamp'>) {
+export async function addDiamondTransactionDoc(record: Omit<DiamondVaultRecord, 'id' | 'timestamp'>): Promise<DiamondVaultRecord> {
+  if (!record.performedBy || !['owner', 'admin'].includes(record.performedBy.role)) {
+    throw new Error('Permission denied: Only Owner and Admin can perform vault transactions.');
+  }
+
   const newId = 'dlog_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
   const fullRecord: DiamondVaultRecord = {
     ...record,
@@ -2775,15 +2894,41 @@ export async function addDiamondTransactionDoc(record: Omit<DiamondVaultRecord, 
     timestamp: Date.now()
   };
   const cleanRecord = sanitizeForFirestore(fullRecord);
-  await safeFirestoreWrite(
-    setDoc(doc(db, VAULT_COLLECTION, newId), cleanRecord),
-    1200,
-    'addDiamondTransactionDoc'
-  );
+
+  // Optimistically persist to local cache first
+  const currentCached = getCachedDiamondTransactions();
+  const mergedCached = mergeDiamondTransactions(currentCached, [fullRecord]);
+  setCachedDiamondTransactions(mergedCached);
+
+  // Attempt the cloud write without ever blocking the UI beyond the resilience budget.
+  try {
+    await safeFirestoreWriteOrThrow(
+      setDoc(doc(db, VAULT_COLLECTION, newId), cleanRecord),
+      1200,
+      'addDiamondTransactionDoc'
+    );
+  } catch (err: any) {
+    if (
+      err?.code === 'permission-denied' ||
+      err?.message?.includes('permission-denied') ||
+      err?.message?.includes('Missing or insufficient permissions')
+    ) {
+      // Revert from local cache on permission failure
+      const reverted = currentCached.filter((r) => r.id !== newId);
+      setCachedDiamondTransactions(reverted);
+      throw new Error('Permission denied: You do not have permission to perform this vault transaction.');
+    }
+    console.warn('addDiamondTransactionDoc notice, continuing with durable failover:', err?.message || err);
+  }
+
   return fullRecord;
 }
 
 export async function updateDiamondTransactionNoteDoc(recordId: string, note: string): Promise<void> {
+  const currentCached = getCachedDiamondTransactions();
+  const updatedCached = currentCached.map((r) => (r.id === recordId ? { ...r, note } : r));
+  setCachedDiamondTransactions(updatedCached);
+
   try {
     await safeFirestoreWrite(
       updateDoc(doc(db, VAULT_COLLECTION, recordId), {
@@ -2798,6 +2943,10 @@ export async function updateDiamondTransactionNoteDoc(recordId: string, note: st
 }
 
 export async function deleteDiamondTransactionDoc(recordId: string): Promise<void> {
+  const currentCached = getCachedDiamondTransactions();
+  const filtered = currentCached.filter((r) => r.id !== recordId);
+  setCachedDiamondTransactions(filtered);
+
   try {
     await safeFirestoreWrite(
       deleteDoc(doc(db, VAULT_COLLECTION, recordId)),

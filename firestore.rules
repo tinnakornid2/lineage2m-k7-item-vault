@@ -119,16 +119,19 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow create: if signedIn() && validUser(request.resource.data) && validNewMember(userId);
-      allow read: if true;
+      // Pending accounts may only read their own profile. Active members can
+      // read the roster used by the clan UI; anonymous access is never allowed.
+      allow read: if signedIn() && (request.auth.uid == userId || isActiveUser());
       allow update: if validUser(request.resource.data)
-        && (isOwner() || (signedIn() && ((request.auth.uid == userId && validSelfUpdate()) || validPrivilegedUserUpdate())));
+        && signedIn()
+        && ((request.auth.uid == userId && validSelfUpdate()) || validPrivilegedUserUpdate());
       allow delete: if signedIn()
         && request.auth.uid != userId
         && canManageUser(resource.data.role);
     }
 
     match /items/{itemId} {
-      allow read: if true;
+      allow read: if isActiveUser();
       allow create, delete: if isAdminOrOwner();
       allow update: if isAdminOrOwner()
         || (resource.data.status == 'available'
@@ -205,7 +208,7 @@ service cloud.firestore {
     }
 
     match /clans/{clanId} {
-      allow read: if true;
+      allow read: if isActiveUser();
       allow create, update, delete: if isAdminOrOwner();
     }
 

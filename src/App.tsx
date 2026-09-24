@@ -115,6 +115,7 @@ import {
   mergeQueueItems,
   mergeGeneralItems,
   mergeUsers,
+  mergeDiamondTransactions,
   clearAllLocalCaches,
   markVaultItemAsDeleted,
   unmarkVaultItemAsDeleted,
@@ -335,8 +336,11 @@ export const App: React.FC = () => {
         setCachedClans(data.clans);
       }
       if (data.diamondLogs && data.diamondLogs.length > 0) {
-        setDiamondLogs(data.diamondLogs);
-        setCachedDiamondTransactions(data.diamondLogs);
+        setDiamondLogs((prev) => {
+          const merged = mergeDiamondTransactions(prev, data.diamondLogs);
+          setCachedDiamondTransactions(merged);
+          return merged;
+        });
       }
     })().catch(console.warn);
 
@@ -380,7 +384,13 @@ export const App: React.FC = () => {
             });
           }
           if (Array.isArray(json.data.clans) && json.data.clans.length > 0) setClans(json.data.clans);
-          if (Array.isArray(json.data.diamondLogs)) setDiamondLogs(json.data.diamondLogs);
+          if (Array.isArray(json.data.diamondLogs)) {
+            setDiamondLogs((prev) => {
+              const merged = mergeDiamondTransactions(prev, json.data.diamondLogs);
+              setCachedDiamondTransactions(merged);
+              return merged;
+            });
+          }
         }
       })
       .catch(() => {});
@@ -425,7 +435,13 @@ export const App: React.FC = () => {
                 });
               }
               if (res.data.clans && res.data.clans.length > 0) setClans(res.data.clans);
-              if (res.data.diamondLogs) setDiamondLogs(res.data.diamondLogs);
+              if (res.data.diamondLogs) {
+                setDiamondLogs((prev) => {
+                  const merged = mergeDiamondTransactions(prev, res.data.diamondLogs);
+                  setCachedDiamondTransactions(merged);
+                  return merged;
+                });
+              }
             }
           }).catch(console.warn);
         }
@@ -587,8 +603,11 @@ export const App: React.FC = () => {
           setCachedClans(data.clans);
         }
         if (data.diamondLogs && data.diamondLogs.length > 0) {
-          setDiamondLogs(data.diamondLogs);
-          setCachedDiamondTransactions(data.diamondLogs);
+          setDiamondLogs((prev) => {
+            const merged = mergeDiamondTransactions(prev, data.diamondLogs);
+            setCachedDiamondTransactions(merged);
+            return merged;
+          });
         }
         if (data.quickItems && data.quickItems.length > 0) {
           setQuickItems(data.quickItems);
@@ -1174,7 +1193,11 @@ export const App: React.FC = () => {
     });
     const unsubDiamonds = listenToDiamondTransactions((logs) => {
       if (logs && logs.length > 0) {
-        setDiamondLogs(logs);
+        setDiamondLogs((prev) => {
+          const merged = mergeDiamondTransactions(prev, logs);
+          setCachedDiamondTransactions(merged);
+          return merged;
+        });
       }
     });
     const unsubBg = listenToBackgroundSettings((settings) => {
@@ -1366,7 +1389,11 @@ export const App: React.FC = () => {
         setClans(incomingData.clans);
       }
       if (Array.isArray(incomingData.diamondLogs)) {
-        setDiamondLogs(incomingData.diamondLogs);
+        setDiamondLogs((prev) => {
+          const merged = mergeDiamondTransactions(prev, incomingData.diamondLogs);
+          setCachedDiamondTransactions(merged);
+          return merged;
+        });
       }
       if (incomingData.formulaSettings) {
         saveFormulaSettings(incomingData.formulaSettings);
@@ -1475,7 +1502,13 @@ export const App: React.FC = () => {
                 });
               }
               if (cloudRes.data.clans && cloudRes.data.clans.length > 0) setClans(cloudRes.data.clans);
-              if (cloudRes.data.diamondLogs) setDiamondLogs(cloudRes.data.diamondLogs);
+              if (cloudRes.data.diamondLogs) {
+                setDiamondLogs((prev) => {
+                  const merged = mergeDiamondTransactions(prev, cloudRes.data.diamondLogs);
+                  setCachedDiamondTransactions(merged);
+                  return merged;
+                });
+              }
             }
             showToast(
               lang === 'th'
@@ -1659,15 +1692,42 @@ export const App: React.FC = () => {
       balanceAfter?: number;
     }
   ) => {
-    if (!currentUser) return;
-    const currentBal = vaultBalance;
-    const net = calculateDiamondNetChange({ type, amount, netAmount: details?.netAmount });
+    if (!currentUser || !['owner', 'admin'].includes(currentUser.role)) {
+      throw new Error(
+        lang === 'th'
+          ? 'ไม่มีสิทธิ์ทำรายการ (เฉพาะ Owner และ Admin เท่านั้น)'
+          : 'Permission denied: Only Owner and Admin can perform vault transactions.'
+      );
+    }
+
+    const amt = Number(amount);
+    if (isNaN(amt) || amt <= 0) {
+      throw new Error(
+        lang === 'th'
+          ? 'กรุณาระบุจำนวนเพชรที่มากกว่า 0'
+          : 'Amount must be greater than 0'
+      );
+    }
+
+    const currentBal = computeTotalVaultBalance(diamondLogs);
+    const isDeduction = type === 'deduction' || type === 'withdraw' || type === 'expenditure';
+    if (isDeduction && amt > currentBal) {
+      throw new Error(
+        lang === 'th'
+          ? `ยอดเพชรในกองทุนไม่เพียงพอ (คงเหลือ: ${currentBal.toLocaleString()} 💎)`
+          : `Insufficient vault balance (Available: ${currentBal.toLocaleString()} 💎)`
+      );
+    }
+
+    await ensureFirebaseAuthSession(currentUser);
+
+    const net = calculateDiamondNetChange({ type, amount: amt, netAmount: details?.netAmount });
     const computedBalanceAfter = Math.max(0, currentBal + net);
 
-    await addDiamondTransactionDoc({
+    const fullRecord = await addDiamondTransactionDoc({
       type,
-      amount,
-      note,
+      amount: amt,
+      note: note || '',
       grossAmount: details?.grossAmount,
       taxPct: details?.taxPct,
       taxAmount: details?.taxAmount,
@@ -1684,15 +1744,87 @@ export const App: React.FC = () => {
         role: currentUser.role
       }
     });
+
+    const updatedLogs = mergeDiamondTransactions(diamondLogs, [fullRecord]);
+    const updatedBalance = computeTotalVaultBalance(updatedLogs);
+
+    setDiamondLogs(updatedLogs);
+    setCachedDiamondTransactions(updatedLogs);
+
+    // Broadcast live state immediately to relay server
+    broadcastLiveState(
+      {
+        users,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs: updatedLogs,
+        vaultBalance: updatedBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser.inGameName || currentUser.username || 'Admin'
+    );
+
+    // Trigger debounced cloud backup
+    triggerDebouncedAutoBackup({
+      users,
+      vaultItems,
+      quickItems,
+      generalItems,
+      queueItems,
+      clans,
+      diamondLogs: updatedLogs,
+      vaultBalance: updatedBalance,
+      formulaSettings: getFormulaSettings(),
+      announcementSettings,
+      backgroundSettings: bgConfig,
+      discordSettings
+    });
+
+    return fullRecord;
   };
 
   const handleRecordDiamondLog = async (record: Omit<DiamondVaultRecord, 'id' | 'timestamp'>) => {
+    if (!currentUser || !['owner', 'admin'].includes(currentUser.role)) return;
+    await ensureFirebaseAuthSession(currentUser);
     const full = await addDiamondTransactionDoc(record);
-    setDiamondLogs((prev) => [full, ...prev]);
+    const updatedLogs = mergeDiamondTransactions(diamondLogs, [full]);
+    const updatedBalance = computeTotalVaultBalance(updatedLogs);
+    setDiamondLogs(updatedLogs);
+    setCachedDiamondTransactions(updatedLogs);
+    broadcastLiveState(
+      {
+        users,
+        vaultItems,
+        quickItems,
+        generalItems,
+        queueItems,
+        clans,
+        diamondLogs: updatedLogs,
+        vaultBalance: updatedBalance,
+        formulaSettings: getFormulaSettings(),
+        announcementSettings,
+        backgroundSettings: bgConfig,
+        discordSettings
+      },
+      currentUser.inGameName || currentUser.username || 'Admin'
+    );
   };
 
   const handleUpdateVaultNote = async (recordId: string, newNote: string) => {
+    if (!currentUser || !['owner', 'admin'].includes(currentUser.role)) return;
+    await ensureFirebaseAuthSession(currentUser);
     await updateDiamondTransactionNoteDoc(recordId, newNote);
+    setDiamondLogs((prev) => {
+      const updated = prev.map((tx) => (tx.id === recordId ? { ...tx, note: newNote } : tx));
+      setCachedDiamondTransactions(updated);
+      return updated;
+    });
   };
 
   const handleResetVaultBalance = async (
@@ -1701,10 +1833,12 @@ export const App: React.FC = () => {
     note?: string
   ) => {
     if (!currentUser || currentUser.role !== 'owner') return;
+    await ensureFirebaseAuthSession(currentUser);
     if (mode === 'wipe') {
       await clearDiamondTransactionsDoc();
+      let newRecords: DiamondVaultRecord[] = [];
       if (targetBalance > 0) {
-        await addDiamondTransactionDoc({
+        const rec = await addDiamondTransactionDoc({
           type: 'deposit',
           amount: targetBalance,
           grossAmount: targetBalance,
@@ -1718,12 +1852,32 @@ export const App: React.FC = () => {
             role: currentUser.role
           }
         });
+        newRecords = [rec];
       }
+      setDiamondLogs(newRecords);
+      setCachedDiamondTransactions(newRecords);
+      broadcastLiveState(
+        {
+          users,
+          vaultItems,
+          quickItems,
+          generalItems,
+          queueItems,
+          clans,
+          diamondLogs: newRecords,
+          vaultBalance: targetBalance,
+          formulaSettings: getFormulaSettings(),
+          announcementSettings,
+          backgroundSettings: bgConfig,
+          discordSettings
+        },
+        currentUser.inGameName || 'Owner'
+      );
     } else {
-      const current = vaultBalance;
+      const current = computeTotalVaultBalance(diamondLogs);
       const delta = targetBalance - current;
       if (delta !== 0) {
-        await addDiamondTransactionDoc({
+        const rec = await addDiamondTransactionDoc({
           type: 'adjust',
           amount: delta,
           grossAmount: Math.abs(delta),
@@ -1737,6 +1891,26 @@ export const App: React.FC = () => {
             role: currentUser.role
           }
         });
+        const updatedLogs = mergeDiamondTransactions(diamondLogs, [rec]);
+        setDiamondLogs(updatedLogs);
+        setCachedDiamondTransactions(updatedLogs);
+        broadcastLiveState(
+          {
+            users,
+            vaultItems,
+            quickItems,
+            generalItems,
+            queueItems,
+            clans,
+            diamondLogs: updatedLogs,
+            vaultBalance: targetBalance,
+            formulaSettings: getFormulaSettings(),
+            announcementSettings,
+            backgroundSettings: bgConfig,
+            discordSettings
+          },
+          currentUser.inGameName || 'Owner'
+        );
       }
     }
   };
@@ -3616,128 +3790,127 @@ export const App: React.FC = () => {
     const isOwnerUser = userId === 'user_owner_eloni' || targetUser?.username?.toLowerCase() === 'eloni' || targetUser?.inGameName?.toLowerCase() === 'eloni' || targetUser?.role === 'owner';
     const isAuthorized = currentUser?.role === 'owner' || currentUser?.role === 'admin';
 
-    const safeRole: UserRole = isOwnerUser
-      ? 'owner'
-      : (isAuthorized && reqRole ? reqRole : (targetUser?.role || 'member'));
-    const safeStatus: UserStatus = isAuthorized && reqStatus ? reqStatus : (targetUser?.status || 'active');
-    const safeClan: string = isAuthorized && reqClan ? reqClan : (targetUser?.clan || 'VoltZ');
+    const docUpdates: Record<string, any> = {
+      pendingPowerLevel: newPowerLevel,
+      pendingPowerLevelRequestedAt: timestamp,
+      pendingStats: newStats,
+      pendingSpiritEnhancements: newSpiritEnhancements,
+      pendingStatScreenshotUrl: screenshotUrl || null,
+      pendingClasses: reqClasses !== undefined ? reqClasses : (targetUser?.classes || null),
+      pendingLevel: reqLevel !== undefined ? reqLevel : (targetUser?.level || null),
+      pendingLegendClasses: reqLegendClasses !== undefined ? reqLegendClasses : (targetUser?.legendClasses || null),
+      pendingLegendAgathions: reqLegendAgathions !== undefined ? reqLegendAgathions : (targetUser?.legendAgathions || null),
+      statRejectionReason: null,
+      statRejectionAt: null,
+      updatedAt: timestamp
+    };
+    if (reqInGameName) docUpdates.inGameName = reqInGameName;
+    if (isOwnerUser) {
+      docUpdates.role = 'owner';
+    } else if (isAuthorized && reqRole) {
+      docUpdates.role = reqRole;
+    }
+    if (isAuthorized && reqStatus) docUpdates.status = reqStatus;
+    if (isAuthorized && reqClan) docUpdates.clan = reqClan;
 
-    const updatedUsers = users.map((u) =>
-      u.id === userId
-        ? {
-            ...u,
-            inGameName: reqInGameName || u.inGameName,
-            role: isOwnerUser ? 'owner' : (isAuthorized && reqRole ? reqRole : u.role),
-            status: isAuthorized && reqStatus ? reqStatus : u.status,
-            clan: isAuthorized && reqClan ? reqClan : u.clan,
-            pendingPowerLevel: newPowerLevel,
-            pendingPowerLevelRequestedAt: timestamp,
-            pendingStats: newStats,
-            pendingSpiritEnhancements: newSpiritEnhancements,
-            pendingStatScreenshotUrl: screenshotUrl || null,
-            pendingClasses: reqClasses ?? u.classes,
-            pendingLevel: reqLevel ?? u.level,
-            pendingLegendClasses: reqLegendClasses ?? u.legendClasses,
-            pendingLegendAgathions: reqLegendAgathions ?? u.legendAgathions,
-            statRejectionReason: null,
-            statRejectionAt: null,
-            updatedAt: timestamp
-          }
-        : u
-    );
-    setUsers(updatedUsers);
-    setCachedUsers(updatedUsers);
+    try {
+      // Step 1: Authoritative verification - ensure valid Firebase Auth session
+      await ensureFirebaseAuthSession(currentUser);
 
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser((prev) =>
-        prev
+      // Step 2: Authoritative write to Firestore FIRST (rejects if unauthorized or offline)
+      await updateUserDoc(userId, docUpdates);
+
+      // Step 3: Only update UI and local state once cloud write is confirmed
+      const updatedUsers = users.map((u) =>
+        u.id === userId
           ? {
-              ...prev,
-              inGameName: reqInGameName || prev.inGameName,
-              role: isOwnerUser ? 'owner' : (isAuthorized && reqRole ? reqRole : prev.role),
-              status: isAuthorized && reqStatus ? reqStatus : prev.status,
-              clan: isAuthorized && reqClan ? reqClan : prev.clan,
+              ...u,
+              inGameName: reqInGameName || u.inGameName,
+              role: isOwnerUser ? 'owner' : (isAuthorized && reqRole ? reqRole : u.role),
+              status: isAuthorized && reqStatus ? reqStatus : u.status,
+              clan: isAuthorized && reqClan ? reqClan : u.clan,
               pendingPowerLevel: newPowerLevel,
               pendingPowerLevelRequestedAt: timestamp,
               pendingStats: newStats,
               pendingSpiritEnhancements: newSpiritEnhancements,
               pendingStatScreenshotUrl: screenshotUrl || null,
-              pendingClasses: reqClasses ?? prev.classes,
-              pendingLevel: reqLevel ?? prev.level,
-              pendingLegendClasses: reqLegendClasses ?? prev.legendClasses,
-              pendingLegendAgathions: reqLegendAgathions ?? prev.legendAgathions,
+              pendingClasses: reqClasses ?? u.classes,
+              pendingLevel: reqLevel ?? u.level,
+              pendingLegendClasses: reqLegendClasses ?? u.legendClasses,
+              pendingLegendAgathions: reqLegendAgathions ?? u.legendAgathions,
               statRejectionReason: null,
               statRejectionAt: null,
               updatedAt: timestamp
             }
-          : null
+          : u
       );
-    }
+      setUsers(updatedUsers);
+      setCachedUsers(updatedUsers);
 
-    // Instant Live State Relay Broadcast to peers
-    broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
-      currentUser?.inGameName || 'Member'
-    );
-
-    // Debounced auto backup to Google Sheets & Drive
-    triggerDebouncedAutoBackup(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
-      currentUser?.inGameName || 'Member',
-      true
-    );
-
-    try {
-      const docUpdates: Record<string, any> = {
-        pendingPowerLevel: newPowerLevel,
-        pendingPowerLevelRequestedAt: timestamp,
-        pendingStats: newStats,
-        pendingSpiritEnhancements: newSpiritEnhancements,
-        pendingStatScreenshotUrl: screenshotUrl || null,
-        pendingClasses: reqClasses ?? null,
-        pendingLevel: reqLevel ?? null,
-        pendingLegendClasses: reqLegendClasses ?? null,
-        pendingLegendAgathions: reqLegendAgathions ?? null,
-        statRejectionReason: null,
-        statRejectionAt: null,
-        updatedAt: timestamp
-      };
-      if (reqInGameName) docUpdates.inGameName = reqInGameName;
-      if (isOwnerUser) {
-        docUpdates.role = 'owner';
-      } else if (isAuthorized && reqRole) {
-        docUpdates.role = reqRole;
+      if (currentUser && currentUser.id === userId) {
+        setCurrentUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                inGameName: reqInGameName || prev.inGameName,
+                role: isOwnerUser ? 'owner' : (isAuthorized && reqRole ? reqRole : prev.role),
+                status: isAuthorized && reqStatus ? reqStatus : prev.status,
+                clan: isAuthorized && reqClan ? reqClan : prev.clan,
+                pendingPowerLevel: newPowerLevel,
+                pendingPowerLevelRequestedAt: timestamp,
+                pendingStats: newStats,
+                pendingSpiritEnhancements: newSpiritEnhancements,
+                pendingStatScreenshotUrl: screenshotUrl || null,
+                pendingClasses: reqClasses ?? prev.classes,
+                pendingLevel: reqLevel ?? prev.level,
+                pendingLegendClasses: reqLegendClasses ?? prev.legendClasses,
+                pendingLegendAgathions: reqLegendAgathions ?? prev.legendAgathions,
+                statRejectionReason: null,
+                statRejectionAt: null,
+                updatedAt: timestamp
+              }
+            : null
+        );
       }
-      if (isAuthorized && reqStatus) docUpdates.status = reqStatus;
-      if (isAuthorized && reqClan) docUpdates.clan = reqClan;
 
-      await updateUserDoc(userId, docUpdates);
+      // Step 4: Instant Live State Relay Broadcast to peers
+      broadcastLiveState(
+        {
+          users: updatedUsers,
+          vaultItems,
+          quickItems,
+          generalItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings(),
+          announcementSettings,
+          backgroundSettings: bgConfig,
+          discordSettings
+        },
+        currentUser?.inGameName || 'Member'
+      );
+
+      // Step 5: Debounced auto backup to Google Sheets & Drive
+      triggerDebouncedAutoBackup(
+        {
+          users: updatedUsers,
+          vaultItems,
+          quickItems,
+          generalItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings(),
+          announcementSettings,
+          backgroundSettings: bgConfig,
+          discordSettings
+        },
+        currentUser?.inGameName || 'Member',
+        true
+      );
 
       showToast(
         lang === 'th'
@@ -3745,12 +3918,16 @@ export const App: React.FC = () => {
           : 'Stat & PL update request submitted! Waiting for Admin approval',
         'success'
       );
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to submit stat update request:', err);
+      const errorMsg = err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการส่งคำขอ' : 'Failed to submit stat request');
       showToast(
-        lang === 'th' ? 'เกิดข้อผิดพลาดในการส่งคำขอ' : 'Failed to submit stat request',
+        lang === 'th'
+          ? `เกิดข้อผิดพลาดในการส่งคำขออัปเดตสเตตัส: ${errorMsg}`
+          : `Failed to submit stat request: ${errorMsg}`,
         'error'
       );
+      throw err;
     }
   };
 
@@ -4098,155 +4275,83 @@ export const App: React.FC = () => {
   // Legacy manual power level update fallback
   const handleRequestPowerLevelUpdate = async (userId: string, newPowerLevel: number) => {
     const timestamp = Date.now();
-    const updatedUsers = users.map((u) =>
-      u.id === userId
-        ? { ...u, pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp, updatedAt: timestamp }
-        : u
-    );
-    setUsers(updatedUsers);
-    setCachedUsers(updatedUsers);
-
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser((prev) =>
-        prev ? { ...prev, pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp, updatedAt: timestamp } : null
-      );
-    }
-
-    broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
-      currentUser?.inGameName || 'Member'
-    );
-
-    triggerDebouncedAutoBackup(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
-      currentUser?.inGameName || 'Member',
-      true
-    );
-
     try {
+      await ensureFirebaseAuthSession(currentUser);
       await updateUserDoc(userId, {
         pendingPowerLevel: newPowerLevel,
         pendingPowerLevelRequestedAt: timestamp,
         updatedAt: timestamp
       });
+
+      const updatedUsers = users.map((u) =>
+        u.id === userId
+          ? { ...u, pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp, updatedAt: timestamp }
+          : u
+      );
+      setUsers(updatedUsers);
+      setCachedUsers(updatedUsers);
+
+      if (currentUser && currentUser.id === userId) {
+        setCurrentUser((prev) =>
+          prev ? { ...prev, pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp, updatedAt: timestamp } : null
+        );
+      }
+
+      broadcastLiveState(
+        {
+          users: updatedUsers,
+          vaultItems,
+          quickItems,
+          generalItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings(),
+          announcementSettings,
+          backgroundSettings: bgConfig,
+          discordSettings
+        },
+        currentUser?.inGameName || 'Member'
+      );
+
+      triggerDebouncedAutoBackup(
+        {
+          users: updatedUsers,
+          vaultItems,
+          quickItems,
+          generalItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings(),
+          announcementSettings,
+          backgroundSettings: bgConfig,
+          discordSettings
+        },
+        currentUser?.inGameName || 'Member',
+        true
+      );
+
       showToast(
         lang === 'th'
           ? 'ส่งคำขออัปเดตค่าพลังแล้ว รอ Admin/Owner อนุมัติ'
           : 'PL update request submitted! Waiting for Admin/Owner approval',
         'success'
       );
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to request power level update:', err);
-      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการส่งคำขอ' : 'Failed to submit request', 'error');
+      const errorMsg = err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการส่งคำขอ' : 'Failed to submit request');
+      showToast(lang === 'th' ? `เกิดข้อผิดพลาดในการส่งคำขอ: ${errorMsg}` : `Failed to submit request: ${errorMsg}`, 'error');
+      throw err;
     }
   };
 
   const handleCancelPowerLevelRequest = async (userId: string) => {
     const now = Date.now();
-    const updatedUsers = users.map((u) =>
-      u.id === userId
-        ? {
-            ...u,
-            pendingPowerLevel: null,
-            pendingPowerLevelRequestedAt: null,
-            pendingStats: null,
-            pendingSpiritEnhancements: null,
-            pendingStatScreenshotUrl: null,
-            pendingClasses: null,
-            pendingLevel: null,
-            pendingLegendClasses: null,
-            pendingLegendAgathions: null,
-            updatedAt: now
-          }
-        : u
-    );
-    setUsers(updatedUsers);
-    setCachedUsers(updatedUsers);
-
-    if (currentUser && currentUser.id === userId) {
-      setCurrentUser((prev) =>
-        prev
-          ? {
-              ...prev,
-              pendingPowerLevel: null,
-              pendingPowerLevelRequestedAt: null,
-              pendingStats: null,
-              pendingSpiritEnhancements: null,
-              pendingStatScreenshotUrl: null,
-              pendingClasses: null,
-              pendingLevel: null,
-              pendingLegendClasses: null,
-              pendingLegendAgathions: null,
-              updatedAt: now
-            }
-          : null
-      );
-    }
-
-    broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
-      currentUser?.inGameName || 'Member'
-    );
-
-    triggerDebouncedAutoBackup(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
-      currentUser?.inGameName || 'Member',
-      true
-    );
-
     try {
+      await ensureFirebaseAuthSession(currentUser);
       await updateUserDoc(userId, {
         pendingPowerLevel: null,
         pendingPowerLevelRequestedAt: null,
@@ -4259,12 +4364,92 @@ export const App: React.FC = () => {
         pendingLegendAgathions: null,
         updatedAt: now
       });
+
+      const updatedUsers = users.map((u) =>
+        u.id === userId
+          ? {
+              ...u,
+              pendingPowerLevel: null,
+              pendingPowerLevelRequestedAt: null,
+              pendingStats: null,
+              pendingSpiritEnhancements: null,
+              pendingStatScreenshotUrl: null,
+              pendingClasses: null,
+              pendingLevel: null,
+              pendingLegendClasses: null,
+              pendingLegendAgathions: null,
+              updatedAt: now
+            }
+          : u
+      );
+      setUsers(updatedUsers);
+      setCachedUsers(updatedUsers);
+
+      if (currentUser && currentUser.id === userId) {
+        setCurrentUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                pendingPowerLevel: null,
+                pendingPowerLevelRequestedAt: null,
+                pendingStats: null,
+                pendingSpiritEnhancements: null,
+                pendingStatScreenshotUrl: null,
+                pendingClasses: null,
+                pendingLevel: null,
+                pendingLegendClasses: null,
+                pendingLegendAgathions: null,
+                updatedAt: now
+              }
+            : null
+        );
+      }
+
+      broadcastLiveState(
+        {
+          users: updatedUsers,
+          vaultItems,
+          quickItems,
+          generalItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings(),
+          announcementSettings,
+          backgroundSettings: bgConfig,
+          discordSettings
+        },
+        currentUser?.inGameName || 'Member'
+      );
+
+      triggerDebouncedAutoBackup(
+        {
+          users: updatedUsers,
+          vaultItems,
+          quickItems,
+          generalItems,
+          queueItems,
+          clans,
+          diamondLogs,
+          vaultBalance,
+          formulaSettings: getFormulaSettings(),
+          announcementSettings,
+          backgroundSettings: bgConfig,
+          discordSettings
+        },
+        currentUser?.inGameName || 'Member',
+        true
+      );
+
       showToast(
         lang === 'th' ? 'ยกเลิกคำขออัปเดตค่าพลังแล้ว' : 'PL update request cancelled',
         'info'
       );
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to cancel power level request:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการยกเลิกคำขอ' : 'Failed to cancel request', 'error');
+      throw err;
     }
   };
 
@@ -4950,7 +5135,13 @@ export const App: React.FC = () => {
           if (restored.quickItems && restored.quickItems.length > 0) setQuickItems(restored.quickItems);
           if (restored.generalItems && restored.generalItems.length > 0) setGeneralItems(restored.generalItems);
           if (restored.clans && restored.clans.length > 0) setClans(restored.clans);
-          if (restored.diamondLogs) setDiamondLogs(restored.diamondLogs);
+          if (restored.diamondLogs) {
+            setDiamondLogs((prev) => {
+              const merged = mergeDiamondTransactions(prev, restored.diamondLogs || []);
+              setCachedDiamondTransactions(merged);
+              return merged;
+            });
+          }
           if (restored.formulaSettings) saveFormulaSettings(restored.formulaSettings);
 
           broadcastLiveState(

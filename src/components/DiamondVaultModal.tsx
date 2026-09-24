@@ -250,6 +250,7 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
   // ── Form Submissions ─────────────────────────────────────────────────────
   const handleSubmitTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setError('');
 
     try {
@@ -280,6 +281,16 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
           return;
         }
 
+        const currentScopeBalance = balanceMap[selectedScope] ?? 0;
+        if (amt > currentScopeBalance) {
+          setError(
+            lang === 'th'
+              ? `ยอดเพชรในกองทุนไม่เพียงพอ (คงเหลือ: ${currentScopeBalance.toLocaleString()} 💎)`
+              : `Insufficient balance (Remaining: ${currentScopeBalance.toLocaleString()} 💎)`
+          );
+          return;
+        }
+
         await onPerformTransaction('deduction', amt, note || (lang === 'th' ? 'ถอนกองทุนเพชร' : 'Fund withdrawal'), {
           clanScope: selectedScope,
           proofImageUrl: proofImage || undefined
@@ -288,7 +299,7 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
         sounds.playClick();
         setSuccessToast(lang === 'th' ? `ถอน ${amt.toLocaleString()} 💎 เรียบร้อยแล้ว` : `Withdrawn ${amt.toLocaleString()} diamonds from clan fund`);
       }
-      // Reset form fields
+      // Reset form fields only on success
       setGrossAmount('');
       setDeductAmount('');
       setNewTargetBalance('');
@@ -299,9 +310,10 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
       setActiveTab('view');
 
       setTimeout(() => setSuccessToast(''), 3500);
-    } catch (err) {
-      console.error(err);
-      setError(t.error);
+    } catch (err: any) {
+      console.error('Vault transaction error:', err);
+      setError(err?.message || t.error);
+      sounds.playError();
     } finally {
       setLoading(false);
     }

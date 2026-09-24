@@ -24,14 +24,11 @@ export function calculateDiamondNetChange(tx: {
 }
 
 /**
- * Computes the total global diamond vault balance from transaction history starting at 0.
- * If the latest transaction has `balanceAfter` recorded, it is returned directly in O(1).
+ * Computes the total global diamond vault balance from transaction history.
+ * Always sums the exact net changes of all transactions to guarantee accuracy
+ * regardless of array ordering, snapshot revisions, or stale balanceAfter fields.
  */
 export function computeTotalVaultBalance(transactions: DiamondVaultRecord[]): number {
   if (!transactions || transactions.length === 0) return 0;
-  const latestTx = transactions[0];
-  if (latestTx && typeof latestTx.balanceAfter === 'number') {
-    return latestTx.balanceAfter;
-  }
-  return transactions.reduce((acc, tx) => acc + calculateDiamondNetChange(tx), 0);
+  return Math.max(0, transactions.reduce((acc, tx) => acc + calculateDiamondNetChange(tx), 0));
 }

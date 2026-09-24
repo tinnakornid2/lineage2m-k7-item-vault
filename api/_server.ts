@@ -724,6 +724,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         vaultSnap.forEach((doc: any) => {
           diamondLogs.push({ ...doc.data(), id: doc.id });
         });
+        diamondLogs.sort((a: any, b: any) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
 
         const rehydratedData = scrubSensitiveRelayState({
           users,

@@ -1,7 +1,7 @@
 {
   "name": "lineage2m-k7-item-vault",
   "private": true,
-  "version": "2.10.16",
+  "version": "2.10.19",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-emulator.mjs",
