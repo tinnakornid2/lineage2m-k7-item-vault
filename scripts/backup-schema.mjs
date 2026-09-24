@@ -13,7 +13,8 @@ export const REQUIRED_COLLECTIONS = [
   'quick_items',
   'item_claims',
   'app_settings',
-  'system_meta'
+  'system_meta',
+  'system'
 ];
 
 export const CURRENT_BACKUP_FORMAT = 'k7-firestore-backup-v2';

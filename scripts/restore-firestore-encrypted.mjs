@@ -123,6 +123,45 @@ export async function runRestore(options = {}) {
           batch.set(db.collection(collectionName).doc(document.id), decodeValue(document.data))
         ));
         restoredCounts[collectionName] = docsToRestore.length;
+      } else if (collectionName === 'system') {
+        const existingDocsMap = new Map();
+        existing.docs.forEach((doc) => {
+          existingDocsMap.set(doc.id, doc.data());
+        });
+
+        const systemDocsToCommit = documents.map((docItem) => {
+          const docId = docItem.id;
+          const backupData = decodeValue(docItem.data) || {};
+          const existingData = existingDocsMap.get(docId) || {};
+
+          let mergedData = { ...backupData };
+          if (docId === 'tombstones') {
+            mergedData = {
+              ...backupData,
+              deletedUsers: { ...(backupData.deletedUsers || {}), ...(existingData.deletedUsers || {}) },
+              deletedVaultItems: { ...(backupData.deletedVaultItems || {}), ...(existingData.deletedVaultItems || {}) },
+              deletedQueueItems: { ...(backupData.deletedQueueItems || {}), ...(existingData.deletedQueueItems || {}) },
+              deletedGeneralItems: { ...(backupData.deletedGeneralItems || {}), ...(existingData.deletedGeneralItems || {}) },
+              removedQueueMembers: { ...(backupData.removedQueueMembers || {}), ...(existingData.removedQueueMembers || {}) },
+              cancelledClaims: { ...(backupData.cancelledClaims || {}), ...(existingData.cancelledClaims || {}) },
+              updatedAt: Math.max(backupData.updatedAt || 0, existingData.updatedAt || 0, Date.now())
+            };
+          }
+          return { id: docId, data: mergedData };
+        });
+
+        // Retain any existing system docs not in backup (e.g. tombstones created after backup)
+        const backupDocIds = new Set(documents.map((d) => d.id));
+        for (const existingDoc of existing.docs) {
+          if (!backupDocIds.has(existingDoc.id)) {
+            systemDocsToCommit.push({ id: existingDoc.id, data: existingDoc.data() });
+          }
+        }
+
+        await commitInChunks(systemDocsToCommit.map((item) => (batch) =>
+          batch.set(db.collection(collectionName).doc(item.id), item.data, { merge: true })
+        ));
+        restoredCounts[collectionName] = systemDocsToCommit.length;
       } else {
         await commitInChunks(existing.docs.map((document) => (batch) => batch.delete(document.ref)));
         await commitInChunks(documents.map((document) => (batch) =>

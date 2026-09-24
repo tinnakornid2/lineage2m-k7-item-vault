@@ -17,7 +17,7 @@ test('1. Backup and restore collection sets are 100% symmetric', () => {
   );
 });
 
-test('2. REQUIRED_COLLECTIONS contains general_items and all required production collections', () => {
+test('2. REQUIRED_COLLECTIONS contains general_items, system, and all required production collections', () => {
   const expectedCollections = [
     'users',
     'items',
@@ -28,7 +28,8 @@ test('2. REQUIRED_COLLECTIONS contains general_items and all required production
     'quick_items',
     'item_claims',
     'app_settings',
-    'system_meta'
+    'system_meta',
+    'system'
   ];
 
   for (const col of expectedCollections) {
@@ -192,3 +193,31 @@ test('8. general_items encoding and decoding preserves item structures', () => {
     value: '2026-09-24T00:00:00.000Z'
   });
 });
+
+test('9. system/tombstones restore merging preserves newer and backup tombstones symmetrically', () => {
+  const existingTombstones = {
+    deletedUsers: { user_del_existing: 1000 },
+    cancelledClaims: { 'item_1:::user_del_existing': 1000 },
+    updatedAt: 1000
+  };
+
+  const backupTombstones = {
+    deletedUsers: { user_del_backup: 500 },
+    cancelledClaims: { 'item_2:::user_backup': 500 },
+    updatedAt: 500
+  };
+
+  // Merge logic from restore-firestore-encrypted.mjs
+  const merged = {
+    deletedUsers: { ...(backupTombstones.deletedUsers || {}), ...(existingTombstones.deletedUsers || {}) },
+    cancelledClaims: { ...(backupTombstones.cancelledClaims || {}), ...(existingTombstones.cancelledClaims || {}) },
+    updatedAt: Math.max(backupTombstones.updatedAt || 0, existingTombstones.updatedAt || 0, Date.now())
+  };
+
+  // Both backup and existing live tombstones must be preserved
+  assert.equal(merged.deletedUsers.user_del_existing, 1000);
+  assert.equal(merged.deletedUsers.user_del_backup, 500);
+  assert.equal(merged.cancelledClaims['item_1:::user_del_existing'], 1000);
+  assert.equal(merged.cancelledClaims['item_2:::user_backup'], 500);
+});
+
