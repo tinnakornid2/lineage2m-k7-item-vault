@@ -804,7 +804,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   // Dedicated Vault Item Claim endpoint (Atomic Firestore transaction with canonical identity)
   app.post("/api/claim-vault-item", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
     try {
-      const { itemId } = req.body;
+      const { itemId, userId } = req.body;
       if (!itemId || typeof itemId !== 'string') {
         return res.status(400).json({ success: false, error: 'INVALID_CLAIM_PAYLOAD' });
       }
@@ -818,6 +818,19 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         powerLevel?: number;
         authUid?: string;
       };
+
+      const requestedUserId = userId ? String(userId).trim().toLowerCase() : '';
+      const actorCanonicalId = actor.uid.toLowerCase();
+      const actorAuthUid = (actor.authUid || '').toLowerCase();
+
+      // If non-privileged caller attempts to claim on behalf of another user, deny
+      if (requestedUserId && requestedUserId !== actorCanonicalId && requestedUserId !== actorAuthUid && !['owner', 'admin'].includes(actor.role)) {
+        return res.status(403).json({
+          success: false,
+          error: 'CANNOT_CLAIM_FOR_OTHER_USER',
+          message: 'สมาชิกไม่สามารถลงชื่อรับไอเทมแทนผู้อื่นได้ / Members cannot claim items on behalf of other users.'
+        });
+      }
 
       const now = Date.now();
       // Canonical profile ID and verified attributes only (client claimant ignored)
@@ -849,6 +862,12 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         }
 
         const itemData = docSnap.data() || {};
+        const isPrivileged = actor.role === 'owner' || actor.role === 'admin';
+        const requiredPower = Number(itemData.minPowerLevel || 0);
+        if (!isPrivileged && requiredPower > 0 && safeClaimant.powerLevel < requiredPower) {
+          throw new Error('INSUFFICIENT_POWER_LEVEL');
+        }
+
         const currentClaimants = (itemData.claimants || []).filter((c: any) => {
           const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
           const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
@@ -906,6 +925,13 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     } catch (err: any) {
       if (err?.message === 'ITEM_NOT_FOUND') {
         return res.status(404).json({ success: false, error: 'ITEM_NOT_FOUND' });
+      }
+      if (err?.message === 'INSUFFICIENT_POWER_LEVEL') {
+        return res.status(403).json({
+          success: false,
+          error: 'INSUFFICIENT_POWER_LEVEL',
+          message: 'ค่าพลังของคุณไม่ถึงเกณฑ์ขั้นต่ำ / Insufficient power level for this item.'
+        });
       }
       res.status(503).json({ success: false, error: 'SERVICE_UNAVAILABLE', message: err?.message || 'FAILED_TO_CLAIM' });
     }

@@ -1273,11 +1273,21 @@ async function createApp(options = {}) {
   });
   app.post("/api/claim-vault-item", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
     try {
-      const { itemId } = req.body;
+      const { itemId, userId } = req.body;
       if (!itemId || typeof itemId !== "string") {
         return res.status(400).json({ success: false, error: "INVALID_CLAIM_PAYLOAD" });
       }
       const actor = res.locals.actor;
+      const requestedUserId = userId ? String(userId).trim().toLowerCase() : "";
+      const actorCanonicalId = actor.uid.toLowerCase();
+      const actorAuthUid = (actor.authUid || "").toLowerCase();
+      if (requestedUserId && requestedUserId !== actorCanonicalId && requestedUserId !== actorAuthUid && !["owner", "admin"].includes(actor.role)) {
+        return res.status(403).json({
+          success: false,
+          error: "CANNOT_CLAIM_FOR_OTHER_USER",
+          message: "\u0E2A\u0E21\u0E32\u0E0A\u0E34\u0E01\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E25\u0E07\u0E0A\u0E37\u0E48\u0E2D\u0E23\u0E31\u0E1A\u0E44\u0E2D\u0E40\u0E17\u0E21\u0E41\u0E17\u0E19\u0E1C\u0E39\u0E49\u0E2D\u0E37\u0E48\u0E19\u0E44\u0E14\u0E49 / Members cannot claim items on behalf of other users."
+        });
+      }
       const now = Date.now();
       const safeClaimant = {
         userId: actor.uid,
@@ -1302,6 +1312,11 @@ async function createApp(options = {}) {
           throw new Error("ITEM_NOT_FOUND");
         }
         const itemData = docSnap.data() || {};
+        const isPrivileged = actor.role === "owner" || actor.role === "admin";
+        const requiredPower = Number(itemData.minPowerLevel || 0);
+        if (!isPrivileged && requiredPower > 0 && safeClaimant.powerLevel < requiredPower) {
+          throw new Error("INSUFFICIENT_POWER_LEVEL");
+        }
         const currentClaimants = (itemData.claimants || []).filter((c) => {
           const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
           const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
@@ -1362,6 +1377,13 @@ async function createApp(options = {}) {
     } catch (err) {
       if (err?.message === "ITEM_NOT_FOUND") {
         return res.status(404).json({ success: false, error: "ITEM_NOT_FOUND" });
+      }
+      if (err?.message === "INSUFFICIENT_POWER_LEVEL") {
+        return res.status(403).json({
+          success: false,
+          error: "INSUFFICIENT_POWER_LEVEL",
+          message: "\u0E04\u0E48\u0E32\u0E1E\u0E25\u0E31\u0E07\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13\u0E44\u0E21\u0E48\u0E16\u0E36\u0E07\u0E40\u0E01\u0E13\u0E11\u0E4C\u0E02\u0E31\u0E49\u0E19\u0E15\u0E48\u0E33 / Insufficient power level for this item."
+        });
       }
       res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE", message: err?.message || "FAILED_TO_CLAIM" });
     }
