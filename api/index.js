@@ -1605,19 +1605,19 @@ async function createApp(options = {}) {
         if (tombSnap && tombSnap.exists) {
           const tombData = tombSnap.data() || {};
           const removedMap = { ...tombData.removedQueueMembers || {} };
-          const userKey = `${itemId}:::${actor.uid.toLowerCase()}`;
-          const nameKey = safeMember.name ? `${itemId}:::${safeMember.name.toLowerCase()}` : "";
+          const prefix = `${itemId}:::`;
           let tombChanged = false;
-          if (userKey in removedMap) {
-            delete removedMap[userKey];
-            tombChanged = true;
-          }
-          if (nameKey && nameKey in removedMap) {
-            delete removedMap[nameKey];
-            tombChanged = true;
+          for (const key of Object.keys(removedMap)) {
+            if (key.startsWith(prefix)) {
+              const suffix = key.slice(prefix.length).trim().toLowerCase();
+              if (suffix === actor.uid.toLowerCase() || actor.authUid && suffix === actor.authUid.toLowerCase() || safeMember.name && suffix === safeMember.name.trim().toLowerCase() || safeMember.id && suffix === safeMember.id.toLowerCase()) {
+                delete removedMap[key];
+                tombChanged = true;
+              }
+            }
           }
           if (tombChanged) {
-            transaction.set(tombRef, { removedQueueMembers: removedMap, updatedAt: now }, { merge: true });
+            transaction.update(tombRef, { removedQueueMembers: removedMap, updatedAt: now });
           }
         }
       });
@@ -1633,9 +1633,14 @@ async function createApp(options = {}) {
           return item;
         });
         if (liveHubState.data.syncMeta?.removedQueueMembers) {
-          delete liveHubState.data.syncMeta.removedQueueMembers[`${itemId}:::${actor.uid.toLowerCase()}`];
-          if (safeMember.name) {
-            delete liveHubState.data.syncMeta.removedQueueMembers[`${itemId}:::${safeMember.name.toLowerCase()}`];
+          const prefix = `${itemId}:::`;
+          for (const key of Object.keys(liveHubState.data.syncMeta.removedQueueMembers)) {
+            if (key.startsWith(prefix)) {
+              const suffix = key.slice(prefix.length).trim().toLowerCase();
+              if (suffix === actor.uid.toLowerCase() || actor.authUid && suffix === actor.authUid.toLowerCase() || safeMember.name && suffix === safeMember.name.trim().toLowerCase() || safeMember.id && suffix === safeMember.id.toLowerCase()) {
+                delete liveHubState.data.syncMeta.removedQueueMembers[key];
+              }
+            }
           }
         }
         liveHubState.updatedAt = now;
@@ -1970,19 +1975,19 @@ async function createApp(options = {}) {
         if (tombSnap && tombSnap.exists) {
           const tombData = tombSnap.data() || {};
           const removedMap = { ...tombData.removedQueueMembers || {} };
+          const prefix2 = `${queueId}:::`;
           let tombChanged = false;
-          const userKey = canonicalUserId ? `${queueId}:::${canonicalUserId.toLowerCase()}` : "";
-          const nameKey = canonicalName ? `${queueId}:::${canonicalName.toLowerCase()}` : "";
-          if (userKey && userKey in removedMap) {
-            delete removedMap[userKey];
-            tombChanged = true;
-          }
-          if (nameKey && nameKey in removedMap) {
-            delete removedMap[nameKey];
-            tombChanged = true;
+          for (const key of Object.keys(removedMap)) {
+            if (key.startsWith(prefix2)) {
+              const suffix = key.slice(prefix2.length).trim().toLowerCase();
+              if (canonicalUserId && suffix === canonicalUserId.toLowerCase() || canonicalName && suffix === canonicalName.toLowerCase() || newMember.id && suffix === newMember.id.toLowerCase()) {
+                delete removedMap[key];
+                tombChanged = true;
+              }
+            }
           }
           if (tombChanged) {
-            transaction.set(tombRef, { removedQueueMembers: removedMap, updatedAt: now }, { merge: true });
+            transaction.update(tombRef, { removedQueueMembers: removedMap, updatedAt: now });
           }
         }
       });
@@ -2001,8 +2006,15 @@ async function createApp(options = {}) {
           });
         }
         if (liveHubState.data.syncMeta?.removedQueueMembers) {
-          if (canonicalUserId) delete liveHubState.data.syncMeta.removedQueueMembers[`${queueId}:::${canonicalUserId.toLowerCase()}`];
-          if (canonicalName) delete liveHubState.data.syncMeta.removedQueueMembers[`${queueId}:::${canonicalName.toLowerCase()}`];
+          const prefix2 = `${queueId}:::`;
+          for (const key of Object.keys(liveHubState.data.syncMeta.removedQueueMembers)) {
+            if (key.startsWith(prefix2)) {
+              const suffix = key.slice(prefix2.length).trim().toLowerCase();
+              if (canonicalUserId && suffix === canonicalUserId.toLowerCase() || canonicalName && suffix === canonicalName.toLowerCase() || newMember.id && suffix === newMember.id.toLowerCase()) {
+                delete liveHubState.data.syncMeta.removedQueueMembers[key];
+              }
+            }
+          }
         }
         liveHubState.updatedAt = now;
         liveHubState.version = (liveHubState.version || 0) + 1;
