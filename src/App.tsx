@@ -354,6 +354,10 @@ export const App: React.FC = () => {
           }
           if (Array.isArray(json.data.vaultItems)) {
             setVaultItems((prev) => {
+              if (json.data.vaultItems.length === 0) {
+                setCachedVaultItems([]);
+                return [];
+              }
               const merged = mergeVaultItems(prev, json.data.vaultItems);
               setCachedVaultItems(merged);
               return merged;
@@ -361,6 +365,10 @@ export const App: React.FC = () => {
           }
           if (Array.isArray(json.data.queueItems)) {
             setQueueItems((prev) => {
+              if (json.data.queueItems.length === 0) {
+                setCachedQueues([]);
+                return [];
+              }
               const merged = mergeQueueItems(prev, json.data.queueItems);
               setCachedQueues(merged);
               return merged;
@@ -372,13 +380,23 @@ export const App: React.FC = () => {
           }
           if (Array.isArray(json.data.generalItems)) {
             setGeneralItems((prev) => {
+              if (json.data.generalItems.length === 0) {
+                setCachedGeneralItems([]);
+                return [];
+              }
               const merged = mergeGeneralItems(prev, json.data.generalItems);
               setCachedGeneralItems(merged);
               return merged;
             });
           }
-          if (Array.isArray(json.data.clans) && json.data.clans.length > 0) setClans(json.data.clans);
-          if (Array.isArray(json.data.diamondLogs)) setDiamondLogs(json.data.diamondLogs);
+          if (Array.isArray(json.data.clans) && json.data.clans.length > 0) {
+            setClans(json.data.clans);
+            setCachedClans(json.data.clans);
+          }
+          if (Array.isArray(json.data.diamondLogs)) {
+            setDiamondLogs(json.data.diamondLogs);
+            setCachedDiamondTransactions(json.data.diamondLogs);
+          }
         }
       })
       .catch(() => {});
@@ -1141,39 +1159,26 @@ export const App: React.FC = () => {
     });
 
     const unsubVault = listenToVaultItems((items) => {
-      if (items && items.length > 0) {
-        setVaultItems((prev) => {
-          const merged = mergeVaultItems(prev, items);
-          setCachedVaultItems(merged);
-          return merged;
-        });
-      }
+      setVaultItems(items);
+      setCachedVaultItems(items);
     });
     const unsubQueue = listenToQueueItems((items) => {
-      if (items && items.length > 0) {
-        setQueueItems((prev) => {
-          const merged = mergeQueueItems(prev, items);
-          setCachedQueues(merged);
-          return merged;
-        });
-      }
+      setQueueItems(items);
+      setCachedQueues(items);
     });
     const unsubQuick = listenToQuickItems((items) => {
-      if (items && items.length > 0) {
-        setQuickItems(items);
-      }
+      setQuickItems(items);
+      setCachedQuickItems(items);
     });
     const unsubGeneral = listenToGeneralItems(setGeneralItems);
     const unsubClans = listenToClans((clanList) => {
       const validClans = clanList.filter((c) => !isNoClan(c.name));
-      if (validClans && validClans.length > 0) {
-        setClans(validClans);
-      }
+      setClans(validClans);
+      setCachedClans(validClans);
     });
     const unsubDiamonds = listenToDiamondTransactions((logs) => {
-      if (logs && logs.length > 0) {
-        setDiamondLogs(logs);
-      }
+      setDiamondLogs(logs);
+      setCachedDiamondTransactions(logs);
     });
     const unsubBg = listenToBackgroundSettings((settings) => {
       if (settings && settings.imageUrl) {
@@ -1337,6 +1342,10 @@ export const App: React.FC = () => {
       }
       if (Array.isArray(incomingData.vaultItems)) {
         setVaultItems((prev) => {
+          if (incomingData.vaultItems.length === 0) {
+            setCachedVaultItems([]);
+            return [];
+          }
           const merged = mergeVaultItems(prev, incomingData.vaultItems);
           setCachedVaultItems(merged);
           return merged;
@@ -1344,9 +1353,14 @@ export const App: React.FC = () => {
       }
       if (Array.isArray(incomingData.quickItems)) {
         setQuickItems(incomingData.quickItems);
+        setCachedQuickItems(incomingData.quickItems);
       }
       if (Array.isArray(incomingData.generalItems)) {
         setGeneralItems((prev) => {
+          if (incomingData.generalItems.length === 0) {
+            setCachedGeneralItems([]);
+            return [];
+          }
           const merged = mergeGeneralItems(prev, incomingData.generalItems);
           setCachedGeneralItems(merged);
           return merged;
@@ -1354,6 +1368,10 @@ export const App: React.FC = () => {
       }
       if (Array.isArray(incomingData.queueItems)) {
         setQueueItems((prev) => {
+          if (incomingData.queueItems.length === 0) {
+            setCachedQueues([]);
+            return [];
+          }
           const merged = mergeQueueItems(prev, incomingData.queueItems);
           setCachedQueues(merged);
           return merged;
@@ -1361,9 +1379,11 @@ export const App: React.FC = () => {
       }
       if (Array.isArray(incomingData.clans) && incomingData.clans.length > 0) {
         setClans(incomingData.clans);
+        setCachedClans(incomingData.clans);
       }
       if (Array.isArray(incomingData.diamondLogs)) {
         setDiamondLogs(incomingData.diamondLogs);
+        setCachedDiamondTransactions(incomingData.diamondLogs);
       }
       if (incomingData.formulaSettings) {
         saveFormulaSettings(incomingData.formulaSettings);
@@ -4274,6 +4294,93 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleOwnerResetSuccess = (target: string, count: number) => {
+    sounds.playMythicFanfare();
+    if (target === 'clear_all_vault') {
+      setVaultItems([]);
+      setCachedVaultItems([]);
+      broadcastLiveState({
+        users,
+        vaultItems: [],
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings()
+      }, currentUser?.inGameName || 'Owner');
+      showToast(lang === 'th' ? `ล้างรายการไอเทมในคลังทั้งหมดเรียบร้อย (${count} รายการ)` : `Cleared all ${count} vault items`, 'success');
+    } else if (target === 'clear_distributed') {
+      const remaining = vaultItems.filter((i) => !isItemDistributed(i));
+      setVaultItems(remaining);
+      setCachedVaultItems(remaining);
+      broadcastLiveState({
+        users,
+        vaultItems: remaining,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings()
+      }, currentUser?.inGameName || 'Owner');
+      showToast(lang === 'th' ? `ล้างประวัติไอเทมที่แจกแล้วสำเร็จ (${count} รายการ)` : `Cleared ${count} distributed item records`, 'success');
+    } else if (target === 'clear_queues') {
+      setQueueItems([]);
+      setCachedQueues([]);
+      broadcastLiveState({
+        users,
+        vaultItems,
+        queueItems: [],
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings()
+      }, currentUser?.inGameName || 'Owner');
+      showToast(lang === 'th' ? `ล้างคิวไอเทมทั้งหมดเรียบร้อย (${count} รายการ)` : `Cleared all ${count} item queues`, 'success');
+    } else if (target === 'clear_diamond_logs') {
+      setDiamondLogs([]);
+      setCachedDiamondTransactions([]);
+      broadcastLiveState({
+        users,
+        vaultItems,
+        queueItems,
+        clans,
+        diamondLogs: [],
+        vaultBalance: 0,
+        formulaSettings: getFormulaSettings()
+      }, currentUser?.inGameName || 'Owner');
+      showToast(lang === 'th' ? `ล้างประวัติธุรกรรมกล่องเพชรเรียบร้อย (${count} รายการ)` : `Cleared all ${count} diamond logs`, 'success');
+    } else if (target === 'reset_all_user_stats') {
+      const resetUsers = users.map((u) => ({
+        ...u,
+        powerLevel: 0,
+        stats: {},
+        spiritEnhancements: {},
+        statScreenshotUrl: null,
+        pendingPowerLevel: null,
+        pendingPowerLevelRequestedAt: null,
+        pendingStats: null,
+        pendingSpiritEnhancements: null,
+        pendingClasses: null,
+        pendingLevel: null,
+        pendingLegendClasses: null,
+        pendingLegendAgathions: null,
+        statRejectionReason: null,
+        statRejectionAt: null
+      }));
+      setUsers(resetUsers);
+      setCachedUsers(resetUsers);
+      broadcastLiveState({
+        users: resetUsers,
+        vaultItems,
+        queueItems,
+        clans,
+        diamondLogs,
+        vaultBalance,
+        formulaSettings: getFormulaSettings()
+      }, currentUser?.inGameName || 'Owner');
+      showToast(lang === 'th' ? `รีเซ็ตค่าสเตตัสสมาชิกทุกคนเรียบร้อย (${count} สมาชิก)` : `Reset stats for ${count} members`, 'success');
+    }
+  };
 
   // Available items to show on Dashboard (status === 'available' and not distributed) filtered by Clan Scope
   const availableDashboardItems = useMemo(() => {
@@ -4783,6 +4890,7 @@ export const App: React.FC = () => {
         distributedItemsCount={vaultItems.filter((i) => isItemDistributed(i)).length}
         queuesCount={queueItems.length}
         diamondLogsCount={diamondLogs.length}
+        onResetSuccess={handleOwnerResetSuccess}
       />
 
       <DiscordWebhookModal

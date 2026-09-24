@@ -582,10 +582,44 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         };
 
         data.syncMeta = syncMeta;
-        data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
-        data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems, false, true);
-        data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
+
+        if (Array.isArray(data.vaultItems) && data.vaultItems.length === 0 && (previousData.vaultItems?.length || 0) > 0) {
+          data.vaultItems = [];
+        } else {
+          data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
+        }
+
+        if (Array.isArray(data.queueItems) && data.queueItems.length === 0 && (previousData.queueItems?.length || 0) > 0) {
+          data.queueItems = [];
+        } else {
+          data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems, false, true);
+        }
+
+        if (Array.isArray(data.generalItems) && data.generalItems.length === 0 && (previousData.generalItems?.length || 0) > 0) {
+          data.generalItems = [];
+        } else {
+          data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
+        }
+
         data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
+
+        if (Array.isArray(data.diamondLogs)) {
+          if (data.diamondLogs.length === 0) {
+            data.diamondLogs = [];
+            data.vaultBalance = 0;
+          } else {
+            const dlogMap = new Map<string, any>();
+            for (const log of data.diamondLogs) {
+              if (log && log.id) dlogMap.set(log.id, log);
+            }
+            data.diamondLogs = Array.from(dlogMap.values());
+          }
+        } else if (previousData.diamondLogs) {
+          data.diamondLogs = previousData.diamondLogs;
+          if (data.vaultBalance === undefined) {
+            data.vaultBalance = previousData.vaultBalance || 0;
+          }
+        }
 
         // Strict tombstone filtering after merge
         if (Array.isArray(data.vaultItems)) {

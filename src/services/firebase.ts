@@ -170,7 +170,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.9-patch1a-immunity-fix';
+const CACHE_SCHEMA_VERSION = '2.10.10-authoritative-cloud-sync';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v271',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -1836,13 +1836,8 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
     (snapshot) => {
       initialItemsFallbackHandled = true;
       if (snapshot.empty) {
-        const cached = getCachedVaultItems();
-        if (cached.length > 0) {
-          latestItems = cached;
-          emitCombinedItems();
-          return;
-        }
         latestItems = [];
+        setCachedVaultItems([]);
         emitCombinedItems();
         return;
       }
@@ -1864,9 +1859,13 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
         items.push(item);
       });
       const cached = getCachedVaultItems();
-      const mergedList = mergeVaultItems(cached, items);
-      setCachedVaultItems(mergedList);
-      latestItems = mergedList;
+      const freshLocalItems = cached.filter((c) => {
+        const age = Date.now() - (c.createdAt || 0);
+        return age >= 0 && age < 5000 && !items.some((i) => i.id === c.id);
+      });
+      const combinedItems = [...freshLocalItems, ...items];
+      setCachedVaultItems(combinedItems);
+      latestItems = combinedItems;
       emitCombinedItems();
     },
     (err) => {
@@ -2155,9 +2154,14 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
         }
         queues.push(qItem);
       });
-      const merged = mergeQueueItems(getCachedQueues(), queues);
-      setCachedQueues(merged);
-      callback(merged);
+      const cached = getCachedQueues();
+      const freshLocalQueues = cached.filter((c) => {
+        const age = Date.now() - (c.createdAt || 0);
+        return age >= 0 && age < 5000 && !queues.some((q) => q.id === c.id);
+      });
+      const combinedQueues = [...freshLocalQueues, ...queues];
+      setCachedQueues(combinedQueues);
+      callback(combinedQueues);
     },
     (err) => {
       console.warn('Firestore queue listener fallback to initial/cached queues:', err);

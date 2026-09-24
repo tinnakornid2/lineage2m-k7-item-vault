@@ -31,6 +31,7 @@ interface OwnerResetModalProps {
   distributedItemsCount: number;
   queuesCount: number;
   diamondLogsCount: number;
+  onResetSuccess?: (target: ResetTarget, count: number) => void;
 }
 
 type ResetTarget =
@@ -48,7 +49,8 @@ export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
   vaultItemsCount,
   distributedItemsCount,
   queuesCount,
-  diamondLogsCount
+  diamondLogsCount,
+  onResetSuccess
 }) => {
   const t = translations[lang];
 
@@ -129,6 +131,7 @@ export const OwnerResetModal: React.FC<OwnerResetModalProps> = ({
       }
 
       sounds.playMythicFanfare();
+      onResetSuccess?.(selectedTarget, affectedCount);
       setConfirmText('');
     } catch (err: any) {
       console.error('Owner reset failed:', err);
