@@ -177,7 +177,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.18-stat-sync';
+const CACHE_SCHEMA_VERSION = '2.10.19-unified-arch';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v272',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -2346,13 +2346,23 @@ export async function addItemClaimDoc(itemId: string, claimant: Claimant) {
     if (itemSnap && itemSnap.exists()) {
       const existing = (itemSnap.data().claimants || []) as Claimant[];
       if (!existing.some((c) => c.userId === claimant.userId)) {
-        await safeFirestoreWrite(
-          updateDoc(itemRef, {
-            claimants: [...existing, sanitizeForFirestore(claimant)]
-          }),
-          1200,
-          'addItemClaimDoc_updateDoc'
-        );
+        try {
+          await safeFirestoreWrite(
+            updateDoc(itemRef, {
+              claimants: [...existing, sanitizeForFirestore(claimant)]
+            }),
+            1200,
+            'addItemClaimDoc_updateDoc'
+          );
+        } catch {
+          await safeFirestoreWrite(
+            setDoc(itemRef, {
+              claimants: [...existing, sanitizeForFirestore(claimant)]
+            }, { merge: true }),
+            1200,
+            'addItemClaimDoc_setDoc'
+          );
+        }
       }
     }
   } catch (err) {
@@ -2375,13 +2385,23 @@ export async function deleteItemClaimDoc(itemId: string, userId: string) {
     if (itemSnap && itemSnap.exists()) {
       const existing = (itemSnap.data().claimants || []) as Claimant[];
       const filtered = existing.filter((c) => c.userId !== userId);
-      await safeFirestoreWrite(
-        updateDoc(itemRef, {
-          claimants: filtered
-        }),
-        1200,
-        'deleteItemClaimDoc_updateDoc'
-      );
+      try {
+        await safeFirestoreWrite(
+          updateDoc(itemRef, {
+            claimants: filtered
+          }),
+          1200,
+          'deleteItemClaimDoc_updateDoc'
+        );
+      } catch {
+        await safeFirestoreWrite(
+          setDoc(itemRef, {
+            claimants: filtered
+          }, { merge: true }),
+          1200,
+          'deleteItemClaimDoc_setDoc'
+        );
+      }
     }
   } catch (err) {
     console.warn('Notice: deleted from item_claims; item claimants array sync warning:', err);
@@ -2647,7 +2667,11 @@ export async function updateQueueItemDoc(queueId: string, updates: Partial<Queue
   try {
     const ref = doc(db, QUEUES_COLLECTION, queueId);
     const cleanUpdates = sanitizeForFirestore(updates);
-    await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateQueueItemDoc');
+    try {
+      await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateQueueItemDoc');
+    } catch {
+      await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1200, 'updateQueueItemDoc_setDoc');
+    }
     bumpSystemVersion('queuesVersion').catch(() => {});
   } catch (err: any) {
     console.warn('Notice: Failed to update queue item doc in Firestore (failover mode):', err);
@@ -3016,10 +3040,9 @@ export async function addDiamondTransactionDoc(record: Omit<DiamondVaultRecord, 
 
 export async function updateDiamondTransactionNoteDoc(recordId: string, note: string): Promise<void> {
   try {
+    const ref = doc(db, VAULT_COLLECTION, recordId);
     await safeFirestoreWrite(
-      updateDoc(doc(db, VAULT_COLLECTION, recordId), {
-        note: note || ''
-      }),
+      setDoc(ref, { note: note || '', updatedAt: Date.now() }, { merge: true }),
       1200,
       'updateDiamondTransactionNoteDoc'
     );

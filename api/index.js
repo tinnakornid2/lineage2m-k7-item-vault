@@ -445,6 +445,72 @@ async function createApp(options = {}) {
     }
   } catch {
   }
+  function cleanForAdminFirestore(obj) {
+    if (obj === null || obj === void 0) return null;
+    if (Array.isArray(obj)) return obj.map(cleanForAdminFirestore);
+    if (typeof obj === "object") {
+      const res = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if (v !== void 0) {
+          res[k] = cleanForAdminFirestore(v);
+        }
+      }
+      return res;
+    }
+    return obj;
+  }
+  async function hydrateLiveStateFromAdminSdk() {
+    try {
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) return;
+      const hasUsers = Array.isArray(liveHubState?.data?.users) && liveHubState.data.users.length > 0;
+      const hasItems = Array.isArray(liveHubState?.data?.vaultItems) && liveHubState.data.vaultItems.length > 0;
+      if (hasUsers && hasItems) return;
+      const [usersSnap, itemsSnap, queuesSnap, generalSnap, quickSnap, clansSnap] = await Promise.all([
+        sdk.db.collection("users").limit(500).get().catch(() => null),
+        sdk.db.collection("items").limit(500).get().catch(() => null),
+        sdk.db.collection("item_queues").limit(100).get().catch(() => null),
+        sdk.db.collection("general_items").limit(100).get().catch(() => null),
+        sdk.db.collection("quick_items").limit(100).get().catch(() => null),
+        sdk.db.collection("clans").limit(50).get().catch(() => null)
+      ]);
+      const users = [];
+      usersSnap?.forEach((d) => users.push({ ...d.data(), id: d.id }));
+      const vaultItems = [];
+      itemsSnap?.forEach((d) => vaultItems.push({ ...d.data(), id: d.id }));
+      const queueItems = [];
+      queuesSnap?.forEach((d) => queueItems.push({ ...d.data(), id: d.id }));
+      const generalItems = [];
+      generalSnap?.forEach((d) => generalItems.push({ ...d.data(), id: d.id }));
+      const quickItems = [];
+      quickSnap?.forEach((d) => quickItems.push({ ...d.data(), id: d.id }));
+      const clans = [];
+      clansSnap?.forEach((d) => clans.push({ ...d.data(), id: d.id }));
+      if (users.length > 0 || vaultItems.length > 0) {
+        liveHubState = {
+          data: {
+            ...liveHubState.data || {},
+            users: sanitizeAndDeduplicateUsers(users),
+            vaultItems,
+            queueItems,
+            generalItems,
+            quickItems,
+            clans
+          },
+          version: Math.max(liveHubState.version || 1, 1),
+          updatedAt: Date.now()
+        };
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+      }
+    } catch (err) {
+      console.warn("Hydrate from Admin SDK notice:", err);
+    }
+  }
+  hydrateLiveStateFromAdminSdk().catch(() => {
+  });
   const consumeRateLimit = (limits, actorId, maximum, windowMs) => {
     const now = Date.now();
     const previous = limits.get(actorId);
@@ -923,43 +989,104 @@ async function createApp(options = {}) {
             if (sdk && sdk.db) {
               if (Array.isArray(data.vaultItems)) {
                 for (const item of data.vaultItems) {
-                  if (item && item.id && Array.isArray(item.claimants) && item.claimants.length > 0) {
-                    await sdk.db.collection("items").doc(item.id).set({
-                      claimants: item.claimants,
-                      updatedAt: item.updatedAt || Date.now()
-                    }, { merge: true });
+                  if (item && item.id) {
+                    await sdk.db.collection("items").doc(item.id).set(cleanForAdminFirestore(item), { merge: true }).catch(() => {
+                    });
+                  }
+                }
+              }
+              if (syncMeta.deletedVaultItems) {
+                for (const deletedId of Object.keys(syncMeta.deletedVaultItems)) {
+                  await sdk.db.collection("items").doc(deletedId).delete().catch(() => {
+                  });
+                }
+              }
+              if (Array.isArray(data.queueItems)) {
+                for (const queue of data.queueItems) {
+                  if (queue && queue.id) {
+                    await sdk.db.collection("item_queues").doc(queue.id).set(cleanForAdminFirestore(queue), { merge: true }).catch(() => {
+                    });
+                  }
+                }
+              }
+              if (syncMeta.deletedQueueItems) {
+                for (const deletedId of Object.keys(syncMeta.deletedQueueItems)) {
+                  await sdk.db.collection("item_queues").doc(deletedId).delete().catch(() => {
+                  });
+                }
+              }
+              if (Array.isArray(data.generalItems)) {
+                for (const gi of data.generalItems) {
+                  if (gi && gi.id) {
+                    await sdk.db.collection("general_items").doc(gi.id).set(cleanForAdminFirestore(gi), { merge: true }).catch(() => {
+                    });
+                  }
+                }
+              }
+              if (syncMeta.deletedGeneralItems) {
+                for (const deletedId of Object.keys(syncMeta.deletedGeneralItems)) {
+                  await sdk.db.collection("general_items").doc(deletedId).delete().catch(() => {
+                  });
+                }
+              }
+              if (Array.isArray(data.quickItems)) {
+                for (const qi of data.quickItems) {
+                  if (qi && qi.id) {
+                    await sdk.db.collection("quick_items").doc(qi.id).set(cleanForAdminFirestore(qi), { merge: true }).catch(() => {
+                    });
+                  }
+                }
+              }
+              if (Array.isArray(data.clans)) {
+                for (const clan of data.clans) {
+                  if (clan && clan.id) {
+                    await sdk.db.collection("clans").doc(clan.id).set(cleanForAdminFirestore(clan), { merge: true }).catch(() => {
+                    });
                   }
                 }
               }
               if (Array.isArray(data.users)) {
                 for (const u of data.users) {
-                  if (u && u.id && (u.pendingPowerLevel !== void 0 || u.pendingStats || u.pendingStatScreenshotUrl || u.powerLevel !== void 0)) {
-                    await sdk.db.collection("users").doc(u.id).set({
-                      ...u.pendingPowerLevel !== void 0 ? { pendingPowerLevel: u.pendingPowerLevel } : {},
-                      ...u.pendingPowerLevelRequestedAt !== void 0 ? { pendingPowerLevelRequestedAt: u.pendingPowerLevelRequestedAt } : {},
-                      ...u.pendingStats !== void 0 ? { pendingStats: u.pendingStats } : {},
-                      ...u.pendingSpiritEnhancements !== void 0 ? { pendingSpiritEnhancements: u.pendingSpiritEnhancements } : {},
-                      ...u.pendingStatScreenshotUrl !== void 0 ? { pendingStatScreenshotUrl: u.pendingStatScreenshotUrl } : {},
-                      ...u.pendingClasses !== void 0 ? { pendingClasses: u.pendingClasses } : {},
-                      ...u.pendingLevel !== void 0 ? { pendingLevel: u.pendingLevel } : {},
-                      ...u.pendingLegendClasses !== void 0 ? { pendingLegendClasses: u.pendingLegendClasses } : {},
-                      ...u.pendingLegendAgathions !== void 0 ? { pendingLegendAgathions: u.pendingLegendAgathions } : {},
-                      ...u.statRejectionReason !== void 0 ? { statRejectionReason: u.statRejectionReason } : {},
-                      ...u.statRejectionAt !== void 0 ? { statRejectionAt: u.statRejectionAt } : {},
-                      ...u.statApprovalAt !== void 0 ? { statApprovalAt: u.statApprovalAt } : {},
-                      ...u.powerLevel !== void 0 ? { powerLevel: u.powerLevel } : {},
-                      ...u.stats !== void 0 ? { stats: u.stats } : {},
-                      ...u.spiritEnhancements !== void 0 ? { spiritEnhancements: u.spiritEnhancements } : {},
-                      ...u.statScreenshotUrl !== void 0 ? { statScreenshotUrl: u.statScreenshotUrl } : {},
-                      ...u.statHistory !== void 0 ? { statHistory: u.statHistory } : {},
-                      updatedAt: u.updatedAt || Date.now()
-                    }, { merge: true }).catch(() => {
+                  if (u && u.id) {
+                    const { password: _p, ...safeUser } = u;
+                    await sdk.db.collection("users").doc(u.id).set(cleanForAdminFirestore(safeUser), { merge: true }).catch(() => {
                     });
                   }
                 }
               }
+              if (syncMeta.deletedUsers) {
+                for (const deletedId of Object.keys(syncMeta.deletedUsers)) {
+                  await sdk.db.collection("users").doc(deletedId).delete().catch(() => {
+                  });
+                }
+              }
+              if (Array.isArray(data.diamondLogs)) {
+                for (const dlog of data.diamondLogs) {
+                  if (dlog && dlog.id) {
+                    await sdk.db.collection("diamond_vault").doc(dlog.id).set(cleanForAdminFirestore(dlog), { merge: true }).catch(() => {
+                    });
+                  }
+                }
+              }
+              if (data.formulaSettings) {
+                await sdk.db.collection("app_settings").doc("power_formula").set(cleanForAdminFirestore(data.formulaSettings), { merge: true }).catch(() => {
+                });
+              }
+              if (data.announcementSettings) {
+                await sdk.db.collection("app_settings").doc("announcement").set(cleanForAdminFirestore(data.announcementSettings), { merge: true }).catch(() => {
+                });
+              }
+              if (data.backgroundSettings) {
+                await sdk.db.collection("app_settings").doc("background").set(cleanForAdminFirestore(data.backgroundSettings), { merge: true }).catch(() => {
+                });
+              }
+              if (data.discordSettings) {
+                await sdk.db.collection("app_settings").doc("discord").set(cleanForAdminFirestore(data.discordSettings), { merge: true }).catch(() => {
+                });
+              }
             }
-          } catch {
+          } catch (dbErr) {
+            console.warn("Notice: Unified Firestore Admin background sync notice:", dbErr);
           }
         })().catch(() => {
         });
