@@ -179,13 +179,13 @@ export const INITIAL_QUEUES: QueueItem[] = [];
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
 const CACHE_SCHEMA_VERSION = '2.10.21-clean-slate';
 export const CACHE_KEYS = {
-  USERS: 'l2m_cached_users_v272',
-  VAULT_ITEMS: 'l2m_cached_vault_items_v271',
-  QUEUES: 'l2m_cached_queues_v271',
-  CLANS: 'l2m_cached_clans_v271',
-  DIAMOND_TXS: 'l2m_cached_diamond_txs_v271',
-  QUICK_ITEMS: 'l2m_cached_quick_items_v271',
-  GENERAL_ITEMS: 'l2m_cached_general_items_v271'
+  USERS: 'l2m_cached_users_v21021',
+  VAULT_ITEMS: 'l2m_cached_vault_items_v21021',
+  QUEUES: 'l2m_cached_queues_v21021',
+  CLANS: 'l2m_cached_clans_v21021',
+  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21021',
+  QUICK_ITEMS: 'l2m_cached_quick_items_v21021',
+  GENERAL_ITEMS: 'l2m_cached_general_items_v21021'
 };
 
 export function clearAllLocalCaches(): void {
@@ -223,7 +223,15 @@ if (typeof localStorage !== 'undefined') {
         'l2m_cached_diamond_txs_v260',
         'l2m_cached_quick_items_v260',
         'l2m_cached_users_v271',
-        'l2m_active_tab'
+        'l2m_cached_vault_items_v271',
+        'l2m_cached_queues_v271',
+        'l2m_cached_clans_v271',
+        'l2m_cached_diamond_txs_v271',
+        'l2m_cached_quick_items_v271',
+        'l2m_cached_general_items_v271',
+        'l2m_cached_users_v272',
+        'l2m_active_tab',
+        'l2m_google_backup_cache'
       ];
       LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
 
