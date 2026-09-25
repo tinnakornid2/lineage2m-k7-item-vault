@@ -119,6 +119,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const lastLoadedUserIdRef = useRef<string | null>(null);
   const lastKnownApprovalAtRef = useRef<number | null>(null);
   const lastKnownRejectionAtRef = useRef<number | null>(null);
+  const lastKnownPendingAtRef = useRef<number | null>(null);
 
   const markAsEdited = () => {
     hasUserEditedRef.current = true;
@@ -131,13 +132,15 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     const isDifferentUser = lastLoadedUserIdRef.current !== currentUser.id;
     const approvalChanged = (currentUser.statApprovalAt || 0) !== (lastKnownApprovalAtRef.current || 0);
     const rejectionChanged = (currentUser.statRejectionAt || 0) !== (lastKnownRejectionAtRef.current || 0);
-    const shouldForceReset = isDifferentUser || approvalChanged || rejectionChanged;
+    const pendingChanged = (currentUser.pendingPowerLevelRequestedAt || 0) !== (lastKnownPendingAtRef.current || 0);
+    const shouldForceReset = isDifferentUser || approvalChanged || rejectionChanged || pendingChanged;
 
     // Never wipe the user's inputs while they are actively filling out the form, unless user changed or approval/rejection arrived
     if (shouldForceReset || !hasUserEditedRef.current) {
       lastLoadedUserIdRef.current = currentUser.id;
       lastKnownApprovalAtRef.current = currentUser.statApprovalAt || null;
       lastKnownRejectionAtRef.current = currentUser.statRejectionAt || null;
+      lastKnownPendingAtRef.current = currentUser.pendingPowerLevelRequestedAt || null;
 
       const config = getFormulaSettings();
       setFormulaSettings(config);
@@ -191,7 +194,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
         hasUserEditedRef.current = false;
       }
     }
-  }, [currentUser]);
+  }, [currentUser?.id, currentUser?.statApprovalAt, currentUser?.statRejectionAt, currentUser?.pendingPowerLevelRequestedAt]);
 
   // Global Ctrl + V paste listener on the page
   useEffect(() => {

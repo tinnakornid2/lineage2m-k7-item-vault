@@ -49,6 +49,7 @@ export interface BackupDataPayload {
     cancelledClaims?: Record<string, number>;
     removedQueueMembers?: Record<string, number>;
   };
+  isReset?: boolean;
 }
 
 const SYNC_META_KEYS = {
@@ -84,13 +85,27 @@ function withLocalSyncMeta(payload: BackupDataPayload): BackupDataPayload {
 
 export function applyIncomingSyncMeta(payload: BackupDataPayload): void {
   if (!payload.syncMeta) return;
+  const now = Date.now();
+  const maxAge = 14 * 24 * 60 * 60 * 1000;
   for (const [field, storageKey] of Object.entries(SYNC_META_KEYS)) {
     const incoming = payload.syncMeta[field as keyof typeof SYNC_META_KEYS] || {};
     const local = readSyncMap(storageKey);
+    let changed = false;
     for (const [id, timestamp] of Object.entries(incoming)) {
-      if (typeof timestamp === 'number' && timestamp > (local[id] || 0)) local[id] = timestamp;
+      if (typeof timestamp === 'number' && (now - timestamp < maxAge) && timestamp > (local[id] || 0)) {
+        local[id] = timestamp;
+        changed = true;
+      }
     }
-    try { localStorage.setItem(storageKey, JSON.stringify(local)); } catch {}
+    for (const [id, timestamp] of Object.entries(local)) {
+      if (typeof timestamp !== 'number' || now - timestamp >= maxAge) {
+        delete local[id];
+        changed = true;
+      }
+    }
+    if (changed) {
+      try { localStorage.setItem(storageKey, JSON.stringify(local)); } catch {}
+    }
   }
 }
 
@@ -729,8 +744,9 @@ export async function broadcastLiveState(
     if (res.ok) {
       const json = await res.json();
       lastBroadcastString = payloadStr;
-      // Do not advance the polling cursor here. The next long-poll must receive
-      // the server's canonical merge (including concurrent claims/deletions).
+      if (typeof json.version === 'number') {
+        currentLocalVersion = Math.max(currentLocalVersion, json.version);
+      }
       return { success: true, version: json.version };
     }
   } catch (err) {

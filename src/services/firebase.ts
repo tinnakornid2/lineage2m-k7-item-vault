@@ -176,8 +176,16 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 
 export const INITIAL_QUEUES: QueueItem[] = [];
 
+export const DELETED_VAULT_ITEMS_KEY = 'k7_deleted_vault_item_ids';
+export const DELETED_QUEUE_ITEMS_KEY = 'k7_deleted_queue_item_ids';
+export const DELETED_USERS_KEY = 'k7_deleted_user_ids';
+export const DELETED_GENERAL_ITEMS_KEY = 'k7_deleted_general_item_ids';
+export const DELETED_QUICK_ITEMS_KEY = 'k7_deleted_quick_item_ids';
+export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
+export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
+
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.26-stat-input-stabilization';
+const CACHE_SCHEMA_VERSION = '2.10.27-state-stability-clean';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21025',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21025',
@@ -197,7 +205,9 @@ export function clearAllLocalCaches(): void {
     localStorage.removeItem(DELETED_QUEUE_ITEMS_KEY);
     localStorage.removeItem(DELETED_USERS_KEY);
     localStorage.removeItem(DELETED_GENERAL_ITEMS_KEY);
-    localStorage.removeItem('l2m_cancelled_claims_map');
+    localStorage.removeItem(DELETED_QUICK_ITEMS_KEY);
+    localStorage.removeItem(REMOVED_QUEUE_MEMBERS_KEY);
+    localStorage.removeItem(CANCELLED_CLAIMS_KEY);
     localStorage.removeItem('k7_queue_announcement');
     localStorage.removeItem('k7_announcement_text');
     localStorage.removeItem('l2m_pending_firebase_sync');
@@ -258,7 +268,15 @@ if (typeof localStorage !== 'undefined') {
         'l2m_dismissed_notifications',
         'l2m_notification_history',
         'k7_queue_announcement',
-        'k7_announcement_text'
+        'k7_announcement_text',
+        // Purge legacy ghost tombstones from browser
+        'k7_deleted_vault_item_ids',
+        'k7_deleted_queue_item_ids',
+        'k7_deleted_general_item_ids',
+        'k7_deleted_user_ids',
+        'k7_deleted_quick_item_ids',
+        'k7_removed_queue_members',
+        'l2m_cancelled_claims_map'
       ];
       LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
 
@@ -296,13 +314,6 @@ let inMemoryClans: ClanGroup[] = [];
 let inMemoryDiamondTxs: DiamondVaultRecord[] = [];
 let inMemoryQuickItems: QuickItem[] = [];
 let inMemoryGeneralItems: GeneralItem[] = [];
-
-export const DELETED_VAULT_ITEMS_KEY = 'k7_deleted_vault_item_ids';
-export const DELETED_QUEUE_ITEMS_KEY = 'k7_deleted_queue_item_ids';
-export const DELETED_USERS_KEY = 'k7_deleted_user_ids';
-export const DELETED_GENERAL_ITEMS_KEY = 'k7_deleted_general_item_ids';
-export const DELETED_QUICK_ITEMS_KEY = 'k7_deleted_quick_item_ids';
-export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -390,17 +401,36 @@ export function applyIncomingCloudTombstones(cloudData: any): void {
     }
   }
 
-  // Instantly purge matching items from cache
+  // Instantly purge matching items from cache if deleted timestamp is newer than record revision
   const deletedUsers = getDeletedIdsMap(DELETED_USERS_KEY);
-  inMemoryUsers = inMemoryUsers.filter((u) => !u || !u.id || (u.id !== 'user_owner_eloni' && !deletedUsers[u.id]));
+  inMemoryUsers = inMemoryUsers.filter((u) => {
+    if (!u || !u.id) return false;
+    if (u.id === 'user_owner_eloni') return true;
+    const delAt = deletedUsers[u.id];
+    if (!delAt) return true;
+    const rev = Number(u.updatedAt || u.createdAt || 0);
+    return rev > delAt;
+  });
   setCachedData(CACHE_KEYS.USERS, inMemoryUsers);
 
   const deletedVault = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
-  inMemoryVaultItems = inMemoryVaultItems.filter((i) => !i || !i.id || !deletedVault[i.id]);
+  inMemoryVaultItems = inMemoryVaultItems.filter((i) => {
+    if (!i || !i.id) return false;
+    const delAt = deletedVault[i.id];
+    if (!delAt) return true;
+    const rev = Number(i.updatedAt || i.createdAt || 0);
+    return rev > delAt;
+  });
   setCachedData(CACHE_KEYS.VAULT_ITEMS, inMemoryVaultItems);
 
   const deletedGeneral = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
-  inMemoryGeneralItems = inMemoryGeneralItems.filter((i) => !i || !i.id || !deletedGeneral[i.id]);
+  inMemoryGeneralItems = inMemoryGeneralItems.filter((i) => {
+    if (!i || !i.id) return false;
+    const delAt = deletedGeneral[i.id];
+    if (!delAt) return true;
+    const rev = Number(i.updatedAt || i.createdAt || 0);
+    return rev > delAt;
+  });
   setCachedData(CACHE_KEYS.GENERAL_ITEMS, inMemoryGeneralItems);
 
   const deletedQueues = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
@@ -933,7 +963,14 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
   const isDeleted = (u: User) => {
     if (!isValidActiveUser(u)) return true;
     if (u.id === 'user_owner_eloni') return false;
-    return Boolean(deletedMap[u.id]);
+    const deletedAt = deletedMap[u.id];
+    if (!deletedAt) return false;
+    const rev = Number(u.updatedAt || u.createdAt || 0);
+    if (rev > deletedAt) {
+      unmarkUserAsDeleted(u.id);
+      return false;
+    }
+    return true;
   };
 
   const currentMap = new Map<string, User>();
@@ -1023,22 +1060,41 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
   return deduplicateUsers(result);
 }
 
-export function isUserDeleted(id: string): boolean {
+export function isUserDeleted(id: string, updatedAt?: number): boolean {
   if (!id) return false;
+  if (id === 'user_owner_eloni') return false;
   const map = getDeletedIdsMap(DELETED_USERS_KEY);
-  return Boolean(map[id]);
+  const deletedAt = map[id];
+  if (!deletedAt) return false;
+  if (typeof updatedAt === 'number' && updatedAt > deletedAt) {
+    unmarkUserAsDeleted(id);
+    return false;
+  }
+  return true;
 }
 
-export function isVaultItemDeleted(id: string): boolean {
+export function isVaultItemDeleted(id: string, updatedAt?: number): boolean {
   if (!id) return false;
   const map = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
-  return Boolean(map[id]);
+  const deletedAt = map[id];
+  if (!deletedAt) return false;
+  if (typeof updatedAt === 'number' && updatedAt > deletedAt) {
+    unmarkVaultItemAsDeleted(id);
+    return false;
+  }
+  return true;
 }
 
-export function isQuickItemDeleted(id: string): boolean {
+export function isQuickItemDeleted(id: string, updatedAt?: number): boolean {
   if (!id) return false;
   const map = getDeletedIdsMap(DELETED_QUICK_ITEMS_KEY);
-  return Boolean(map[id]);
+  const deletedAt = map[id];
+  if (!deletedAt) return false;
+  if (typeof updatedAt === 'number' && updatedAt > deletedAt) {
+    unmarkQuickItemAsDeleted(id);
+    return false;
+  }
+  return true;
 }
 
 export function markQuickItemAsDeleted(id: string): void {
@@ -1110,10 +1166,16 @@ export function unmarkGeneralItemAsDeleted(id: string): void {
   }
 }
 
-export function isGeneralItemDeleted(id: string): boolean {
+export function isGeneralItemDeleted(id: string, updatedAt?: number): boolean {
   if (!id) return false;
   const map = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
-  return Boolean(map[id]);
+  const deletedAt = map[id];
+  if (!deletedAt) return false;
+  if (typeof updatedAt === 'number' && updatedAt > deletedAt) {
+    unmarkGeneralItemAsDeleted(id);
+    return false;
+  }
+  return true;
 }
 
 export function getCachedGeneralItems(): GeneralItem[] {
@@ -1135,7 +1197,17 @@ export function setCachedGeneralItems(items: GeneralItem[]): void {
 
 export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: GeneralItem[]): GeneralItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
-  const isDeleted = (item: GeneralItem) => Boolean(deletedMap[item.id]);
+  const isDeleted = (item: GeneralItem) => {
+    if (!item || !item.id) return true;
+    const deletedAt = deletedMap[item.id];
+    if (!deletedAt) return false;
+    const rev = Number(item.updatedAt || item.createdAt || 0);
+    if (rev > deletedAt) {
+      unmarkGeneralItemAsDeleted(item.id);
+      return false;
+    }
+    return true;
+  };
 
   const currentMap = new Map<string, GeneralItem>();
   for (const it of (currentItems || [])) {
@@ -1274,8 +1346,6 @@ export function isQueueItemDeleted(id: string, updatedAt?: number): boolean {
   return true;
 }
 
-const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
-
 export function getCancelledClaimsMap(): Record<string, number> {
   return getDeletedIdsMap(CANCELLED_CLAIMS_KEY);
 }
@@ -1335,7 +1405,17 @@ export function isClaimCancelled(itemId: string, claimant: Claimant): boolean {
  */
 export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultItem[]): VaultItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
-  const isDeleted = (item: VaultItem) => Boolean(deletedMap[item.id]);
+  const isDeleted = (item: VaultItem) => {
+    if (!item || !item.id) return true;
+    const deletedAt = deletedMap[item.id];
+    if (!deletedAt) return false;
+    const rev = Number(item.updatedAt || item.createdAt || 0);
+    if (rev > deletedAt) {
+      unmarkVaultItemAsDeleted(item.id);
+      return false;
+    }
+    return true;
+  };
   const currentMap = new Map<string, VaultItem>();
   for (const item of (currentItems || [])) {
     if (item && item.id && !isDeleted(item)) {

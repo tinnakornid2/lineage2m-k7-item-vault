@@ -116,6 +116,10 @@ import {
   mergeQueueItems,
   mergeGeneralItems,
   mergeUsers,
+  isVaultItemDeleted,
+  isGeneralItemDeleted,
+  isQueueItemDeleted,
+  isUserDeleted,
   clearAllLocalCaches,
   markVaultItemAsDeleted,
   unmarkVaultItemAsDeleted,
@@ -301,22 +305,10 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const unsubTombstones = listenToGlobalTombstones(() => {
-      const deletedVault = getDeletedVaultItemIds();
-      if (deletedVault.size > 0) {
-        setVaultItems((prev) => prev.filter((i) => !i || !i.id || !deletedVault.has(i.id)));
-      }
-      const deletedGeneral = getDeletedGeneralItemIds();
-      if (deletedGeneral.size > 0) {
-        setGeneralItems((prev) => prev.filter((i) => !i || !i.id || !deletedGeneral.has(i.id)));
-      }
-      const deletedQueues = getDeletedQueueItemIds();
-      if (deletedQueues.size > 0) {
-        setQueueItems((prev) => prev.filter((q) => !q || !q.id || !deletedQueues.has(q.id)));
-      }
-      const deletedUsers = getDeletedUserIds();
-      if (deletedUsers.size > 0) {
-        setUsers((prev) => prev.filter((u) => !u || !u.id || (u.id !== 'user_owner_eloni' && !deletedUsers.has(u.id))));
-      }
+      setVaultItems((prev) => prev.filter((i) => !i || !i.id || !isVaultItemDeleted(i.id, Number(i.updatedAt || i.createdAt || 0))));
+      setGeneralItems((prev) => prev.filter((i) => !i || !i.id || !isGeneralItemDeleted(i.id, Number(i.updatedAt || i.createdAt || 0))));
+      setQueueItems((prev) => prev.filter((q) => !q || !q.id || !isQueueItemDeleted(q.id, Number(q.updatedAt || q.createdAt || 0))));
+      setUsers((prev) => prev.filter((u) => !u || !u.id || (u.id === 'user_owner_eloni' || !isUserDeleted(u.id, Number(u.updatedAt || u.createdAt || 0)))));
     });
     // Only initialise failover configuration here. Firestore listeners below are
     // the sole authoritative source during normal operation.
@@ -1442,19 +1434,20 @@ export const App: React.FC = () => {
 
   // Helper to ensure all broadcasts and backups carry 100% complete state without dropping collections
   const getFullBackupPayload = (overrides?: Partial<BackupDataPayload>): BackupDataPayload => ({
-    users: overrides?.users ?? users,
-    vaultItems: overrides?.vaultItems ?? vaultItems,
-    quickItems: overrides?.quickItems ?? quickItems,
-    generalItems: overrides?.generalItems ?? generalItems,
-    queueItems: overrides?.queueItems ?? queueItems,
-    clans: overrides?.clans ?? clans,
-    diamondLogs: overrides?.diamondLogs ?? diamondLogs,
+    users: overrides?.users ?? (users.length > 0 ? users : getCachedUsers()),
+    vaultItems: overrides?.vaultItems ?? (vaultItems.length > 0 ? vaultItems : getCachedVaultItems()),
+    quickItems: overrides?.quickItems ?? (quickItems.length > 0 ? quickItems : getCachedQuickItems()),
+    generalItems: overrides?.generalItems ?? (generalItems.length > 0 ? generalItems : getCachedGeneralItems()),
+    queueItems: overrides?.queueItems ?? (queueItems.length > 0 ? queueItems : getCachedQueues()),
+    clans: overrides?.clans ?? (clans.length > 0 ? clans : getCachedClans()),
+    diamondLogs: overrides?.diamondLogs ?? (diamondLogs.length > 0 ? diamondLogs : getCachedDiamondTransactions()),
     vaultBalance: overrides?.vaultBalance ?? vaultBalance,
     formulaSettings: overrides?.formulaSettings ?? getFormulaSettings(),
     announcementSettings: overrides?.announcementSettings ?? announcementSettings,
     backgroundSettings: overrides?.backgroundSettings ?? bgConfig,
     discordSettings: overrides?.discordSettings ?? discordSettings,
-    statUpdateSettings: overrides?.statUpdateSettings ?? statUpdateSettings
+    statUpdateSettings: overrides?.statUpdateSettings ?? statUpdateSettings,
+    isReset: overrides?.isReset
   });
 
   // Real-time live relay broadcast: whenever state changes locally, immediately notify all other clan members (debounced 300ms)
@@ -1526,23 +1519,32 @@ export const App: React.FC = () => {
       if (Array.isArray(incomingData.vaultItems)) {
         setVaultItems((prev) => {
           if (incomingData.vaultItems.length === 0) {
-            setCachedVaultItems([]);
-            return [];
+            if (incomingData.isReset) {
+              setCachedVaultItems([]);
+              return [];
+            }
+            return prev;
           }
           const merged = mergeVaultItems(prev, incomingData.vaultItems);
           setCachedVaultItems(merged);
           return merged;
         });
       }
-      if (Array.isArray(incomingData.quickItems)) {
-        setQuickItems(incomingData.quickItems);
-        setCachedQuickItems(incomingData.quickItems);
+      if (Array.isArray(incomingData.quickItems) && incomingData.quickItems.length > 0) {
+        setQuickItems((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(incomingData.quickItems)) return prev;
+          setCachedQuickItems(incomingData.quickItems);
+          return incomingData.quickItems;
+        });
       }
       if (Array.isArray(incomingData.generalItems)) {
         setGeneralItems((prev) => {
           if (incomingData.generalItems.length === 0) {
-            setCachedGeneralItems([]);
-            return [];
+            if (incomingData.isReset) {
+              setCachedGeneralItems([]);
+              return [];
+            }
+            return prev;
           }
           const merged = mergeGeneralItems(prev, incomingData.generalItems);
           setCachedGeneralItems(merged);
@@ -1552,8 +1554,11 @@ export const App: React.FC = () => {
       if (Array.isArray(incomingData.queueItems)) {
         setQueueItems((prev) => {
           if (incomingData.queueItems.length === 0) {
-            setCachedQueues([]);
-            return [];
+            if (incomingData.isReset) {
+              setCachedQueues([]);
+              return [];
+            }
+            return prev;
           }
           const merged = mergeQueueItems(prev, incomingData.queueItems);
           setCachedQueues(merged);
@@ -1561,33 +1566,56 @@ export const App: React.FC = () => {
         });
       }
       if (Array.isArray(incomingData.clans) && incomingData.clans.length > 0) {
-        setClans(incomingData.clans);
-        setCachedClans(incomingData.clans);
+        setClans((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(incomingData.clans)) return prev;
+          setCachedClans(incomingData.clans);
+          return incomingData.clans;
+        });
       }
       if (Array.isArray(incomingData.diamondLogs)) {
-        setDiamondLogs(incomingData.diamondLogs);
-        setCachedDiamondTransactions(incomingData.diamondLogs);
+        setDiamondLogs((prev) => {
+          if (incomingData.diamondLogs.length === 0 && incomingData.isReset) {
+            setCachedDiamondTransactions([]);
+            return [];
+          }
+          if (incomingData.diamondLogs.length === 0) return prev;
+          if (JSON.stringify(prev) === JSON.stringify(incomingData.diamondLogs)) return prev;
+          setCachedDiamondTransactions(incomingData.diamondLogs);
+          return incomingData.diamondLogs;
+        });
       }
       if (incomingData.formulaSettings) {
         saveFormulaSettings(incomingData.formulaSettings);
       }
       if (incomingData.announcementSettings) {
-        setAnnouncementSettings(incomingData.announcementSettings);
-        try {
-          localStorage.setItem('k7_announcement_config', JSON.stringify(incomingData.announcementSettings));
-        } catch {}
+        setAnnouncementSettings((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(incomingData.announcementSettings)) return prev;
+          try {
+            localStorage.setItem('k7_announcement_config', JSON.stringify(incomingData.announcementSettings));
+          } catch {}
+          return incomingData.announcementSettings;
+        });
       }
       if (incomingData.backgroundSettings) {
-        setBgConfig(incomingData.backgroundSettings);
-        try {
-          localStorage.setItem('k7_bg_config', JSON.stringify(incomingData.backgroundSettings));
-        } catch {}
+        setBgConfig((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(incomingData.backgroundSettings)) return prev;
+          try {
+            localStorage.setItem('k7_bg_config', JSON.stringify(incomingData.backgroundSettings));
+          } catch {}
+          return incomingData.backgroundSettings;
+        });
       }
       if (incomingData.discordSettings) {
-        setDiscordSettings(incomingData.discordSettings);
+        setDiscordSettings((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(incomingData.discordSettings)) return prev;
+          return incomingData.discordSettings;
+        });
       }
       if (incomingData.statUpdateSettings) {
-        setStatUpdateSettings(incomingData.statUpdateSettings);
+        setStatUpdateSettings((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(incomingData.statUpdateSettings)) return prev;
+          return incomingData.statUpdateSettings;
+        });
       }
     });
 
@@ -4115,7 +4143,7 @@ export const App: React.FC = () => {
       setVaultItems([]);
       setCachedVaultItems([]);
       broadcastLiveState(
-        getFullBackupPayload({ vaultItems: [] }),
+        getFullBackupPayload({ vaultItems: [], isReset: true }),
         currentUser?.inGameName || 'Owner'
       );
       showToast(lang === 'th' ? `ล้างรายการไอเทมในคลังทั้งหมดเรียบร้อย (${count} รายการ)` : `Cleared all ${count} vault items`, 'success');
@@ -4132,7 +4160,7 @@ export const App: React.FC = () => {
       setQueueItems([]);
       setCachedQueues([]);
       broadcastLiveState(
-        getFullBackupPayload({ queueItems: [] }),
+        getFullBackupPayload({ queueItems: [], isReset: true }),
         currentUser?.inGameName || 'Owner'
       );
       showToast(lang === 'th' ? `ล้างคิวไอเทมทั้งหมดเรียบร้อย (${count} รายการ)` : `Cleared all ${count} item queues`, 'success');
@@ -4140,7 +4168,7 @@ export const App: React.FC = () => {
       setDiamondLogs([]);
       setCachedDiamondTransactions([]);
       broadcastLiveState(
-        getFullBackupPayload({ diamondLogs: [], vaultBalance: 0 }),
+        getFullBackupPayload({ diamondLogs: [], vaultBalance: 0, isReset: true }),
         currentUser?.inGameName || 'Owner'
       );
       showToast(lang === 'th' ? `ล้างประวัติธุรกรรมกล่องเพชรเรียบร้อย (${count} รายการ)` : `Cleared all ${count} diamond logs`, 'success');

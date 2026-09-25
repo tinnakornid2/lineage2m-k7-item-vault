@@ -144,7 +144,10 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       if (!u || !u.id) continue;
       if (u.id === 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' || u.isAuthShadow) continue;
       if (u.status === 'shadow' || u.status === 'deleted') continue;
-      if (deletedUsers && deletedUsers[u.id]) continue;
+      if (deletedUsers && deletedUsers[u.id]) {
+        const uRev = Number(u.updatedAt || u.createdAt || 0);
+        if (uRev <= deletedUsers[u.id]) continue;
+      }
 
       const isEloni =
         u.id === 'user_owner_eloni' ||
@@ -513,6 +516,53 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     }
   });
 
+  // Purge all legacy / ghost tombstones completely across live state & Firestore
+  app.post("/api/admin/clean-tombstones", requireRoles(['owner', 'admin']), async (_req, res) => {
+    try {
+      const cleanSyncMeta = {
+        deletedVaultItems: {},
+        deletedQueueItems: {},
+        deletedGeneralItems: {},
+        deletedUsers: {},
+        cancelledClaims: {},
+        removedQueueMembers: {}
+      };
+      if (liveHubState && liveHubState.data) {
+        liveHubState.data.syncMeta = cleanSyncMeta;
+        liveHubState.updatedAt = Date.now();
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
+        liveStateEmitter.emit('update');
+      }
+
+      const sdk = await getAdminSdk();
+      if (sdk && sdk.db) {
+        await sdk.db.collection('system_meta').doc('live_state').set({
+          version: (liveHubState?.version || 100) + 1,
+          updatedAt: Date.now(),
+          data: {
+            ...(liveHubState?.data || {}),
+            syncMeta: cleanSyncMeta
+          }
+        }, { merge: true }).catch(() => {});
+
+        await sdk.db.collection('system').doc('tombstones').set({
+          deletedVaultItems: {},
+          deletedQueueItems: {},
+          deletedGeneralItems: {},
+          deletedUsers: {},
+          cancelledClaims: {},
+          removedQueueMembers: {},
+          updatedAt: Date.now()
+        }).catch(() => {});
+      }
+
+      return res.json({ success: true, message: 'All ghost tombstones purged successfully' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
   // Resolve Orphan Firebase Auth User Registration
   app.post("/api/auth/resolve-orphan-registration", async (req, res) => {
     try {
@@ -770,8 +820,15 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         const previousData = liveHubState.data || {};
         const mergeTimestampMaps = (left: any, right: any) => {
           const merged: Record<string, number> = { ...(left || {}) };
+          const now = Date.now();
+          const maxAge = 14 * 24 * 60 * 60 * 1000;
           for (const [key, value] of Object.entries(right || {})) {
-            if (typeof value === 'number' && value > (merged[key] || 0)) merged[key] = value;
+            if (typeof value === 'number' && value > (merged[key] || 0) && (now - value < maxAge)) {
+              merged[key] = value;
+            }
+          }
+          for (const [k, v] of Object.entries(merged)) {
+            if (typeof v !== 'number' || now - v >= maxAge) delete merged[k];
           }
           return merged;
         };
@@ -789,7 +846,8 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           for (const record of [...(previous || []), ...(incoming || [])]) {
             if (!record?.id) continue;
             const recordRevision = Number(record.updatedAt || record.createdAt || 0);
-            if (deleted && deleted[record.id]) {
+            const deletedAt = deleted ? (deleted[record.id] || 0) : 0;
+            if (deletedAt && recordRevision <= deletedAt) {
               continue;
             }
             const existing = records.get(record.id);
@@ -914,37 +972,43 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           data.vaultBalance = 0;
           data.users = sanitizeAndDeduplicateUsers(Array.isArray(data.users) && data.users.length > 0 ? data.users : []);
         } else {
-          if (Array.isArray(data.vaultItems) && data.vaultItems.length === 0 && (previousData.vaultItems?.length || 0) > 0) {
-            data.vaultItems = [];
-          } else {
+          if (Array.isArray(data.vaultItems) && data.vaultItems.length > 0) {
             data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
+          } else {
+            data.vaultItems = previousData.vaultItems || [];
           }
 
-          if (Array.isArray(data.queueItems) && data.queueItems.length === 0 && (previousData.queueItems?.length || 0) > 0) {
-            data.queueItems = [];
-          } else {
+          if (Array.isArray(data.queueItems) && data.queueItems.length > 0) {
             data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems, false, true);
-          }
-
-          if (Array.isArray(data.generalItems) && data.generalItems.length === 0 && (previousData.generalItems?.length || 0) > 0) {
-            data.generalItems = [];
           } else {
-            data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
+            data.queueItems = previousData.queueItems || [];
           }
 
-          data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
+          if (Array.isArray(data.generalItems) && data.generalItems.length > 0) {
+            data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
+          } else {
+            data.generalItems = previousData.generalItems || [];
+          }
+
+          if (Array.isArray(data.users) && data.users.length > 0) {
+            data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
+          } else {
+            data.users = previousData.users || [];
+          }
         }
 
         if (Array.isArray(data.diamondLogs)) {
-          if (data.diamondLogs.length === 0) {
+          if (data.diamondLogs.length === 0 && (req.body.isReset || data.isReset)) {
             data.diamondLogs = [];
             data.vaultBalance = 0;
-          } else {
+          } else if (data.diamondLogs.length > 0) {
             const dlogMap = new Map<string, any>();
             for (const log of data.diamondLogs) {
               if (log && log.id) dlogMap.set(log.id, log);
             }
             data.diamondLogs = Array.from(dlogMap.values());
+          } else {
+            data.diamondLogs = previousData.diamondLogs || [];
           }
         } else if (previousData.diamondLogs) {
           data.diamondLogs = previousData.diamondLogs;
@@ -953,18 +1017,33 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           }
         }
 
-        // Strict tombstone filtering after merge
+        // Strict tombstone filtering after merge (only drop if record revision <= tombstone timestamp)
         if (Array.isArray(data.vaultItems)) {
-          data.vaultItems = data.vaultItems.filter((it: any) => it && it.id && !syncMeta.deletedVaultItems?.[it.id]);
+          data.vaultItems = data.vaultItems.filter((it: any) => {
+            if (!it || !it.id) return false;
+            const delAt = syncMeta.deletedVaultItems?.[it.id];
+            if (!delAt) return true;
+            const rev = Number(it.updatedAt || it.createdAt || 0);
+            return rev > delAt;
+          });
         }
         if (Array.isArray(data.queueItems)) {
           data.queueItems = data.queueItems.filter((it: any) => {
-            if (!it?.id) return false;
-            return !syncMeta.deletedQueueItems?.[it.id];
+            if (!it || !it.id) return false;
+            const delAt = syncMeta.deletedQueueItems?.[it.id];
+            if (!delAt) return true;
+            const rev = Number(it.updatedAt || it.createdAt || 0);
+            return rev > delAt;
           });
         }
         if (Array.isArray(data.generalItems)) {
-          data.generalItems = data.generalItems.filter((it: any) => it && it.id && !syncMeta.deletedGeneralItems?.[it.id]);
+          data.generalItems = data.generalItems.filter((it: any) => {
+            if (!it || !it.id) return false;
+            const delAt = syncMeta.deletedGeneralItems?.[it.id];
+            if (!delAt) return true;
+            const rev = Number(it.updatedAt || it.createdAt || 0);
+            return rev > delAt;
+          });
         }
         if (Array.isArray(data.users)) {
           data.users = sanitizeAndDeduplicateUsers(data.users, syncMeta.deletedUsers);
