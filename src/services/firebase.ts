@@ -177,7 +177,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.16-stable-sync';
+const CACHE_SCHEMA_VERSION = '2.10.17-queue-claim-sync';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v272',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -2430,7 +2430,10 @@ export async function updateVaultItemDoc(itemId: string, updates: Partial<VaultI
   try {
     const ref = doc(db, ITEMS_COLLECTION, itemId);
     const cleanUpdates = sanitizeForFirestore(updates);
-    await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1200, 'updateVaultItemDoc');
+    const updateRes = await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateVaultItemDoc_updateDoc');
+    if (updateRes === null) {
+      await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1200, 'updateVaultItemDoc_setDoc');
+    }
     bumpSystemVersion('vaultVersion').catch(() => {});
   } catch (err: any) {
     console.warn('Notice: Failed to update vault item doc in Firestore (failover mode):', err);
@@ -2840,11 +2843,13 @@ export async function updateGeneralItemDoc(itemId: string, updates: Partial<Omit
     ...updates,
     updatedAt: (updates as any).updatedAt || Date.now()
   };
-  await safeFirestoreWrite(
-    setDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId), sanitizeForFirestore(updatesWithTime), { merge: true }),
-    1500,
-    'updateGeneralItemDoc'
-  );
+  const cleanUpdates = sanitizeForFirestore(updatesWithTime);
+  const ref = doc(db, GENERAL_ITEMS_COLLECTION, itemId);
+  try {
+    await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1500, 'updateGeneralItemDoc');
+  } catch {
+    await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1500, 'updateGeneralItemDoc_merge');
+  }
   bumpSystemVersion('generalItemsVersion').catch(() => {});
 }
 

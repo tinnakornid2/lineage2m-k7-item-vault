@@ -63,6 +63,8 @@ import {
   addVaultItemDoc,
   updateVaultItemDoc,
   deleteVaultItemDoc,
+  addItemClaimDoc,
+  deleteItemClaimDoc,
   addQueueItemDoc,
   updateQueueItemDoc,
   deleteQueueItemDoc,
@@ -741,7 +743,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const currentClaimKeys = new Set<string>();
-    const currentClaimsList: { item: VaultItem; claimant: Claimant }[] = [];
+    const currentClaimsList: { item: VaultItem; claimant: Claimant; key: string }[] = [];
 
     vaultItems.forEach((item) => {
       // Ignore distributed items: distributed items must never trigger claim notifications!
@@ -750,7 +752,7 @@ export const App: React.FC = () => {
       (item.claimants || []).forEach((c) => {
         const key = `vault_${item.id}_${c.userId || c.inGameName}_${c.claimedAt || 0}`;
         currentClaimKeys.add(key);
-        currentClaimsList.push({ item, claimant: c });
+        currentClaimsList.push({ item, claimant: c, key });
       });
     });
 
@@ -781,7 +783,8 @@ export const App: React.FC = () => {
             clan: m.clan,
             powerLevel: m.powerLevel || 0,
             claimedAt: m.joinedAt || gItem.createdAt || Date.now()
-          }
+          },
+          key
         });
       });
     });
@@ -804,12 +807,9 @@ export const App: React.FC = () => {
     const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
     if (isPrivileged) {
       const newClaims = currentClaimsList.filter(
-        ({ item, claimant }) =>
-          !previousClaimKeysRef.current!.has(
-            `${item.id.startsWith('gen') ? 'gen' : 'vault'}_${item.id}_${claimant.userId || claimant.inGameName}_${claimant.claimedAt || 0}`
-          ) &&
-          claimant.userId !== currentUser?.id &&
-          (claimant.claimedAt || 0) >= pageLoadedAtRef.current - 2000
+        ({ claimant, key }) =>
+          !previousClaimKeysRef.current!.has(key) &&
+          (claimant.userId ? claimant.userId !== currentUser?.id : claimant.inGameName !== currentUser?.inGameName)
       );
 
       if (newClaims.length > 0) {
@@ -952,7 +952,7 @@ export const App: React.FC = () => {
     const newlyJoined = currentMemberList.filter(
       ({ queue, member }) =>
         !previousQueueMemberKeysRef.current!.has(`${queue.id}_${member.id}_${member.joinedAt || 0}`) &&
-        member.id !== currentUser?.id
+        (member.userId ? member.userId !== currentUser?.id : member.name !== currentUser?.inGameName)
     );
 
     if (newlyJoined.length > 0) {
@@ -2231,27 +2231,25 @@ export const App: React.FC = () => {
 
     const isPrivileged = currentUser.role === 'owner' || currentUser.role === 'admin';
     const hasStats = hasUserUpdatedStats(currentUser);
+    const userCP = Number(currentUser.powerLevel || 0);
+    const requiredCP = Number(item.minPowerLevel || 0);
 
-    // Block claim if member has not updated character stats
-    if (!isPrivileged && !hasStats) {
+    // Block claim if member has not updated character stats (for items requiring minimum power level > 0)
+    if (!isPrivileged && !hasStats && requiredCP > 0) {
       sounds.playClick();
       const isPending = isUserStatsPending(currentUser);
       showToast(
         lang === 'th'
           ? (isPending
-              ? 'สเตตัสของคุณอยู่ระหว่างรอ Admin ตรวจสอบและอนุมัติ จึงยังไม่สามารถลงชื่อเคลมไอเทมได้'
-              : 'คุณยังไม่ได้อัปเดตค่าสเตตัสตัวละคร กรุณาไปที่หน้า "ข้อมูลของฉัน" เพื่ออัปเดตสเตตัสก่อนเคลมไอเทม')
+              ? 'สเตตัสของคุณอยู่ระหว่างรอ Admin ตรวจสอบและอนุมัติ จึงยังไม่สามารถลงชื่อเคลมไอเทมที่กำหนดค่าพลังได้'
+              : 'คุณยังไม่ได้อัปเดตค่าสเตตัสตัวละคร กรุณาไปที่หน้า "ข้อมูลของฉัน" เพื่ออัปเดตสเตตัสก่อนเคลมไอเทมนี้')
           : (isPending
-              ? 'Your stats update is pending Admin approval. You cannot claim items yet.'
-              : 'You must update your character stats in "My Stats" before claiming items.'),
+              ? 'Your stats update is pending Admin approval. You cannot claim items requiring power level yet.'
+              : 'You must update your character stats in "My Stats" before claiming items requiring power level.'),
         'warning'
       );
       return;
     }
-
-    // Check power requirement (owner and admin bypass minimum PL)
-    const userCP = Number(currentUser.powerLevel || 0);
-    const requiredCP = Number(item.minPowerLevel || 0);
 
     if (!isPrivileged && userCP < requiredCP) {
       sounds.playClick();
@@ -2343,6 +2341,7 @@ export const App: React.FC = () => {
 
     try {
       await updateVaultItemDoc(itemId, { claimants: updatedClaimants, updatedAt: now });
+      await addItemClaimDoc(itemId, newClaimant).catch((e) => console.warn('addItemClaimDoc notice:', e));
       showToast(
         lang === 'th' ? 'ลงชื่อเครมไอเทมสำเร็จ!' : 'Claim submitted successfully!',
         'success'
@@ -2453,6 +2452,9 @@ export const App: React.FC = () => {
     // 4. Persist to Firestore
     try {
       await updateVaultItemDoc(itemId, { claimants: updatedClaimants, updatedAt: now });
+      if (userIdToRemove) {
+        await deleteItemClaimDoc(itemId, userIdToRemove).catch((e) => console.warn('deleteItemClaimDoc notice:', e));
+      }
       showToast(
         lang === 'th' ? 'ยกเลิกการลงชื่อเครมสำเร็จ' : 'Claim cancelled successfully',
         'info'
@@ -2812,7 +2814,13 @@ export const App: React.FC = () => {
       currentUser?.inGameName || currentUser?.username || 'Admin'
     );
 
-    // 2. Persist in Firestore
+    // 2. Persist in Firestore & background serverless endpoint
+    fetch('/api/update-boss-queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ queueId, queueList: members })
+    }).catch(() => {});
+
     try {
       await updateQueueItemDoc(queueId, { queueList: members, updatedAt: now });
     } catch (err) {
@@ -2996,7 +3004,16 @@ export const App: React.FC = () => {
       true
     );
 
-    // 5. Safe Firestore persistence (non-blocking)
+    // 5. Background serverless endpoint if queueList was modified
+    if (updates.queueList) {
+      fetch('/api/update-general-item-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId, queueList: updates.queueList })
+      }).catch(() => {});
+    }
+
+    // 6. Safe Firestore persistence (non-blocking)
     try {
       await updateGeneralItemDoc(itemId, fullUpdates);
     } catch (err) {

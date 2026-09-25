@@ -1502,7 +1502,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 const hasStats = hasUserUpdatedStats(currentUser);
                 const isStatsPendingState = isUserStatsPending(currentUser);
                 const userPower = Number(currentUser?.powerLevel || 0);
-                const hasEnoughPower = isPrivileged || (hasStats && userPower >= Number(item.minPowerLevel || 0));
+                const itemRequiresPower = Number(item.minPowerLevel || 0) > 0;
+                const hasEnoughPower = isPrivileged || ((hasStats || !itemRequiresPower) && userPower >= Number(item.minPowerLevel || 0));
 
                 return (
                   <div
@@ -1661,7 +1662,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 </button>
                               )}
                             </div>
-                          ) : !hasStats && !isPrivileged ? (
+                          ) : !hasStats && !isPrivileged && itemRequiresPower ? (
                             <button
                               id={`btn-claim-${item.id}`}
                               onClick={() => {
@@ -1819,7 +1820,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       const hasStats = hasUserUpdatedStats(currentUser);
                       const isStatsPendingState = isUserStatsPending(currentUser);
                       const userPower = Number(currentUser?.powerLevel || 0);
-                      const hasEnoughPower = isPrivileged || (hasStats && userPower >= Number(item.minPowerLevel || 0));
+                      const itemRequiresPower = Number(item.minPowerLevel || 0) > 0;
+                      const hasEnoughPower = isPrivileged || ((hasStats || !itemRequiresPower) && userPower >= Number(item.minPowerLevel || 0));
 
                       return (
                         <tr
@@ -1962,7 +1964,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                   </button>
                                 )}
                               </div>
-                            ) : !hasStats && !isPrivileged ? (
+                            ) : !hasStats && !isPrivileged && itemRequiresPower ? (
                               <button
                                 id={`btn-table-claim-${item.id}`}
                                 onClick={() => {

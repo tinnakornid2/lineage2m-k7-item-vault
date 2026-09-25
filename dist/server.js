@@ -954,10 +954,6 @@ async function createApp(options = {}) {
         powerLevel: Number(claimant.powerLevel || 0),
         claimedAt: Number(claimant.claimedAt || now)
       };
-      const targetItem = (liveHubState?.data?.vaultItems || []).find((i) => i.id === itemId);
-      if (!targetItem) {
-        return res.status(404).json({ success: false, error: "ITEM_NOT_FOUND" });
-      }
       if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
         liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item) => {
           if (item.id === itemId) {
@@ -997,6 +993,10 @@ async function createApp(options = {}) {
               claimants: [...currentClaimants, safeClaimant],
               updatedAt: now
             }, { merge: true });
+          }
+          if (safeClaimant.userId) {
+            const claimDocRef = sdk.db.collection("item_claims").doc(`${itemId}__${safeClaimant.userId}`);
+            await claimDocRef.set({ ...safeClaimant, itemId }, { merge: true });
           }
         }
       } catch (dbErr) {
@@ -1056,6 +1056,11 @@ async function createApp(options = {}) {
               updatedAt: now
             }, { merge: true });
           }
+          if (userId) {
+            const claimDocRef = sdk.db.collection("item_claims").doc(`${itemId}__${userId}`);
+            await claimDocRef.delete().catch(() => {
+            });
+          }
         }
       } catch (dbErr) {
         console.warn("Notice: Firestore admin unclaim write skipped:", dbErr?.message || dbErr);
@@ -1063,6 +1068,68 @@ async function createApp(options = {}) {
       res.json({ success: true, itemId });
     } catch (err) {
       res.status(500).json({ success: false, error: err?.message || "FAILED_TO_UNCLAIM" });
+    }
+  });
+  app.post("/api/update-general-item-queue", async (req, res) => {
+    try {
+      const { itemId, queueList } = req.body;
+      if (!itemId || !Array.isArray(queueList)) {
+        return res.status(400).json({ success: false, error: "INVALID_PAYLOAD" });
+      }
+      const now = Date.now();
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.generalItems)) {
+        liveHubState.data.generalItems = liveHubState.data.generalItems.map(
+          (item) => item.id === itemId ? { ...item, queueList, updatedAt: now } : item
+        );
+        liveHubState.updatedAt = now;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+        liveStateEmitter.emit("update");
+      }
+      try {
+        const sdk = await getAdminSdk();
+        if (sdk && sdk.db) {
+          await sdk.db.collection("general_items").doc(itemId).set({ queueList, updatedAt: now }, { merge: true });
+        }
+      } catch (dbErr) {
+        console.warn("Notice: Firestore admin general item queue write skipped:", dbErr?.message || dbErr);
+      }
+      res.json({ success: true, itemId });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "FAILED_TO_UPDATE_QUEUE" });
+    }
+  });
+  app.post("/api/update-boss-queue", async (req, res) => {
+    try {
+      const { queueId, queueList } = req.body;
+      if (!queueId || !Array.isArray(queueList)) {
+        return res.status(400).json({ success: false, error: "INVALID_PAYLOAD" });
+      }
+      const now = Date.now();
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.queueItems)) {
+        liveHubState.data.queueItems = liveHubState.data.queueItems.map(
+          (item) => item.id === queueId ? { ...item, queueList, updatedAt: now } : item
+        );
+        liveHubState.updatedAt = now;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+        liveStateEmitter.emit("update");
+      }
+      try {
+        const sdk = await getAdminSdk();
+        if (sdk && sdk.db) {
+          await sdk.db.collection("item_queues").doc(queueId).set({ queueList, updatedAt: now }, { merge: true });
+        }
+      } catch (dbErr) {
+        console.warn("Notice: Firestore admin boss queue write skipped:", dbErr?.message || dbErr);
+      }
+      res.json({ success: true, queueId });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "FAILED_TO_UPDATE_QUEUE" });
     }
   });
   app.post("/api/scan-hunters", requireRoles(["owner", "admin", "manager"]), async (req, res) => {

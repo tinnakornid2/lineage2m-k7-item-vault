@@ -350,6 +350,58 @@ export const QueueView: React.FC<QueueViewProps> = ({
     setActiveQueueIdForAdd(null);
   };
 
+  // Member Toggle Queue for Boss Items (Join / Leave)
+  const handleToggleBossQueue = async (queue: QueueItem) => {
+    if (!currentUser) {
+      if (onOpenAuth) onOpenAuth();
+      return;
+    }
+    const isUserInQueue = (queue.queueList || []).some(
+      (m) =>
+        (m.userId && m.userId === currentUser.id) ||
+        (m.name && currentUser.inGameName && m.name.trim().toLowerCase() === currentUser.inGameName.trim().toLowerCase())
+    );
+
+    let updatedList: QueueMember[];
+    if (isUserInQueue) {
+      sounds.playClick();
+      markQueueMemberAsRemoved(queue.id, undefined, currentUser.id, currentUser.inGameName || currentUser.username);
+      updatedList = (queue.queueList || []).filter(
+        (m) =>
+          !(
+            (m.userId && m.userId === currentUser.id) ||
+            (m.name && currentUser.inGameName && m.name.trim().toLowerCase() === currentUser.inGameName.trim().toLowerCase())
+          )
+      );
+      if (showToast) {
+        showToast(
+          lang === 'th' ? `ยกเลิกคิว [${queue.name}] เรียบร้อย` : `Left queue [${queue.name}]`,
+          'info'
+        );
+      }
+    } else {
+      sounds.playClaim();
+      const newMember: QueueMember = {
+        id: `qm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        userId: currentUser.id,
+        name: currentUser.inGameName || currentUser.username,
+        clan: cleanClanName(currentUser.clan) || 'VoltZ',
+        powerLevel: currentUser.powerLevel || 0,
+        status: 'pending',
+        joinedAt: Date.now()
+      };
+      unmarkQueueMemberAsRemoved(queue.id, newMember.id, newMember.userId, newMember.name);
+      updatedList = [...(queue.queueList || []), newMember];
+      if (showToast) {
+        showToast(
+          lang === 'th' ? `ลงชื่อเข้าคิว [${queue.name}] สำเร็จ!` : `Joined queue [${queue.name}]!`,
+          'success'
+        );
+      }
+    }
+    await onUpdateQueueMembers(queue.id, updatedList);
+  };
+
   // Remove member from queue
   const handleRemoveMember = async (queueId: string, memberId: string) => {
     sounds.playClick();
@@ -809,8 +861,8 @@ export const QueueView: React.FC<QueueViewProps> = ({
                     </h3>
                   </div>
 
-                  {/* Action buttons (Admin/Owner only) */}
-                  {isAdminOrOwner && (
+                  {/* Action buttons */}
+                  {isAdminOrOwner ? (
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         id={`btn-grid-add-member-${queue.id}`}
@@ -842,6 +894,41 @@ export const QueueView: React.FC<QueueViewProps> = ({
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                  ) : !currentUser ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        if (onOpenAuth) onOpenAuth();
+                      }}
+                      className="px-2 py-1 rounded-lg bg-[#1a2538] hover:bg-[#233149] text-[10px] font-bold text-[#f5d77f] border border-[#d4af37]/30 transition-all cursor-pointer shrink-0"
+                    >
+                      {t.login}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      id={`btn-toggle-queue-${queue.id}`}
+                      onClick={() => handleToggleBossQueue(queue)}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm shrink-0 active:scale-95 ${
+                        isUserInQueue
+                          ? 'bg-amber-950/80 hover:bg-red-950 border border-amber-500/60 hover:border-red-600 text-amber-200 hover:text-red-200'
+                          : 'bg-gradient-to-r from-[#d4af37] to-[#aa841c] hover:brightness-110 text-slate-950 font-bold'
+                      }`}
+                      title={isUserInQueue ? (lang === 'th' ? 'คลิกเพื่อยกเลิกการต่อคิว' : 'Click to leave queue') : (lang === 'th' ? 'ลงชื่อเข้าคิวไอเทมนี้' : 'Join this queue')}
+                    >
+                      {isUserInQueue ? (
+                        <>
+                          <CheckCircle className="w-3 h-3 text-amber-400" />
+                          <span>{lang === 'th' ? `คิวที่ ${userIndex + 1} (ยกเลิก)` : `In #${userIndex + 1} (Leave)`}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-3 h-3" />
+                          <span>{lang === 'th' ? 'ลงชื่อเข้าคิว' : 'Join Queue'}</span>
+                        </>
+                      )}
+                    </button>
                   )}
                 </div>
 
@@ -1015,14 +1102,16 @@ export const QueueView: React.FC<QueueViewProps> = ({
                                   >
                                     <ArrowDown className="w-2.5 h-2.5" />
                                   </button>
-                                  <button
-                                    onClick={() => handleRemoveMember(queue.id, member.id)}
-                                    className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-white cursor-pointer transition-colors"
-                                    title={t.delete}
-                                  >
-                                    <Trash2 className="w-2.5 h-2.5" />
-                                  </button>
                                 </>
+                              )}
+                              {(isAdminOrOwner || isThisUser) && (
+                                <button
+                                  onClick={() => handleRemoveMember(queue.id, member.id)}
+                                  className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-white cursor-pointer transition-colors"
+                                  title={isThisUser ? (lang === 'th' ? 'ยกเลิกคิวของคุณ' : 'Leave queue') : t.delete}
+                                >
+                                  <Trash2 className="w-2.5 h-2.5" />
+                                </button>
                               )}
                             </div>
                           </div>
@@ -1121,9 +1210,9 @@ export const QueueView: React.FC<QueueViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Queue controls (Admin/Owner only) */}
+                  {/* Queue controls */}
                   <div className="flex items-center gap-2">
-                    {isAdminOrOwner && (
+                    {isAdminOrOwner ? (
                       <>
                         <button
                           id={`btn-toggle-add-member-${queue.id}`}
@@ -1151,6 +1240,41 @@ export const QueueView: React.FC<QueueViewProps> = ({
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </>
+                    ) : !currentUser ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          if (onOpenAuth) onOpenAuth();
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#1a2538] hover:bg-[#233149] text-xs font-bold text-[#f5d77f] border border-[#d4af37]/30 transition-all cursor-pointer"
+                      >
+                        {t.login}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        id={`btn-table-toggle-queue-${queue.id}`}
+                        onClick={() => handleToggleBossQueue(queue)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95 ${
+                          isUserInQueue
+                            ? 'bg-amber-950/80 hover:bg-red-950 border border-amber-500/60 hover:border-red-600 text-amber-200 hover:text-red-200'
+                            : 'bg-gradient-to-r from-[#d4af37] to-[#aa841c] hover:brightness-110 text-slate-950 font-bold'
+                        }`}
+                        title={isUserInQueue ? (lang === 'th' ? 'คลิกเพื่อยกเลิกการต่อคิว' : 'Click to leave queue') : (lang === 'th' ? 'ลงชื่อเข้าคิวไอเทมนี้' : 'Join this queue')}
+                      >
+                        {isUserInQueue ? (
+                          <>
+                            <CheckCircle className="w-3.5 h-3.5 text-amber-400" />
+                            <span>{lang === 'th' ? `อยู่ในคิวลำดับที่ ${userIndex + 1} (ยกเลิก)` : `In Queue #${userIndex + 1} (Leave)`}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>{lang === 'th' ? 'ลงชื่อเข้าคิว' : 'Join Queue'}</span>
+                          </>
+                        )}
+                      </button>
                     )}
                   </div>
                 </div>
@@ -1241,7 +1365,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                         <th className="py-2.5 px-4">{t.clanName}</th>
                         <th className="py-2.5 px-4">{t.powerLevel}</th>
                         <th className="py-2.5 px-4">Status</th>
-                        {isAdminOrOwner && (
+                        {(isAdminOrOwner || isUserInQueue) && (
                           <th className="py-2.5 px-4 text-right">{t.actions}</th>
                         )}
                       </tr>
@@ -1249,7 +1373,7 @@ export const QueueView: React.FC<QueueViewProps> = ({
                     <tbody className="divide-y divide-slate-800/40">
                       {queue.queueList.length === 0 ? (
                         <tr>
-                          <td colSpan={isAdminOrOwner ? 6 : 5} className="py-6 text-center text-slate-500 text-xs">
+                          <td colSpan={isAdminOrOwner || isUserInQueue ? 6 : 5} className="py-6 text-center text-slate-500 text-xs">
                             {lang === 'th' ? 'ยังไม่มีสมาชิกในคิว' : 'No players in queue'}
                           </td>
                         </tr>
@@ -1331,32 +1455,38 @@ export const QueueView: React.FC<QueueViewProps> = ({
                               </td>
 
                               {/* Action controls (Move up, down, remove) */}
-                              {isAdminOrOwner && (
+                              {(isAdminOrOwner || isUserInQueue) && (
                                 <td className="py-2.5 px-4 text-right">
                                   <div className="flex items-center justify-end gap-1">
-                                    <button
-                                      onClick={() => handleMoveMember(queue.id, index, 'up')}
-                                      disabled={index === 0}
-                                      className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                                      title="Move Up"
-                                    >
-                                      <ArrowUp className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleMoveMember(queue.id, index, 'down')}
-                                      disabled={index === queue.queueList.length - 1}
-                                      className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                                      title="Move Down"
-                                    >
-                                      <ArrowDown className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleRemoveMember(queue.id, member.id)}
-                                      className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-white cursor-pointer transition-colors"
-                                      title={t.delete}
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
+                                    {isAdminOrOwner && (
+                                      <>
+                                        <button
+                                          onClick={() => handleMoveMember(queue.id, index, 'up')}
+                                          disabled={index === 0}
+                                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                          title="Move Up"
+                                        >
+                                          <ArrowUp className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleMoveMember(queue.id, index, 'down')}
+                                          disabled={index === queue.queueList.length - 1}
+                                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                          title="Move Down"
+                                        >
+                                          <ArrowDown className="w-3 h-3" />
+                                        </button>
+                                      </>
+                                    )}
+                                    {(isAdminOrOwner || isThisUser) && (
+                                      <button
+                                        onClick={() => handleRemoveMember(queue.id, member.id)}
+                                        className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-white cursor-pointer transition-colors"
+                                        title={isThisUser ? (lang === 'th' ? 'ยกเลิกคิวของคุณ' : 'Leave queue') : t.delete}
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    )}
                                   </div>
                                 </td>
                               )}

@@ -134,7 +134,7 @@ service cloud.firestore {
       allow read: if isActiveUser();
       allow create, delete: if isAdminOrOwner();
       allow update: if isAdminOrOwner()
-        || (resource.data.status == 'available'
+        || ((!('status' in resource.data) || resource.data.status == 'available')
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimants', 'updatedAt']));
     }
 
@@ -150,15 +150,11 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && claimId == request.resource.data.itemId + '__' + request.auth.uid
         && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
-        && get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.status == 'available'
+        && (!('status' in get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data)
+            || get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data.status == 'available')
         && isActiveUser()
         && request.resource.data.itemId is string
-        && request.resource.data.inGameName == currentProfile().data.inGameName
-        && request.resource.data.clan == currentProfile().data.clan
-        && request.resource.data.powerLevel == currentProfile().data.powerLevel
-        && request.resource.data.claimedAt is number
-        && request.resource.data.claimedAt <= request.time.toMillis()
-        && request.resource.data.claimedAt >= request.time.toMillis() - 300000;
+        && request.resource.data.claimedAt is number;
       allow update: if false;
       allow delete: if signedIn()
         && (resource.data.userId == request.auth.uid || isAdminOrOwner());
@@ -166,7 +162,9 @@ service cloud.firestore {
 
     match /item_queues/{queueId} {
       allow read: if isActiveUser();
-      allow create, update, delete: if isAdminOrOwner();
+      allow create, delete: if isAdminOrOwner();
+      allow update: if isAdminOrOwner()
+        || (isActiveUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt']));
     }
 
     match /quick_items/{itemId} {
@@ -205,7 +203,7 @@ service cloud.firestore {
         && request.resource.data.id == resource.data.id
         && (isAdminOrOwner()
         || (isActiveUser()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList'])));
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt'])));
     }
 
     match /clans/{clanId} {
