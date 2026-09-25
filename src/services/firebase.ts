@@ -177,15 +177,15 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.22-clean-slate';
+const CACHE_SCHEMA_VERSION = '2.10.23-clean-slate';
 export const CACHE_KEYS = {
-  USERS: 'l2m_cached_users_v21022',
-  VAULT_ITEMS: 'l2m_cached_vault_items_v21022',
-  QUEUES: 'l2m_cached_queues_v21022',
-  CLANS: 'l2m_cached_clans_v21022',
-  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21022',
-  QUICK_ITEMS: 'l2m_cached_quick_items_v21022',
-  GENERAL_ITEMS: 'l2m_cached_general_items_v21022'
+  USERS: 'l2m_cached_users_v21023',
+  VAULT_ITEMS: 'l2m_cached_vault_items_v21023',
+  QUEUES: 'l2m_cached_queues_v21023',
+  CLANS: 'l2m_cached_clans_v21023',
+  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21023',
+  QUICK_ITEMS: 'l2m_cached_quick_items_v21023',
+  GENERAL_ITEMS: 'l2m_cached_general_items_v21023'
 };
 
 export function clearAllLocalCaches(): void {
@@ -199,8 +199,12 @@ export function clearAllLocalCaches(): void {
     localStorage.removeItem(DELETED_GENERAL_ITEMS_KEY);
     localStorage.removeItem('l2m_cancelled_claims_map');
     localStorage.removeItem('k7_queue_announcement');
+    localStorage.removeItem('k7_announcement_text');
     localStorage.removeItem('l2m_pending_firebase_sync');
     localStorage.removeItem('l2m_pending_firebase_sync_at');
+    localStorage.removeItem('l2m_read_notifications');
+    localStorage.removeItem('l2m_dismissed_notifications');
+    localStorage.removeItem('l2m_notification_history');
   } catch (e) {
     console.warn('clearAllLocalCaches error:', e);
   }
@@ -239,10 +243,22 @@ if (typeof localStorage !== 'undefined') {
         'l2m_cached_diamond_txs_v21021',
         'l2m_cached_quick_items_v21021',
         'l2m_cached_general_items_v21021',
+        'l2m_cached_users_v21022',
+        'l2m_cached_vault_items_v21022',
+        'l2m_cached_queues_v21022',
+        'l2m_cached_clans_v21022',
+        'l2m_cached_diamond_txs_v21022',
+        'l2m_cached_quick_items_v21022',
+        'l2m_cached_general_items_v21022',
         'l2m_active_tab',
         'l2m_google_backup_cache',
         'l2m_pending_firebase_sync',
-        'l2m_pending_firebase_sync_at'
+        'l2m_pending_firebase_sync_at',
+        'l2m_read_notifications',
+        'l2m_dismissed_notifications',
+        'l2m_notification_history',
+        'k7_queue_announcement',
+        'k7_announcement_text'
       ];
       LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
 

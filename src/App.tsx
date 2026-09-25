@@ -791,10 +791,8 @@ export const App: React.FC = () => {
 
     // Initial load: record existing claims without playing chime or showing toast
     if (!hasInitializedClaimsRef.current) {
-      if (vaultItems.length > 0 || generalItems.length > 0) {
-        previousClaimKeysRef.current = currentClaimKeys;
-        hasInitializedClaimsRef.current = true;
-      }
+      previousClaimKeysRef.current = currentClaimKeys;
+      hasInitializedClaimsRef.current = true;
       return;
     }
 
@@ -809,7 +807,8 @@ export const App: React.FC = () => {
       const newClaims = currentClaimsList.filter(
         ({ claimant, key }) =>
           !previousClaimKeysRef.current!.has(key) &&
-          (claimant.userId ? claimant.userId !== currentUser?.id : claimant.inGameName !== currentUser?.inGameName)
+          (claimant.userId ? claimant.userId !== currentUser?.id : claimant.inGameName !== currentUser?.inGameName) &&
+          (claimant.claimedAt ? claimant.claimedAt >= pageLoadedAtRef.current : false)
       );
 
       if (newClaims.length > 0) {
@@ -840,10 +839,8 @@ export const App: React.FC = () => {
 
     // Initial load: record existing pending users without playing chime or showing toast
     if (!hasInitializedPendingUsersRef.current) {
-      if (users.length > 0) {
-        previousPendingUserIdsRef.current = currentPendingIds;
-        hasInitializedPendingUsersRef.current = true;
-      }
+      previousPendingUserIdsRef.current = currentPendingIds;
+      hasInitializedPendingUsersRef.current = true;
       return;
     }
 
@@ -853,7 +850,10 @@ export const App: React.FC = () => {
     }
 
     const newlyRegistered = currentPendingUsers.filter(
-      (u) => !previousPendingUserIdsRef.current!.has(u.id) && u.id !== currentUser?.id
+      (u) =>
+        !previousPendingUserIdsRef.current!.has(u.id) &&
+        u.id !== currentUser?.id &&
+        (u.createdAt ? u.createdAt >= pageLoadedAtRef.current : false)
     );
 
     if (newlyRegistered.length > 0) {
@@ -885,10 +885,8 @@ export const App: React.FC = () => {
 
     // Initial load: record existing pending stat requests without playing chime or showing toast
     if (!hasInitializedPendingStatsRef.current) {
-      if (users.length > 0) {
-        previousPendingStatKeysRef.current = currentKeys;
-        hasInitializedPendingStatsRef.current = true;
-      }
+      previousPendingStatKeysRef.current = currentKeys;
+      hasInitializedPendingStatsRef.current = true;
       return;
     }
 
@@ -899,7 +897,12 @@ export const App: React.FC = () => {
 
     const newlyRequested = currentPendingUsers.filter((u) => {
       const key = `${u.id}_${u.pendingPowerLevelRequestedAt || u.updatedAt || 0}`;
-      return !previousPendingStatKeysRef.current!.has(key) && u.id !== currentUser?.id;
+      const reqTime = u.pendingPowerLevelRequestedAt || u.updatedAt || 0;
+      return (
+        !previousPendingStatKeysRef.current!.has(key) &&
+        u.id !== currentUser?.id &&
+        reqTime >= pageLoadedAtRef.current
+      );
     });
 
     if (newlyRequested.length > 0) {
@@ -937,10 +940,8 @@ export const App: React.FC = () => {
     );
 
     if (!hasInitializedQueueMembersRef.current) {
-      if (queueItems.length > 0) {
-        previousQueueMemberKeysRef.current = currentKeys;
-        hasInitializedQueueMembersRef.current = true;
-      }
+      previousQueueMemberKeysRef.current = currentKeys;
+      hasInitializedQueueMembersRef.current = true;
       return;
     }
 
@@ -952,7 +953,8 @@ export const App: React.FC = () => {
     const newlyJoined = currentMemberList.filter(
       ({ queue, member }) =>
         !previousQueueMemberKeysRef.current!.has(`${queue.id}_${member.id}_${member.joinedAt || 0}`) &&
-        (member.userId ? member.userId !== currentUser?.id : member.name !== currentUser?.inGameName)
+        (member.userId ? member.userId !== currentUser?.id : member.name !== currentUser?.inGameName) &&
+        (member.joinedAt ? member.joinedAt >= pageLoadedAtRef.current : false)
     );
 
     if (newlyJoined.length > 0) {
@@ -980,10 +982,8 @@ export const App: React.FC = () => {
     const currentKeys = new Set(diamondLogs.map((d) => d.id));
 
     if (!hasInitializedDiamondsRef.current) {
-      if (diamondLogs.length > 0) {
-        previousDiamondKeysRef.current = currentKeys;
-        hasInitializedDiamondsRef.current = true;
-      }
+      previousDiamondKeysRef.current = currentKeys;
+      hasInitializedDiamondsRef.current = true;
       return;
     }
 
@@ -993,7 +993,11 @@ export const App: React.FC = () => {
     }
 
     const newlyAdded = diamondLogs.filter(
-      (d) => !previousDiamondKeysRef.current!.has(d.id) && d.recordedBy !== currentUser?.inGameName && d.recordedBy !== currentUser?.username
+      (d) =>
+        !previousDiamondKeysRef.current!.has(d.id) &&
+        d.recordedBy !== currentUser?.inGameName &&
+        d.recordedBy !== currentUser?.username &&
+        (d.timestamp ? d.timestamp >= pageLoadedAtRef.current : false)
     );
 
     if (newlyAdded.length > 0) {
