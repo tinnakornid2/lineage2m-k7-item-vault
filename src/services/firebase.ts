@@ -170,7 +170,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.11-single-owner-canonical';
+const CACHE_SCHEMA_VERSION = '2.10.13-security-and-flow-audit';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v272',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -1226,10 +1226,22 @@ export function resetQuotaExceededNotified() {
 
 export function notifyQuotaExceeded(err: any) {
   const msg = (err?.message || '').toLowerCase();
-  if (msg.includes('quota') || msg.includes('limit exceeded') || err?.code === 'resource-exhausted') {
+  const code = String(err?.code || '').toLowerCase();
+  const shouldFailOver =
+    msg.includes('quota') ||
+    msg.includes('limit exceeded') ||
+    msg.includes('firestore-timeout') ||
+    msg.includes('network') ||
+    msg.includes('offline') ||
+    msg.includes('unavailable') ||
+    code === 'resource-exhausted' ||
+    code === 'unavailable' ||
+    code === 'deadline-exceeded';
+
+  if (shouldFailOver) {
     if (!quotaExceededNotified) {
       quotaExceededNotified = true;
-      console.warn('⚠️ Firestore Free Tier Read Quota exceeded for today! Operating in offline/cached resilience mode.');
+      console.warn('⚠️ Firestore is unavailable or timed out. Operating in resilient failover mode.');
       if (onQuotaExceededCallback) {
         onQuotaExceededCallback(true);
       }

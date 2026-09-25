@@ -6,7 +6,7 @@ import { connectFirestoreEmulator, doc, getDoc, getFirestore, setDoc } from 'fir
 test('registration accepts only username, password and in-game name', async () => {
   const app = initializeApp({
     apiKey: 'local-test-key',
-    projectId: 'hybrid-box-753bd'
+    projectId: 'k7-item'
   }, `registration-${Date.now()}`);
   const auth = getAuth(app);
   const db = getFirestore(app);

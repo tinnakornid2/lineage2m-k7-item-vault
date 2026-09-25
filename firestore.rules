@@ -119,16 +119,19 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow create: if signedIn() && validUser(request.resource.data) && validNewMember(userId);
-      allow read: if true;
+      allow read: if signedIn()
+        && (request.auth.uid == userId || isActiveUser());
       allow update: if validUser(request.resource.data)
-        && (isOwner() || (signedIn() && ((request.auth.uid == userId && validSelfUpdate()) || validPrivilegedUserUpdate())));
+        && signedIn()
+        && ((request.auth.uid == userId && (isOwner() || validSelfUpdate()))
+          || validPrivilegedUserUpdate());
       allow delete: if signedIn()
         && request.auth.uid != userId
         && canManageUser(resource.data.role);
     }
 
     match /items/{itemId} {
-      allow read: if true;
+      allow read: if isActiveUser();
       allow create, delete: if isAdminOrOwner();
       allow update: if isAdminOrOwner()
         || (resource.data.status == 'available'
@@ -136,7 +139,7 @@ service cloud.firestore {
     }
 
     match /item_claims/{claimId} {
-      allow read: if true;
+      allow read: if isActiveUser();
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly([
           'itemId', 'userId', 'inGameName', 'clan', 'powerLevel', 'claimedAt'
@@ -162,12 +165,12 @@ service cloud.firestore {
     }
 
     match /item_queues/{queueId} {
-      allow read: if true;
+      allow read: if isActiveUser();
       allow create, update, delete: if isAdminOrOwner();
     }
 
     match /quick_items/{itemId} {
-      allow read: if true;
+      allow read: if isActiveUser();
       allow create, update, delete: if isAdminOrOwner();
     }
 
@@ -193,7 +196,7 @@ service cloud.firestore {
     }
 
     match /general_items/{itemId} {
-      allow read: if true;
+      allow read: if isActiveUser();
       allow create: if isAdminOrOwner()
         && request.resource.data.id == itemId
         && validGeneralItem(request.resource.data);
@@ -206,12 +209,12 @@ service cloud.firestore {
     }
 
     match /clans/{clanId} {
-      allow read: if true;
+      allow read: if isActiveUser();
       allow create, update, delete: if isAdminOrOwner();
     }
 
     match /diamond_vault/{recordId} {
-      allow read: if true;
+      allow read: if isActiveUser();
       allow create, update, delete: if isAdminOrOwner();
     }
 

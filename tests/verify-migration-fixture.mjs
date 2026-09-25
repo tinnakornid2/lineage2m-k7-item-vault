@@ -4,7 +4,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099';
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080';
-const app = initializeApp({ projectId: 'hybrid-box-753bd' }, `verify-${Date.now()}`);
+const app = initializeApp({ projectId: 'k7-item' }, `verify-${Date.now()}`);
 const db = getFirestore(app);
 
 const authUser = await getAuth(app).getUser('legacy-member-1');

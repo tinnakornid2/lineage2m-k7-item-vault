@@ -160,8 +160,7 @@ import {
   stopGoogleRealtimeSync,
   broadcastLiveState,
   getIsApplyingRemoteUpdate,
-  setLastBroadcastPayload,
-  applyIncomingSyncMeta,
+  setLiveRelayEnabled,
   BackupDataPayload
 } from './services/googleSheetsBackupService';
 import {
@@ -288,119 +287,9 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const unsubTombstones = listenToGlobalTombstones();
-    // Always hydrate from the durable Google snapshot first. Firestore listeners
-    // then replace it with newer cloud values when that service is available.
-    let cancelled = false;
-    (async () => {
-      await initSharedGoogleBackupConfig();
-      if (!isQuotaExceeded) return;
-      const google = await fetchDataFromGoogleSheets();
-      if (cancelled || !google.success || !google.data) return;
-      const data = google.data;
-      if (data.vaultItems && data.vaultItems.length > 0) {
-        setVaultItems((prev) => {
-          const merged = mergeVaultItems(prev, data.vaultItems);
-          setCachedVaultItems(merged);
-          return merged;
-        });
-      }
-      if (data.queueItems && data.queueItems.length > 0) {
-        setQueueItems((prev) => {
-          const merged = mergeQueueItems(prev, data.queueItems);
-          setCachedQueues(merged);
-          return merged;
-        });
-      }
-      if (data.users && data.users.length > 0) {
-        setUsers((prev) => {
-          const mergedUsers = mergeUsers(prev, data.users);
-          setCachedUsers(mergedUsers);
-          return mergedUsers;
-        });
-      }
-      if (data.quickItems && data.quickItems.length > 0) {
-        setQuickItems(data.quickItems);
-        setCachedQuickItems(data.quickItems);
-      }
-      if (data.generalItems && data.generalItems.length > 0) {
-        setGeneralItems((prev) => {
-          const merged = mergeGeneralItems(prev, data.generalItems);
-          setCachedGeneralItems(merged);
-          return merged;
-        });
-      }
-      if (data.clans && data.clans.length > 0) {
-        setClans(data.clans);
-        setCachedClans(data.clans);
-      }
-      if (data.diamondLogs && data.diamondLogs.length > 0) {
-        setDiamondLogs(data.diamondLogs);
-        setCachedDiamondTransactions(data.diamondLogs);
-      }
-    })().catch(console.warn);
-
-    // Proactively load active live relay state from server if available
-    fetch(`/api/live-state?v=0&_t=${Date.now()}`)
-      .then((res) => res.json())
-      .then((json) => {
-        if (json.modified && json.data) {
-          applyIncomingSyncMeta(json.data);
-          setLastBroadcastPayload(json.data);
-          if (Array.isArray(json.data.users) && json.data.users.length > 0) {
-            setUsers((prev) => {
-              const merged = mergeUsers(prev, json.data.users);
-              setCachedUsers(merged);
-              return merged;
-            });
-          }
-          if (Array.isArray(json.data.vaultItems)) {
-            setVaultItems((prev) => {
-              if (json.data.vaultItems.length === 0) {
-                setCachedVaultItems([]);
-                return [];
-              }
-              const merged = mergeVaultItems(prev, json.data.vaultItems);
-              setCachedVaultItems(merged);
-              return merged;
-            });
-          }
-          if (Array.isArray(json.data.queueItems)) {
-            setQueueItems((prev) => {
-              if (json.data.queueItems.length === 0) {
-                setCachedQueues([]);
-                return [];
-              }
-              const merged = mergeQueueItems(prev, json.data.queueItems);
-              setCachedQueues(merged);
-              return merged;
-            });
-          }
-          if (Array.isArray(json.data.quickItems)) {
-            setQuickItems(json.data.quickItems);
-            setCachedQuickItems(json.data.quickItems);
-          }
-          if (Array.isArray(json.data.generalItems)) {
-            setGeneralItems((prev) => {
-              if (json.data.generalItems.length === 0) {
-                setCachedGeneralItems([]);
-                return [];
-              }
-              const merged = mergeGeneralItems(prev, json.data.generalItems);
-              setCachedGeneralItems(merged);
-              return merged;
-            });
-          }
-          if (Array.isArray(json.data.clans) && json.data.clans.length > 0) {
-            setClans(json.data.clans);
-            setCachedClans(json.data.clans);
-          }
-          if (Array.isArray(json.data.diamondLogs)) {
-            setDiamondLogs(json.data.diamondLogs);
-            setCachedDiamondTransactions(json.data.diamondLogs);
-          }
-        }
-      })
-      .catch(() => {});
+    // Only initialise failover configuration here. Firestore listeners below are
+    // the sole authoritative source during normal operation.
+    initSharedGoogleBackupConfig().catch(console.warn);
 
     setOnQuotaExceededListener((exceeded) => {
       setIsQuotaExceeded(exceeded);
@@ -449,7 +338,6 @@ export const App: React.FC = () => {
       }
     });
     return () => {
-      cancelled = true;
       unsubTombstones();
     };
   }, []);
@@ -1270,6 +1158,12 @@ export const App: React.FC = () => {
 
   // Real-time live relay broadcast: whenever state changes locally, immediately notify all other clan members (debounced 300ms)
   useEffect(() => {
+    setLiveRelayEnabled(isQuotaExceeded);
+    return () => setLiveRelayEnabled(false);
+  }, [isQuotaExceeded]);
+
+  useEffect(() => {
+    if (!isQuotaExceeded) return;
     if (users.length === 0 && vaultItems.length === 0) return;
     if (getIsApplyingRemoteUpdate()) return;
 
@@ -1294,10 +1188,14 @@ export const App: React.FC = () => {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [users, vaultItems, quickItems, generalItems, queueItems, clans, diamondLogs, vaultBalance, announcementSettings, bgConfig, discordSettings]);
+  }, [isQuotaExceeded, users, vaultItems, quickItems, generalItems, queueItems, clans, diamondLogs, vaultBalance, announcementSettings, bgConfig, discordSettings]);
 
   // Real-time live synchronization engine across all devices (Dual-Cloud Resilience)
   useEffect(() => {
+    if (!isQuotaExceeded) {
+      stopGoogleRealtimeSync();
+      return;
+    }
     startGoogleRealtimeSync((incomingData: BackupDataPayload) => {
       if (!incomingData) return;
       if (Array.isArray(incomingData.users) && incomingData.users.length > 0) {
@@ -1383,7 +1281,7 @@ export const App: React.FC = () => {
     return () => {
       stopGoogleRealtimeSync();
     };
-  }, []);
+  }, [isQuotaExceeded]);
 
   // Automated Heartbeat: Detects when Firebase recovers from quota limit, and auto-syncs newest data to Cloud!
   useEffect(() => {
@@ -4709,7 +4607,7 @@ export const App: React.FC = () => {
             LINEAGE 2M • CLAN HUB
           </div>
           <div className="text-[11px] text-slate-600">
-            Firebase: K7-item (hybrid-box-753bd) • Bilingual EN/TH Active
+            Firebase: k7-item • Bilingual EN/TH Active
           </div>
         </div>
       </footer>

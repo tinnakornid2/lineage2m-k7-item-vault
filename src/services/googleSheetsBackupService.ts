@@ -613,6 +613,10 @@ let realtimeActive = false;
 let abortController: AbortController | null = null;
 let currentLocalVersion = 0;
 let isApplyingRemoteUpdate = false;
+// Firestore is the authoritative live source while it is healthy.  The relay is
+// enabled only during an explicit quota/network failover so a browser's stale
+// LocalStorage snapshot can never be uploaded over current cloud data on load.
+let liveRelayEnabled = false;
 
 let lastBroadcastString = '';
 
@@ -622,6 +626,11 @@ export function getIsApplyingRemoteUpdate(): boolean {
 
 export function setIsApplyingRemoteUpdate(val: boolean) {
   isApplyingRemoteUpdate = val;
+}
+
+export function setLiveRelayEnabled(enabled: boolean) {
+  liveRelayEnabled = enabled;
+  if (!enabled) stopGoogleRealtimeSync();
 }
 
 export function getCurrentLocalVersion(): number {
@@ -646,6 +655,9 @@ export async function broadcastLiveState(
   payload: BackupDataPayload,
   performedBy: string = 'User'
 ): Promise<{ success: boolean; version?: number }> {
+  if (!liveRelayEnabled) {
+    return { success: true, version: currentLocalVersion };
+  }
   try {
     payload = withLocalSyncMeta(payload);
     if (Array.isArray(payload.users)) {
@@ -692,7 +704,7 @@ export async function broadcastLiveState(
 export function startGoogleRealtimeSync(
   onDataChanged: (data: BackupDataPayload) => void
 ) {
-  if (realtimeActive) return;
+  if (!liveRelayEnabled || realtimeActive) return;
   realtimeActive = true;
 
   const pollLoop = async () => {

@@ -4,8 +4,8 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const PROJECT_ID = 'hybrid-box-753bd';
-const DATABASE_ID = 'ai-studio-lineage2mk7itemv-4a75381c-cb0d-43f8-9b9b-c337a41dd8b0';
+const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'k7-item';
+const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'ai-studio-lineage2mclanhub-4a1794d8-f944-422f-945e-56c12057ad13';
 const COLLECTIONS = [
   'users', 'items', 'item_claims', 'item_queues', 'quick_items',
   'clans', 'diamond_vault', 'app_settings', 'system_meta'

@@ -10,8 +10,8 @@ import { GoogleGenAI } from "@google/genai";
 
 // api/_firebaseAdmin.ts
 import { randomUUID } from "node:crypto";
-var PROJECT_ID = "hybrid-box-753bd";
-var DATABASE_ID = "ai-studio-lineage2mk7itemv-4a75381c-cb0d-43f8-9b9b-c337a41dd8b0";
+var PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "k7-item";
+var DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || "ai-studio-lineage2mclanhub-4a1794d8-f944-422f-945e-56c12057ad13";
 function hasAdminCredentials() {
   return Boolean(
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST || process.env.GOOGLE_APPLICATION_CREDENTIALS
@@ -139,7 +139,7 @@ async function uploadBackgroundImage(buffer, contentType) {
   if (!sdk) {
     throw new Error("Firebase Admin credentials not configured for image upload.");
   }
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "hybrid-box-753bd.firebasestorage.app";
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "k7-item.firebasestorage.app";
   const bucket = sdk.storage.bucket(bucketName);
   const objectName = `app-backgrounds/current-${Date.now()}.${contentType === "image/png" ? "png" : "jpg"}`;
   const downloadToken = randomUUID();
@@ -1640,7 +1640,7 @@ process.on("uncaughtException", (err) => {
 });
 
 // server.ts
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && process.env.NODE_ENV !== "test") {
   startServer().catch((err) => console.error("Failed to start server:", err));
 }
 export {

@@ -4,8 +4,8 @@ import { createDecipheriv, scryptSync } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const PROJECT_ID = 'hybrid-box-753bd';
-const DATABASE_ID = 'ai-studio-lineage2mk7itemv-4a75381c-cb0d-43f8-9b9b-c337a41dd8b0';
+const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'k7-item';
+const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'ai-studio-lineage2mclanhub-4a1794d8-f944-422f-945e-56c12057ad13';
 const useEmulators = process.env.K7_USE_EMULATORS === 'true';
 const passphrase = process.env.K7_BACKUP_PASSPHRASE || '';
 const backupArgument = process.argv.find((argument) => argument.endsWith('.k7backup'));
