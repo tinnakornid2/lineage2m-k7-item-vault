@@ -118,14 +118,14 @@ service cloud.firestore {
     }
 
     match /system/{docId} {
-      allow read, write: if isAdminOrOwner();
+      allow read: if true;
+      allow write: if isAdminOrOwner();
     }
 
     match /users/{userId} {
       allow create: if (isOwner() && validUser(request.resource.data))
         || (validUser(request.resource.data) && validNewMember(userId));
-      allow read: if signedIn()
-        && (request.auth.uid == userId || isActiveUser());
+      allow read: if true;
       allow update: if validUser(request.resource.data)
         && signedIn()
         && (
@@ -140,7 +140,7 @@ service cloud.firestore {
     }
 
     match /items/{itemId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create, delete: if isAdminOrOwner();
       allow update: if isAdminOrOwner()
         || ((!('status' in resource.data) || resource.data.status == 'available')
@@ -148,7 +148,7 @@ service cloud.firestore {
     }
 
     match /item_claims/{claimId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly([
           'itemId', 'userId', 'inGameName', 'clan', 'powerLevel', 'claimedAt'
@@ -170,14 +170,14 @@ service cloud.firestore {
     }
 
     match /item_queues/{queueId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create, delete: if isAdminOrOwner();
       allow update: if isAdminOrOwner()
         || (isActiveUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt']));
     }
 
     match /quick_items/{itemId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create, update, delete: if isAdminOrOwner();
     }
 
@@ -203,7 +203,7 @@ service cloud.firestore {
     }
 
     match /general_items/{itemId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create: if isAdminOrOwner()
         && request.resource.data.id == itemId
         && validGeneralItem(request.resource.data);
@@ -216,12 +216,12 @@ service cloud.firestore {
     }
 
     match /clans/{clanId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create, update, delete: if isAdminOrOwner();
     }
 
     match /diamond_vault/{recordId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow create, update, delete: if isAdminOrOwner();
     }
 

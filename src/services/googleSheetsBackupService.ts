@@ -10,6 +10,7 @@ import {
   AnnouncementSettings,
   BackgroundSettingsData,
   DiscordSettings,
+  StatUpdateSettings,
   isItemDistributed,
   normalizeDistributedItem
 } from '../types';
@@ -38,6 +39,7 @@ export interface BackupDataPayload {
   announcementSettings?: AnnouncementSettings | null;
   backgroundSettings?: BackgroundSettingsData | null;
   discordSettings?: DiscordSettings | null;
+  statUpdateSettings?: StatUpdateSettings | null;
   googleBackupConfig?: Partial<GoogleBackupConfig> | null;
   syncMeta?: {
     deletedVaultItems?: Record<string, number>;
@@ -737,9 +739,12 @@ export async function broadcastLiveState(
   return { success: false };
 }
 
+let fastPollTimer: any = null;
+
 /**
  * Start real-time live synchronization across all clan members:
  * - Ultra-fast push notifications via long-polling server relay (< 50ms latency)
+ * - 3.5-second fast-poll heartbeat fallback ensuring immediate multi-container lambda synchronization
  */
 export function startGoogleRealtimeSync(
   onDataChanged: (data: BackupDataPayload) => void
@@ -783,8 +788,29 @@ export function startGoogleRealtimeSync(
 
   pollLoop();
 
-  // Periodic 35-second Google Sheets poll removed in v2.8.15 to prevent high bandwidth consumption,
-  // UI stutter, and Google Apps Script quota exhaustion. Real-time sync is handled purely by Live Relay.
+  // Fast-poll heartbeat (every 3.5s) to guarantee zero-miss sync even when Vercel serverless isolates lambdas
+  if (fastPollTimer) clearInterval(fastPollTimer);
+  fastPollTimer = setInterval(async () => {
+    if (!realtimeActive) return;
+    try {
+      const res = await fetch(`/api/live-state?v=${currentLocalVersion}&_t=${Date.now()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.modified && json.data && json.version > currentLocalVersion) {
+          currentLocalVersion = json.version;
+          try {
+            lastBroadcastString = JSON.stringify(json.data);
+          } catch {}
+          isApplyingRemoteUpdate = true;
+          applyIncomingSyncMeta(json.data);
+          onDataChanged(json.data);
+          setTimeout(() => {
+            isApplyingRemoteUpdate = false;
+          }, 500);
+        }
+      }
+    } catch {}
+  }, 3500);
 }
 
 /**
@@ -792,6 +818,10 @@ export function startGoogleRealtimeSync(
  */
 export function stopGoogleRealtimeSync() {
   realtimeActive = false;
+  if (fastPollTimer) {
+    clearInterval(fastPollTimer);
+    fastPollTimer = null;
+  }
   if (abortController) {
     abortController.abort();
     abortController = null;

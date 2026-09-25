@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
-const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'k7-item';
-const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'ai-studio-lineage2mclanhub-4a1794d8-f944-422f-945e-56c12057ad13';
+const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'clan-hub-7645f';
+const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || '(default)';
 
 export function hasAdminCredentials(): boolean {
   return Boolean(
@@ -48,7 +48,7 @@ export async function getAdminSdk() {
 
     if (!app) return null;
 
-    const db = process.env.FIRESTORE_EMULATOR_HOST
+    const db = process.env.FIRESTORE_EMULATOR_HOST || !DATABASE_ID || DATABASE_ID === '(default)'
       ? getFirestore(app)
       : getFirestore(app, DATABASE_ID);
 

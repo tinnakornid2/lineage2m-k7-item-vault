@@ -1,12 +1,12 @@
 {
-  "projectId": "k7-item",
-  "appId": "1:1054910759400:web:b4e633f3efbea121b2245d",
-  "apiKey": "AIzaSyAJPv_BjD6fVZ2MO479TX84zRPIVlDWtxw",
-  "authDomain": "k7-item.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-lineage2mclanhub-4a1794d8-f944-422f-945e-56c12057ad13",
-  "storageBucket": "k7-item.firebasestorage.app",
-  "messagingSenderId": "1054910759400",
-  "measurementId": "G-XHTTSXKJDH",
+  "projectId": "clan-hub-7645f",
+  "appId": "1:900256345870:web:80a10cc1d86a221c46f15f",
+  "apiKey": "AIzaSyBC1_vvEgxbgpceQaEB8yHzJyGk6nR-ZKM",
+  "authDomain": "clan-hub-7645f.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "clan-hub-7645f.firebasestorage.app",
+  "messagingSenderId": "900256345870",
+  "measurementId": "G-MQYTRDP3KQ",
   "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }

@@ -126,6 +126,16 @@ import {
   markQueueMemberAsRemoved,
   listenToGlobalTombstones,
   getDeletedUserIds,
+  getDeletedVaultItemIds,
+  getDeletedGeneralItemIds,
+  getDeletedQueueItemIds,
+  listenToSystemVersionHub,
+  fetchUsersOnce,
+  fetchVaultItemsOnce,
+  fetchGeneralItemsOnce,
+  fetchQueueItemsOnce,
+  fetchQuickItemsOnce,
+  SystemVersionHub,
   markClaimAsCancelled,
   unmarkClaimAsCancelled,
   ensureFirebaseAuthSession,
@@ -289,7 +299,24 @@ export const App: React.FC = () => {
   const [showGoogleBackupModal, setShowGoogleBackupModal] = useState(false);
 
   useEffect(() => {
-    const unsubTombstones = listenToGlobalTombstones();
+    const unsubTombstones = listenToGlobalTombstones(() => {
+      const deletedVault = getDeletedVaultItemIds();
+      if (deletedVault.size > 0) {
+        setVaultItems((prev) => prev.filter((i) => !i || !i.id || !deletedVault.has(i.id)));
+      }
+      const deletedGeneral = getDeletedGeneralItemIds();
+      if (deletedGeneral.size > 0) {
+        setGeneralItems((prev) => prev.filter((i) => !i || !i.id || !deletedGeneral.has(i.id)));
+      }
+      const deletedQueues = getDeletedQueueItemIds();
+      if (deletedQueues.size > 0) {
+        setQueueItems((prev) => prev.filter((q) => !q || !q.id || !deletedQueues.has(q.id)));
+      }
+      const deletedUsers = getDeletedUserIds();
+      if (deletedUsers.size > 0) {
+        setUsers((prev) => prev.filter((u) => !u || !u.id || (u.id !== 'user_owner_eloni' && !deletedUsers.has(u.id))));
+      }
+    });
     // Only initialise failover configuration here. Firestore listeners below are
     // the sole authoritative source during normal operation.
     initSharedGoogleBackupConfig().catch(console.warn);
@@ -602,6 +629,9 @@ export const App: React.FC = () => {
   useEffect(() => {
     currentUserRef.current = currentUser;
   }, [currentUser]);
+
+  // Version hub ref to track incoming version changes across clients
+  const lastKnownHubRef = useRef<SystemVersionHub | null>(null);
 
   // ─────────────────────────────────────────────────────────────
   // 5e. In-App Notification Center (Claims & Stat Verification Alerts)
@@ -1117,131 +1147,221 @@ export const App: React.FC = () => {
   useEffect(() => {
     // Stop listeners while quota failover is active. Google becomes the live source then.
     if (isQuotaExceeded) return;
-    ensureFirebaseAuthSession(currentUser);
 
-    const unsubUsers = listenToUsers((updatedUsers) => {
-      // updatedUsers is pre-filtered and deduplicated to guarantee exactly ONE canonical Eloni (user_owner_eloni)
-      const cleanUsers = (updatedUsers || []).filter((u) => u && u.id && u.id !== 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' && u.status !== 'shadow' && u.status !== 'deleted');
-      setUsers((prev) => {
-        const merged = mergeUsers(prev, cleanUsers);
-        setCachedUsers(merged);
+    let active = true;
+    let unsubUsers = () => {};
+    let unsubVault = () => {};
+    let unsubQueue = () => {};
+    let unsubQuick = () => {};
+    let unsubGeneral = () => {};
+    let unsubClans = () => {};
+    let unsubDiamonds = () => {};
+    let unsubBg = () => {};
+    let unsubAnnouncement = () => {};
+    let unsubQueueAnnouncement = () => {};
+    let unsubDiscord = () => {};
+    let unsubFormula = () => {};
+    let unsubStatUpdates = () => {};
+    let unsubVersionHub = () => {};
 
-        // Keep currentUser in sync if updated, preserving active pending stats
-        const current = currentUserRef.current;
-        if (current) {
-          const isCurrentEloni = current.id === 'user_owner_eloni' || current.username?.toLowerCase() === 'eloni' || current.inGameName?.toLowerCase() === 'eloni';
-          const found = isCurrentEloni
-            ? merged.find((u) => u.id === 'user_owner_eloni') || merged.find((u) => u.username?.toLowerCase() === 'eloni')
-            : merged.find((u) => u.id === current.id);
-          if (found) {
-            const safeUser: User = isCurrentEloni
-              ? { ...found, id: 'user_owner_eloni', role: 'owner' as UserRole, status: 'active' as UserStatus }
-              : found;
-            const curPendingAt = Number(current.pendingPowerLevelRequestedAt || 0);
-            const foundPendingAt = Number(safeUser.pendingPowerLevelRequestedAt || 0);
-            const foundResAt = Math.max(Number(safeUser.statApprovalAt || 0), Number(safeUser.statRejectionAt || 0));
-            const shouldPreserve = Boolean(current.pendingStats && curPendingAt > foundResAt && curPendingAt >= foundPendingAt);
-            const finalUser = shouldPreserve
-              ? {
-                  ...safeUser,
-                  pendingPowerLevel: current.pendingPowerLevel,
-                  pendingPowerLevelRequestedAt: current.pendingPowerLevelRequestedAt,
-                  pendingStats: current.pendingStats,
-                  pendingSpiritEnhancements: current.pendingSpiritEnhancements,
-                  pendingStatScreenshotUrl: current.pendingStatScreenshotUrl,
-                  pendingClasses: current.pendingClasses,
-                  pendingLevel: current.pendingLevel,
-                  pendingLegendClasses: current.pendingLegendClasses,
-                  pendingLegendAgathions: current.pendingLegendAgathions
-                }
-              : safeUser;
+    const startSubscriptions = async () => {
+      await ensureFirebaseAuthSession(currentUser);
+      if (!active) return;
 
-            setCurrentUser(finalUser);
-            saveLocalSessionUser(finalUser);
+      unsubUsers = listenToUsers((updatedUsers) => {
+        // updatedUsers is pre-filtered and deduplicated to guarantee exactly ONE canonical Eloni (user_owner_eloni)
+        const cleanUsers = (updatedUsers || []).filter((u) => u && u.id && u.id !== 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' && u.status !== 'shadow' && u.status !== 'deleted');
+        setUsers((prev) => {
+          const merged = mergeUsers(prev, cleanUsers);
+          setCachedUsers(merged);
+
+          // Keep currentUser in sync if updated, preserving active pending stats
+          const current = currentUserRef.current;
+          if (current) {
+            const isCurrentEloni = current.id === 'user_owner_eloni' || current.username?.toLowerCase() === 'eloni' || current.inGameName?.toLowerCase() === 'eloni';
+            const found = isCurrentEloni
+              ? merged.find((u) => u.id === 'user_owner_eloni') || merged.find((u) => u.username?.toLowerCase() === 'eloni')
+              : merged.find((u) => u.id === current.id);
+            if (found) {
+              const safeUser: User = isCurrentEloni
+                ? { ...found, id: 'user_owner_eloni', role: 'owner' as UserRole, status: 'active' as UserStatus }
+                : found;
+              const curPendingAt = Number(current.pendingPowerLevelRequestedAt || 0);
+              const foundPendingAt = Number(safeUser.pendingPowerLevelRequestedAt || 0);
+              const foundResAt = Math.max(Number(safeUser.statApprovalAt || 0), Number(safeUser.statRejectionAt || 0));
+              const shouldPreserve = Boolean(current.pendingStats && curPendingAt > foundResAt && curPendingAt >= foundPendingAt);
+              const finalUser = shouldPreserve
+                ? {
+                    ...safeUser,
+                    pendingPowerLevel: current.pendingPowerLevel,
+                    pendingPowerLevelRequestedAt: current.pendingPowerLevelRequestedAt,
+                    pendingStats: current.pendingStats,
+                    pendingSpiritEnhancements: current.pendingSpiritEnhancements,
+                    pendingStatScreenshotUrl: current.pendingStatScreenshotUrl,
+                    pendingClasses: current.pendingClasses,
+                    pendingLevel: current.pendingLevel,
+                    pendingLegendClasses: current.pendingLegendClasses,
+                    pendingLegendAgathions: current.pendingLegendAgathions
+                  }
+                : safeUser;
+
+              setCurrentUser(finalUser);
+              saveLocalSessionUser(finalUser);
+            }
           }
-        }
-        return merged;
-      });
-    });
-
-    const unsubVault = listenToVaultItems((items) => {
-      setVaultItems((prev) => {
-        if (!items || items.length === 0) return prev;
-        const merged = mergeVaultItems(prev, items);
-        setCachedVaultItems(merged);
-        return merged;
-      });
-    });
-
-    const unsubQueue = listenToQueueItems((items) => {
-      setQueueItems((prev) => {
-        if (!items || items.length === 0) return prev;
-        const merged = mergeQueueItems(prev, items);
-        setCachedQueues(merged);
-        return merged;
-      });
-    });
-
-    const unsubQuick = listenToQuickItems((items) => {
-      if (items && items.length > 0) {
-        setQuickItems(items);
-        setCachedQuickItems(items);
-      }
-    });
-
-    const unsubGeneral = listenToGeneralItems((gList) => {
-      setGeneralItems((prev) => {
-        if (!gList || gList.length === 0) return prev;
-        const merged = mergeGeneralItems(prev, gList);
-        setCachedGeneralItems(merged);
-        return merged;
-      });
-    });
-
-    const unsubClans = listenToClans((clanList) => {
-      const validClans = (clanList || []).filter((c) => !isNoClan(c.name));
-      if (validClans.length > 0) {
-        setClans(validClans);
-        setCachedClans(validClans);
-      }
-    });
-
-    const unsubDiamonds = listenToDiamondTransactions((logs) => {
-      if (logs && logs.length > 0) {
-        setDiamondLogs(logs);
-        setCachedDiamondTransactions(logs);
-      }
-    });
-
-    const unsubBg = listenToBackgroundSettings((settings) => {
-      if (settings && settings.imageUrl) {
-        setBgConfig({
-          imageUrl: settings.imageUrl,
-          brightness: typeof settings.brightness === 'number' ? settings.brightness : DEFAULT_BG_CONFIG.brightness,
-          blur: typeof settings.blur === 'number' ? settings.blur : DEFAULT_BG_CONFIG.blur,
-          vignetteOpacity: typeof settings.vignetteOpacity === 'number' ? settings.vignetteOpacity : DEFAULT_BG_CONFIG.vignetteOpacity
+          return merged;
         });
-        localStorage.setItem('k7_bg_config', JSON.stringify(settings));
-      }
-    });
+      });
 
-    const unsubAnnouncement = listenToAnnouncementSettings((settings) => {
-      if (settings) setAnnouncementSettings(settings);
-    });
-    const unsubQueueAnnouncement = subscribeToQueueAnnouncementSettings((settings) => {
-      if (settings) setQueueAnnouncement(settings);
-    });
-    const unsubDiscord = listenToDiscordSettings((settings) => {
-      if (settings) setDiscordSettings(settings);
-    });
-    const unsubFormula = listenToFormulaSettings((settings) => {
-      if (settings) setInMemoryFormulaSettings(settings);
-    });
-    const unsubStatUpdates = listenToStatUpdateSettings((settings) => {
-      if (settings) setStatUpdateSettings(settings);
-    });
+      unsubVault = listenToVaultItems((items) => {
+        setVaultItems((prev) => {
+          if (!items || items.length === 0) return prev;
+          const merged = mergeVaultItems(prev, items);
+          setCachedVaultItems(merged);
+          return merged;
+        });
+      });
+
+      unsubQueue = listenToQueueItems((items) => {
+        setQueueItems((prev) => {
+          if (!items || items.length === 0) return prev;
+          const merged = mergeQueueItems(prev, items);
+          setCachedQueues(merged);
+          return merged;
+        });
+      });
+
+      unsubQuick = listenToQuickItems((items) => {
+        if (items && items.length > 0) {
+          setQuickItems(items);
+          setCachedQuickItems(items);
+        }
+      });
+
+      unsubGeneral = listenToGeneralItems((gList) => {
+        setGeneralItems((prev) => {
+          if (!gList || gList.length === 0) return prev;
+          const merged = mergeGeneralItems(prev, gList);
+          setCachedGeneralItems(merged);
+          return merged;
+        });
+      });
+
+      unsubClans = listenToClans((clanList) => {
+        const validClans = (clanList || []).filter((c) => !isNoClan(c.name));
+        if (validClans.length > 0) {
+          setClans(validClans);
+          setCachedClans(validClans);
+        }
+      });
+
+      unsubDiamonds = listenToDiamondTransactions((logs) => {
+        if (logs && logs.length > 0) {
+          setDiamondLogs(logs);
+          setCachedDiamondTransactions(logs);
+        }
+      });
+
+      unsubBg = listenToBackgroundSettings((settings) => {
+        if (settings && settings.imageUrl) {
+          setBgConfig({
+            imageUrl: settings.imageUrl,
+            brightness: typeof settings.brightness === 'number' ? settings.brightness : DEFAULT_BG_CONFIG.brightness,
+            blur: typeof settings.blur === 'number' ? settings.blur : DEFAULT_BG_CONFIG.blur,
+            vignetteOpacity: typeof settings.vignetteOpacity === 'number' ? settings.vignetteOpacity : DEFAULT_BG_CONFIG.vignetteOpacity
+          });
+          localStorage.setItem('k7_bg_config', JSON.stringify(settings));
+        }
+      });
+
+      unsubAnnouncement = listenToAnnouncementSettings((settings) => {
+        if (settings) setAnnouncementSettings(settings);
+      });
+      unsubQueueAnnouncement = subscribeToQueueAnnouncementSettings((settings) => {
+        if (settings) setQueueAnnouncement(settings);
+      });
+      unsubDiscord = listenToDiscordSettings((settings) => {
+        if (settings) setDiscordSettings(settings);
+      });
+      unsubFormula = listenToFormulaSettings((settings) => {
+        if (settings) setInMemoryFormulaSettings(settings);
+      });
+      unsubStatUpdates = listenToStatUpdateSettings((settings) => {
+        if (settings) setStatUpdateSettings(settings);
+      });
+
+      // Ultra-fast cross-device heartbeat: reacts immediately (< 50ms) whenever any user touches vault items, general items, or queues
+      unsubVersionHub = listenToSystemVersionHub((hub) => {
+        if (!lastKnownHubRef.current) {
+          lastKnownHubRef.current = hub;
+          return;
+        }
+        const prev = lastKnownHubRef.current;
+        lastKnownHubRef.current = hub;
+
+        if (hub.vaultVersion > prev.vaultVersion) {
+          fetchVaultItemsOnce().then((items) => {
+            if (items) {
+              setVaultItems((current) => {
+                const merged = mergeVaultItems(current, items);
+                setCachedVaultItems(merged);
+                return merged;
+              });
+            }
+          });
+        }
+
+        if (hub.generalItemsVersion > prev.generalItemsVersion) {
+          fetchGeneralItemsOnce().then((gItems) => {
+            if (gItems) {
+              setGeneralItems((current) => {
+                const merged = mergeGeneralItems(current, gItems);
+                setCachedGeneralItems(merged);
+                return merged;
+              });
+            }
+          });
+        }
+
+        if (hub.queuesVersion > prev.queuesVersion) {
+          fetchQueueItemsOnce().then((qItems) => {
+            if (qItems) {
+              setQueueItems((current) => {
+                const merged = mergeQueueItems(current, qItems);
+                setCachedQueues(merged);
+                return merged;
+              });
+            }
+          });
+        }
+
+        if (hub.quickItemsVersion > prev.quickItemsVersion) {
+          fetchQuickItemsOnce().then((qList) => {
+            if (qList && qList.length > 0) {
+              setQuickItems(qList);
+              setCachedQuickItems(qList);
+            }
+          });
+        }
+
+        if (hub.usersVersion > prev.usersVersion) {
+          fetchUsersOnce().then((uList) => {
+            if (uList && uList.length > 0) {
+              setUsers((current) => {
+                const merged = mergeUsers(current, uList);
+                setCachedUsers(merged);
+                return merged;
+              });
+            }
+          });
+        }
+      });
+    };
+
+    startSubscriptions();
 
     return () => {
+      active = false;
       unsubUsers();
       unsubVault();
       unsubQueue();
@@ -1255,6 +1375,7 @@ export const App: React.FC = () => {
       unsubDiscord();
       unsubFormula();
       unsubStatUpdates();
+      unsubVersionHub();
     };
   }, [currentUser?.id, isQuotaExceeded]);
 
@@ -1326,6 +1447,23 @@ export const App: React.FC = () => {
     }
   }, [generalItems]);
 
+  // Helper to ensure all broadcasts and backups carry 100% complete state without dropping collections
+  const getFullBackupPayload = (overrides?: Partial<BackupDataPayload>): BackupDataPayload => ({
+    users: overrides?.users ?? users,
+    vaultItems: overrides?.vaultItems ?? vaultItems,
+    quickItems: overrides?.quickItems ?? quickItems,
+    generalItems: overrides?.generalItems ?? generalItems,
+    queueItems: overrides?.queueItems ?? queueItems,
+    clans: overrides?.clans ?? clans,
+    diamondLogs: overrides?.diamondLogs ?? diamondLogs,
+    vaultBalance: overrides?.vaultBalance ?? vaultBalance,
+    formulaSettings: overrides?.formulaSettings ?? getFormulaSettings(),
+    announcementSettings: overrides?.announcementSettings ?? announcementSettings,
+    backgroundSettings: overrides?.backgroundSettings ?? bgConfig,
+    discordSettings: overrides?.discordSettings ?? discordSettings,
+    statUpdateSettings: overrides?.statUpdateSettings ?? statUpdateSettings
+  });
+
   // Real-time live relay broadcast: whenever state changes locally, immediately notify all other clan members (debounced 300ms)
   useEffect(() => {
     setLiveRelayEnabled(true);
@@ -1337,26 +1475,13 @@ export const App: React.FC = () => {
 
     const timer = setTimeout(() => {
       broadcastLiveState(
-        {
-          users,
-          vaultItems,
-          quickItems,
-          generalItems,
-          queueItems,
-          clans,
-          diamondLogs,
-          vaultBalance,
-          formulaSettings: getFormulaSettings(),
-          announcementSettings,
-          backgroundSettings: bgConfig,
-          discordSettings
-        },
+        getFullBackupPayload(),
         currentUser?.inGameName || currentUser?.username || 'Member'
       );
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [users, vaultItems, quickItems, generalItems, queueItems, clans, diamondLogs, vaultBalance, announcementSettings, bgConfig, discordSettings]);
+  }, [users, vaultItems, quickItems, generalItems, queueItems, clans, diamondLogs, vaultBalance, announcementSettings, bgConfig, discordSettings, statUpdateSettings]);
 
   // Real-time live synchronization engine across all devices (Unified 5-Tier Architecture)
   useEffect(() => {
@@ -1439,6 +1564,9 @@ export const App: React.FC = () => {
       }
       if (incomingData.discordSettings) {
         setDiscordSettings(incomingData.discordSettings);
+      }
+      if (incomingData.statUpdateSettings) {
+        setStatUpdateSettings(incomingData.statUpdateSettings);
       }
     });
 
@@ -1658,14 +1786,7 @@ export const App: React.FC = () => {
 
       // Broadcast to live-state relay so other clients see new pending member
       broadcastLiveState(
-        {
-          users: updatedUsers,
-          vaultItems,
-          queueItems,
-          clans,
-          diamondLogs,
-          vaultBalance: computeTotalVaultBalance(diamondLogs)
-        },
+        getFullBackupPayload({ users: updatedUsers }),
         registered.inGameName
       );
 
@@ -1673,14 +1794,7 @@ export const App: React.FC = () => {
       const googleConfig = getGoogleBackupConfig();
       if (googleConfig.webAppUrl) {
         triggerDebouncedAutoBackup(
-          {
-            users: updatedUsers,
-            vaultItems,
-            queueItems,
-            clans,
-            diamondLogs,
-            vaultBalance: computeTotalVaultBalance(diamondLogs)
-          },
+          getFullBackupPayload({ users: updatedUsers }),
           'New Member Registration',
           true
         );
@@ -1912,18 +2026,10 @@ export const App: React.FC = () => {
       currentUser?.inGameName || 'Admin',
       true
     );
-    broadcastLiveState({
-      users,
-      vaultItems,
-      queueItems,
-      clans,
-      diamondLogs,
-      vaultBalance,
-      formulaSettings: getFormulaSettings(),
-      announcementSettings,
-      backgroundSettings: bgConfig,
-      discordSettings: newSettings
-    });
+    broadcastLiveState(
+      getFullBackupPayload({ discordSettings: newSettings }),
+      currentUser?.inGameName || 'Admin'
+    );
   };
 
   // Broadcast single vault item to Discord (Owner only) - Opens template picker modal
@@ -2120,15 +2226,7 @@ export const App: React.FC = () => {
 
       // Instant live state broadcast (< 20ms) to ensure server relay and all clan tabs have the new item
       broadcastLiveState(
-        {
-          users,
-          vaultItems: nextVaultItems,
-          queueItems,
-          clans,
-          diamondLogs,
-          vaultBalance,
-          formulaSettings: getFormulaSettings()
-        },
+        getFullBackupPayload({ vaultItems: nextVaultItems }),
         currentUser?.inGameName || currentUser?.username || 'Admin'
       );
 
@@ -2151,15 +2249,9 @@ export const App: React.FC = () => {
 
       // 2. Immediate dual-cloud sync to Google Sheets & Drive (failover backup)
       triggerDebouncedAutoBackup(
-        {
-          users,
-          vaultItems: nextVaultItems.length > 0 ? nextVaultItems : [createdItem, ...vaultItems],
-          queueItems,
-          clans,
-          diamondLogs,
-          vaultBalance,
-          formulaSettings: getFormulaSettings()
-        },
+        getFullBackupPayload({
+          vaultItems: nextVaultItems.length > 0 ? nextVaultItems : [createdItem, ...vaultItems]
+        }),
         currentUser?.inGameName || currentUser?.username || 'Admin',
         true
       );
@@ -2249,15 +2341,7 @@ export const App: React.FC = () => {
     setCachedVaultItems(nextVaultItems);
 
     broadcastLiveState(
-      {
-        users,
-        vaultItems: nextVaultItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
+      getFullBackupPayload({ vaultItems: nextVaultItems }),
       currentUser?.inGameName || currentUser?.username || 'Admin'
     );
 
@@ -2360,32 +2444,12 @@ export const App: React.FC = () => {
 
     // Real-time broadcast and immediate Google Sheets backup
     broadcastLiveState(
-      {
-        users,
-        vaultItems: nextVaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
+      getFullBackupPayload({ vaultItems: nextVaultItems }),
       currentUser?.inGameName || currentUser?.username || 'Member'
     );
 
     triggerDebouncedAutoBackup(
-      {
-        users,
-        vaultItems: nextVaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
+      getFullBackupPayload({ vaultItems: nextVaultItems }),
       currentUser?.inGameName || currentUser?.username || 'Member',
       true
     );
@@ -2470,32 +2534,12 @@ export const App: React.FC = () => {
 
     // 3. Broadcast to Live Relay Server & Google Sheets immediately
     broadcastLiveState(
-      {
-        users,
-        vaultItems: nextVaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
+      getFullBackupPayload({ vaultItems: nextVaultItems }),
       currentUser?.inGameName || currentUser?.username || 'Member'
     );
 
     triggerDebouncedAutoBackup(
-      {
-        users,
-        vaultItems: nextVaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
+      getFullBackupPayload({ vaultItems: nextVaultItems }),
       currentUser?.inGameName || currentUser?.username || 'Member',
       true
     );
@@ -2545,27 +2589,15 @@ export const App: React.FC = () => {
       );
 
       broadcastLiveState(
-        {
-          users,
-          vaultItems: nextVaultItems,
-          queueItems,
-          clans,
-          diamondLogs,
-          vaultBalance,
-          formulaSettings: getFormulaSettings()
-        },
+        getFullBackupPayload({ vaultItems: nextVaultItems }),
         currentUser?.inGameName || currentUser?.username || 'Admin'
       );
 
-      triggerDebouncedAutoBackup({
-        users,
-        vaultItems: nextVaultItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      });
+      triggerDebouncedAutoBackup(
+        getFullBackupPayload({ vaultItems: nextVaultItems }),
+        currentUser?.inGameName || currentUser?.username || 'Admin',
+        true
+      );
     } catch (err: any) {
       console.error('Error updating vault item:', err);
       showToast(
@@ -2620,29 +2652,13 @@ export const App: React.FC = () => {
 
       // 3. Broadcast immediately to live relay server (< 20ms) so all screens stay in sync
       broadcastLiveState(
-        {
-          users,
-          vaultItems: nextVaultItems,
-          queueItems,
-          clans,
-          diamondLogs,
-          vaultBalance,
-          formulaSettings: getFormulaSettings()
-        },
+        getFullBackupPayload({ vaultItems: nextVaultItems }),
         currentUser?.inGameName || currentUser?.username || 'Admin'
       );
 
       // 4. Dual-cloud failover: Immediately back up to Google Sheets & Drive with updated items
       triggerDebouncedAutoBackup(
-        {
-          users,
-          vaultItems: nextVaultItems,
-          queueItems,
-          clans,
-          diamondLogs,
-          vaultBalance,
-          formulaSettings: getFormulaSettings()
-        },
+        getFullBackupPayload({ vaultItems: nextVaultItems }),
         currentUser?.inGameName || currentUser?.username || 'Admin',
         true
       );
@@ -2749,15 +2765,7 @@ export const App: React.FC = () => {
     setCachedVaultItems(nextVaultItems);
 
     broadcastLiveState(
-      {
-        users,
-        vaultItems: nextVaultItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
+      getFullBackupPayload({ vaultItems: nextVaultItems }),
       actorName
     );
 
@@ -2791,15 +2799,7 @@ export const App: React.FC = () => {
       setCachedQueues(nextQueues);
 
       broadcastLiveState(
-        {
-          users,
-          vaultItems,
-          queueItems: nextQueues,
-          clans,
-          diamondLogs,
-          vaultBalance,
-          formulaSettings: getFormulaSettings()
-        },
+        getFullBackupPayload({ queueItems: nextQueues }),
         currentUser?.inGameName || currentUser?.username || 'Admin'
       );
 
@@ -2828,17 +2828,7 @@ export const App: React.FC = () => {
     setCachedQueues(nextQueues);
 
     broadcastLiveState(
-      {
-        users,
-        vaultItems,
-        queueItems: nextQueues,
-        generalItems,
-        quickItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
+      getFullBackupPayload({ queueItems: nextQueues }),
       currentUser?.inGameName || currentUser?.username || 'Admin'
     );
 
@@ -2858,17 +2848,7 @@ export const App: React.FC = () => {
     setCachedQueues(nextQueues);
 
     broadcastLiveState(
-      {
-        users,
-        vaultItems,
-        queueItems: nextQueues,
-        generalItems,
-        quickItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      },
+      getFullBackupPayload({ queueItems: nextQueues }),
       currentUser?.inGameName || currentUser?.username || 'Admin'
     );
 
@@ -2972,37 +2952,14 @@ export const App: React.FC = () => {
     setCachedGeneralItems(nextItems);
 
     // 3. Instant Live State Relay Broadcast to peers
-    broadcastLiveState({
-      users,
-      vaultItems,
-      quickItems,
-      generalItems: nextItems,
-      queueItems,
-      clans,
-      diamondLogs,
-      vaultBalance,
-      formulaSettings: getFormulaSettings(),
-      announcementSettings,
-      backgroundSettings: bgConfig,
-      discordSettings
-    }, currentUser?.inGameName || 'Admin');
+    broadcastLiveState(
+      getFullBackupPayload({ generalItems: nextItems }),
+      currentUser?.inGameName || 'Admin'
+    );
 
     // 4. Debounced auto backup to Google Sheets & Drive
     triggerDebouncedAutoBackup(
-      {
-        users,
-        vaultItems,
-        quickItems,
-        generalItems: nextItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ generalItems: nextItems }),
       currentUser?.inGameName || 'Admin',
       true
     );
@@ -3027,37 +2984,14 @@ export const App: React.FC = () => {
     setCachedGeneralItems(nextItems);
 
     // 3. Instant Live State Relay Broadcast to peers
-    broadcastLiveState({
-      users,
-      vaultItems,
-      quickItems,
-      generalItems: nextItems,
-      queueItems,
-      clans,
-      diamondLogs,
-      vaultBalance,
-      formulaSettings: getFormulaSettings(),
-      announcementSettings,
-      backgroundSettings: bgConfig,
-      discordSettings
-    }, currentUser?.inGameName || 'Member');
+    broadcastLiveState(
+      getFullBackupPayload({ generalItems: nextItems }),
+      currentUser?.inGameName || 'Member'
+    );
 
     // 4. Debounced auto backup to Google Sheets & Drive
     triggerDebouncedAutoBackup(
-      {
-        users,
-        vaultItems,
-        quickItems,
-        generalItems: nextItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ generalItems: nextItems }),
       currentUser?.inGameName || 'Member',
       true
     );
@@ -3091,37 +3025,14 @@ export const App: React.FC = () => {
     setCachedGeneralItems(nextItems);
 
     // 3. Instant Live State Relay Broadcast to peers
-    broadcastLiveState({
-      users,
-      vaultItems,
-      quickItems,
-      generalItems: nextItems,
-      queueItems,
-      clans,
-      diamondLogs,
-      vaultBalance,
-      formulaSettings: getFormulaSettings(),
-      announcementSettings,
-      backgroundSettings: bgConfig,
-      discordSettings
-    }, currentUser?.inGameName || 'Admin');
+    broadcastLiveState(
+      getFullBackupPayload({ generalItems: nextItems }),
+      currentUser?.inGameName || 'Admin'
+    );
 
     // 4. Debounced auto backup
     triggerDebouncedAutoBackup(
-      {
-        users,
-        vaultItems,
-        quickItems,
-        generalItems: nextItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ generalItems: nextItems }),
       currentUser?.inGameName || 'Admin',
       true
     );
@@ -3397,40 +3308,14 @@ export const App: React.FC = () => {
     setCachedUsers(updatedUsers);
 
     broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance: computeTotalVaultBalance(diamondLogs),
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Admin'
     );
 
     const googleConfig = getGoogleBackupConfig();
     if (googleConfig.webAppUrl) {
       triggerDebouncedAutoBackup(
-        {
-          users: updatedUsers,
-          vaultItems,
-          quickItems,
-          generalItems,
-          queueItems,
-          clans,
-          diamondLogs,
-          vaultBalance: computeTotalVaultBalance(diamondLogs),
-          formulaSettings: getFormulaSettings(),
-          announcementSettings,
-          backgroundSettings: bgConfig,
-          discordSettings
-        },
+        getFullBackupPayload({ users: updatedUsers }),
         'Approve Member',
         true
       );
@@ -3463,32 +3348,14 @@ export const App: React.FC = () => {
     setCachedUsers(updatedUsers);
 
     broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        queueItems,
-        generalItems,
-        quickItems,
-        clans,
-        diamondLogs,
-        vaultBalance: computeTotalVaultBalance(diamondLogs)
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Admin'
     );
 
     const googleConfig = getGoogleBackupConfig();
     if (googleConfig.webAppUrl) {
       triggerDebouncedAutoBackup(
-        {
-          users: updatedUsers,
-          vaultItems,
-          queueItems,
-          generalItems,
-          quickItems,
-          clans,
-          diamondLogs,
-          vaultBalance: computeTotalVaultBalance(diamondLogs)
-        },
+        getFullBackupPayload({ users: updatedUsers }),
         'Reject Member',
         true
       );
@@ -3544,32 +3411,14 @@ export const App: React.FC = () => {
     setCachedUsers(updatedUsers);
 
     broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        queueItems,
-        generalItems,
-        quickItems,
-        clans,
-        diamondLogs,
-        vaultBalance: computeTotalVaultBalance(diamondLogs)
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Admin'
     );
 
     const googleConfig = getGoogleBackupConfig();
     if (googleConfig.webAppUrl) {
       triggerDebouncedAutoBackup(
-        {
-          users: updatedUsers,
-          vaultItems,
-          queueItems,
-          generalItems,
-          quickItems,
-          clans,
-          diamondLogs,
-          vaultBalance: computeTotalVaultBalance(diamondLogs)
-        },
+        getFullBackupPayload({ users: updatedUsers }),
         'Delete Member',
         true
       );
@@ -3698,39 +3547,13 @@ export const App: React.FC = () => {
 
     // Instant Live State Relay Broadcast to peers
     broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Member'
     );
 
     // Debounced auto backup to Google Sheets & Drive
     triggerDebouncedAutoBackup(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Member',
       true
     );
@@ -3898,38 +3721,12 @@ export const App: React.FC = () => {
     }
 
     broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Admin'
     );
 
     triggerDebouncedAutoBackup(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Admin',
       true
     );
@@ -4031,38 +3828,12 @@ export const App: React.FC = () => {
     }
 
     broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Admin'
     );
 
     triggerDebouncedAutoBackup(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Admin',
       true
     );
@@ -4159,38 +3930,12 @@ export const App: React.FC = () => {
     }
 
     broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Member'
     );
 
     triggerDebouncedAutoBackup(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Member',
       true
     );
@@ -4256,38 +4001,12 @@ export const App: React.FC = () => {
     }
 
     broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Member'
     );
 
     triggerDebouncedAutoBackup(
-      {
-        users: updatedUsers,
-        vaultItems,
-        quickItems,
-        generalItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings(),
-        announcementSettings,
-        backgroundSettings: bgConfig,
-        discordSettings
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Member',
       true
     );
@@ -4342,32 +4061,14 @@ export const App: React.FC = () => {
     setCachedUsers(updatedUsers);
 
     broadcastLiveState(
-      {
-        users: updatedUsers,
-        vaultItems,
-        queueItems,
-        generalItems,
-        quickItems,
-        clans,
-        diamondLogs,
-        vaultBalance: computeTotalVaultBalance(diamondLogs)
-      },
+      getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Admin'
     );
 
     const googleConfig = getGoogleBackupConfig();
     if (googleConfig.webAppUrl) {
       triggerDebouncedAutoBackup(
-        {
-          users: updatedUsers,
-          vaultItems,
-          queueItems,
-          generalItems,
-          quickItems,
-          clans,
-          diamondLogs,
-          vaultBalance: computeTotalVaultBalance(diamondLogs)
-        },
+        getFullBackupPayload({ users: updatedUsers }),
         'Batch Delete Members',
         true
       );
@@ -4392,55 +4093,35 @@ export const App: React.FC = () => {
     if (target === 'clear_all_vault') {
       setVaultItems([]);
       setCachedVaultItems([]);
-      broadcastLiveState({
-        users,
-        vaultItems: [],
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      }, currentUser?.inGameName || 'Owner');
+      broadcastLiveState(
+        getFullBackupPayload({ vaultItems: [] }),
+        currentUser?.inGameName || 'Owner'
+      );
       showToast(lang === 'th' ? `ล้างรายการไอเทมในคลังทั้งหมดเรียบร้อย (${count} รายการ)` : `Cleared all ${count} vault items`, 'success');
     } else if (target === 'clear_distributed') {
       const remaining = vaultItems.filter((i) => !isItemDistributed(i));
       setVaultItems(remaining);
       setCachedVaultItems(remaining);
-      broadcastLiveState({
-        users,
-        vaultItems: remaining,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      }, currentUser?.inGameName || 'Owner');
+      broadcastLiveState(
+        getFullBackupPayload({ vaultItems: remaining }),
+        currentUser?.inGameName || 'Owner'
+      );
       showToast(lang === 'th' ? `ล้างประวัติไอเทมที่แจกแล้วสำเร็จ (${count} รายการ)` : `Cleared ${count} distributed item records`, 'success');
     } else if (target === 'clear_queues') {
       setQueueItems([]);
       setCachedQueues([]);
-      broadcastLiveState({
-        users,
-        vaultItems,
-        queueItems: [],
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      }, currentUser?.inGameName || 'Owner');
+      broadcastLiveState(
+        getFullBackupPayload({ queueItems: [] }),
+        currentUser?.inGameName || 'Owner'
+      );
       showToast(lang === 'th' ? `ล้างคิวไอเทมทั้งหมดเรียบร้อย (${count} รายการ)` : `Cleared all ${count} item queues`, 'success');
     } else if (target === 'clear_diamond_logs') {
       setDiamondLogs([]);
       setCachedDiamondTransactions([]);
-      broadcastLiveState({
-        users,
-        vaultItems,
-        queueItems,
-        clans,
-        diamondLogs: [],
-        vaultBalance: 0,
-        formulaSettings: getFormulaSettings()
-      }, currentUser?.inGameName || 'Owner');
+      broadcastLiveState(
+        getFullBackupPayload({ diamondLogs: [], vaultBalance: 0 }),
+        currentUser?.inGameName || 'Owner'
+      );
       showToast(lang === 'th' ? `ล้างประวัติธุรกรรมกล่องเพชรเรียบร้อย (${count} รายการ)` : `Cleared all ${count} diamond logs`, 'success');
     } else if (target === 'reset_all_user_stats') {
       const resetUsers = users.map((u) => ({
@@ -4462,15 +4143,10 @@ export const App: React.FC = () => {
       }));
       setUsers(resetUsers);
       setCachedUsers(resetUsers);
-      broadcastLiveState({
-        users: resetUsers,
-        vaultItems,
-        queueItems,
-        clans,
-        diamondLogs,
-        vaultBalance,
-        formulaSettings: getFormulaSettings()
-      }, currentUser?.inGameName || 'Owner');
+      broadcastLiveState(
+        getFullBackupPayload({ users: resetUsers }),
+        currentUser?.inGameName || 'Owner'
+      );
       showToast(lang === 'th' ? `รีเซ็ตค่าสเตตัสสมาชิกทุกคนเรียบร้อย (${count} สมาชิก)` : `Reset stats for ${count} members`, 'success');
     }
   };

@@ -10,8 +10,8 @@ import { GoogleGenAI } from "@google/genai";
 
 // api/_firebaseAdmin.ts
 import { randomUUID } from "node:crypto";
-var PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "k7-item";
-var DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || "ai-studio-lineage2mclanhub-4a1794d8-f944-422f-945e-56c12057ad13";
+var PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "clan-hub-7645f";
+var DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || "(default)";
 function hasAdminCredentials() {
   return Boolean(
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST || process.env.GOOGLE_APPLICATION_CREDENTIALS
@@ -43,7 +43,7 @@ async function getAdminSdk() {
       }
     }
     if (!app) return null;
-    const db = process.env.FIRESTORE_EMULATOR_HOST ? getFirestore(app) : getFirestore(app, DATABASE_ID);
+    const db = process.env.FIRESTORE_EMULATOR_HOST || !DATABASE_ID || DATABASE_ID === "(default)" ? getFirestore(app) : getFirestore(app, DATABASE_ID);
     cachedAdmin = {
       app,
       auth: getAuth(app),
@@ -595,6 +595,68 @@ async function createApp(options = {}) {
   }
   hydrateLiveStateFromAdminSdk().catch(() => {
   });
+  async function deployFirestoreSecurityRules() {
+    try {
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.app || !sdk.app.options?.credential?.getAccessToken) {
+        return { success: false, message: "No admin credential with token capability" };
+      }
+      const rawSa = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+      let projectId = process.env.FIREBASE_PROJECT_ID || "k7-item";
+      if (rawSa) {
+        try {
+          const sa = JSON.parse(rawSa);
+          if (sa.project_id) projectId = sa.project_id;
+        } catch {
+        }
+      }
+      const tokenObj = await sdk.app.options.credential.getAccessToken();
+      const token = tokenObj?.access_token;
+      if (!token) return { success: false, message: "No access token available" };
+      const rulesPath = path.join(process.cwd(), "firestore.rules");
+      let rulesContent = "";
+      if (fs.existsSync(rulesPath)) {
+        rulesContent = fs.readFileSync(rulesPath, "utf8");
+      }
+      if (!rulesContent) return { success: false, message: "firestore.rules not found" };
+      const createRes = await fetch(`https://firebaserules.googleapis.com/v1/projects/${projectId}/rulesets`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: { files: [{ name: "firestore.rules", content: rulesContent }] }
+        })
+      });
+      if (!createRes.ok) {
+        const errJson = await createRes.json().catch(() => null);
+        return { success: false, message: `Create ruleset failed: ${JSON.stringify(errJson)}` };
+      }
+      const ruleset = await createRes.json();
+      const rulesetName = ruleset.name;
+      await fetch(`https://firebaserules.googleapis.com/v1/projects/${projectId}/releases/cloud.firestore?updateMask=rulesetName`, {
+        method: "PATCH",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          release: { name: `projects/${projectId}/releases/cloud.firestore`, rulesetName }
+        })
+      });
+      const customDbId = process.env.FIRESTORE_DATABASE_ID || "ai-studio-lineage2mclanhub-4a1794d8-f944-422f-945e-56c12057ad13";
+      const customReleaseName = `cloud.firestore%2F${encodeURIComponent(customDbId)}`;
+      await fetch(`https://firebaserules.googleapis.com/v1/projects/${projectId}/releases/${customReleaseName}?updateMask=rulesetName`, {
+        method: "PATCH",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          release: { name: `projects/${projectId}/releases/cloud.firestore/${customDbId}`, rulesetName }
+        })
+      });
+      console.log(`\u2705 [RulesDeployer] Deployed Firestore ruleset: ${rulesetName}`);
+      return { success: true, message: `Deployed ruleset: ${rulesetName}` };
+    } catch (err) {
+      console.warn("[RulesDeployer] Notice:", err?.message || err);
+      return { success: false, message: err?.message || "Error deploying rules" };
+    }
+  }
+  deployFirestoreSecurityRules().catch(() => {
+  });
   const consumeRateLimit = (limits, actorId, maximum, windowMs) => {
     const now = Date.now();
     const previous = limits.get(actorId);
@@ -858,9 +920,37 @@ async function createApp(options = {}) {
       res.status(500).json({ success: false, error: err?.message || "Failed to save config" });
     }
   });
-  app.get("/api/live-state", (req, res) => {
+  let lastFirestoreLiveCheck = 0;
+  async function syncLiveStateFromFirestore() {
+    const now = Date.now();
+    if (now - lastFirestoreLiveCheck < 1500) return false;
+    lastFirestoreLiveCheck = now;
+    try {
+      const sdk = await getAdminSdk();
+      if (!sdk || !sdk.db) return false;
+      const docSnap = await sdk.db.collection("system_meta").doc("live_state").get().catch(() => null);
+      if (docSnap && docSnap.exists) {
+        const remote = docSnap.data();
+        if (remote && typeof remote.version === "number" && remote.version > liveHubState.version) {
+          liveHubState = {
+            data: remote.data || liveHubState.data,
+            updatedAt: remote.updatedAt || Date.now(),
+            version: remote.version
+          };
+          liveStateEmitter.emit("update");
+          return true;
+        }
+      }
+    } catch {
+    }
+    return false;
+  }
+  app.get("/api/live-state", async (req, res) => {
     const clientVersion = Number(req.query.v) || 0;
     const shouldWait = req.query.wait === "true" || req.query.wait === "1";
+    if (clientVersion >= liveHubState.version && liveHubState.version > 0) {
+      await syncLiveStateFromFirestore();
+    }
     if (clientVersion !== liveHubState.version || liveHubState.version === 0) {
       return res.json({
         modified: liveHubState.version > 0,
@@ -885,12 +975,21 @@ async function createApp(options = {}) {
       });
     };
     liveStateEmitter.once("update", onLiveUpdate);
-    const waitTimeout = setTimeout(() => {
+    const waitTimeout = setTimeout(async () => {
       if (handled) return;
       handled = true;
       liveStateEmitter.off("update", onLiveUpdate);
+      const updated = await syncLiveStateFromFirestore();
+      if (updated && liveHubState.version > clientVersion) {
+        return res.json({
+          modified: true,
+          version: liveHubState.version,
+          updatedAt: liveHubState.updatedAt,
+          data: liveHubState.data
+        });
+      }
       res.json({ modified: false, version: liveHubState.version });
-    }, 15e3);
+    }, 6e3);
     req.on("close", () => {
       if (!handled) {
         handled = true;
@@ -1284,6 +1383,25 @@ async function createApp(options = {}) {
                 await sdk.db.collection("app_settings").doc("discord").set(cleanForAdminFirestore(data.discordSettings), { merge: true }).catch(() => {
                 });
               }
+              await sdk.db.collection("system_meta").doc("live_state").set({
+                version: liveHubState.version,
+                updatedAt: liveHubState.updatedAt,
+                data: cleanForAdminFirestore(data)
+              }, { merge: true }).catch(() => {
+              });
+              await sdk.db.collection("system_meta").doc("version_hub").set({
+                vaultVersion: liveHubState.version,
+                generalItemsVersion: liveHubState.version,
+                queuesVersion: liveHubState.version,
+                usersVersion: liveHubState.version,
+                quickItemsVersion: liveHubState.version,
+                diamondsVersion: liveHubState.version,
+                settingsVersion: liveHubState.version,
+                lastUpdatedAt: Date.now(),
+                lastUpdatedBy: req.body.performedBy || "Admin",
+                lastChangeType: "liveState"
+              }, { merge: true }).catch(() => {
+              });
             }
           } catch (dbErr) {
             console.warn("Notice: Unified Firestore Admin background sync notice:", dbErr);
@@ -1294,6 +1412,14 @@ async function createApp(options = {}) {
       res.json({ success: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt });
     } catch (err) {
       res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+  app.post("/api/admin/deploy-rules", async (req, res) => {
+    try {
+      const result = await deployFirestoreSecurityRules();
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "Deploy rules error" });
     }
   });
   app.post("/api/claim-vault-item", async (req, res) => {

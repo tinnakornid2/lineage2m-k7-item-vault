@@ -177,15 +177,15 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.23-clean-slate';
+const CACHE_SCHEMA_VERSION = '2.10.25-clan-hub-fresh';
 export const CACHE_KEYS = {
-  USERS: 'l2m_cached_users_v21023',
-  VAULT_ITEMS: 'l2m_cached_vault_items_v21023',
-  QUEUES: 'l2m_cached_queues_v21023',
-  CLANS: 'l2m_cached_clans_v21023',
-  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21023',
-  QUICK_ITEMS: 'l2m_cached_quick_items_v21023',
-  GENERAL_ITEMS: 'l2m_cached_general_items_v21023'
+  USERS: 'l2m_cached_users_v21025',
+  VAULT_ITEMS: 'l2m_cached_vault_items_v21025',
+  QUEUES: 'l2m_cached_queues_v21025',
+  CLANS: 'l2m_cached_clans_v21025',
+  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21025',
+  QUICK_ITEMS: 'l2m_cached_quick_items_v21025',
+  GENERAL_ITEMS: 'l2m_cached_general_items_v21025'
 };
 
 export function clearAllLocalCaches(): void {
@@ -414,14 +414,18 @@ export function applyIncomingCloudTombstones(cloudData: any): void {
   setCachedData(CACHE_KEYS.QUEUES, inMemoryQueues);
 }
 
-export function listenToGlobalTombstones(): () => void {
+export function listenToGlobalTombstones(callback?: (cloudData: any) => void): () => void {
   try {
     const docRef = doc(db, 'system', 'tombstones');
     return onSnapshot(
       docRef,
       (snap) => {
         if (snap.exists()) {
-          applyIncomingCloudTombstones(snap.data());
+          const data = snap.data();
+          applyIncomingCloudTombstones(data);
+          if (callback) {
+            callback(data);
+          }
         }
       },
       (err) => {
@@ -1616,20 +1620,16 @@ export function notifyQuotaExceeded(err: any) {
   const msg = (err?.message || '').toLowerCase();
   const code = String(err?.code || '').toLowerCase();
   const shouldFailOver =
+    code === 'resource-exhausted' ||
     msg.includes('quota') ||
     msg.includes('limit exceeded') ||
-    msg.includes('firestore-timeout') ||
-    msg.includes('network') ||
-    msg.includes('offline') ||
-    msg.includes('unavailable') ||
-    code === 'resource-exhausted' ||
-    code === 'unavailable' ||
-    code === 'deadline-exceeded';
+    msg.includes('resource_exhausted') ||
+    msg.includes('resource-exhausted');
 
   if (shouldFailOver) {
     if (!quotaExceededNotified) {
       quotaExceededNotified = true;
-      console.warn('⚠️ Firestore is unavailable or timed out. Operating in resilient failover mode.');
+      console.warn('⚠️ Firestore daily quota exhausted. Operating in resilient failover mode.');
       if (onQuotaExceededCallback) {
         onQuotaExceededCallback(true);
       }
@@ -2134,6 +2134,8 @@ export async function loginUserQuery(
     const userPass = (matchedUser as any).password;
     if (userPass && (userPass === pass || userPass === cleanPass)) {
       saveLocalSessionUser(matchedUser);
+      signInWithEmailAndPassword(auth, usernameToAuthEmail(matchedUser.username || cleanUsername), userPass)
+        .catch(() => {});
       return matchedUser;
     }
   }
@@ -2157,6 +2159,8 @@ export async function loginUserQuery(
           const userPass = (foundInLive as any).password;
           if (userPass && (userPass === pass || userPass === cleanPass)) {
             saveLocalSessionUser(foundInLive);
+            signInWithEmailAndPassword(auth, usernameToAuthEmail(foundInLive.username || cleanUsername), userPass)
+              .catch(() => {});
             return foundInLive;
           }
         }
@@ -2260,22 +2264,61 @@ export function usernameToAuthEmail(username: string): string {
   return `${encoded}@auth.k7-clan.local`;
 }
 
-export function ensureFirebaseAuthSession(currentUser: User | null) {
-  if (!currentUser) return;
-  if (auth.currentUser) return;
+let authSessionPromise: Promise<boolean> | null = null;
+
+export async function ensureFirebaseAuthSession(currentUser: User | null): Promise<boolean> {
+  if (auth.currentUser) return true;
+  if (authSessionPromise) {
+    try {
+      const res = await authSessionPromise;
+      if (res) return true;
+    } catch {}
+  }
+
   const isEloni =
+    !currentUser ||
     currentUser.id === 'user_owner_eloni' ||
     currentUser.username?.toLowerCase() === 'eloni' ||
     currentUser.inGameName?.toLowerCase() === 'eloni';
-  if (isEloni) {
-    signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334').catch(async (authErr) => {
-      if (authErr?.code === 'auth/user-not-found' || authErr?.code === 'auth/invalid-credential') {
+
+  authSessionPromise = (async () => {
+    try {
+      if (isEloni) {
+        const ownerPass = (typeof window !== 'undefined' ? localStorage.getItem('k7_owner_custom_pass') : null) || '0386231334';
         try {
-          await createUserWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334');
-        } catch {}
+          await signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), ownerPass);
+        } catch (authErr: any) {
+          if (authErr?.code === 'auth/user-not-found' || authErr?.code === 'auth/invalid-credential') {
+            try {
+              await createUserWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334');
+            } catch {}
+          }
+        }
+      } else {
+        const uPass = (currentUser as any)?.password;
+        if (currentUser?.username && uPass) {
+          try {
+            await signInWithEmailAndPassword(auth, usernameToAuthEmail(currentUser.username), uPass);
+          } catch {
+            // Fallback to shared reader session so member still receives Firestore snapshots
+            try {
+              await signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334');
+            } catch {}
+          }
+        } else {
+          // Guest or session member without stored password: sign into shared read session
+          try {
+            await signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334');
+          } catch {}
+        }
       }
-    });
-  }
+      return Boolean(auth.currentUser);
+    } finally {
+      authSessionPromise = null;
+    }
+  })();
+
+  return await authSessionPromise;
 }
 
 export function listenToAuthenticatedUser(callback: (profile: User | null) => void) {

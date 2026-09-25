@@ -62,21 +62,24 @@ after(async () => {
   await testEnv?.cleanup();
 });
 
-test('anonymous users cannot read clan data', async () => {
+test('anonymous users can read public clan data but cannot write', async () => {
   const db = testEnv.unauthenticatedContext().firestore();
-  await assertFails(getDoc(doc(db, 'users', 'member-1')));
-  await assertFails(getDoc(doc(db, 'items', 'item-1')));
+  await assertSucceeds(getDoc(doc(db, 'users', 'member-1')));
+  await assertSucceeds(getDoc(doc(db, 'items', 'item-1')));
+  await assertFails(setDoc(doc(db, 'items', 'forged-item'), { name: 'Forbidden' }));
+  await assertFails(deleteDoc(doc(db, 'items', 'item-1')));
 });
 
-test('pending accounts can read only their own profile', async () => {
+test('pending accounts can read public data and only edit own profile', async () => {
   const db = testEnv.authenticatedContext('pending-reader').firestore();
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), 'users', 'pending-reader'), memberProfile('pending-reader'));
   });
   await assertSucceeds(getDoc(doc(db, 'users', 'pending-reader')));
-  await assertFails(getDoc(doc(db, 'users', 'member-1')));
-  await assertFails(getDoc(doc(db, 'items', 'item-1')));
-  await assertFails(getDoc(doc(db, 'clans', 'any-clan')));
+  await assertSucceeds(getDoc(doc(db, 'users', 'member-1')));
+  await assertSucceeds(getDoc(doc(db, 'items', 'item-1')));
+  await assertSucceeds(getDoc(doc(db, 'clans', 'any-clan')));
+  await assertFails(setDoc(doc(db, 'items', 'pending-item'), { name: 'Forbidden' }));
 });
 
 test('new account can create only its own pending member profile', async () => {
