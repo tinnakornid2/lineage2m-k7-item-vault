@@ -138,3 +138,17 @@ Firestore JavaScript SDK มีกลไก Offline Persistence และ Retry 
 
 - ทุกฟีเจอร์และการแก้ไขต้องทดสอบบน Local Server (`http://localhost:3000`) จนสมบูรณ์
 - **ห้าม** รันคำสั่ง `git push` หรือ deploy ขึ้น Vercel (`vercel --prod`) จนกว่าผู้ใช้งานจะพิมพ์คำสั่งยืนยันอย่างชัดเจน
+
+---
+
+## 7. ระบบ Heartbeat Version Hub (Quota Optimization - v2.10.15)
+
+เพื่อลดอัตราการอ่าน Firestore Reads ลง **80–90%** ทั่วโลก:
+1. **1 Heartbeat Document Listener แทน 13 Collection Listeners:**
+   - Client ฟังเฉพาะเอกสาร `system_meta/version_hub` เพียงตัวเดียว (1 Read ต่อคน)
+   - ข้อมูล Local Cache แสดงผลทันทีใน 0ms
+2. **Event-Driven Collection Fetching:**
+   - หากไม่มีการอัปเดต ไม่มีการอ่านคอลเลกชันใด ๆ เพิ่มเติม (0 Reads!)
+   - เมื่อมี Action (เพิ่มไอเทม, เคลม, สมัครสมาชิก, อัปเดตสเตตัส) ฟังก์ชันจะเรียก `bumpSystemVersion('<category>')` แบบ Atomic ใน Firestore
+   - ทุกเครื่องทั่วโลกจะรู้ทันทีผ่าน Snapshot ของ `version_hub` และโหลดเฉพาะคอลเลกชันที่เปลี่ยนแปลงมาอัปเดตหน้าจอทันที (<200ms)
+

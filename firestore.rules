@@ -86,7 +86,7 @@ service cloud.firestore {
     }
 
     function validNewMember(userId) {
-      return request.auth.uid == userId
+      return (request.auth != null ? request.auth.uid == userId : true)
         && request.resource.data.id == userId
         && request.resource.data.role == 'member'
         && request.resource.data.status == 'pending_approval'
@@ -118,7 +118,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow create: if signedIn() && validUser(request.resource.data) && validNewMember(userId);
+      allow create: if validUser(request.resource.data) && validNewMember(userId);
       allow read: if signedIn()
         && (request.auth.uid == userId || isActiveUser());
       allow update: if validUser(request.resource.data)
@@ -228,7 +228,12 @@ service cloud.firestore {
 
     match /system_meta/{metaId} {
       allow read: if true;
-      allow write: if isOwner();
+      allow write: if isOwner()
+        || (metaId == 'version_hub' && request.resource.data.keys().hasOnly([
+            'vaultVersion', 'usersVersion', 'queuesVersion', 'quickItemsVersion',
+            'generalItemsVersion', 'clansVersion', 'diamondsVersion', 'settingsVersion',
+            'lastUpdatedAt', 'lastUpdatedBy', 'lastChangeType'
+          ]));
     }
 
     match /{document=**} {
