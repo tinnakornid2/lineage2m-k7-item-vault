@@ -1264,12 +1264,10 @@ export const App: React.FC = () => {
 
   // Real-time live relay broadcast: whenever state changes locally, immediately notify all other clan members (debounced 300ms)
   useEffect(() => {
-    setLiveRelayEnabled(isQuotaExceeded);
-    return () => setLiveRelayEnabled(false);
-  }, [isQuotaExceeded]);
+    setLiveRelayEnabled(true);
+  }, []);
 
   useEffect(() => {
-    if (!isQuotaExceeded) return;
     if (users.length === 0 && vaultItems.length === 0) return;
     if (getIsApplyingRemoteUpdate()) return;
 
@@ -1294,14 +1292,10 @@ export const App: React.FC = () => {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [isQuotaExceeded, users, vaultItems, quickItems, generalItems, queueItems, clans, diamondLogs, vaultBalance, announcementSettings, bgConfig, discordSettings]);
+  }, [users, vaultItems, quickItems, generalItems, queueItems, clans, diamondLogs, vaultBalance, announcementSettings, bgConfig, discordSettings]);
 
-  // Real-time live synchronization engine across all devices (Dual-Cloud Resilience)
+  // Real-time live synchronization engine across all devices (Unified 5-Tier Architecture)
   useEffect(() => {
-    if (!isQuotaExceeded) {
-      stopGoogleRealtimeSync();
-      return;
-    }
     startGoogleRealtimeSync((incomingData: BackupDataPayload) => {
       if (!incomingData) return;
       if (Array.isArray(incomingData.users) && incomingData.users.length > 0) {
@@ -1387,7 +1381,7 @@ export const App: React.FC = () => {
     return () => {
       stopGoogleRealtimeSync();
     };
-  }, [isQuotaExceeded]);
+  }, []);
 
   // Automated Heartbeat: Detects when Firebase recovers from quota limit, and auto-syncs newest data to Cloud!
   useEffect(() => {

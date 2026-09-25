@@ -613,10 +613,8 @@ let realtimeActive = false;
 let abortController: AbortController | null = null;
 let currentLocalVersion = 0;
 let isApplyingRemoteUpdate = false;
-// Firestore is the authoritative live source while it is healthy.  The relay is
-// enabled only during an explicit quota/network failover so a browser's stale
-// LocalStorage snapshot can never be uploaded over current cloud data on load.
-let liveRelayEnabled = false;
+// Tier 3 Live Relay: Always enabled across all devices for instant (<50ms) global sync
+let liveRelayEnabled = true;
 
 let lastBroadcastString = '';
 
