@@ -996,6 +996,18 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
   return deduplicateUsers(result);
 }
 
+export function isUserDeleted(id: string): boolean {
+  if (!id) return false;
+  const map = getDeletedIdsMap(DELETED_USERS_KEY);
+  return Boolean(map[id]);
+}
+
+export function isVaultItemDeleted(id: string): boolean {
+  if (!id) return false;
+  const map = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
+  return Boolean(map[id]);
+}
+
 export function isQuickItemDeleted(id: string): boolean {
   if (!id) return false;
   const map = getDeletedIdsMap(DELETED_QUICK_ITEMS_KEY);
