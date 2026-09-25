@@ -177,7 +177,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.25-clan-hub-fresh';
+const CACHE_SCHEMA_VERSION = '2.10.26-stat-input-stabilization';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21025',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21025',

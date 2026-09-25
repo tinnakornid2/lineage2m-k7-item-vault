@@ -564,3 +564,39 @@ export interface PendingSwap {
   fromClan: string;
   toClan: string;
 }
+
+export function areUsersEqual(a: User | null | undefined, b: User | null | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.id === b.id &&
+    a.username === b.username &&
+    a.inGameName === b.inGameName &&
+    a.role === b.role &&
+    a.status === b.status &&
+    a.clan === b.clan &&
+    a.powerLevel === b.powerLevel &&
+    a.verified === b.verified &&
+    a.characterClass === b.characterClass &&
+    a.level === b.level &&
+    a.legendClasses === b.legendClasses &&
+    a.legendAgathions === b.legendAgathions &&
+    a.statScreenshotUrl === b.statScreenshotUrl &&
+    a.pendingPowerLevel === b.pendingPowerLevel &&
+    a.pendingPowerLevelRequestedAt === b.pendingPowerLevelRequestedAt &&
+    a.pendingLevel === b.pendingLevel &&
+    a.pendingLegendClasses === b.pendingLegendClasses &&
+    a.pendingLegendAgathions === b.pendingLegendAgathions &&
+    a.pendingStatScreenshotUrl === b.pendingStatScreenshotUrl &&
+    a.statRejectionReason === b.statRejectionReason &&
+    a.statRejectionAt === b.statRejectionAt &&
+    a.statApprovalAt === b.statApprovalAt &&
+    JSON.stringify(a.stats || {}) === JSON.stringify(b.stats || {}) &&
+    JSON.stringify(a.pendingStats || {}) === JSON.stringify(b.pendingStats || {}) &&
+    JSON.stringify(a.spiritEnhancements || {}) === JSON.stringify(b.spiritEnhancements || {}) &&
+    JSON.stringify(a.pendingSpiritEnhancements || {}) === JSON.stringify(b.pendingSpiritEnhancements || {}) &&
+    JSON.stringify(a.classes || []) === JSON.stringify(b.classes || []) &&
+    JSON.stringify(a.pendingClasses || []) === JSON.stringify(b.pendingClasses || [])
+  );
+}
+

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Zap, ArrowRight, TrendingUp, TrendingDown, Clock, ShieldAlert, Check, Lock } from 'lucide-react';
 import { User, Language, cleanClanName, StatUpdateSettings } from '../types';
 import { translations } from '../translations';
@@ -42,18 +42,25 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
   const hasValidNewPower = !isNaN(parsedNewPower) && parsedNewPower > 0;
   const diff = hasValidNewPower ? parsedNewPower - currentPower : 0;
 
+  const isInitializedRef = useRef(false);
+
   useEffect(() => {
     if (isOpen && currentUser) {
-      if (currentUser.pendingPowerLevel && currentUser.pendingPowerLevel > 0) {
-        setNewPowerLevel(currentUser.pendingPowerLevel.toString());
-      } else {
-        setNewPowerLevel(currentUser.powerLevel ? currentUser.powerLevel.toString() : '');
+      if (!isInitializedRef.current) {
+        isInitializedRef.current = true;
+        if (currentUser.pendingPowerLevel && currentUser.pendingPowerLevel > 0) {
+          setNewPowerLevel(currentUser.pendingPowerLevel.toString());
+        } else {
+          setNewPowerLevel(currentUser.powerLevel ? currentUser.powerLevel.toString() : '');
+        }
+        setErrorMessage('');
+        setSuccessMessage('');
+        setIsSubmitting(false);
       }
-      setErrorMessage('');
-      setSuccessMessage('');
-      setIsSubmitting(false);
+    } else if (!isOpen) {
+      isInitializedRef.current = false;
     }
-  }, [isOpen, currentUser]);
+  }, [isOpen, currentUser?.id]);
 
   if (!isOpen || !currentUser) return null;
 

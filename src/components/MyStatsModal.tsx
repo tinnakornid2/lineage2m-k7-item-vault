@@ -72,55 +72,62 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
 
   const modalRef = useRef<HTMLDivElement>(null);
 
+  const isInitializedRef = useRef(false);
+
   useEffect(() => {
     if (isOpen && currentUser) {
-      const config = getFormulaSettings();
-      setFormulaSettings(config);
+      if (!isInitializedRef.current) {
+        isInitializedRef.current = true;
+        const config = getFormulaSettings();
+        setFormulaSettings(config);
 
-      // Initialize stats: If user has pending stats, use them; otherwise use confirmed stats or defaults
-      const currentStats = currentUser.pendingStats || currentUser.stats || {};
-      const currentSpirits = currentUser.pendingSpiritEnhancements || currentUser.spiritEnhancements || {};
+        // Initialize stats: If user has pending stats, use them; otherwise use confirmed stats or defaults
+        const currentStats = currentUser.pendingStats || currentUser.stats || {};
+        const currentSpirits = currentUser.pendingSpiritEnhancements || currentUser.spiritEnhancements || {};
 
-      const initialStats: Record<string, number> = {};
-      const initialSpirits: Record<string, number> = {};
+        const initialStats: Record<string, number> = {};
+        const initialSpirits: Record<string, number> = {};
 
-      config.stats.forEach((stat) => {
-        initialStats[stat.id] = currentStats[stat.id] ?? 0;
-        if (stat.inputType === 'spirit_card') {
-          initialSpirits[stat.id] = currentSpirits[stat.id] ?? 0;
-        }
-      });
+        config.stats.forEach((stat) => {
+          initialStats[stat.id] = currentStats[stat.id] ?? 0;
+          if (stat.inputType === 'spirit_card') {
+            initialSpirits[stat.id] = currentSpirits[stat.id] ?? 0;
+          }
+        });
 
-      setStats(initialStats);
-      setSpiritEnhancements(initialSpirits);
-      setScreenshotUrl(currentUser.pendingStatScreenshotUrl || '');
+        setStats(initialStats);
+        setSpiritEnhancements(initialSpirits);
+        setScreenshotUrl(currentUser.pendingStatScreenshotUrl || '');
 
-      // Character Profile (classes, level, legends)
-      const initialClasses = currentUser.pendingClasses !== undefined && currentUser.pendingClasses !== null
-        ? currentUser.pendingClasses
-        : (currentUser.classes || (currentUser.characterClass ? [currentUser.characterClass] : []));
-      setSelectedClasses(initialClasses);
+        // Character Profile (classes, level, legends)
+        const initialClasses = currentUser.pendingClasses !== undefined && currentUser.pendingClasses !== null
+          ? currentUser.pendingClasses
+          : (currentUser.classes || (currentUser.characterClass ? [currentUser.characterClass] : []));
+        setSelectedClasses(initialClasses);
 
-      const initialLevel = currentUser.pendingLevel !== undefined && currentUser.pendingLevel !== null
-        ? currentUser.pendingLevel
-        : (currentUser.level || 0);
-      setCharLevel(initialLevel);
+        const initialLevel = currentUser.pendingLevel !== undefined && currentUser.pendingLevel !== null
+          ? currentUser.pendingLevel
+          : (currentUser.level || 0);
+        setCharLevel(initialLevel);
 
-      const initialLegendClasses = currentUser.pendingLegendClasses !== undefined && currentUser.pendingLegendClasses !== null
-        ? currentUser.pendingLegendClasses
-        : (currentUser.legendClasses || 0);
-      setCharLegendClasses(initialLegendClasses);
+        const initialLegendClasses = currentUser.pendingLegendClasses !== undefined && currentUser.pendingLegendClasses !== null
+          ? currentUser.pendingLegendClasses
+          : (currentUser.legendClasses || 0);
+        setCharLegendClasses(initialLegendClasses);
 
-      const initialLegendAgathions = currentUser.pendingLegendAgathions !== undefined && currentUser.pendingLegendAgathions !== null
-        ? currentUser.pendingLegendAgathions
-        : (currentUser.legendAgathions || 0);
-      setCharLegendAgathions(initialLegendAgathions);
+        const initialLegendAgathions = currentUser.pendingLegendAgathions !== undefined && currentUser.pendingLegendAgathions !== null
+          ? currentUser.pendingLegendAgathions
+          : (currentUser.legendAgathions || 0);
+        setCharLegendAgathions(initialLegendAgathions);
 
-      setErrorMessage('');
-      setSuccessMessage('');
-      setIsSubmitting(false);
+        setErrorMessage('');
+        setSuccessMessage('');
+        setIsSubmitting(false);
+      }
+    } else if (!isOpen) {
+      isInitializedRef.current = false;
     }
-  }, [isOpen, currentUser]);
+  }, [isOpen, currentUser?.id]);
 
   // Global Ctrl + V paste listener inside modal
   useEffect(() => {

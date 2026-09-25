@@ -32,7 +32,8 @@ import {
   normalizeDistributedItem,
   DirectDistributionPayload,
   StatUpdateSettings,
-  DEFAULT_STAT_UPDATE_SETTINGS
+  DEFAULT_STAT_UPDATE_SETTINGS,
+  areUsersEqual
 } from './types';
 import { getOrGenerateStatHistory } from './utils/growthTimelineHelper';
 import { translations } from './translations';
@@ -1126,17 +1127,7 @@ export const App: React.FC = () => {
           }
         : safeUser;
 
-      if (
-        targetUser.powerLevel !== currentUser.powerLevel ||
-        targetUser.role !== currentUser.role ||
-        targetUser.status !== currentUser.status ||
-        targetUser.clan !== currentUser.clan ||
-        targetUser.inGameName !== currentUser.inGameName ||
-        targetUser.characterClass !== currentUser.characterClass ||
-        targetUser.verified !== currentUser.verified ||
-        JSON.stringify(targetUser.stats) !== JSON.stringify(currentUser.stats) ||
-        JSON.stringify(targetUser.pendingStats) !== JSON.stringify(currentUser.pendingStats)
-      ) {
+      if (!areUsersEqual(currentUser, targetUser)) {
         setCurrentUser(targetUser);
         saveLocalSessionUser(targetUser);
       }
@@ -1205,8 +1196,10 @@ export const App: React.FC = () => {
                   }
                 : safeUser;
 
-              setCurrentUser(finalUser);
-              saveLocalSessionUser(finalUser);
+              if (!areUsersEqual(current, finalUser)) {
+                setCurrentUser(finalUser);
+                saveLocalSessionUser(finalUser);
+              }
             }
           }
           return merged;
@@ -1474,6 +1467,7 @@ export const App: React.FC = () => {
     if (getIsApplyingRemoteUpdate()) return;
 
     const timer = setTimeout(() => {
+      if (getIsApplyingRemoteUpdate()) return;
       broadcastLiveState(
         getFullBackupPayload(),
         currentUser?.inGameName || currentUser?.username || 'Member'
@@ -1495,10 +1489,37 @@ export const App: React.FC = () => {
         });
         const cur = currentUserRef.current;
         if (cur) {
-          const found = incomingData.users.find((u) => u.id === cur.id);
+          const isCurrentEloni = cur.id === 'user_owner_eloni' || cur.username?.toLowerCase() === 'eloni';
+          const found = isCurrentEloni
+            ? incomingData.users.find((u) => u.id === 'user_owner_eloni') || incomingData.users.find((u) => u.username?.toLowerCase() === 'eloni')
+            : incomingData.users.find((u) => u.id === cur.id);
           if (found) {
-            setCurrentUser(found);
-            saveLocalSessionUser(found);
+            const safeUser: User = isCurrentEloni
+              ? { ...found, id: 'user_owner_eloni', role: 'owner' as UserRole, status: 'active' as UserStatus }
+              : found;
+            const curPendingAt = Number(cur.pendingPowerLevelRequestedAt || 0);
+            const foundPendingAt = Number(safeUser.pendingPowerLevelRequestedAt || 0);
+            const foundResAt = Math.max(Number(safeUser.statApprovalAt || 0), Number(safeUser.statRejectionAt || 0));
+            const shouldPreserve = Boolean(cur.pendingStats && curPendingAt > foundResAt && curPendingAt >= foundPendingAt);
+            const finalUser = shouldPreserve
+              ? {
+                  ...safeUser,
+                  pendingPowerLevel: cur.pendingPowerLevel,
+                  pendingPowerLevelRequestedAt: cur.pendingPowerLevelRequestedAt,
+                  pendingStats: cur.pendingStats,
+                  pendingSpiritEnhancements: cur.pendingSpiritEnhancements,
+                  pendingStatScreenshotUrl: cur.pendingStatScreenshotUrl,
+                  pendingClasses: cur.pendingClasses,
+                  pendingLevel: cur.pendingLevel,
+                  pendingLegendClasses: cur.pendingLegendClasses,
+                  pendingLegendAgathions: cur.pendingLegendAgathions
+                }
+              : safeUser;
+
+            if (!areUsersEqual(cur, finalUser)) {
+              setCurrentUser(finalUser);
+              saveLocalSessionUser(finalUser);
+            }
           }
         }
       }

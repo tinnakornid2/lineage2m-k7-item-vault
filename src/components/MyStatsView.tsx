@@ -115,9 +115,30 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
+  const hasUserEditedRef = useRef(false);
+  const lastLoadedUserIdRef = useRef<string | null>(null);
+  const lastKnownApprovalAtRef = useRef<number | null>(null);
+  const lastKnownRejectionAtRef = useRef<number | null>(null);
+
+  const markAsEdited = () => {
+    hasUserEditedRef.current = true;
+  };
+
   // Synchronize stats and profile from currentUser
   useEffect(() => {
-    if (currentUser) {
+    if (!currentUser) return;
+
+    const isDifferentUser = lastLoadedUserIdRef.current !== currentUser.id;
+    const approvalChanged = (currentUser.statApprovalAt || 0) !== (lastKnownApprovalAtRef.current || 0);
+    const rejectionChanged = (currentUser.statRejectionAt || 0) !== (lastKnownRejectionAtRef.current || 0);
+    const shouldForceReset = isDifferentUser || approvalChanged || rejectionChanged;
+
+    // Never wipe the user's inputs while they are actively filling out the form, unless user changed or approval/rejection arrived
+    if (shouldForceReset || !hasUserEditedRef.current) {
+      lastLoadedUserIdRef.current = currentUser.id;
+      lastKnownApprovalAtRef.current = currentUser.statApprovalAt || null;
+      lastKnownRejectionAtRef.current = currentUser.statRejectionAt || null;
+
       const config = getFormulaSettings();
       setFormulaSettings(config);
 
@@ -165,6 +186,10 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
       setErrorMessage('');
       setSuccessMessage('');
       setIsSubmitting(false);
+
+      if (shouldForceReset) {
+        hasUserEditedRef.current = false;
+      }
     }
   }, [currentUser]);
 
@@ -212,17 +237,21 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const processScreenshotFile = async (file: File, isPaste = false) => {
     try {
       sounds.playClick();
+      markAsEdited();
       const compressed = await compressImageFile(file, { maxWidth: 960, maxHeight: 960, quality: 0.72 });
       setScreenshotUrl(compressed);
       if (showToast) {
         showToast(
-          lang === 'th' ? 'แนบภาพสกรีนช็อตสำเร็จ (Ctrl + V) 📋' : 'Screenshot attached from clipboard 📋',
+          isPaste
+            ? (lang === 'th' ? 'แนบภาพสกรีนช็อตสำเร็จ (Ctrl + V) 📋' : 'Screenshot attached from clipboard 📋')
+            : (lang === 'th' ? 'อัปโหลดภาพสกรีนช็อตสำเร็จ 📸' : 'Screenshot uploaded successfully 📸'),
           'success'
         );
       }
     } catch {
       const reader = new FileReader();
       reader.onload = () => {
+        markAsEdited();
         setScreenshotUrl(reader.result as string);
         sounds.playClick();
       };
@@ -266,6 +295,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   };
 
   const handleStatNumberChange = (statId: string, val: string) => {
+    markAsEdited();
     const num = val === '' ? 0 : parseFloat(val);
     setStats((prev) => ({
       ...prev,
@@ -275,6 +305,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
 
   const handleSpiritEnhancementSelect = (statId: string, tier: number) => {
     sounds.playClick();
+    markAsEdited();
     setSpiritEnhancements((prev) => ({
       ...prev,
       [statId]: tier
@@ -283,6 +314,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
 
   const handleToggleClass = (classNameEn: string) => {
     sounds.playClick();
+    markAsEdited();
     setSelectedClasses((prev) =>
       prev.includes(classNameEn)
         ? prev.filter((c) => c !== classNameEn)
@@ -359,6 +391,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
           ? 'ส่งคำขออัปเดตสเตตัสเรียบร้อยแล้ว! รอแอดมินหรือโอเนอร์ตรวจสอบและอนุมัติ ⚡'
           : 'Stat update request submitted! Waiting for Admin/Owner approval ⚡'
       );
+      hasUserEditedRef.current = false;
       if (showToast) {
         showToast(
           lang === 'th' ? 'ส่งคำขออัปเดตสเตตัสสำเร็จ (รออนุมัติ) ⚡' : 'Stat update request submitted (Pending approval) ⚡',
@@ -378,6 +411,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     try {
       sounds.playClick();
       await onCancelPendingRequest(currentUser.id);
+      hasUserEditedRef.current = false;
       setSuccessMessage(lang === 'th' ? 'ยกเลิกคำขอเรียบร้อยแล้ว' : 'Pending request cancelled');
     } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to cancel request');
@@ -683,7 +717,10 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                   <input
                     type="text"
                     value={inGameName}
-                    onChange={(e) => setInGameName(e.target.value)}
+                    onChange={(e) => {
+                      markAsEdited();
+                      setInGameName(e.target.value);
+                    }}
                     onBlur={handleIgnBlur}
                     placeholder=""
                     className="w-full px-4 py-2.5 rounded-xl bg-zinc-750/70 border border-zinc-700 text-white font-bold text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all placeholder:text-zinc-500 shadow-inner"
@@ -821,6 +858,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                       <button
                         type="button"
                         onClick={() => {
+                          markAsEdited();
                           setScreenshotUrl('');
                           setIsProofPinned(false);
                         }}
@@ -1111,6 +1149,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                       max="99"
                       value={charLevel === 0 ? '' : charLevel}
                       onChange={(e) => {
+                        markAsEdited();
                         const v = parseInt(e.target.value, 10);
                         setCharLevel(isNaN(v) ? 0 : Math.max(0, Math.min(99, v)));
                       }}
@@ -1130,6 +1169,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                       min="0"
                       value={charLegendClasses === 0 ? '' : charLegendClasses}
                       onChange={(e) => {
+                        markAsEdited();
                         const v = parseInt(e.target.value, 10);
                         setCharLegendClasses(isNaN(v) ? 0 : Math.max(0, v));
                       }}
@@ -1149,6 +1189,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                       min="0"
                       value={charLegendAgathions === 0 ? '' : charLegendAgathions}
                       onChange={(e) => {
+                        markAsEdited();
                         const v = parseInt(e.target.value, 10);
                         setCharLegendAgathions(isNaN(v) ? 0 : Math.max(0, v));
                       }}
