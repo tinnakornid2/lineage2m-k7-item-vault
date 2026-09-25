@@ -177,15 +177,15 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.21-clean-slate';
+const CACHE_SCHEMA_VERSION = '2.10.22-clean-slate';
 export const CACHE_KEYS = {
-  USERS: 'l2m_cached_users_v21021',
-  VAULT_ITEMS: 'l2m_cached_vault_items_v21021',
-  QUEUES: 'l2m_cached_queues_v21021',
-  CLANS: 'l2m_cached_clans_v21021',
-  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21021',
-  QUICK_ITEMS: 'l2m_cached_quick_items_v21021',
-  GENERAL_ITEMS: 'l2m_cached_general_items_v21021'
+  USERS: 'l2m_cached_users_v21022',
+  VAULT_ITEMS: 'l2m_cached_vault_items_v21022',
+  QUEUES: 'l2m_cached_queues_v21022',
+  CLANS: 'l2m_cached_clans_v21022',
+  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21022',
+  QUICK_ITEMS: 'l2m_cached_quick_items_v21022',
+  GENERAL_ITEMS: 'l2m_cached_general_items_v21022'
 };
 
 export function clearAllLocalCaches(): void {
@@ -232,6 +232,13 @@ if (typeof localStorage !== 'undefined') {
         'l2m_cached_quick_items_v271',
         'l2m_cached_general_items_v271',
         'l2m_cached_users_v272',
+        'l2m_cached_users_v21021',
+        'l2m_cached_vault_items_v21021',
+        'l2m_cached_queues_v21021',
+        'l2m_cached_clans_v21021',
+        'l2m_cached_diamond_txs_v21021',
+        'l2m_cached_quick_items_v21021',
+        'l2m_cached_general_items_v21021',
         'l2m_active_tab',
         'l2m_google_backup_cache',
         'l2m_pending_firebase_sync',
@@ -1930,7 +1937,45 @@ export async function registerUserDoc(data: {
   } catch (authErr: any) {
     console.warn('Firebase Auth registration notice (using direct vault identity):', authErr?.code || authErr?.message);
     if (authErr?.code === 'auth/email-already-in-use') {
-      throw new Error('auth/username-already-in-use');
+      let recovered = false;
+      try {
+        const resolveRes = await fetch('/api/auth/resolve-orphan-registration', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username,
+            password: data.password,
+            inGameName
+          })
+        }).then((r) => r.json());
+
+        if (resolveRes && resolveRes.allowed && resolveRes.uid) {
+          resolvedId = resolveRes.uid;
+          recovered = true;
+          try {
+            await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
+          } catch {}
+        } else if (resolveRes && (resolveRes.error === 'USERNAME_IN_USE' || resolveRes.error === 'OWNER_RESERVED')) {
+          throw new Error('auth/username-already-in-use');
+        }
+      } catch (err: any) {
+        if (err?.message === 'auth/username-already-in-use') throw err;
+      }
+
+      if (!recovered) {
+        // Fallback: try signing in directly if the orphan account was created with the same password
+        try {
+          const cred = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
+          if (cred && cred.user && cred.user.uid) {
+            resolvedId = cred.user.uid;
+            recovered = true;
+          }
+        } catch {}
+      }
+
+      if (!recovered) {
+        throw new Error('auth/username-already-in-use');
+      }
     }
   }
 

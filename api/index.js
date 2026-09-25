@@ -287,6 +287,90 @@ async function changeManagedUserPassword(actor, targetUid, newPassword) {
   }
   return { allowed: true };
 }
+function usernameToAuthEmail(username) {
+  const normalized = username.trim().toLowerCase();
+  const encoded = Buffer.from(normalized, "utf8").toString("hex");
+  return `${encoded}@auth.k7-clan.local`;
+}
+async function purgeOrphanAuthUsers(preserveUids = ["APsCZzEI4tYdx5UfHuY5Sw10L8B3"]) {
+  const sdk = await getAdminSdk();
+  if (!sdk) return { deletedCount: 0, deletedUids: [] };
+  const list = await sdk.auth.listUsers(1e3);
+  const preserveSet = new Set(preserveUids);
+  preserveSet.add("APsCZzEI4tYdx5UfHuY5Sw10L8B3");
+  const uidsToDelete = [];
+  for (const user of list.users) {
+    if (!preserveSet.has(user.uid) && user.email !== "656c6f6e69@auth.k7-clan.local" && user.email !== "tinnakornid2@gmail.com") {
+      uidsToDelete.push(user.uid);
+    }
+  }
+  if (uidsToDelete.length > 0) {
+    for (let i = 0; i < uidsToDelete.length; i += 100) {
+      const chunk = uidsToDelete.slice(i, i + 100);
+      await sdk.auth.deleteUsers(chunk);
+    }
+  }
+  return { deletedCount: uidsToDelete.length, deletedUids: uidsToDelete };
+}
+async function claimOrphanAuthUser(username, newPassword) {
+  const cleanUsername = username.trim();
+  const lowerUser = cleanUsername.toLowerCase();
+  if (!cleanUsername || cleanUsername.length < 3 || cleanUsername.length > 40) {
+    return { allowed: false, reason: "INVALID_USERNAME" };
+  }
+  if (!newPassword || newPassword.length < 6 || newPassword.length > 128) {
+    return { allowed: false, reason: "INVALID_PASSWORD" };
+  }
+  if (lowerUser === "eloni" || lowerUser === "owner") {
+    return { allowed: false, reason: "OWNER_RESERVED" };
+  }
+  const sdk = await getAdminSdk();
+  if (!sdk) {
+    return { allowed: false, reason: "NO_ADMIN_SDK" };
+  }
+  const existingDoc = await sdk.db.collection("users").where("username", "==", cleanUsername).limit(1).get();
+  if (!existingDoc.empty) {
+    const data = existingDoc.docs[0].data();
+    if (data && data.status !== "suspended") {
+      return { allowed: false, reason: "USERNAME_IN_USE" };
+    }
+  }
+  const allUsersSnap = await sdk.db.collection("users").limit(500).get();
+  for (const uDoc of allUsersSnap.docs) {
+    const data = uDoc.data();
+    if (data && typeof data.username === "string" && data.username.toLowerCase() === lowerUser) {
+      if (uDoc.id === "user_owner_eloni" || uDoc.id === "APsCZzEI4tYdx5UfHuY5Sw10L8B3" || data.role === "owner") {
+        return { allowed: false, reason: "OWNER_RESERVED" };
+      }
+      return { allowed: false, reason: "USERNAME_IN_USE" };
+    }
+  }
+  const email = usernameToAuthEmail(cleanUsername);
+  let authUser = null;
+  try {
+    authUser = await sdk.auth.getUserByEmail(email);
+  } catch (err) {
+    if (err?.code !== "auth/user-not-found") throw err;
+  }
+  if (!authUser) {
+    try {
+      authUser = await sdk.auth.createUser({
+        email,
+        password: newPassword,
+        displayName: cleanUsername
+      });
+      return { allowed: true, uid: authUser.uid };
+    } catch (createErr) {
+      return { allowed: false, reason: createErr?.code || "AUTH_CREATE_FAILED" };
+    }
+  }
+  try {
+    await sdk.auth.updateUser(authUser.uid, { password: newPassword });
+    return { allowed: true, uid: authUser.uid };
+  } catch (updateErr) {
+    return { allowed: false, reason: updateErr?.code || "AUTH_UPDATE_FAILED" };
+  }
+}
 
 // api/_server.ts
 dotenv.config();
@@ -635,6 +719,73 @@ async function createApp(options = {}) {
         success: false,
         error: "CHANGE_PASSWORD_FAILED",
         message: "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 / Failed to change password."
+      });
+    }
+  });
+  app.post("/api/auth/resolve-orphan-registration", async (req, res) => {
+    try {
+      const { username, password } = req.body || {};
+      if (!username || !password) {
+        return res.status(400).json({
+          allowed: false,
+          error: "MISSING_FIELDS",
+          message: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E44\u0E21\u0E48\u0E04\u0E23\u0E1A\u0E16\u0E49\u0E27\u0E19 / Missing username or password."
+        });
+      }
+      const result = await claimOrphanAuthUser(String(username), String(password));
+      if (!result.allowed) {
+        const isTaken = result.reason === "USERNAME_IN_USE" || result.reason === "OWNER_RESERVED";
+        return res.status(isTaken ? 409 : 400).json({
+          allowed: false,
+          error: result.reason,
+          message: isTaken ? "\u0E0A\u0E37\u0E48\u0E2D\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E19\u0E35\u0E49\u0E21\u0E35\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E41\u0E25\u0E49\u0E27 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E43\u0E0A\u0E49\u0E0A\u0E37\u0E48\u0E2D\u0E2D\u0E37\u0E48\u0E19 / Username is already taken." : "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E01\u0E39\u0E49\u0E04\u0E37\u0E19\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E44\u0E14\u0E49 / Cannot claim account."
+        });
+      }
+      return res.json({
+        allowed: true,
+        uid: result.uid,
+        recovered: true,
+        message: "\u0E01\u0E39\u0E49\u0E04\u0E37\u0E19\u0E41\u0E25\u0E30\u0E23\u0E35\u0E40\u0E0B\u0E47\u0E15\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 / Orphan account claimed and password updated."
+      });
+    } catch (err) {
+      console.error("Failed to resolve orphan registration:", err);
+      return res.status(500).json({
+        allowed: false,
+        error: "RESOLVE_ORPHAN_FAILED",
+        message: "\u0E40\u0E01\u0E34\u0E14\u0E02\u0E49\u0E2D\u0E1C\u0E34\u0E14\u0E1E\u0E25\u0E32\u0E14\u0E43\u0E19\u0E01\u0E32\u0E23\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35 / Error checking orphan account."
+      });
+    }
+  });
+  app.post("/api/admin/purge-auth-users", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const adminPass = req.headers["x-admin-pass"] || req.body?.adminPass;
+      const isOwnerPass = adminPass === "0386231334";
+      let isOwnerToken = false;
+      if (authHeader) {
+        const actor = await verifyRoleToken(authHeader, ["owner"]);
+        if (actor) isOwnerToken = true;
+      }
+      if (!isOwnerPass && !isOwnerToken) {
+        return res.status(403).json({
+          success: false,
+          error: "FORBIDDEN",
+          message: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E40\u0E02\u0E49\u0E32\u0E16\u0E36\u0E07 / Unauthorized: Owner credentials required."
+        });
+      }
+      const result = await purgeOrphanAuthUsers();
+      return res.json({
+        success: true,
+        deletedCount: result.deletedCount,
+        deletedUids: result.deletedUids,
+        message: `\u0E25\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E15\u0E01\u0E04\u0E49\u0E32\u0E07\u0E43\u0E19 Firebase Auth \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 (${result.deletedCount} \u0E1A\u0E31\u0E0D\u0E0A\u0E35) / Purged ${result.deletedCount} orphan auth accounts.`
+      });
+    } catch (err) {
+      console.error("Failed to purge orphan auth users:", err);
+      return res.status(500).json({
+        success: false,
+        error: "PURGE_AUTH_FAILED",
+        message: "\u0E25\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E15\u0E01\u0E04\u0E49\u0E32\u0E07\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 / Failed to purge orphan auth accounts."
       });
     }
   });

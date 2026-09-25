@@ -421,6 +421,27 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
         }
       }
 
+      const localDeletedVault = readSyncMap(SYNC_META_KEYS.deletedVaultItems);
+      const incomingDeletedVault = json.data.syncMeta?.deletedVaultItems || {};
+      const mergedDeletedVault: Record<string, number> = { ...localDeletedVault };
+      for (const [id, ts] of Object.entries(incomingDeletedVault)) {
+        if (typeof ts === 'number' && ts > (mergedDeletedVault[id] || 0)) mergedDeletedVault[id] = ts;
+      }
+
+      const localDeletedGeneral = readSyncMap(SYNC_META_KEYS.deletedGeneralItems);
+      const incomingDeletedGeneral = json.data.syncMeta?.deletedGeneralItems || {};
+      const mergedDeletedGeneral: Record<string, number> = { ...localDeletedGeneral };
+      for (const [id, ts] of Object.entries(incomingDeletedGeneral)) {
+        if (typeof ts === 'number' && ts > (mergedDeletedGeneral[id] || 0)) mergedDeletedGeneral[id] = ts;
+      }
+
+      const localDeletedQueues = readSyncMap(SYNC_META_KEYS.deletedQueueItems);
+      const incomingDeletedQueues = json.data.syncMeta?.deletedQueueItems || {};
+      const mergedDeletedQueues: Record<string, number> = { ...localDeletedQueues };
+      for (const [id, ts] of Object.entries(incomingDeletedQueues)) {
+        if (typeof ts === 'number' && ts > (mergedDeletedQueues[id] || 0)) mergedDeletedQueues[id] = ts;
+      }
+
       const rawUsers = Array.isArray(json.data.users) ? json.data.users : [];
       const cleanUsers = rawUsers.filter((u: any) => {
         if (!u || !u.id) return false;
@@ -428,12 +449,24 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
         return (mergedDeletedUsers[u.id] || 0) < Number(u.updatedAt || u.createdAt || 0);
       });
 
+      const rawVaultItems = Array.isArray(json.data.vaultItems) ? json.data.vaultItems : [];
+      const cleanVaultItems = rawVaultItems.filter((i: any) => i && i.id && !mergedDeletedVault[i.id]);
+
+      const rawGeneralItems = Array.isArray(json.data.generalItems) ? json.data.generalItems : [];
+      const cleanGeneralItems = rawGeneralItems.filter((i: any) => i && i.id && !mergedDeletedGeneral[i.id]);
+
+      const rawQuickItems = Array.isArray(json.data.quickItems) ? json.data.quickItems : [];
+      const cleanQuickItems = rawQuickItems.filter((i: any) => i && i.id);
+
+      const rawQueueItems = Array.isArray(json.data.queueItems) ? json.data.queueItems : [];
+      const cleanQueueItems = rawQueueItems.filter((q: any) => q && q.id && !mergedDeletedQueues[q.id]);
+
       const parsedData: BackupDataPayload = {
         users: cleanUsers,
-        vaultItems: normalizeVaultItemsList(Array.isArray(json.data.vaultItems) ? json.data.vaultItems : []),
-        quickItems: Array.isArray(json.data.quickItems) ? json.data.quickItems : [],
-        generalItems: Array.isArray(json.data.generalItems) ? json.data.generalItems : [],
-        queueItems: Array.isArray(json.data.queueItems) ? json.data.queueItems : [],
+        vaultItems: normalizeVaultItemsList(cleanVaultItems),
+        quickItems: cleanQuickItems,
+        generalItems: cleanGeneralItems,
+        queueItems: cleanQueueItems,
         clans: Array.isArray(json.data.clans) ? json.data.clans : [],
         diamondLogs: Array.isArray(json.data.diamondLogs) ? json.data.diamondLogs : [],
         vaultBalance: Number(json.vaultBalance || 0),
@@ -464,10 +497,19 @@ export async function fetchDataFromGoogleSheets(customUrl?: string): Promise<{
             if (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni') return true;
             return (localDeletedUsers[u.id] || 0) < Number(u.updatedAt || u.createdAt || 0);
           });
+          const localDeletedVault = readSyncMap(SYNC_META_KEYS.deletedVaultItems);
+          const cachedVaultItems = (parsed.data.vaultItems || []).filter((i: any) => i && i.id && !localDeletedVault[i.id]);
+          const localDeletedGeneral = readSyncMap(SYNC_META_KEYS.deletedGeneralItems);
+          const cachedGeneralItems = (parsed.data.generalItems || []).filter((i: any) => i && i.id && !localDeletedGeneral[i.id]);
+          const localDeletedQueues = readSyncMap(SYNC_META_KEYS.deletedQueueItems);
+          const cachedQueueItems = (parsed.data.queueItems || []).filter((q: any) => q && q.id && !localDeletedQueues[q.id]);
+
           const cachedData: BackupDataPayload = {
             ...parsed.data,
             users: cachedUsers,
-            vaultItems: normalizeVaultItemsList(parsed.data.vaultItems || [])
+            vaultItems: normalizeVaultItemsList(cachedVaultItems),
+            generalItems: cachedGeneralItems,
+            queueItems: cachedQueueItems
           };
           return {
             success: true,

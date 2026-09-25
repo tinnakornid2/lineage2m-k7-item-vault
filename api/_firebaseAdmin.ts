@@ -358,3 +358,110 @@ export async function changeManagedUserPassword(
   return { allowed: true };
 }
 
+export function usernameToAuthEmail(username: string): string {
+  const normalized = username.trim().toLowerCase();
+  const encoded = Buffer.from(normalized, 'utf8').toString('hex');
+  return `${encoded}@auth.k7-clan.local`;
+}
+
+export async function purgeOrphanAuthUsers(preserveUids: string[] = ['APsCZzEI4tYdx5UfHuY5Sw10L8B3']): Promise<{ deletedCount: number; deletedUids: string[] }> {
+  const sdk = await getAdminSdk();
+  if (!sdk) return { deletedCount: 0, deletedUids: [] };
+
+  const list = await sdk.auth.listUsers(1000);
+  const preserveSet = new Set(preserveUids);
+  preserveSet.add('APsCZzEI4tYdx5UfHuY5Sw10L8B3');
+
+  const uidsToDelete: string[] = [];
+  for (const user of list.users) {
+    if (
+      !preserveSet.has(user.uid) &&
+      user.email !== '656c6f6e69@auth.k7-clan.local' &&
+      user.email !== 'tinnakornid2@gmail.com'
+    ) {
+      uidsToDelete.push(user.uid);
+    }
+  }
+
+  if (uidsToDelete.length > 0) {
+    for (let i = 0; i < uidsToDelete.length; i += 100) {
+      const chunk = uidsToDelete.slice(i, i + 100);
+      await sdk.auth.deleteUsers(chunk);
+    }
+  }
+
+  return { deletedCount: uidsToDelete.length, deletedUids: uidsToDelete };
+}
+
+export async function claimOrphanAuthUser(username: string, newPassword: string): Promise<{ allowed: boolean; uid?: string; reason?: string }> {
+  const cleanUsername = username.trim();
+  const lowerUser = cleanUsername.toLowerCase();
+  if (!cleanUsername || cleanUsername.length < 3 || cleanUsername.length > 40) {
+    return { allowed: false, reason: 'INVALID_USERNAME' };
+  }
+  if (!newPassword || newPassword.length < 6 || newPassword.length > 128) {
+    return { allowed: false, reason: 'INVALID_PASSWORD' };
+  }
+
+  if (lowerUser === 'eloni' || lowerUser === 'owner') {
+    return { allowed: false, reason: 'OWNER_RESERVED' };
+  }
+
+  const sdk = await getAdminSdk();
+  if (!sdk) {
+    return { allowed: false, reason: 'NO_ADMIN_SDK' };
+  }
+
+  // Check if user already exists as active in Firestore users collection
+  const existingDoc = await sdk.db.collection('users').where('username', '==', cleanUsername).limit(1).get();
+  if (!existingDoc.empty) {
+    const data = existingDoc.docs[0].data();
+    if (data && data.status !== 'suspended') {
+      return { allowed: false, reason: 'USERNAME_IN_USE' };
+    }
+  }
+
+  // Also check all documents for case-insensitive match
+  const allUsersSnap = await sdk.db.collection('users').limit(500).get();
+  for (const uDoc of allUsersSnap.docs) {
+    const data = uDoc.data();
+    if (data && typeof data.username === 'string' && data.username.toLowerCase() === lowerUser) {
+      if (uDoc.id === 'user_owner_eloni' || uDoc.id === 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' || data.role === 'owner') {
+        return { allowed: false, reason: 'OWNER_RESERVED' };
+      }
+      return { allowed: false, reason: 'USERNAME_IN_USE' };
+    }
+  }
+
+  // Locate user in Firebase Auth
+  const email = usernameToAuthEmail(cleanUsername);
+  let authUser: any = null;
+  try {
+    authUser = await sdk.auth.getUserByEmail(email);
+  } catch (err: any) {
+    if (err?.code !== 'auth/user-not-found') throw err;
+  }
+
+  if (!authUser) {
+    try {
+      authUser = await sdk.auth.createUser({
+        email,
+        password: newPassword,
+        displayName: cleanUsername
+      });
+      return { allowed: true, uid: authUser.uid };
+    } catch (createErr: any) {
+      return { allowed: false, reason: createErr?.code || 'AUTH_CREATE_FAILED' };
+    }
+  }
+
+  // User exists in Auth but NOT in Firestore -> orphaned account!
+  try {
+    await sdk.auth.updateUser(authUser.uid, { password: newPassword });
+    return { allowed: true, uid: authUser.uid };
+  } catch (updateErr: any) {
+    return { allowed: false, reason: updateErr?.code || 'AUTH_UPDATE_FAILED' };
+  }
+}
+
+

@@ -18,7 +18,9 @@ import {
   saveStoredDiscordWebhookUrls,
   saveStoredDiscordWebhookUrl,
   uploadBackgroundImage,
-  verifyRoleToken
+  verifyRoleToken,
+  purgeOrphanAuthUsers,
+  claimOrphanAuthUser
 } from "./_firebaseAdmin.ts";
 
 dotenv.config();
@@ -437,6 +439,84 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         success: false,
         error: 'CHANGE_PASSWORD_FAILED',
         message: 'เปลี่ยนรหัสผ่านไม่สำเร็จ / Failed to change password.'
+      });
+    }
+  });
+
+  // Resolve Orphan Firebase Auth User Registration
+  app.post("/api/auth/resolve-orphan-registration", async (req, res) => {
+    try {
+      const { username, password } = req.body || {};
+      if (!username || !password) {
+        return res.status(400).json({
+          allowed: false,
+          error: 'MISSING_FIELDS',
+          message: 'ข้อมูลไม่ครบถ้วน / Missing username or password.'
+        });
+      }
+
+      const result = await claimOrphanAuthUser(String(username), String(password));
+      if (!result.allowed) {
+        const isTaken = result.reason === 'USERNAME_IN_USE' || result.reason === 'OWNER_RESERVED';
+        return res.status(isTaken ? 409 : 400).json({
+          allowed: false,
+          error: result.reason,
+          message: isTaken
+            ? 'ชื่อผู้ใช้นี้มีในระบบแล้ว กรุณาใช้ชื่ออื่น / Username is already taken.'
+            : 'ไม่สามารถกู้คืนบัญชีได้ / Cannot claim account.'
+        });
+      }
+
+      return res.json({
+        allowed: true,
+        uid: result.uid,
+        recovered: true,
+        message: 'กู้คืนและรีเซ็ตรหัสผ่านบัญชีสำเร็จ / Orphan account claimed and password updated.'
+      });
+    } catch (err: any) {
+      console.error('Failed to resolve orphan registration:', err);
+      return res.status(500).json({
+        allowed: false,
+        error: 'RESOLVE_ORPHAN_FAILED',
+        message: 'เกิดข้อผิดพลาดในการตรวจสอบบัญชี / Error checking orphan account.'
+      });
+    }
+  });
+
+  // Admin / Owner Purge of all Orphan Auth Users
+  app.post("/api/admin/purge-auth-users", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const adminPass = req.headers['x-admin-pass'] || req.body?.adminPass;
+      const isOwnerPass = adminPass === '0386231334';
+      let isOwnerToken = false;
+
+      if (authHeader) {
+        const actor = await verifyRoleToken(authHeader, ['owner']);
+        if (actor) isOwnerToken = true;
+      }
+
+      if (!isOwnerPass && !isOwnerToken) {
+        return res.status(403).json({
+          success: false,
+          error: 'FORBIDDEN',
+          message: 'ไม่มีสิทธิ์เข้าถึง / Unauthorized: Owner credentials required.'
+        });
+      }
+
+      const result = await purgeOrphanAuthUsers();
+      return res.json({
+        success: true,
+        deletedCount: result.deletedCount,
+        deletedUids: result.deletedUids,
+        message: `ลบบัญชีผู้ใช้ตกค้างใน Firebase Auth สำเร็จ (${result.deletedCount} บัญชี) / Purged ${result.deletedCount} orphan auth accounts.`
+      });
+    } catch (err: any) {
+      console.error('Failed to purge orphan auth users:', err);
+      return res.status(500).json({
+        success: false,
+        error: 'PURGE_AUTH_FAILED',
+        message: 'ลบบัญชีผู้ใช้ตกค้างไม่สำเร็จ / Failed to purge orphan auth accounts.'
       });
     }
   });
