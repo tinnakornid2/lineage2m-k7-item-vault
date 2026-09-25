@@ -40,18 +40,6 @@ import { sounds } from './utils/sound';
 import { sendDiscordNotification } from './utils/discord';
 import { DiscordBroadcastModal } from './components/DiscordBroadcastModal';
 import {
-  listenToSystemVersionHub,
-  getLocalVersionHub,
-  setLocalVersionHub,
-  fetchUsersOnce,
-  fetchVaultItemsOnce,
-  fetchQueueItemsOnce,
-  fetchQuickItemsOnce,
-  fetchGeneralItemsOnce,
-  fetchClansOnce,
-  fetchDiamondTransactionsOnce,
-  fetchSettingsOnce,
-  bumpSystemVersion,
   listenToUsers,
   listenToVaultItems,
   listenToQueueItems,
@@ -1007,186 +995,108 @@ export const App: React.FC = () => {
     }
   }, [users, currentUser]);
 
-  // Heartbeat Version Hub Subscription (Option 1: 1 heartbeat listener replaces 13 continuous listeners, cutting reads by 80-90%)
+  // Firestore Live Real-Time Subscriptions (Live across all clients and tabs)
   useEffect(() => {
     // Stop listeners while quota failover is active. Google becomes the live source then.
     if (isQuotaExceeded) return;
     ensureFirebaseAuthSession(currentUser);
 
-    const localHub = getLocalVersionHub();
-    let currentHub = { ...localHub };
+    const unsubUsers = listenToUsers((updatedUsers) => {
+      // updatedUsers is pre-filtered and deduplicated to guarantee exactly ONE canonical Eloni (user_owner_eloni)
+      const cleanUsers = (updatedUsers || []).filter((u) => u && u.id && u.id !== 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' && u.status !== 'shadow' && u.status !== 'deleted');
+      setUsers(cleanUsers);
+      setCachedUsers(cleanUsers);
 
-    // Initial check: if memory/cache is completely empty for any category, do a single fetch
-    if (vaultItems.length === 0) {
-      fetchVaultItemsOnce().then((items) => {
-        setVaultItems(items);
-        setCachedVaultItems(items);
-      });
-    }
-    if (users.length === 0) {
-      fetchUsersOnce().then((uList) => {
-        const cleanUsers = (uList || []).filter((u) => u && u.id && u.id !== 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' && u.status !== 'shadow' && u.status !== 'deleted');
-        setUsers(cleanUsers);
-        setCachedUsers(cleanUsers);
-      });
-    }
-    if (queueItems.length === 0) {
-      fetchQueueItemsOnce().then((qList) => {
-        setQueueItems(qList);
-        setCachedQueues(qList);
-      });
-    }
-    if (quickItems.length === 0) {
-      fetchQuickItemsOnce().then((qiList) => {
-        setQuickItems(qiList);
-        setCachedQuickItems(qiList);
-      });
-    }
-    if (generalItems.length === 0) {
-      fetchGeneralItemsOnce().then(setGeneralItems);
-    }
-    if (clans.length === 0) {
-      fetchClansOnce().then((cList) => {
-        setClans(cList);
-        setCachedClans(cList);
-      });
-    }
-    if (diamondLogs.length === 0) {
-      fetchDiamondTransactionsOnce().then((dList) => {
-        setDiamondLogs(dList);
-        setCachedDiamondTransactions(dList);
-      });
-    }
-
-    // Load initial settings once
-    fetchSettingsOnce().then((s) => {
-      if (s.bg?.imageUrl) {
-        setBgConfig({
-          imageUrl: s.bg.imageUrl,
-          brightness: typeof s.bg.brightness === 'number' ? s.bg.brightness : DEFAULT_BG_CONFIG.brightness,
-          blur: typeof s.bg.blur === 'number' ? s.bg.blur : DEFAULT_BG_CONFIG.blur,
-          vignetteOpacity: typeof s.bg.vignetteOpacity === 'number' ? s.bg.vignetteOpacity : DEFAULT_BG_CONFIG.vignetteOpacity
-        });
-        localStorage.setItem('k7_bg_config', JSON.stringify(s.bg));
+      // Keep currentUser in sync if updated
+      const current = currentUserRef.current;
+      if (current) {
+        const isCurrentEloni = current.id === 'user_owner_eloni' || current.username?.toLowerCase() === 'eloni' || current.inGameName?.toLowerCase() === 'eloni';
+        const found = isCurrentEloni
+          ? cleanUsers.find((u) => u.id === 'user_owner_eloni') || cleanUsers.find((u) => u.username?.toLowerCase() === 'eloni')
+          : cleanUsers.find((u) => u.id === current.id);
+        if (found) {
+          const safeUser: User = isCurrentEloni
+            ? { ...found, id: 'user_owner_eloni', role: 'owner' as UserRole, status: 'active' as UserStatus }
+            : found;
+          setCurrentUser(safeUser);
+          saveLocalSessionUser(safeUser);
+        }
       }
-      if (s.announcement) setAnnouncementSettings(s.announcement);
-      if (s.queueAnnouncement) setQueueAnnouncement(s.queueAnnouncement);
-      if (s.discord) setDiscordSettings(s.discord);
-      if (s.formula) setInMemoryFormulaSettings(s.formula);
-      if (s.statUpdates) setStatUpdateSettings(s.statUpdates);
     });
 
-    // Single Heartbeat Listener: 1 document read instead of 130+ document reads!
-    const unsubHub = listenToSystemVersionHub((hub) => {
-      // 1. Vault Items
-      if (hub.vaultVersion > (currentHub.vaultVersion || 0)) {
-        currentHub.vaultVersion = hub.vaultVersion;
-        setLocalVersionHub({ vaultVersion: hub.vaultVersion });
-        fetchVaultItemsOnce().then((items) => {
-          setVaultItems(items);
-          setCachedVaultItems(items);
+    const unsubVault = listenToVaultItems((items) => {
+      setVaultItems(items);
+      setCachedVaultItems(items);
+    });
+
+    const unsubQueue = listenToQueueItems((items) => {
+      setQueueItems(items);
+      setCachedQueues(items);
+    });
+
+    const unsubQuick = listenToQuickItems((items) => {
+      setQuickItems(items);
+      setCachedQuickItems(items);
+    });
+
+    const unsubGeneral = listenToGeneralItems((gList) => {
+      setGeneralItems(gList);
+      setCachedGeneralItems(gList);
+    });
+
+    const unsubClans = listenToClans((clanList) => {
+      const validClans = clanList.filter((c) => !isNoClan(c.name));
+      setClans(validClans);
+      setCachedClans(validClans);
+    });
+
+    const unsubDiamonds = listenToDiamondTransactions((logs) => {
+      setDiamondLogs(logs);
+      setCachedDiamondTransactions(logs);
+    });
+
+    const unsubBg = listenToBackgroundSettings((settings) => {
+      if (settings && settings.imageUrl) {
+        setBgConfig({
+          imageUrl: settings.imageUrl,
+          brightness: typeof settings.brightness === 'number' ? settings.brightness : DEFAULT_BG_CONFIG.brightness,
+          blur: typeof settings.blur === 'number' ? settings.blur : DEFAULT_BG_CONFIG.blur,
+          vignetteOpacity: typeof settings.vignetteOpacity === 'number' ? settings.vignetteOpacity : DEFAULT_BG_CONFIG.vignetteOpacity
         });
+        localStorage.setItem('k7_bg_config', JSON.stringify(settings));
       }
+    });
 
-      // 2. Users
-      if (hub.usersVersion > (currentHub.usersVersion || 0)) {
-        currentHub.usersVersion = hub.usersVersion;
-        setLocalVersionHub({ usersVersion: hub.usersVersion });
-        fetchUsersOnce().then((updatedUsers) => {
-          const cleanUsers = (updatedUsers || []).filter((u) => u && u.id && u.id !== 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' && u.status !== 'shadow' && u.status !== 'deleted');
-          setUsers(cleanUsers);
-          setCachedUsers(cleanUsers);
-
-          // Keep currentUser in sync if updated
-          const current = currentUserRef.current;
-          if (current) {
-            const isCurrentEloni = current.id === 'user_owner_eloni' || current.username?.toLowerCase() === 'eloni' || current.inGameName?.toLowerCase() === 'eloni';
-            const found = isCurrentEloni
-              ? cleanUsers.find((u) => u.id === 'user_owner_eloni') || cleanUsers.find((u) => u.username?.toLowerCase() === 'eloni')
-              : cleanUsers.find((u) => u.id === current.id);
-            if (found) {
-              const safeUser: User = isCurrentEloni
-                ? { ...found, id: 'user_owner_eloni', role: 'owner' as UserRole, status: 'active' as UserStatus }
-                : found;
-              setCurrentUser(safeUser);
-              saveLocalSessionUser(safeUser);
-            }
-          }
-        });
-      }
-
-      // 3. Queue Items
-      if (hub.queuesVersion > (currentHub.queuesVersion || 0)) {
-        currentHub.queuesVersion = hub.queuesVersion;
-        setLocalVersionHub({ queuesVersion: hub.queuesVersion });
-        fetchQueueItemsOnce().then((qList) => {
-          setQueueItems(qList);
-          setCachedQueues(qList);
-        });
-      }
-
-      // 4. Quick Items
-      if (hub.quickItemsVersion > (currentHub.quickItemsVersion || 0)) {
-        currentHub.quickItemsVersion = hub.quickItemsVersion;
-        setLocalVersionHub({ quickItemsVersion: hub.quickItemsVersion });
-        fetchQuickItemsOnce().then((qiList) => {
-          setQuickItems(qiList);
-          setCachedQuickItems(qiList);
-        });
-      }
-
-      // 5. General Items
-      if (hub.generalItemsVersion > (currentHub.generalItemsVersion || 0)) {
-        currentHub.generalItemsVersion = hub.generalItemsVersion;
-        setLocalVersionHub({ generalItemsVersion: hub.generalItemsVersion });
-        fetchGeneralItemsOnce().then(setGeneralItems);
-      }
-
-      // 6. Clans
-      if (hub.clansVersion > (currentHub.clansVersion || 0)) {
-        currentHub.clansVersion = hub.clansVersion;
-        setLocalVersionHub({ clansVersion: hub.clansVersion });
-        fetchClansOnce().then((cList) => {
-          setClans(cList);
-          setCachedClans(cList);
-        });
-      }
-
-      // 7. Diamonds
-      if (hub.diamondsVersion > (currentHub.diamondsVersion || 0)) {
-        currentHub.diamondsVersion = hub.diamondsVersion;
-        setLocalVersionHub({ diamondsVersion: hub.diamondsVersion });
-        fetchDiamondTransactionsOnce().then((dList) => {
-          setDiamondLogs(dList);
-          setCachedDiamondTransactions(dList);
-        });
-      }
-
-      // 8. Settings
-      if (hub.settingsVersion > (currentHub.settingsVersion || 0)) {
-        currentHub.settingsVersion = hub.settingsVersion;
-        setLocalVersionHub({ settingsVersion: hub.settingsVersion });
-        fetchSettingsOnce().then((s) => {
-          if (s.bg?.imageUrl) {
-            setBgConfig({
-              imageUrl: s.bg.imageUrl,
-              brightness: typeof s.bg.brightness === 'number' ? s.bg.brightness : DEFAULT_BG_CONFIG.brightness,
-              blur: typeof s.bg.blur === 'number' ? s.bg.blur : DEFAULT_BG_CONFIG.blur,
-              vignetteOpacity: typeof s.bg.vignetteOpacity === 'number' ? s.bg.vignetteOpacity : DEFAULT_BG_CONFIG.vignetteOpacity
-            });
-            localStorage.setItem('k7_bg_config', JSON.stringify(s.bg));
-          }
-          if (s.announcement) setAnnouncementSettings(s.announcement);
-          if (s.queueAnnouncement) setQueueAnnouncement(s.queueAnnouncement);
-          if (s.discord) setDiscordSettings(s.discord);
-          if (s.formula) setInMemoryFormulaSettings(s.formula);
-          if (s.statUpdates) setStatUpdateSettings(s.statUpdates);
-        });
-      }
+    const unsubAnnouncement = listenToAnnouncementSettings((settings) => {
+      if (settings) setAnnouncementSettings(settings);
+    });
+    const unsubQueueAnnouncement = subscribeToQueueAnnouncementSettings((settings) => {
+      if (settings) setQueueAnnouncement(settings);
+    });
+    const unsubDiscord = listenToDiscordSettings((settings) => {
+      if (settings) setDiscordSettings(settings);
+    });
+    const unsubFormula = listenToFormulaSettings((settings) => {
+      if (settings) setInMemoryFormulaSettings(settings);
+    });
+    const unsubStatUpdates = listenToStatUpdateSettings((settings) => {
+      if (settings) setStatUpdateSettings(settings);
     });
 
     return () => {
-      unsubHub();
+      unsubUsers();
+      unsubVault();
+      unsubQueue();
+      unsubQuick();
+      unsubGeneral();
+      unsubClans();
+      unsubDiamonds();
+      unsubBg();
+      unsubAnnouncement();
+      unsubQueueAnnouncement();
+      unsubDiscord();
+      unsubFormula();
+      unsubStatUpdates();
     };
   }, [currentUser?.id, isQuotaExceeded]);
 
