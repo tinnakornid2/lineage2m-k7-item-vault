@@ -25,7 +25,7 @@ import {
   Check,
   ChevronDown,
   MessageSquare,
-  FileSpreadsheet,
+  Database,
   KeyRound,
   RefreshCw,
   Trash2,
@@ -35,7 +35,6 @@ import {
 import { ActiveTab, Language, User, ClanGroup, cleanClanName, StatUpdateSettings, isUserStatsPending } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
-import { getGoogleBackupConfig } from '../services/googleSheetsBackupService';
 
 export interface SidebarProps {
   currentTab?: ActiveTab;
@@ -130,7 +129,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const t = translations[lang];
   const effectiveCurrentTab = currentTab || activeTab || 'dashboard';
-  const isGoogleConnected = Boolean(getGoogleBackupConfig().webAppUrl);
 
   const handleTabSelect = (tab: ActiveTab) => {
     sounds.playClick();
@@ -341,13 +339,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onOpenGoogleBackupModal();
               }}
               className="relative p-1.5 rounded-lg bg-[#0c1424]/80 border border-emerald-500/50 text-emerald-400 hover:text-white cursor-pointer transition-all shadow-sm"
-              title={lang === 'th' ? 'สำรองข้อมูล Google Sheets & Drive (เฉพาะ Owner)' : 'Google Sheets & Drive Backup (Owner Only)'}
-              aria-label={lang === 'th' ? 'สำรองข้อมูล Google Sheets' : 'Google Sheets Backup'}
+              title={lang === 'th' ? 'สำรองและกู้คืนฐานข้อมูล (JSON Export / Cloud) (เฉพาะ Owner)' : 'Database Backup & Restore (JSON / Cloud) (Owner Only)'}
+              aria-label={lang === 'th' ? 'สำรองและกู้คืนฐานข้อมูล' : 'Database Backup & Restore'}
             >
-              <FileSpreadsheet className="w-4 h-4" />
-              {isGoogleConnected && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0c1424] shadow-[0_0_6px_#34d399]" />
-              )}
+              <Database className="w-4 h-4" />
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0c1424] shadow-[0_0_6px_#34d399]" />
             </button>
           )}
 
@@ -925,7 +921,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             )}
 
-            {/* Google Sheets & Drive Backup (For Owner Only) */}
+            {/* Database Backup & Restore JSON (For Owner Only) */}
             {isOwner && onOpenGoogleBackupModal && (
               <button
                 id="btn-google-backup"
@@ -934,13 +930,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onOpenGoogleBackupModal();
                 }}
                 className="relative p-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-400 hover:text-white transition-all cursor-pointer"
-                title={lang === 'th' ? 'สำรองข้อมูล Google Sheets & Drive (เฉพาะ Owner)' : 'Google Sheets & Drive Backup (Owner Only)'}
-                aria-label={lang === 'th' ? 'สำรองข้อมูล Google Sheets' : 'Google Sheets Backup'}
+                title={lang === 'th' ? 'สำรองและกู้คืนฐานข้อมูล (JSON Export / Cloud) (เฉพาะ Owner)' : 'Database Backup & Restore (JSON / Cloud) (Owner Only)'}
+                aria-label={lang === 'th' ? 'สำรองและกู้คืนฐานข้อมูล' : 'Database Backup & Restore'}
               >
-                <FileSpreadsheet className="w-4 h-4" />
-                {isGoogleConnected && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0f172a] shadow-[0_0_6px_#34d399]" />
-                )}
+                <Database className="w-4 h-4" />
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0f172a] shadow-[0_0_6px_#34d399]" />
               </button>
             )}
 
@@ -1001,7 +995,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[9.5px] font-mono text-emerald-300 font-bold shrink-0 shadow-[0_0_10px_rgba(52,211,153,0.15)]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v2.10.27</span>
+              <span>v2.10.28</span>
             </div>
           </div>
 

@@ -140,19 +140,28 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     const cleanUsers: any[] = [];
     let canonicalEloni: any = null;
 
-    for (const u of users || []) {
-      if (!u || !u.id) continue;
+    for (const rawU of users || []) {
+      if (!rawU || !rawU.id) continue;
+      let u = { ...rawU };
       if (u.id === 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' || u.isAuthShadow) continue;
       if (u.status === 'shadow' || u.status === 'deleted') continue;
-      if (deletedUsers && deletedUsers[u.id]) {
-        const uRev = Number(u.updatedAt || u.createdAt || 0);
-        if (uRev <= deletedUsers[u.id]) continue;
-      }
 
       const isEloni =
         u.id === 'user_owner_eloni' ||
         u.username?.trim().toLowerCase() === 'eloni' ||
         u.inGameName?.trim().toLowerCase() === 'eloni';
+
+      // Sever and drop any ghost accounts from old legacy database (e.g. PlakZ with user_1789...)
+      if (!isEloni) {
+        if (!u.username || u.username === 'undefined' || u.id === 'user_1789510684345_w0x45' || u.id.startsWith('user_1789')) {
+          continue;
+        }
+      }
+
+      if (deletedUsers && deletedUsers[u.id]) {
+        const uRev = Number(u.updatedAt || u.createdAt || 0);
+        if (uRev <= deletedUsers[u.id]) continue;
+      }
 
       if (isEloni) {
         if (!canonicalEloni) {
@@ -182,6 +191,20 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       } else {
         if (!seen.has(u.id)) {
           seen.add(u.id);
+          // If member has no verified statApprovalAt timestamp in the new CLAN-HUB system, ensure stats are fresh/zeroed
+          if (!u.statApprovalAt && u.powerLevel && u.powerLevel > 0) {
+            u = {
+              ...u,
+              powerLevel: 0,
+              stats: {},
+              statHistory: [],
+              statApprovalAt: null,
+              statRejectionAt: null,
+              pendingPowerLevel: null,
+              pendingPowerLevelRequestedAt: null,
+              pendingStats: null
+            };
+          }
           cleanUsers.push(u);
         }
       }
@@ -1255,7 +1278,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
               if (data.announcementSettings) {
                 await sdk.db.collection('app_settings').doc('announcement').set(cleanForAdminFirestore(data.announcementSettings), { merge: true }).catch(() => {});
               }
-              if (data.backgroundSettings) {
+              if (data.backgroundSettings && (data.isBackgroundSettingUpdate || (data.backgroundSettings as any)?.isExplicitUpdate)) {
                 await sdk.db.collection('app_settings').doc('background').set(cleanForAdminFirestore(data.backgroundSettings), { merge: true }).catch(() => {});
               }
               if (data.discordSettings) {

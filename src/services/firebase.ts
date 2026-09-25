@@ -185,15 +185,15 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.27-state-stability-clean';
+const CACHE_SCHEMA_VERSION = '2.10.28-clan-hub-fresh-cutoff';
 export const CACHE_KEYS = {
-  USERS: 'l2m_cached_users_v21025',
-  VAULT_ITEMS: 'l2m_cached_vault_items_v21025',
-  QUEUES: 'l2m_cached_queues_v21025',
-  CLANS: 'l2m_cached_clans_v21025',
-  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21025',
-  QUICK_ITEMS: 'l2m_cached_quick_items_v21025',
-  GENERAL_ITEMS: 'l2m_cached_general_items_v21025'
+  USERS: 'l2m_cached_users_v21028',
+  VAULT_ITEMS: 'l2m_cached_vault_items_v21028',
+  QUEUES: 'l2m_cached_queues_v21028',
+  CLANS: 'l2m_cached_clans_v21028',
+  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21028',
+  QUICK_ITEMS: 'l2m_cached_quick_items_v21028',
+  GENERAL_ITEMS: 'l2m_cached_general_items_v21028'
 };
 
 export function clearAllLocalCaches(): void {
@@ -215,6 +215,12 @@ export function clearAllLocalCaches(): void {
     localStorage.removeItem('l2m_read_notifications');
     localStorage.removeItem('l2m_dismissed_notifications');
     localStorage.removeItem('l2m_notification_history');
+    localStorage.removeItem('k7_active_session_user');
+    localStorage.removeItem('k7_logged_user');
+    localStorage.removeItem('k7_user');
+    localStorage.removeItem('k7_user_id');
+    localStorage.removeItem('k7_auth_token');
+    localStorage.removeItem('k7_bg_config');
   } catch (e) {
     console.warn('clearAllLocalCaches error:', e);
   }
@@ -260,6 +266,17 @@ if (typeof localStorage !== 'undefined') {
         'l2m_cached_diamond_txs_v21022',
         'l2m_cached_quick_items_v21022',
         'l2m_cached_general_items_v21022',
+        'l2m_cached_users_v21025',
+        'l2m_cached_vault_items_v21025',
+        'l2m_cached_queues_v21025',
+        'l2m_cached_clans_v21025',
+        'l2m_cached_diamond_txs_v21025',
+        'l2m_cached_quick_items_v21025',
+        'l2m_cached_general_items_v21025',
+        'l2m_cached_users_v21026',
+        'l2m_cached_vault_items_v21026',
+        'l2m_cached_users_v21027',
+        'l2m_cached_vault_items_v21027',
         'l2m_active_tab',
         'l2m_google_backup_cache',
         'l2m_pending_firebase_sync',
@@ -276,7 +293,14 @@ if (typeof localStorage !== 'undefined') {
         'k7_deleted_user_ids',
         'k7_deleted_quick_item_ids',
         'k7_removed_queue_members',
-        'l2m_cancelled_claims_map'
+        'l2m_cancelled_claims_map',
+        // Sever legacy sessions from old project
+        'k7_active_session_user',
+        'k7_logged_user',
+        'k7_user',
+        'k7_user_id',
+        'k7_auth_token',
+        'k7_bg_config'
       ];
       LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
 
@@ -1973,14 +1997,17 @@ export async function changeUserPassword(targetUserId: string, newPassword: stri
   bumpSystemVersion('usersVersion', targetUserId).catch(() => {});
 }
 
-const SESSION_KEY = 'k7_active_session_user';
-const LEGACY_LOGGED_KEY = 'k7_logged_user';
+const SESSION_KEY = 'clanhub_session_user_v21028';
+const LEGACY_LOGGED_KEY = 'clanhub_logged_user_v21028';
 
 export function saveLocalSessionUser(user: User) {
   try {
     const raw = JSON.stringify(user);
     localStorage.setItem(SESSION_KEY, raw);
     localStorage.setItem(LEGACY_LOGGED_KEY, raw);
+    // Explicitly destroy old legacy keys
+    localStorage.removeItem('k7_active_session_user');
+    localStorage.removeItem('k7_logged_user');
   } catch {}
 }
 
@@ -1988,7 +2015,17 @@ export function getLocalSessionUser(): User | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY) || localStorage.getItem(LEGACY_LOGGED_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as User;
+    const parsed = JSON.parse(raw) as User;
+    if (!parsed || !parsed.id) return null;
+    if (parsed.id === 'user_owner_eloni' || parsed.username?.toLowerCase() === 'eloni') {
+      return parsed;
+    }
+    // Reject any orphaned ghosts from old legacy database
+    if (!parsed.username || parsed.username === 'undefined' || parsed.id.startsWith('user_1789') || parsed.id === 'user_1789510684345_w0x45') {
+      clearLocalSessionUser();
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -1998,6 +2035,11 @@ export function clearLocalSessionUser() {
   try {
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(LEGACY_LOGGED_KEY);
+    localStorage.removeItem('k7_active_session_user');
+    localStorage.removeItem('k7_logged_user');
+    localStorage.removeItem('k7_user');
+    localStorage.removeItem('k7_user_id');
+    localStorage.removeItem('k7_auth_token');
   } catch {}
 }
 
@@ -2402,16 +2444,22 @@ export async function ensureFirebaseAuthSession(currentUser: User | null): Promi
 }
 
 export function listenToAuthenticatedUser(callback: (profile: User | null) => void) {
-  // Emit local session user if available
+  // Emit local session user if available and valid
   const initialLocal = getLocalSessionUser();
   if (initialLocal) {
-    callback(initialLocal);
+    if (initialLocal.id === 'user_owner_eloni' || initialLocal.username?.toLowerCase() === 'eloni') {
+      callback(initialLocal);
+    }
   }
 
   return onAuthStateChanged(auth, async (firebaseUser) => {
     if (!firebaseUser) {
       const currentLocal = getLocalSessionUser();
       if (currentLocal) {
+        if (currentLocal.id === 'user_owner_eloni' || currentLocal.username?.toLowerCase() === 'eloni') {
+          callback(currentLocal);
+          return;
+        }
         try {
           const profile = await getDoc(doc(db, USERS_COLLECTION, currentLocal.id));
           if (profile.exists()) {
@@ -2424,23 +2472,27 @@ export function listenToAuthenticatedUser(callback: (profile: User | null) => vo
           }
         } catch (err) {
           notifyQuotaExceeded(err);
-          callback(currentLocal);
-          return;
         }
+        // User does not exist in new CLAN-HUB database: cut off immediately
+        clearLocalSessionUser();
+        callback(null);
+        return;
       }
-      callback(currentLocal || null);
+      callback(null);
       return;
     }
     try {
       const profile = await getDoc(doc(db, USERS_COLLECTION, firebaseUser.uid));
       if (!profile.exists()) {
-        const currentLocal = getLocalSessionUser();
-        callback(currentLocal || null);
+        // Authenticated UID is NOT in the new CLAN-HUB database! Cut off session immediately!
+        await signOut(auth).catch(() => {});
+        clearLocalSessionUser();
+        callback(null);
         return;
       }
       const userProfile = { ...profile.data(), id: profile.id } as User;
       if (userProfile.status !== 'active') {
-        await signOut(auth);
+        await signOut(auth).catch(() => {});
         clearLocalSessionUser();
         callback(null);
         return;
@@ -2450,7 +2502,11 @@ export function listenToAuthenticatedUser(callback: (profile: User | null) => vo
     } catch (err) {
       notifyQuotaExceeded(err);
       const currentLocal = getLocalSessionUser();
-      callback(currentLocal || null);
+      if (currentLocal && (currentLocal.id === 'user_owner_eloni' || currentLocal.username?.toLowerCase() === 'eloni')) {
+        callback(currentLocal);
+      } else {
+        callback(null);
+      }
     }
   });
 }

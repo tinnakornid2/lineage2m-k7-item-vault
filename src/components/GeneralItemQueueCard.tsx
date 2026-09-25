@@ -80,14 +80,8 @@ const emptyDraft: Draft = {
   rarity: 'RARE'
 };
 
-async function uploadOrEmbed(file: File, prefix: string) {
+async function uploadOrEmbed(file: File, _prefix: string) {
   const compressed = await compressImageFile(file, { maxWidth: 700, maxHeight: 700, quality: 0.74 });
-  try {
-    const result = await uploadImageToGoogleDrive(compressed, `${prefix}-${Date.now()}-${file.name}`);
-    if (result.success && result.imageUrl) return result.imageUrl;
-  } catch {
-    /* Fallback to compressed base64 if Drive quota is reached */
-  }
   return compressed;
 }
 

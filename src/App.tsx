@@ -286,6 +286,12 @@ export const App: React.FC = () => {
         if (!u.powerLevel || u.powerLevel === 0) {
           u.powerLevel = DEFAULT_OWNER.powerLevel;
         }
+        return u;
+      }
+      // Cut off any ghost accounts from old legacy database
+      if (!u.username || u.username === 'undefined' || u.id.startsWith('user_1789') || u.id === 'user_1789510684345_w0x45') {
+        clearLocalSessionUser();
+        return null;
       }
       return u;
     }
@@ -310,55 +316,8 @@ export const App: React.FC = () => {
       setQueueItems((prev) => prev.filter((q) => !q || !q.id || !isQueueItemDeleted(q.id, Number(q.updatedAt || q.createdAt || 0))));
       setUsers((prev) => prev.filter((u) => !u || !u.id || (u.id === 'user_owner_eloni' || !isUserDeleted(u.id, Number(u.updatedAt || u.createdAt || 0)))));
     });
-    // Only initialise failover configuration here. Firestore listeners below are
-    // the sole authoritative source during normal operation.
-    initSharedGoogleBackupConfig().catch(console.warn);
-
     setOnQuotaExceededListener((exceeded) => {
       setIsQuotaExceeded(exceeded);
-      if (exceeded) {
-        const config = getGoogleBackupConfig();
-        if (config.webAppUrl && config.fallbackOnQuotaExceeded) {
-          fetchDataFromGoogleSheets().then((res) => {
-            if (res.success && res.data) {
-              if (res.data.users && res.data.users.length > 0) {
-                setUsers((prev) => {
-                  const merged = mergeUsers(prev, res.data.users);
-                  setCachedUsers(merged);
-                  return merged;
-                });
-              }
-              if (res.data.vaultItems && res.data.vaultItems.length > 0) {
-                setVaultItems((prev) => {
-                  const merged = mergeVaultItems(prev, res.data.vaultItems);
-                  setCachedVaultItems(merged);
-                  return merged;
-                });
-              }
-              if (res.data.quickItems && res.data.quickItems.length > 0) {
-                setQuickItems(res.data.quickItems);
-                setCachedQuickItems(res.data.quickItems);
-              }
-              if (res.data.generalItems && res.data.generalItems.length > 0) {
-                setGeneralItems((prev) => {
-                  const merged = mergeGeneralItems(prev, res.data.generalItems);
-                  setCachedGeneralItems(merged);
-                  return merged;
-                });
-              }
-              if (res.data.queueItems) {
-                setQueueItems((prev) => {
-                  const merged = mergeQueueItems(prev, res.data.queueItems);
-                  setCachedQueues(merged);
-                  return merged;
-                });
-              }
-              if (res.data.clans && res.data.clans.length > 0) setClans(res.data.clans);
-              if (res.data.diamondLogs) setDiamondLogs(res.data.diamondLogs);
-            }
-          }).catch(console.warn);
-        }
-      }
     });
     return () => {
       unsubTombstones();
@@ -485,50 +444,57 @@ export const App: React.FC = () => {
       'info'
     );
     try {
-      // 1. Fetch latest snapshot from Google Sheets
-      const google = await fetchDataFromGoogleSheets();
-      if (google.success && google.data) {
-        const data = google.data;
-        if (data.vaultItems && data.vaultItems.length > 0) {
-          setVaultItems((prev) => {
-            const merged = mergeVaultItems(prev, data.vaultItems);
-            setCachedVaultItems(merged);
-            return merged;
-          });
+      // 1. Fetch latest snapshot from Live State Relay Server
+      try {
+        const relayRes = await fetch(`/api/live-state?v=0&_t=${Date.now()}`);
+        if (relayRes.ok) {
+          const relayJson = await relayRes.json();
+          if (relayJson.data) {
+            const data = relayJson.data;
+            if (Array.isArray(data.vaultItems) && data.vaultItems.length > 0) {
+              setVaultItems((prev) => {
+                const merged = mergeVaultItems(prev, data.vaultItems);
+                setCachedVaultItems(merged);
+                return merged;
+              });
+            }
+            if (Array.isArray(data.queueItems) && data.queueItems.length > 0) {
+              setQueueItems((prev) => {
+                const merged = mergeQueueItems(prev, data.queueItems);
+                setCachedQueues(merged);
+                return merged;
+              });
+            }
+            if (Array.isArray(data.users) && data.users.length > 0) {
+              setUsers((prev) => {
+                const merged = mergeUsers(prev, data.users);
+                setCachedUsers(merged);
+                return merged;
+              });
+            }
+            if (Array.isArray(data.clans) && data.clans.length > 0) {
+              setClans(data.clans);
+              setCachedClans(data.clans);
+            }
+            if (Array.isArray(data.diamondLogs) && data.diamondLogs.length > 0) {
+              setDiamondLogs(data.diamondLogs);
+              setCachedDiamondTransactions(data.diamondLogs);
+            }
+            if (Array.isArray(data.quickItems) && data.quickItems.length > 0) {
+              setQuickItems(data.quickItems);
+              setCachedQuickItems(data.quickItems);
+            }
+            if (Array.isArray(data.generalItems) && data.generalItems.length > 0) {
+              setGeneralItems((prev) => {
+                const merged = mergeGeneralItems(prev, data.generalItems);
+                setCachedGeneralItems(merged);
+                return merged;
+              });
+            }
+          }
         }
-        if (data.queueItems && data.queueItems.length > 0) {
-          setQueueItems((prev) => {
-            const merged = mergeQueueItems(prev, data.queueItems);
-            setCachedQueues(merged);
-            return merged;
-          });
-        }
-        if (data.users && data.users.length > 0) {
-          setUsers((prev) => {
-            const merged = mergeUsers(prev, data.users);
-            setCachedUsers(merged);
-            return merged;
-          });
-        }
-        if (data.clans && data.clans.length > 0) {
-          setClans(data.clans);
-          setCachedClans(data.clans);
-        }
-        if (data.diamondLogs && data.diamondLogs.length > 0) {
-          setDiamondLogs(data.diamondLogs);
-          setCachedDiamondTransactions(data.diamondLogs);
-        }
-        if (data.quickItems && data.quickItems.length > 0) {
-          setQuickItems(data.quickItems);
-          setCachedQuickItems(data.quickItems);
-        }
-        if (data.generalItems && data.generalItems.length > 0) {
-          setGeneralItems((prev) => {
-            const merged = mergeGeneralItems(prev, data.generalItems);
-            setCachedGeneralItems(merged);
-            return merged;
-          });
-        }
+      } catch (relayErr) {
+        console.warn('Live relay sync warning:', relayErr);
       }
 
       // 2. Also check and merge Firestore if logged in and not quota exceeded
@@ -1249,13 +1215,26 @@ export const App: React.FC = () => {
 
       unsubBg = listenToBackgroundSettings((settings) => {
         if (settings && settings.imageUrl) {
-          setBgConfig({
-            imageUrl: settings.imageUrl,
-            brightness: typeof settings.brightness === 'number' ? settings.brightness : DEFAULT_BG_CONFIG.brightness,
-            blur: typeof settings.blur === 'number' ? settings.blur : DEFAULT_BG_CONFIG.blur,
-            vignetteOpacity: typeof settings.vignetteOpacity === 'number' ? settings.vignetteOpacity : DEFAULT_BG_CONFIG.vignetteOpacity
+          setBgConfig((prev) => {
+            if (
+              prev.imageUrl === settings.imageUrl &&
+              Number(prev.brightness) === Number(settings.brightness) &&
+              Number(prev.blur) === Number(settings.blur) &&
+              Number(prev.vignetteOpacity) === Number(settings.vignetteOpacity)
+            ) {
+              return prev;
+            }
+            const nextConfig = {
+              imageUrl: settings.imageUrl,
+              brightness: typeof settings.brightness === 'number' ? settings.brightness : DEFAULT_BG_CONFIG.brightness,
+              blur: typeof settings.blur === 'number' ? settings.blur : DEFAULT_BG_CONFIG.blur,
+              vignetteOpacity: typeof settings.vignetteOpacity === 'number' ? settings.vignetteOpacity : DEFAULT_BG_CONFIG.vignetteOpacity
+            };
+            try {
+              localStorage.setItem('k7_bg_config', JSON.stringify(nextConfig));
+            } catch {}
+            return nextConfig;
           });
-          localStorage.setItem('k7_bg_config', JSON.stringify(settings));
         }
       });
 
@@ -1598,11 +1577,25 @@ export const App: React.FC = () => {
       }
       if (incomingData.backgroundSettings) {
         setBgConfig((prev) => {
-          if (JSON.stringify(prev) === JSON.stringify(incomingData.backgroundSettings)) return prev;
+          const inc = incomingData.backgroundSettings;
+          if (
+            prev.imageUrl === inc.imageUrl &&
+            Number(prev.brightness) === Number(inc.brightness) &&
+            Number(prev.blur) === Number(inc.blur) &&
+            Number(prev.vignetteOpacity) === Number(inc.vignetteOpacity)
+          ) {
+            return prev;
+          }
+          const nextConfig = {
+            imageUrl: inc.imageUrl || prev.imageUrl,
+            brightness: typeof inc.brightness === 'number' ? inc.brightness : prev.brightness,
+            blur: typeof inc.blur === 'number' ? inc.blur : prev.blur,
+            vignetteOpacity: typeof inc.vignetteOpacity === 'number' ? inc.vignetteOpacity : prev.vignetteOpacity
+          };
           try {
-            localStorage.setItem('k7_bg_config', JSON.stringify(incomingData.backgroundSettings));
+            localStorage.setItem('k7_bg_config', JSON.stringify(nextConfig));
           } catch {}
-          return incomingData.backgroundSettings;
+          return nextConfig;
         });
       }
       if (incomingData.discordSettings) {
@@ -4211,28 +4204,28 @@ export const App: React.FC = () => {
     );
   }, [vaultItems, selectedClanScope]);
 
-  // If user is not logged in, display the centered Login/Register screen before entering the app
-  if (!currentUser) {
-    return (
-      <div className="relative min-h-screen bg-[#04070d] text-slate-100 overflow-x-hidden font-prompt selection:bg-[#d4af37]/30 selection:text-[#f5d77f]">
-        {/* Fantasy Castle Background Layer */}
-        <div
-          className="fixed inset-0 pointer-events-none z-0 bg-cover bg-center bg-no-repeat transition-all duration-700"
-          style={{
-            backgroundImage: `url('${bgConfig.imageUrl || '/fantasy-original.png'}')`,
-            filter: `brightness(${bgConfig.brightness}%) blur(${bgConfig.blur}px)`
-          }}
-        />
-        {/* Contrast Vignette Overlay */}
-        <div
-          className="fixed inset-0 pointer-events-none z-0 transition-opacity duration-500"
-          style={{
-            background: `radial-gradient(ellipse at 50% 35%, rgba(6, 11, 23, ${bgConfig.vignetteOpacity * 0.4}) 0%, rgba(4, 7, 16, ${bgConfig.vignetteOpacity * 0.85}) 60%, rgba(2, 4, 10, ${bgConfig.vignetteOpacity}) 100%)`
-          }}
-        />
-        <div className="fixed inset-0 pointer-events-none z-0 bg-gradient-to-b from-transparent via-[#0284c7]/5 to-[#02050b]/80" />
+  return (
+    <div className="relative min-h-screen bg-[#04070d] text-slate-100 flex flex-col font-prompt selection:bg-[#d4af37]/30 selection:text-[#f5d77f]">
+      
+      {/* 0. IMMERSIVE FANTASY CASTLE BACKGROUND (PERSISTENT - ZERO FLICKER) */}
+      <div
+        className="fixed inset-0 pointer-events-none z-0 bg-cover bg-center bg-no-repeat will-change-transform"
+        style={{
+          backgroundImage: `url('${bgConfig.imageUrl || '/fantasy-original.png'}')`,
+          filter: `brightness(${bgConfig.brightness}%) blur(${bgConfig.blur}px)`
+        }}
+      />
+      {/* Atmospheric Contrast Vignette */}
+      <div
+        className="fixed inset-0 pointer-events-none z-0"
+        style={{
+          background: `radial-gradient(ellipse at 50% 25%, rgba(6, 11, 23, ${bgConfig.vignetteOpacity * 0.35}) 0%, rgba(4, 7, 16, ${bgConfig.vignetteOpacity * 0.8}) 65%, rgba(2, 4, 10, ${bgConfig.vignetteOpacity}) 100%)`
+        }}
+      />
+      <div className="fixed inset-0 pointer-events-none z-0 bg-gradient-to-b from-transparent via-[#0284c7]/5 to-[#02050b]/85" />
 
-        <div className="relative z-10">
+      {!currentUser ? (
+        <div className="relative z-10 w-full min-h-screen flex items-center justify-center">
           <LoginScreen
             lang={lang}
             onToggleLanguage={handleToggleLanguage}
@@ -4244,31 +4237,9 @@ export const App: React.FC = () => {
             clans={clans}
           />
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative min-h-screen bg-[#04070d] text-slate-100 flex flex-col font-prompt selection:bg-[#d4af37]/30 selection:text-[#f5d77f]">
-      
-      {/* 0. IMMERSIVE FANTASY CASTLE BACKGROUND */}
-      <div
-        className="fixed inset-0 pointer-events-none z-0 bg-cover bg-center bg-no-repeat transition-all duration-700"
-        style={{
-          backgroundImage: `url('${bgConfig.imageUrl || '/fantasy-original.png'}')`,
-          filter: `brightness(${bgConfig.brightness}%) blur(${bgConfig.blur}px)`
-        }}
-      />
-      {/* Atmospheric Contrast Vignette */}
-      <div
-        className="fixed inset-0 pointer-events-none z-0 transition-opacity duration-500"
-        style={{
-          background: `radial-gradient(ellipse at 50% 25%, rgba(6, 11, 23, ${bgConfig.vignetteOpacity * 0.35}) 0%, rgba(4, 7, 16, ${bgConfig.vignetteOpacity * 0.8}) 65%, rgba(2, 4, 10, ${bgConfig.vignetteOpacity}) 100%)`
-        }}
-      />
-      <div className="fixed inset-0 pointer-events-none z-0 bg-gradient-to-b from-transparent via-[#0284c7]/5 to-[#02050b]/85" />
-
-      {/* 1. LEFT SIDEBAR & MOBILE HEADER */}
+      ) : (
+        <>
+          {/* 1. LEFT SIDEBAR & MOBILE HEADER */}
       <Sidebar
         lang={lang}
         activeTab={activeTab}
@@ -4846,6 +4817,8 @@ export const App: React.FC = () => {
           initialIndex={imageViewerData.currentIndex}
           lang={lang}
         />
+      )}
+        </>
       )}
 
       {/* In-App Toast Notification (Replaces native alert/blocking popups) */}

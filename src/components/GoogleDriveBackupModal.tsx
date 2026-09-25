@@ -1,13 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
-  FileSpreadsheet,
+  Database,
   HardDrive,
   RefreshCw,
   CheckCircle2,
   AlertCircle,
-  ExternalLink,
-  Copy,
-  Check,
   UploadCloud,
   DownloadCloud,
   ShieldCheck,
@@ -16,21 +13,14 @@ import {
   Sparkles,
   Info,
   Clock,
-  ChevronDown,
-  ChevronUp
+  FileJson,
+  FileUp,
+  FileDown,
+  Check
 } from 'lucide-react';
-import { Language, User, VaultItem, QueueItem, ClanGroup, DiamondVaultRecord } from '../types';
+import { Language } from '../types';
 import { sounds } from '../utils/sound';
-import {
-  GoogleBackupConfig,
-  BackupDataPayload,
-  getGoogleBackupConfig,
-  saveGoogleBackupConfig,
-  testGoogleSheetsConnection,
-  backupAllDataToGoogleSheets,
-  fetchDataFromGoogleSheets
-} from '../services/googleSheetsBackupService';
-import { GOOGLE_APPS_SCRIPT_CODE } from '../services/googleAppsScriptTemplate';
+import { BackupDataPayload } from '../services/googleSheetsBackupService';
 
 interface GoogleDriveBackupModalProps {
   isOpen: boolean;
@@ -42,6 +32,17 @@ interface GoogleDriveBackupModalProps {
   showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+interface ParsedImportSummary {
+  usersCount: number;
+  vaultItemsCount: number;
+  queueItemsCount: number;
+  clansCount: number;
+  vaultBalance: number;
+  exportedAt?: string;
+  version?: string;
+  payload: BackupDataPayload;
+}
+
 export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
   isOpen,
   onClose,
@@ -51,263 +52,217 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
   onDataRestored,
   showToast
 }) => {
-  const [config, setConfig] = useState<GoogleBackupConfig>(getGoogleBackupConfig);
-  const [inputUrl, setInputUrl] = useState(config.webAppUrl || '');
-  const [isTesting, setIsTesting] = useState(false);
-  const [isBackingUp, setIsBackingUp] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(false);
-  const [showGuide, setShowGuide] = useState(false);
-  const [copiedCode, setCopiedCode] = useState(false);
-  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState<ParsedImportSummary | null>(null);
   const [statusMessage, setStatusMessage] = useState<{
     type: 'idle' | 'success' | 'error' | 'info';
     text: string;
   }>({ type: 'idle', text: '' });
 
-  // Sync state when modal opens & update clock every 15s for fresh relative time
-  useEffect(() => {
-    if (isOpen) {
-      const cfg = getGoogleBackupConfig();
-      setConfig(cfg);
-      setInputUrl(cfg.webAppUrl || '');
-      setStatusMessage({ type: 'idle', text: '' });
-      setCurrentTime(Date.now());
-
-      const timer = setInterval(() => {
-        setCurrentTime(Date.now());
-      }, 15000);
-      return () => clearInterval(timer);
-    }
-  }, [isOpen]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!isOpen) return null;
 
-  // Format relative and exact timestamp
-  const formatLastBackup = (timestamp?: number) => {
-    if (!timestamp) {
-      return {
-        relative: lang === 'th' ? 'ยังไม่มีประวัติการสำรอง' : 'No backup records yet',
-        exact: ''
+  // 1. Export entire database to local JSON file
+  const handleExportJson = () => {
+    sounds.playClick();
+    setIsExporting(true);
+    setStatusMessage({
+      type: 'info',
+      text: lang === 'th' ? 'กำลังเตรียมไฟล์สำรองข้อมูล JSON...' : 'Preparing JSON backup file...'
+    });
+
+    try {
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '-');
+      const filename = `clan-hub-backup-${dateStr}-${timeStr}.json`;
+
+      const backupPayload = {
+        appName: 'Lineage2M Clan Hub',
+        schemaVersion: '2.10.28',
+        exportedAt: now.toISOString(),
+        exportedTimestamp: now.getTime(),
+        exportedBy: isOwner ? 'Owner' : 'Admin',
+        data: {
+          users: currentData.users || [],
+          vaultItems: currentData.vaultItems || [],
+          queueItems: currentData.queueItems || [],
+          clans: currentData.clans || [],
+          diamondLogs: currentData.diamondLogs || [],
+          vaultBalance: currentData.vaultBalance || 0,
+          formulaSettings: currentData.formulaSettings || null
+        }
       };
-    }
-    const diffSec = Math.max(0, Math.floor((currentTime - timestamp) / 1000));
-    let relative = '';
-    if (diffSec < 45) {
-      relative = lang === 'th' ? 'เมื่อสักครู่' : 'Just now';
-    } else if (diffSec < 3600) {
-      const mins = Math.floor(diffSec / 60);
-      relative = lang === 'th' ? `เมื่อ ${mins} นาทีที่แล้ว` : `${mins} min ago`;
-    } else if (diffSec < 86400) {
-      const hours = Math.floor(diffSec / 3600);
-      relative = lang === 'th' ? `เมื่อ ${hours} ชั่วโมงที่แล้ว` : `${hours} hr ago`;
-    } else {
-      const days = Math.floor(diffSec / 86400);
-      relative = lang === 'th' ? `เมื่อ ${days} วันที่แล้ว` : `${days} days ago`;
-    }
-    const exact = new Date(timestamp).toLocaleString(lang === 'th' ? 'th-TH' : 'en-US');
-    return { relative, exact };
-  };
 
-  const backupTime = formatLastBackup(config.lastBackupAt);
+      const jsonStr = JSON.stringify(backupPayload, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
-  const handleTestConnection = async () => {
-    sounds.playClick();
-    const cleanUrl = inputUrl.trim();
-    if (!cleanUrl) {
       setStatusMessage({
-        type: 'error',
-        text: lang === 'th' ? 'กรุณาระบุ Google Apps Script Web App URL' : 'Please provide the Web App URL'
+        type: 'success',
+        text: lang === 'th'
+          ? `ส่งออกไฟล์สำรองสำเร็จ! (${backupPayload.data.users.length} สมาชิก, ${backupPayload.data.vaultItems.length} ไอเทมคลัง, กองทุน ${backupPayload.data.vaultBalance.toLocaleString()} ไดอา)`
+          : `Backup JSON exported successfully! (${backupPayload.data.users.length} members, ${backupPayload.data.vaultItems.length} vault items, ${backupPayload.data.vaultBalance.toLocaleString()} diamonds)`
       });
-      sounds.playError();
-      return;
-    }
-
-    setIsTesting(true);
-    setStatusMessage({
-      type: 'info',
-      text: lang === 'th' ? 'กำลังเชื่อมต่อไปยัง Google Sheets...' : 'Testing connection to Google Sheets...'
-    });
-
-    try {
-      const res = await testGoogleSheetsConnection(cleanUrl);
-      if (res.success) {
-        const updated = saveGoogleBackupConfig({
-          webAppUrl: cleanUrl,
-          sheetUrl: res.sheetUrl,
-          sheetName: res.sheetName,
-          lastStatus: 'success'
-        });
-        setConfig(updated);
-        setStatusMessage({
-          type: 'success',
-          text: lang === 'th'
-            ? `เชื่อมต่อสำเร็จ! แผ่นงาน: ${res.sheetName || 'Google Sheet'}`
-            : `Connected successfully! Sheet: ${res.sheetName || 'Google Sheet'}`
-        });
-        sounds.playClaim();
-        if (showToast) {
-          showToast(
-            lang === 'th' ? 'เชื่อมต่อ Google Sheets เรียบร้อยแล้ว' : 'Google Sheets connected successfully',
-            'success'
-          );
-        }
-      } else {
-        setStatusMessage({
-          type: 'error',
-          text: res.message
-        });
-        sounds.playError();
+      sounds.playClaim();
+      if (showToast) {
+        showToast(
+          lang === 'th' ? 'ดาวน์โหลดไฟล์สำรองข้อมูล JSON เรียบร้อยแล้ว' : 'Backup JSON file downloaded successfully',
+          'success'
+        );
       }
     } catch (err: any) {
       setStatusMessage({
         type: 'error',
-        text: err?.message || 'Connection failed'
+        text: err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการส่งออกไฟล์' : 'Export failed')
       });
       sounds.playError();
     } finally {
-      setIsTesting(false);
+      setIsExporting(false);
     }
   };
 
-  const handleBackupNow = async () => {
+  // 2. Open file picker for JSON import
+  const handleTriggerFileInput = () => {
     sounds.playClick();
-    const cleanUrl = inputUrl.trim();
-    if (!cleanUrl) {
-      setStatusMessage({
-        type: 'error',
-        text: lang === 'th' ? 'กรุณาระบุและทดสอบ Web App URL ก่อนสำรองข้อมูล' : 'Please configure Web App URL first'
-      });
-      sounds.playError();
-      return;
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
     }
+  };
 
-    setIsBackingUp(true);
+  // 3. Handle file selection & validation
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    sounds.playClick();
+    setIsImporting(true);
     setStatusMessage({
       type: 'info',
-      text: lang === 'th' ? 'กำลังส่งข้อมูลไปยัง Google Sheets และ Google Drive...' : 'Backing up data to Google Sheets & Drive...'
+      text: lang === 'th' ? 'กำลังอ่านและตรวจสอบโครงสร้างไฟล์ JSON...' : 'Reading and validating JSON backup file...'
     });
 
-    try {
-      const res = await backupAllDataToGoogleSheets(currentData, 'Owner');
-      if (res.success) {
-        const updated = getGoogleBackupConfig();
-        setConfig(updated);
-        setStatusMessage({
-          type: 'success',
-          text: lang === 'th'
-            ? `สำรองข้อมูลสำเร็จ! (สมาชิก ${currentData.users?.length || 0} คน, ไอเทม ${currentData.vaultItems?.length || 0} ชิ้น, กองทุนไดอา ${(currentData.vaultBalance || 0).toLocaleString()})`
-            : `Backup successful! (${currentData.users?.length || 0} members, ${currentData.vaultItems?.length || 0} items, ${(currentData.vaultBalance || 0).toLocaleString()} diamonds)`
-        });
-        sounds.playClaim();
-        if (showToast) {
-          showToast(
-            lang === 'th' ? 'สำรองข้อมูลลง Google Sheets & Drive สำเร็จ!' : 'Backup completed successfully!',
-            'success'
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const parsed = JSON.parse(content);
+
+        // Support both wrapped format { data: { users, ... } } and direct format { users, ... }
+        const coreData = parsed.data || parsed;
+
+        if (!coreData || (!Array.isArray(coreData.users) && !Array.isArray(coreData.vaultItems))) {
+          throw new Error(
+            lang === 'th'
+              ? 'รูปแบบไฟล์สำรองไม่ถูกต้อง (ไม่พบข้อมูลสมาชิกหรือไอเทมคลัง)'
+              : 'Invalid backup file format (missing users or vault items array)'
           );
         }
-      } else {
+
+        const summary: ParsedImportSummary = {
+          usersCount: Array.isArray(coreData.users) ? coreData.users.length : 0,
+          vaultItemsCount: Array.isArray(coreData.vaultItems) ? coreData.vaultItems.length : 0,
+          queueItemsCount: Array.isArray(coreData.queueItems) ? coreData.queueItems.length : 0,
+          clansCount: Array.isArray(coreData.clans) ? coreData.clans.length : 0,
+          vaultBalance: typeof coreData.vaultBalance === 'number' ? coreData.vaultBalance : 0,
+          exportedAt: parsed.exportedAt,
+          version: parsed.schemaVersion || parsed.version,
+          payload: {
+            users: coreData.users || [],
+            vaultItems: coreData.vaultItems || [],
+            queueItems: coreData.queueItems || [],
+            clans: coreData.clans || [],
+            diamondLogs: coreData.diamondLogs || [],
+            vaultBalance: typeof coreData.vaultBalance === 'number' ? coreData.vaultBalance : 0,
+            formulaSettings: coreData.formulaSettings
+          }
+        };
+
+        setImportSummary(summary);
+        setStatusMessage({
+          type: 'info',
+          text: lang === 'th'
+            ? `ตรวจพบข้อมูลสำรอง: สมาชิก ${summary.usersCount} คน, ไอเทม ${summary.vaultItemsCount} ชิ้น กรุณากดยืนยันการกู้คืนด้านล่าง`
+            : `Backup file verified: ${summary.usersCount} members, ${summary.vaultItemsCount} items. Please confirm restore below.`
+        });
+      } catch (err: any) {
         setStatusMessage({
           type: 'error',
-          text: res.message
+          text: err?.message || (lang === 'th' ? 'อ่านไฟล์ไม่สำเร็จ ไฟล์อาจเสียหายหรือไม่ถูกต้อง' : 'Failed to parse JSON file')
         });
         sounds.playError();
+      } finally {
+        setIsImporting(false);
       }
-    } catch (err: any) {
+    };
+
+    reader.onerror = () => {
       setStatusMessage({
         type: 'error',
-        text: err?.message || 'Backup failed'
+        text: lang === 'th' ? 'ไม่สามารถเปิดอ่านไฟล์ได้' : 'Failed to read file'
       });
       sounds.playError();
-    } finally {
-      setIsBackingUp(false);
-    }
+      setIsImporting(false);
+    };
+
+    reader.readAsText(file);
   };
 
-  const handleRestoreNow = async () => {
-    sounds.playClick();
-    const cleanUrl = inputUrl.trim();
-    if (!cleanUrl) {
-      setStatusMessage({
-        type: 'error',
-        text: lang === 'th' ? 'กรุณาระบุ Web App URL ก่อนดึงข้อมูล' : 'Please configure Web App URL first'
-      });
-      sounds.playError();
-      return;
-    }
+  // 4. Confirm and apply restored data
+  const handleConfirmRestore = () => {
+    if (!importSummary) return;
 
-    const confirmRestore = window.confirm(
+    sounds.playClick();
+    const confirmed = window.confirm(
       lang === 'th'
-        ? 'คุณต้องการดึงข้อมูลล่าสุดจาก Google Sheets มาใช้งานบน Clan Hub หรือไม่?'
-        : 'Do you want to fetch and restore the latest data from Google Sheets into Clan Hub?'
+        ? `ยืนยันการกู้คืนฐานข้อมูลจากไฟล์สำรอง?\n\n- สมาชิก: ${importSummary.usersCount} คน\n- ไอเทมคลัง: ${importSummary.vaultItemsCount} ชิ้น\n- คิวรับของ: ${importSummary.queueItemsCount} รายการ\n- กองทุนไดอา: ${importSummary.vaultBalance.toLocaleString()}\n\nข้อมูลปัจจุบันในระบบจะถูกเขียนทับด้วยข้อมูลจากไฟล์นี้`
+        : `Confirm database restore from backup file?\n\n- Members: ${importSummary.usersCount}\n- Vault Items: ${importSummary.vaultItemsCount}\n- Queue Items: ${importSummary.queueItemsCount}\n- Diamonds: ${importSummary.vaultBalance.toLocaleString()}\n\nCurrent data will be updated with data from this file.`
     );
-    if (!confirmRestore) return;
 
-    setIsRestoring(true);
-    setStatusMessage({
-      type: 'info',
-      text: lang === 'th' ? 'กำลังดึงข้อมูลจาก Google Sheets...' : 'Fetching data from Google Sheets...'
-    });
+    if (!confirmed) return;
 
     try {
-      const res = await fetchDataFromGoogleSheets(cleanUrl);
-      if (res.success && res.data) {
-        if (onDataRestored) {
-          onDataRestored(res.data);
-        }
-        setStatusMessage({
-          type: 'success',
-          text: lang === 'th'
-            ? `ดึงข้อมูลสำเร็จ! สมาชิก ${res.data.users?.length || 0} คน, ไอเทมคลัง ${res.data.vaultItems?.length || 0} ชิ้น`
-            : `Restored ${res.data.users?.length || 0} members, ${res.data.vaultItems?.length || 0} vault items!`
-        });
-        sounds.playClaim();
-        if (showToast) {
-          showToast(
-            lang === 'th' ? 'อัปเดตข้อมูลจาก Google Sheets สำเร็จ!' : 'Data restored from Google Sheets!',
-            'success'
-          );
-        }
-      } else {
-        setStatusMessage({
-          type: 'error',
-          text: res.message || 'No data returned'
-        });
-        sounds.playError();
+      if (onDataRestored) {
+        onDataRestored(importSummary.payload);
       }
+
+      setStatusMessage({
+        type: 'success',
+        text: lang === 'th'
+          ? `กู้คืนข้อมูลสำเร็จ! นำเข้าสมาชิก ${importSummary.usersCount} คน, ไอเทม ${importSummary.vaultItemsCount} ชิ้น เรียบร้อยแล้ว`
+          : `Database restored successfully! Imported ${importSummary.usersCount} members, ${importSummary.vaultItemsCount} items.`
+      });
+      sounds.playClaim();
+      if (showToast) {
+        showToast(
+          lang === 'th' ? 'กู้คืนฐานข้อมูลจากไฟล์สำรองเรียบร้อยแล้ว' : 'Database restored from backup file successfully',
+          'success'
+        );
+      }
+      setImportSummary(null);
     } catch (err: any) {
       setStatusMessage({
         type: 'error',
-        text: err?.message || 'Restore failed'
+        text: err?.message || (lang === 'th' ? 'การกู้คืนข้อมูลล้มเหลว' : 'Restore failed')
       });
       sounds.playError();
-    } finally {
-      setIsRestoring(false);
     }
   };
 
-  const handleToggleAutoBackup = (enabled: boolean) => {
+  const handleCancelImport = () => {
     sounds.playClick();
-    const updated = saveGoogleBackupConfig({ autoBackupEnabled: enabled });
-    setConfig(updated);
-  };
-
-  const handleToggleFallback = (enabled: boolean) => {
-    sounds.playClick();
-    const updated = saveGoogleBackupConfig({ fallbackOnQuotaExceeded: enabled });
-    setConfig(updated);
-  };
-
-  const handleCopyCode = () => {
-    sounds.playClick();
-    navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
-    setCopiedCode(true);
-    if (showToast) {
-      showToast(
-        lang === 'th' ? 'คัดลอกโค้ด Google Apps Script แล้ว' : 'Google Apps Script code copied to clipboard',
-        'info'
-      );
-    }
-    setTimeout(() => setCopiedCode(false), 3000);
+    setImportSummary(null);
+    setStatusMessage({ type: 'idle', text: '' });
   };
 
   return (
@@ -316,25 +271,34 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
         className="relative w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl bg-gradient-to-b from-[#0e1628] to-[#070b14] border border-emerald-500/40 shadow-2xl shadow-emerald-950/50 overflow-hidden text-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
+        {/* Hidden File Input for JSON restore */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept=".json,application/json"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
+        {/* Modal Header */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/10 bg-[#121c32]/80">
           <div className="flex items-center gap-3">
             <div className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400">
-              <FileSpreadsheet className="w-5 h-5 sm:w-6 sm:h-6" />
+              <Database className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-bold text-white tracking-wide">
-                  {lang === 'th' ? 'สำรองข้อมูล Google Sheets & Drive' : 'Google Sheets & Drive Database'}
+                  {lang === 'th' ? 'สำรองและกู้คืนฐานข้อมูล (Database Backup)' : 'Database Backup & Restore'}
                 </h2>
                 <span className="px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                  {lang === 'th' ? 'ฟรี ไม่จำกัด' : 'Free & Unlimited'}
+                  {lang === 'th' ? 'Firebase Cloud' : 'Firebase Cloud'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
                 {lang === 'th'
-                  ? 'ระบบฐานข้อมูลกลางสำรองสำหรับ Owner ป้องกันปัญหาโควต้า Firebase เต็ม'
-                  : 'Owner Central Backup Engine to prevent Firebase Quota Exceeded'}
+                  ? 'ระบบฐานข้อมูลกลาง CLAN-HUB พร้อมการส่งออก/นำเข้าไฟล์ JSON ออฟไลน์ 100%'
+                  : 'CLAN-HUB Central Cloud Database with 100% Offline JSON Export / Import'}
               </p>
             </div>
           </div>
@@ -343,7 +307,8 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
               sounds.playClick();
               onClose();
             }}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            aria-label="Close"
           >
             <X className="w-5 h-5" />
           </button>
@@ -351,123 +316,61 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4 text-xs sm:text-sm">
-          {/* Main Status & Connectivity Dashboard Card */}
-          <div className="p-4 rounded-2xl bg-gradient-to-br from-[#121c33] to-[#0d1527] border border-emerald-500/30 space-y-3.5 shadow-lg shadow-emerald-950/20">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
-              {/* Connection Status Indicator */}
+          {/* Architecture Status Banner */}
+          <div className="p-4 rounded-2xl bg-gradient-to-br from-[#121c33] to-[#0d1527] border border-emerald-500/30 space-y-3 shadow-lg shadow-emerald-950/20">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <div className="flex items-center gap-3">
                 <div className="relative flex items-center justify-center">
-                  <span
-                    className={`w-3.5 h-3.5 rounded-full ${
-                      config.webAppUrl ? 'bg-emerald-400 shadow-[0_0_12px_#34d399]' : 'bg-slate-500'
-                    }`}
-                  />
-                  {config.webAppUrl && (
-                    <span className="absolute w-5 h-5 rounded-full bg-emerald-400/30 animate-ping" />
-                  )}
+                  <span className="w-3.5 h-3.5 rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399]" />
+                  <span className="absolute w-5 h-5 rounded-full bg-emerald-400/30 animate-ping" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-white text-sm">
-                      {config.webAppUrl
-                        ? (lang === 'th' ? 'เชื่อมต่อ Google Sheets สำเร็จ' : 'Google Sheets Connected')
-                        : (lang === 'th' ? 'ยังไม่ได้เชื่อมต่อ Google Sheets' : 'Not Connected to Google Sheets')}
+                      {lang === 'th' ? 'ฐานข้อมูลกลาง Firebase Cloud & Live Relay' : 'Firebase Cloud & Live Relay Active'}
                     </span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                        config.webAppUrl
-                          ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
-                          : 'bg-slate-800 border-white/10 text-slate-400'
-                      }`}
-                    >
-                      {config.webAppUrl
-                        ? (lang === 'th' ? 'ออนไลน์' : 'Online')
-                        : (lang === 'th' ? 'ออฟไลน์' : 'Offline')}
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-emerald-500/20 border-emerald-500/40 text-emerald-300">
+                      {lang === 'th' ? 'ออนไลน์สด 100%' : '100% Live'}
                     </span>
                   </div>
                   <div className="text-xs text-slate-400 mt-0.5">
-                    {config.sheetName
-                      ? `${lang === 'th' ? 'ไฟล์แผ่นงาน:' : 'Spreadsheet:'} ${config.sheetName}`
-                      : (lang === 'th' ? 'พร้อมบันทึกข้อมูลทุกหมวดหมู่' : 'Ready to sync all records')}
+                    {lang === 'th'
+                      ? 'ระบบศูนย์กลางเดียว (Single Source of Truth) ไร้ปัญหาข้อมูลแย่งกันเขียนทับ'
+                      : 'Single Source of Truth with zero sync conflicts or split-brain state'}
                   </div>
                 </div>
               </div>
 
-              {/* Direct Link to Google Sheet */}
-              {config.sheetUrl && (
-                <a
-                  href={config.sheetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 hover:text-emerald-100 font-semibold text-xs shrink-0 transition-all shadow-sm"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>{lang === 'th' ? 'เปิด Google Sheet' : 'Open Sheet'}</span>
-                </a>
-              )}
+              <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-mono font-semibold px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>v2.10.28</span>
+              </div>
             </div>
 
-            {/* Last Backup Details & Auto-Sync State */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#090f1d] border border-white/5">
-                <Clock className="w-4 h-4 text-emerald-400 shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-[11px] text-slate-400">{lang === 'th' ? 'สำรองข้อมูลล่าสุด:' : 'Last Backup:'}</div>
-                  <div className="font-semibold text-white truncate text-xs">
-                    {backupTime.relative}
-                    {backupTime.exact && (
-                      <span className="text-[10px] text-slate-400 font-normal ml-1.5">
-                        ({backupTime.exact})
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#090f1d] border border-white/5">
-                <RefreshCw className={`w-4 h-4 shrink-0 ${config.autoBackupEnabled ? 'text-emerald-400' : 'text-slate-500'}`} />
-                <div className="min-w-0">
-                  <div className="text-[11px] text-slate-400">{lang === 'th' ? 'ระบบซิงค์อัตโนมัติ:' : 'Auto-Sync Engine:'}</div>
-                  <div className="font-semibold text-white truncate text-xs flex items-center gap-1.5">
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        config.autoBackupEnabled ? 'bg-emerald-400' : 'bg-slate-500'
-                      }`}
-                    />
-                    <span>
-                      {config.autoBackupEnabled
-                        ? (lang === 'th' ? 'เปิดใช้งาน (บันทึกอัตโนมัติในเบื้องหลัง)' : 'Active (Background Auto-Sync)')
-                        : (lang === 'th' ? 'ปิดใช้งานชั่วคราว' : 'Disabled')}
-                    </span>
-                  </div>
-                </div>
+            {/* Explanation box */}
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-[#090f1d] border border-white/5 text-slate-300 text-xs leading-relaxed">
+              <Info className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold text-emerald-300">
+                  {lang === 'th' ? 'นโยบายความเสถียรสูงสุด:' : 'High Resilience Architecture:'}{' '}
+                </span>
+                {lang === 'th'
+                  ? 'ระบบตัดการเชื่อมต่ออัตโนมัติกับ Google Sheets ออก เพื่อตัดต้นตอปัญหาข้อมูลสเตตัสเก่าตีกลับและอาการจอกระพริบ โดยเปลี่ยนมาใช้ Firebase Cloud ร่วมกับ Live Relay Server เป็นศูนย์กลางเดียว และให้ Owner สามารถสำรองไฟล์ JSON เก็บไว้ในคอมพิวเตอร์ได้ตลอดเวลา'
+                  : 'Google Sheets auto-sync has been decoupled to eliminate ghost stat regressions and background flickering. The hub operates strictly on Firebase Cloud + Live State Relay, with instant 1-click JSON backup file capabilities for the Owner.'}
               </div>
             </div>
           </div>
 
-          {/* Operation Status Feedback Banner */}
-          {statusMessage.text && (
-            <div
-              className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 animate-fade-in ${
-                statusMessage.type === 'success'
-                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                  : statusMessage.type === 'error'
-                  ? 'bg-red-500/15 border-red-500/40 text-red-300'
-                  : 'bg-sky-500/15 border-sky-500/40 text-sky-300'
-              }`}
-            >
-              {statusMessage.type === 'success' && <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />}
-              {statusMessage.type === 'error' && <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
-              {statusMessage.type === 'info' && <RefreshCw className="w-4 h-4 shrink-0 mt-0.5 animate-spin" />}
-              <span className="leading-relaxed font-medium">{statusMessage.text}</span>
-            </div>
-          )}
-
-          {/* Real-time Data Overview Cards */}
+          {/* Current Database Overview Cards */}
           <div className="p-3.5 rounded-xl bg-[#0c1322] border border-white/10 space-y-2">
-            <div className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-emerald-400" />
-              <span>{lang === 'th' ? 'ข้อมูลในระบบ Clan Hub ที่เชื่อมต่อกับ Google Sheets:' : 'Clan Hub Data Connected with Google Sheets:'}</span>
+            <div className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-emerald-400" />
+                <span>{lang === 'th' ? 'ข้อมูลปัจจุบันในฐานข้อมูลกลาง:' : 'Current Live Database Records:'}</span>
+              </div>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {lang === 'th' ? 'อัปเดตแบบเรียลไทม์' : 'Real-time state'}
+              </span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
               <div className="p-2.5 rounded-lg bg-[#141e33] border border-white/5">
@@ -491,160 +394,113 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
             </div>
           </div>
 
-          {/* Primary Action Buttons */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            <button
-              onClick={handleBackupNow}
-              disabled={isBackingUp || !inputUrl.trim()}
-              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/60 transition-all cursor-pointer"
+          {/* Operation Status Feedback Banner */}
+          {statusMessage.text && (
+            <div
+              className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 animate-fade-in ${
+                statusMessage.type === 'success'
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                  : statusMessage.type === 'error'
+                  ? 'bg-red-500/15 border-red-500/40 text-red-300'
+                  : 'bg-sky-500/15 border-sky-500/40 text-sky-300'
+              }`}
             >
-              <UploadCloud className={`w-4 h-4 ${isBackingUp ? 'animate-bounce' : ''}`} />
-              <span>
-                {isBackingUp
-                  ? (lang === 'th' ? 'กำลังสำรองข้อมูล...' : 'Backing up...')
-                  : (lang === 'th' ? 'สำรองข้อมูลขึ้น Sheets & Drive ทันที' : 'Backup to Sheets & Drive Now')}
-              </span>
-            </button>
-
-            <button
-              onClick={handleRestoreNow}
-              disabled={isRestoring || !inputUrl.trim()}
-              className="w-full py-3 px-4 rounded-xl bg-[#141f36] hover:bg-[#1a2947] border border-emerald-500/40 hover:border-emerald-400 text-emerald-300 hover:text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
-            >
-              <DownloadCloud className={`w-4 h-4 ${isRestoring ? 'animate-bounce' : ''}`} />
-              <span>
-                {isRestoring
-                  ? (lang === 'th' ? 'กำลังดึงข้อมูล...' : 'Restoring...')
-                  : (lang === 'th' ? 'ดึงข้อมูลจาก Google Sheets กลับมา' : 'Fetch / Restore from Sheets')}
-              </span>
-            </button>
-          </div>
-
-          {/* Web App URL Configuration */}
-          <div className="space-y-2 p-3.5 rounded-xl bg-[#0c1322] border border-white/10">
-            <label className="block text-xs font-semibold text-slate-300">
-              {lang === 'th' ? 'Google Apps Script Web App URL:' : 'Google Apps Script Web App URL:'}
-            </label>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="url"
-                value={inputUrl}
-                onChange={(e) => setInputUrl(e.target.value)}
-                placeholder="https://script.google.com/macros/s/.../exec"
-                className="flex-1 px-3.5 py-2.5 rounded-xl bg-[#060a14] border border-white/20 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 font-mono text-xs"
-              />
-              <button
-                onClick={handleTestConnection}
-                disabled={isTesting}
-                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shrink-0 shadow-md shadow-emerald-900/40"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
-                <span>{lang === 'th' ? 'ทดสอบการเชื่อมต่อ' : 'Test Connection'}</span>
-              </button>
+              {statusMessage.type === 'success' && <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />}
+              {statusMessage.type === 'error' && <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+              {statusMessage.type === 'info' && <RefreshCw className="w-4 h-4 shrink-0 mt-0.5 animate-spin" />}
+              <span className="leading-relaxed font-medium">{statusMessage.text}</span>
             </div>
-          </div>
+          )}
 
-          {/* Automatic Options */}
-          <div className="p-3.5 rounded-xl bg-[#0d1526] border border-white/10 space-y-3">
-            <label className="flex items-center justify-between cursor-pointer">
-              <div className="pr-2">
-                <div className="font-semibold text-white text-xs">
-                  {lang === 'th' ? 'สำรองข้อมูลอัตโนมัติเมื่อมีการแก้ไข (Auto-Sync)' : 'Auto-Sync to Google Sheets'}
+          {/* Import Verification Card (If a file was chosen) */}
+          {importSummary && (
+            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/40 space-y-3 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-amber-300 font-bold text-sm">
+                  <FileJson className="w-4 h-4 text-amber-400" />
+                  <span>{lang === 'th' ? 'ยืนยันการกู้คืนข้อมูลจากไฟล์' : 'Confirm Backup File Restoration'}</span>
                 </div>
-                <div className="text-[11px] text-slate-400">
-                  {lang === 'th'
-                    ? 'ระบบจะส่งข้อมูลไปอัปเดตบน Google Sheets ให้อัตโนมัติในเบื้องหลังทุกครั้งที่ข้อมูลเปลี่ยน'
-                    : 'Automatically sync changes to Google Sheets in the background whenever data updates'}
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={config.autoBackupEnabled}
-                onChange={(e) => handleToggleAutoBackup(e.target.checked)}
-                className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-400 bg-slate-900 border-white/20 cursor-pointer"
-              />
-            </label>
-
-            <div className="border-t border-white/5 pt-2.5">
-              <label className="flex items-center justify-between cursor-pointer">
-                <div className="pr-2">
-                  <div className="font-semibold text-white text-xs">
-                    {lang === 'th' ? 'ฐานข้อมูลสำรองอัตโนมัติ (Failover Mode)' : 'Automatic Failover Mode'}
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    {lang === 'th'
-                      ? 'เมื่อ Firebase Firestore ติดลิมิตโควต้าฟรี ระบบจะดึงข้อมูลจาก Google Sheets แทนทันที'
-                      : 'Seamlessly fall back to Google Sheets whenever Firebase hits daily read limits'}
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={config.fallbackOnQuotaExceeded}
-                  onChange={(e) => handleToggleFallback(e.target.checked)}
-                  className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-400 bg-slate-900 border-white/20 cursor-pointer"
-                />
-              </label>
-            </div>
-          </div>
-
-          {/* Collapsible First-time Setup Guide (Hidden by default to avoid confusion) */}
-          <div className="rounded-xl border border-white/10 bg-[#0a1120] overflow-hidden">
-            <button
-              onClick={() => setShowGuide(!showGuide)}
-              className="w-full px-4 py-2.5 flex items-center justify-between text-left text-xs text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <Info className="w-4 h-4 text-emerald-400" />
-                <span>
-                  {lang === 'th'
-                    ? 'คำแนะนำการเชื่อมต่อครั้งแรก (เฉพาะกรณีต้องการตั้งค่าใหม่)'
-                    : 'First-time Setup Guide (Only for new deployment)'}
-                </span>
-              </div>
-              {showGuide ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
-
-            {showGuide && (
-              <div className="p-4 border-t border-white/10 space-y-3 bg-[#060a14] text-xs">
-                <div className="flex items-center justify-between pb-2 border-b border-white/10">
-                  <span className="text-slate-300">
-                    {lang === 'th'
-                      ? 'โค้ด Google Apps Script (Code.gs) สำหรับสร้าง Web App'
-                      : 'Google Apps Script (Code.gs) for Web App Deployment'}
+                {importSummary.version && (
+                  <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono">
+                    v{importSummary.version}
                   </span>
-                  <button
-                    onClick={handleCopyCode}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs flex items-center gap-1 cursor-pointer transition-all"
-                  >
-                    {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedCode ? (lang === 'th' ? 'คัดลอกแล้ว!' : 'Copied!') : (lang === 'th' ? 'คัดลอกโค้ด' : 'Copy Script')}</span>
-                  </button>
-                </div>
-
-                <ol className="space-y-2 text-slate-400 list-decimal list-inside leading-relaxed">
-                  <li>
-                    {lang === 'th'
-                      ? 'เปิด Google Sheet ที่ต้องการ แล้วไปที่เมนู "ส่วนขยาย" (Extensions) > "Apps Script"'
-                      : 'Open your Google Sheet, go to "Extensions" > "Apps Script"'}
-                  </li>
-                  <li>
-                    {lang === 'th'
-                      ? 'ลบโค้ดเดิมทั้งหมด วางโค้ดที่คัดลอก แล้วกด Ctrl+S บันทึก'
-                      : 'Delete existing code, paste the copied script, and press Ctrl+S'}
-                  </li>
-                  <li>
-                    {lang === 'th'
-                      ? 'คลิก "ทำให้ใช้งานได้" (Deploy) > "รายการใหม่" (New deployment) > เลือกประเภท "เว็บแอป" (Web app)'
-                      : 'Click "Deploy" > "New deployment" > Select type "Web app"'}
-                  </li>
-                  <li>
-                    {lang === 'th'
-                      ? 'ตั้งค่า "ผู้ที่มีสิทธิ์เข้าถึง" (Who has access) เป็น "ทุกคน" (Anyone) แล้วกด Deploy นำ URL มาวาง'
-                      : 'Set "Who has access" to "Anyone", click Deploy, and paste the Web App URL above'}
-                  </li>
-                </ol>
+                )}
               </div>
-            )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                <div className="p-2 rounded bg-black/40 border border-white/5">
+                  <div className="font-bold text-white font-mono text-base">{importSummary.usersCount}</div>
+                  <div className="text-[10px] text-slate-400">{lang === 'th' ? 'สมาชิก' : 'Members'}</div>
+                </div>
+                <div className="p-2 rounded bg-black/40 border border-white/5">
+                  <div className="font-bold text-white font-mono text-base">{importSummary.vaultItemsCount}</div>
+                  <div className="text-[10px] text-slate-400">{lang === 'th' ? 'ไอเทมคลัง' : 'Vault Items'}</div>
+                </div>
+                <div className="p-2 rounded bg-black/40 border border-white/5">
+                  <div className="font-bold text-white font-mono text-base">{importSummary.queueItemsCount}</div>
+                  <div className="text-[10px] text-slate-400">{lang === 'th' ? 'คิวรับของ' : 'Queues'}</div>
+                </div>
+                <div className="p-2 rounded bg-black/40 border border-white/5">
+                  <div className="font-bold text-amber-300 font-mono text-base">
+                    {importSummary.vaultBalance.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-slate-400">{lang === 'th' ? 'กองทุนไดอา' : 'Diamonds'}</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={handleConfirmRestore}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{lang === 'th' ? 'กู้คืนข้อมูลทันที (เขียนทับ)' : 'Restore Now (Overwrite)'}</span>
+                </button>
+                <button
+                  onClick={handleCancelImport}
+                  className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Primary Action Buttons */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            {/* Export JSON Button */}
+            <button
+              onClick={handleExportJson}
+              disabled={isExporting}
+              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-950/60 transition-all cursor-pointer group"
+            >
+              <FileDown className={`w-5 h-5 text-emerald-200 group-hover:scale-110 transition-transform ${isExporting ? 'animate-bounce' : ''}`} />
+              <div className="text-left">
+                <div className="font-bold">
+                  {lang === 'th' ? 'ดาวน์โหลดไฟล์สำรอง (Export JSON)' : 'Download Backup (Export JSON)'}
+                </div>
+                <div className="text-[10px] font-normal text-emerald-100/80">
+                  {lang === 'th' ? 'บันทึกข้อมูลทั้งหมดเก็บไว้ในเครื่อง' : 'Save full database to local PC'}
+                </div>
+              </div>
+            </button>
+
+            {/* Import JSON Button */}
+            <button
+              onClick={handleTriggerFileInput}
+              disabled={isImporting}
+              className="w-full py-3.5 px-4 rounded-xl bg-[#141f36] hover:bg-[#1a2947] border border-emerald-500/40 hover:border-emerald-400 text-emerald-300 hover:text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all cursor-pointer group shadow-md"
+            >
+              <FileUp className={`w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform ${isImporting ? 'animate-bounce' : ''}`} />
+              <div className="text-left">
+                <div className="font-bold">
+                  {lang === 'th' ? 'กู้คืนจากไฟล์ (Import JSON)' : 'Restore Backup (Import JSON)'}
+                </div>
+                <div className="text-[10px] font-normal text-slate-400">
+                  {lang === 'th' ? 'เลือกไฟล์ .json เพื่อกู้คืน' : 'Select .json file to restore'}
+                </div>
+              </div>
+            </button>
           </div>
         </div>
 
@@ -652,7 +508,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-t border-white/10 bg-[#0c1424]">
           <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Lineage2M Clan Hub &bull; Owner Google Cloud Protection</span>
+            <span>Lineage2M Clan Hub &bull; Owner Database Protection (v2.10.28)</span>
           </div>
           <button
             onClick={() => {
