@@ -177,7 +177,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.19-unified-arch';
+const CACHE_SCHEMA_VERSION = '2.10.20-unified-arch';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v272',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -963,11 +963,11 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
           };
         }
 
-        // Preserve registration status: newly registered users MUST stay pending_approval until approved by admin/owner
+        // Preserve registration status: newly registered users stay pending_approval until approved by admin/owner
         if (local.status === 'pending_approval' || incoming.status === 'pending_approval') {
           const activeUser = local.status === 'active' ? local : incoming.status === 'active' ? incoming : null;
           const pendingUser = local.status === 'pending_approval' ? local : incoming;
-          if (activeUser && Number(activeUser.updatedAt || 0) > Number(pendingUser.createdAt || 0) && (activeUser.verified || activeUser.role !== 'member')) {
+          if (activeUser && Number(activeUser.updatedAt || 0) >= Number(pendingUser.createdAt || 0)) {
             base.status = 'active';
           } else {
             base.status = 'pending_approval';
@@ -1633,9 +1633,11 @@ export function listenToUsers(callback: (users: User[]) => void) {
           users.push(u);
         }
       });
+      const cached = getCachedUsers();
       const dedupedUsers = deduplicateUsers(users);
-      setCachedUsers(dedupedUsers);
-      callback(dedupedUsers);
+      const merged = mergeUsers(cached, dedupedUsers);
+      setCachedUsers(merged);
+      callback(merged);
     },
     (err) => {
       console.warn('Firestore users listener fallback to cached/initial state:', err);
@@ -2617,13 +2619,9 @@ export function listenToQueueItems(callback: (queues: QueueItem[]) => void) {
         queues.push(qItem);
       });
       const cached = getCachedQueues();
-      const freshLocalQueues = cached.filter((c) => {
-        const age = Date.now() - (c.createdAt || 0);
-        return age >= 0 && age < 5000 && !queues.some((q) => q.id === c.id);
-      });
-      const combinedQueues = [...freshLocalQueues, ...queues];
-      setCachedQueues(combinedQueues);
-      callback(combinedQueues);
+      const merged = mergeQueueItems(cached, queues);
+      setCachedQueues(merged);
+      callback(merged);
     },
     (err) => {
       console.warn('Firestore queue listener fallback to initial/cached queues:', err);

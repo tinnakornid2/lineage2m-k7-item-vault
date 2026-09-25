@@ -1072,19 +1072,39 @@ export const App: React.FC = () => {
         ? { ...found, role: 'owner' as UserRole, status: 'active' as UserStatus }
         : found;
 
+      const curPendingAt = Number(currentUser.pendingPowerLevelRequestedAt || 0);
+      const foundPendingAt = Number(safeUser.pendingPowerLevelRequestedAt || 0);
+      const foundResAt = Math.max(Number(safeUser.statApprovalAt || 0), Number(safeUser.statRejectionAt || 0));
+
+      const shouldPreservePending = Boolean(currentUser.pendingStats && curPendingAt > foundResAt && curPendingAt >= foundPendingAt);
+      const targetUser: User = shouldPreservePending
+        ? {
+            ...safeUser,
+            pendingPowerLevel: currentUser.pendingPowerLevel,
+            pendingPowerLevelRequestedAt: currentUser.pendingPowerLevelRequestedAt,
+            pendingStats: currentUser.pendingStats,
+            pendingSpiritEnhancements: currentUser.pendingSpiritEnhancements,
+            pendingStatScreenshotUrl: currentUser.pendingStatScreenshotUrl,
+            pendingClasses: currentUser.pendingClasses,
+            pendingLevel: currentUser.pendingLevel,
+            pendingLegendClasses: currentUser.pendingLegendClasses,
+            pendingLegendAgathions: currentUser.pendingLegendAgathions
+          }
+        : safeUser;
+
       if (
-        safeUser.powerLevel !== currentUser.powerLevel ||
-        safeUser.role !== currentUser.role ||
-        safeUser.status !== currentUser.status ||
-        safeUser.clan !== currentUser.clan ||
-        safeUser.inGameName !== currentUser.inGameName ||
-        safeUser.characterClass !== currentUser.characterClass ||
-        safeUser.verified !== currentUser.verified ||
-        JSON.stringify(safeUser.stats) !== JSON.stringify(currentUser.stats) ||
-        JSON.stringify(safeUser.pendingStats) !== JSON.stringify(currentUser.pendingStats)
+        targetUser.powerLevel !== currentUser.powerLevel ||
+        targetUser.role !== currentUser.role ||
+        targetUser.status !== currentUser.status ||
+        targetUser.clan !== currentUser.clan ||
+        targetUser.inGameName !== currentUser.inGameName ||
+        targetUser.characterClass !== currentUser.characterClass ||
+        targetUser.verified !== currentUser.verified ||
+        JSON.stringify(targetUser.stats) !== JSON.stringify(currentUser.stats) ||
+        JSON.stringify(targetUser.pendingStats) !== JSON.stringify(currentUser.pendingStats)
       ) {
-        setCurrentUser(safeUser);
-        saveLocalSessionUser(safeUser);
+        setCurrentUser(targetUser);
+        saveLocalSessionUser(targetUser);
       }
     }
   }, [users, currentUser]);
@@ -1098,55 +1118,95 @@ export const App: React.FC = () => {
     const unsubUsers = listenToUsers((updatedUsers) => {
       // updatedUsers is pre-filtered and deduplicated to guarantee exactly ONE canonical Eloni (user_owner_eloni)
       const cleanUsers = (updatedUsers || []).filter((u) => u && u.id && u.id !== 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' && u.status !== 'shadow' && u.status !== 'deleted');
-      setUsers(cleanUsers);
-      setCachedUsers(cleanUsers);
+      setUsers((prev) => {
+        const merged = mergeUsers(prev, cleanUsers);
+        setCachedUsers(merged);
 
-      // Keep currentUser in sync if updated
-      const current = currentUserRef.current;
-      if (current) {
-        const isCurrentEloni = current.id === 'user_owner_eloni' || current.username?.toLowerCase() === 'eloni' || current.inGameName?.toLowerCase() === 'eloni';
-        const found = isCurrentEloni
-          ? cleanUsers.find((u) => u.id === 'user_owner_eloni') || cleanUsers.find((u) => u.username?.toLowerCase() === 'eloni')
-          : cleanUsers.find((u) => u.id === current.id);
-        if (found) {
-          const safeUser: User = isCurrentEloni
-            ? { ...found, id: 'user_owner_eloni', role: 'owner' as UserRole, status: 'active' as UserStatus }
-            : found;
-          setCurrentUser(safeUser);
-          saveLocalSessionUser(safeUser);
+        // Keep currentUser in sync if updated, preserving active pending stats
+        const current = currentUserRef.current;
+        if (current) {
+          const isCurrentEloni = current.id === 'user_owner_eloni' || current.username?.toLowerCase() === 'eloni' || current.inGameName?.toLowerCase() === 'eloni';
+          const found = isCurrentEloni
+            ? merged.find((u) => u.id === 'user_owner_eloni') || merged.find((u) => u.username?.toLowerCase() === 'eloni')
+            : merged.find((u) => u.id === current.id);
+          if (found) {
+            const safeUser: User = isCurrentEloni
+              ? { ...found, id: 'user_owner_eloni', role: 'owner' as UserRole, status: 'active' as UserStatus }
+              : found;
+            const curPendingAt = Number(current.pendingPowerLevelRequestedAt || 0);
+            const foundPendingAt = Number(safeUser.pendingPowerLevelRequestedAt || 0);
+            const foundResAt = Math.max(Number(safeUser.statApprovalAt || 0), Number(safeUser.statRejectionAt || 0));
+            const shouldPreserve = Boolean(current.pendingStats && curPendingAt > foundResAt && curPendingAt >= foundPendingAt);
+            const finalUser = shouldPreserve
+              ? {
+                  ...safeUser,
+                  pendingPowerLevel: current.pendingPowerLevel,
+                  pendingPowerLevelRequestedAt: current.pendingPowerLevelRequestedAt,
+                  pendingStats: current.pendingStats,
+                  pendingSpiritEnhancements: current.pendingSpiritEnhancements,
+                  pendingStatScreenshotUrl: current.pendingStatScreenshotUrl,
+                  pendingClasses: current.pendingClasses,
+                  pendingLevel: current.pendingLevel,
+                  pendingLegendClasses: current.pendingLegendClasses,
+                  pendingLegendAgathions: current.pendingLegendAgathions
+                }
+              : safeUser;
+
+            setCurrentUser(finalUser);
+            saveLocalSessionUser(finalUser);
+          }
         }
-      }
+        return merged;
+      });
     });
 
     const unsubVault = listenToVaultItems((items) => {
-      setVaultItems(items);
-      setCachedVaultItems(items);
+      setVaultItems((prev) => {
+        if (!items || items.length === 0) return prev;
+        const merged = mergeVaultItems(prev, items);
+        setCachedVaultItems(merged);
+        return merged;
+      });
     });
 
     const unsubQueue = listenToQueueItems((items) => {
-      setQueueItems(items);
-      setCachedQueues(items);
+      setQueueItems((prev) => {
+        if (!items || items.length === 0) return prev;
+        const merged = mergeQueueItems(prev, items);
+        setCachedQueues(merged);
+        return merged;
+      });
     });
 
     const unsubQuick = listenToQuickItems((items) => {
-      setQuickItems(items);
-      setCachedQuickItems(items);
+      if (items && items.length > 0) {
+        setQuickItems(items);
+        setCachedQuickItems(items);
+      }
     });
 
     const unsubGeneral = listenToGeneralItems((gList) => {
-      setGeneralItems(gList);
-      setCachedGeneralItems(gList);
+      setGeneralItems((prev) => {
+        if (!gList || gList.length === 0) return prev;
+        const merged = mergeGeneralItems(prev, gList);
+        setCachedGeneralItems(merged);
+        return merged;
+      });
     });
 
     const unsubClans = listenToClans((clanList) => {
-      const validClans = clanList.filter((c) => !isNoClan(c.name));
-      setClans(validClans);
-      setCachedClans(validClans);
+      const validClans = (clanList || []).filter((c) => !isNoClan(c.name));
+      if (validClans.length > 0) {
+        setClans(validClans);
+        setCachedClans(validClans);
+      }
     });
 
     const unsubDiamonds = listenToDiamondTransactions((logs) => {
-      setDiamondLogs(logs);
-      setCachedDiamondTransactions(logs);
+      if (logs && logs.length > 0) {
+        setDiamondLogs(logs);
+        setCachedDiamondTransactions(logs);
+      }
     });
 
     const unsubBg = listenToBackgroundSettings((settings) => {

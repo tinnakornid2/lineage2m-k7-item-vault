@@ -402,16 +402,21 @@ export function isUserStatsPending(user?: User | null): boolean {
   const rejectionTime = Number(user.statRejectionAt || 0);
   const latestResolution = Math.max(approvalTime, rejectionTime);
 
+  // If approved or rejected after or at request time, definitely not pending
+  if (latestResolution > 0 && reqTime > 0 && latestResolution >= reqTime) {
+    return false;
+  }
+
   if (reqTime > 0 && reqTime > latestResolution) {
     return true;
   }
-  if (typeof user.pendingPowerLevel === 'number') {
+  if (typeof user.pendingPowerLevel === 'number' && user.pendingPowerLevel > 0 && (!latestResolution || reqTime > latestResolution)) {
     return true;
   }
-  if (user.pendingStatScreenshotUrl && user.pendingStatScreenshotUrl.trim() !== '') {
+  if (user.pendingStatScreenshotUrl && user.pendingStatScreenshotUrl.trim() !== '' && (!latestResolution || reqTime > latestResolution)) {
     return true;
   }
-  if (user.pendingStats && typeof user.pendingStats === 'object') {
+  if (user.pendingStats && typeof user.pendingStats === 'object' && (!latestResolution || reqTime > latestResolution)) {
     return Object.values(user.pendingStats).some((v) => typeof v === 'number' && v > 0);
   }
   return false;
