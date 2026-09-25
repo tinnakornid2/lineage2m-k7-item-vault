@@ -199,6 +199,8 @@ export function clearAllLocalCaches(): void {
     localStorage.removeItem(DELETED_GENERAL_ITEMS_KEY);
     localStorage.removeItem('l2m_cancelled_claims_map');
     localStorage.removeItem('k7_queue_announcement');
+    localStorage.removeItem('l2m_pending_firebase_sync');
+    localStorage.removeItem('l2m_pending_firebase_sync_at');
   } catch (e) {
     console.warn('clearAllLocalCaches error:', e);
   }
@@ -231,7 +233,9 @@ if (typeof localStorage !== 'undefined') {
         'l2m_cached_general_items_v271',
         'l2m_cached_users_v272',
         'l2m_active_tab',
-        'l2m_google_backup_cache'
+        'l2m_google_backup_cache',
+        'l2m_pending_firebase_sync',
+        'l2m_pending_firebase_sync_at'
       ];
       LEGACY_KEYS.forEach((key) => localStorage.removeItem(key));
 
@@ -274,6 +278,7 @@ export const DELETED_VAULT_ITEMS_KEY = 'k7_deleted_vault_item_ids';
 export const DELETED_QUEUE_ITEMS_KEY = 'k7_deleted_queue_item_ids';
 export const DELETED_USERS_KEY = 'k7_deleted_user_ids';
 export const DELETED_GENERAL_ITEMS_KEY = 'k7_deleted_general_item_ids';
+export const DELETED_QUICK_ITEMS_KEY = 'k7_deleted_quick_item_ids';
 export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 
 const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -318,7 +323,7 @@ export function getDeletedUserIds(): Set<string> {
  * permanently recognize deleted users, vault items, general items, and queue members.
  */
 export async function syncTombstoneToFirestore(
-  field: 'deletedUsers' | 'deletedVaultItems' | 'deletedGeneralItems' | 'deletedQueueItems' | 'removedQueueMembers' | 'cancelledClaims',
+  field: 'deletedUsers' | 'deletedVaultItems' | 'deletedGeneralItems' | 'deletedQuickItems' | 'deletedQueueItems' | 'removedQueueMembers' | 'cancelledClaims',
   map: Record<string, number>
 ): Promise<void> {
   try {
@@ -339,6 +344,7 @@ export function applyIncomingCloudTombstones(cloudData: any): void {
     deletedUsers: DELETED_USERS_KEY,
     deletedVaultItems: DELETED_VAULT_ITEMS_KEY,
     deletedGeneralItems: DELETED_GENERAL_ITEMS_KEY,
+    deletedQuickItems: DELETED_QUICK_ITEMS_KEY,
     deletedQueueItems: DELETED_QUEUE_ITEMS_KEY,
     removedQueueMembers: REMOVED_QUEUE_MEMBERS_KEY,
     cancelledClaims: 'l2m_cancelled_claims_map'
@@ -990,16 +996,51 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
   return deduplicateUsers(result);
 }
 
-export function getCachedQuickItems(): QuickItem[] {
-  if (!inMemoryQuickItems || inMemoryQuickItems.length === 0) {
-    inMemoryQuickItems = getCachedData<QuickItem[]>(CACHE_KEYS.QUICK_ITEMS, []);
+export function isQuickItemDeleted(id: string): boolean {
+  if (!id) return false;
+  const map = getDeletedIdsMap(DELETED_QUICK_ITEMS_KEY);
+  return Boolean(map[id]);
+}
+
+export function markQuickItemAsDeleted(id: string): void {
+  if (!id) return;
+  const map = getDeletedIdsMap(DELETED_QUICK_ITEMS_KEY);
+  map[id] = Date.now();
+  saveDeletedIdsMap(DELETED_QUICK_ITEMS_KEY, map);
+  syncTombstoneToFirestore('deletedQuickItems', map);
+  const currentCached = getCachedData<QuickItem[]>(CACHE_KEYS.QUICK_ITEMS, []);
+  if (currentCached.some((i) => i.id === id)) {
+    setCachedData(CACHE_KEYS.QUICK_ITEMS, currentCached.filter((i) => i.id !== id));
   }
-  return inMemoryQuickItems;
+  if (inMemoryQuickItems.some((i) => i.id === id)) {
+    inMemoryQuickItems = inMemoryQuickItems.filter((i) => i.id !== id);
+  }
+}
+
+export function unmarkQuickItemAsDeleted(id: string): void {
+  if (!id) return;
+  const map = getDeletedIdsMap(DELETED_QUICK_ITEMS_KEY);
+  if (id in map) {
+    delete map[id];
+    saveDeletedIdsMap(DELETED_QUICK_ITEMS_KEY, map);
+  }
+}
+
+export function getCachedQuickItems(): QuickItem[] {
+  const deletedMap = getDeletedIdsMap(DELETED_QUICK_ITEMS_KEY);
+  let pool = inMemoryQuickItems;
+  if (!pool || pool.length === 0) {
+    pool = getCachedData<QuickItem[]>(CACHE_KEYS.QUICK_ITEMS, []);
+    inMemoryQuickItems = pool;
+  }
+  return pool.filter((item) => item && item.id && !deletedMap[item.id]);
 }
 
 export function setCachedQuickItems(items: QuickItem[]): void {
-  inMemoryQuickItems = items || [];
-  setCachedData(CACHE_KEYS.QUICK_ITEMS, inMemoryQuickItems);
+  const deletedMap = getDeletedIdsMap(DELETED_QUICK_ITEMS_KEY);
+  const clean = (items || []).filter((item) => item && item.id && !deletedMap[item.id]);
+  inMemoryQuickItems = clean;
+  setCachedData(CACHE_KEYS.QUICK_ITEMS, clean);
 }
 
 export function getDeletedGeneralItemIds(): Set<string> {
@@ -2759,8 +2800,9 @@ export function listenToQuickItems(callback: (items: QuickItem[]) => void) {
       snapshot.forEach((docSnap) => {
         items.push({ ...docSnap.data(), id: docSnap.id } as QuickItem);
       });
-      setCachedQuickItems(items);
-      callback(items);
+      const clean = items.filter((it) => it && it.id && !isQuickItemDeleted(it.id));
+      setCachedQuickItems(clean);
+      callback(clean);
     },
     (err) => {
       console.warn('Firestore quick items fallback:', err);
@@ -2775,6 +2817,7 @@ export function listenToQuickItems(callback: (items: QuickItem[]) => void) {
 
 export async function addQuickItemDoc(item: Omit<QuickItem, 'id' | 'createdAt'>) {
   const newId = 'qi_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+  unmarkQuickItemAsDeleted(newId);
   const fullItem: QuickItem = {
     id: newId,
     name: item.name ? item.name.trim() : 'Unknown Item',
@@ -2793,6 +2836,7 @@ export async function addQuickItemDoc(item: Omit<QuickItem, 'id' | 'createdAt'>)
 }
 
 export async function deleteQuickItemDoc(itemId: string) {
+  markQuickItemAsDeleted(itemId);
   const ref = doc(db, QUICK_ITEMS_COLLECTION, itemId);
   await safeFirestoreWrite(
     deleteDoc(ref),
@@ -3637,19 +3681,24 @@ export async function syncBackupToFirestore(payload: {
     };
 
     if (payload.users && payload.users.length > 0) {
-      await writeInBatches(payload.users, USERS_COLLECTION);
+      const activeUsers = payload.users.filter((u) => u && u.id && !isUserDeleted(u.id));
+      if (activeUsers.length > 0) await writeInBatches(activeUsers, USERS_COLLECTION);
     }
     if (payload.vaultItems && payload.vaultItems.length > 0) {
-      await writeInBatches(payload.vaultItems, ITEMS_COLLECTION);
+      const activeVault = payload.vaultItems.filter((it) => it && it.id && !isVaultItemDeleted(it.id));
+      if (activeVault.length > 0) await writeInBatches(activeVault, ITEMS_COLLECTION);
     }
     if (payload.queueItems && payload.queueItems.length > 0) {
-      await writeInBatches(payload.queueItems, QUEUES_COLLECTION);
+      const activeQueues = payload.queueItems.filter((q) => q && q.id && !isQueueItemDeleted(q.id));
+      if (activeQueues.length > 0) await writeInBatches(activeQueues, QUEUES_COLLECTION);
     }
     if (payload.quickItems && payload.quickItems.length > 0) {
-      await writeInBatches(payload.quickItems, QUICK_ITEMS_COLLECTION);
+      const activeQuick = payload.quickItems.filter((q) => q && q.id && !isQuickItemDeleted(q.id));
+      if (activeQuick.length > 0) await writeInBatches(activeQuick, QUICK_ITEMS_COLLECTION);
     }
     if (payload.generalItems && payload.generalItems.length > 0) {
-      await writeInBatches(payload.generalItems, GENERAL_ITEMS_COLLECTION);
+      const activeGeneral = payload.generalItems.filter((g) => g && g.id && !isGeneralItemDeleted(g.id));
+      if (activeGeneral.length > 0) await writeInBatches(activeGeneral, GENERAL_ITEMS_COLLECTION);
     }
     if (payload.clans && payload.clans.length > 0) {
       await writeInBatches(payload.clans, CLANS_COLLECTION);
