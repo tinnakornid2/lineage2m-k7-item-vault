@@ -3703,6 +3703,13 @@ export const App: React.FC = () => {
 
       await updateUserDoc(userId, docUpdates);
 
+      // Background call to dedicated endpoint for immediate Admin SDK persistence & SSE broadcast
+      fetch('/api/request-stat-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, updates: docUpdates })
+      }).catch(() => {});
+
       showToast(
         lang === 'th'
           ? 'ส่งคำขออัปเดตสเตตัสและค่าพลังเรียบร้อยแล้ว รอการอนุมัติ'
@@ -3869,32 +3876,40 @@ export const App: React.FC = () => {
       true
     );
 
+    const approveUpdates = {
+      powerLevel: approvedPower,
+      stats: approvedStats,
+      spiritEnhancements: approvedSpirits,
+      classes: approvedClasses,
+      characterClass: primaryClass,
+      level: approvedLevel,
+      legendClasses: approvedLegendClasses,
+      legendAgathions: approvedLegendAgathions,
+      statHistory: updatedHistory,
+      pendingPowerLevel: null,
+      pendingPowerLevelRequestedAt: null,
+      pendingStats: null,
+      pendingSpiritEnhancements: null,
+      pendingStatScreenshotUrl: null,
+      statScreenshotUrl: approvedScreenshot,
+      pendingClasses: null,
+      pendingLevel: null,
+      pendingLegendClasses: null,
+      pendingLegendAgathions: null,
+      statRejectionReason: null,
+      statRejectionAt: null,
+      statApprovalAt: now,
+      updatedAt: now
+    };
+
     try {
-      await updateUserDoc(userId, {
-        powerLevel: approvedPower,
-        stats: approvedStats,
-        spiritEnhancements: approvedSpirits,
-        classes: approvedClasses,
-        characterClass: primaryClass,
-        level: approvedLevel,
-        legendClasses: approvedLegendClasses,
-        legendAgathions: approvedLegendAgathions,
-        statHistory: updatedHistory,
-        pendingPowerLevel: null,
-        pendingPowerLevelRequestedAt: null,
-        pendingStats: null,
-        pendingSpiritEnhancements: null,
-        pendingStatScreenshotUrl: null,
-        statScreenshotUrl: approvedScreenshot,
-        pendingClasses: null,
-        pendingLevel: null,
-        pendingLegendClasses: null,
-        pendingLegendAgathions: null,
-        statRejectionReason: null,
-        statRejectionAt: null,
-        statApprovalAt: now,
-        updatedAt: now
-      });
+      await updateUserDoc(userId, approveUpdates);
+
+      fetch('/api/update-user-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, updates: approveUpdates })
+      }).catch(() => {});
 
       showToast(
         lang === 'th'
@@ -3994,21 +4009,30 @@ export const App: React.FC = () => {
       true
     );
 
+    const rejectUpdates = {
+      pendingPowerLevel: null,
+      pendingPowerLevelRequestedAt: null,
+      pendingStats: null,
+      pendingSpiritEnhancements: null,
+      pendingStatScreenshotUrl: null,
+      pendingClasses: null,
+      pendingLevel: null,
+      pendingLegendClasses: null,
+      pendingLegendAgathions: null,
+      statRejectionReason: rejectionReason,
+      statRejectionAt: now,
+      updatedAt: now
+    };
+
     try {
-      await updateUserDoc(userId, {
-        pendingPowerLevel: null,
-        pendingPowerLevelRequestedAt: null,
-        pendingStats: null,
-        pendingSpiritEnhancements: null,
-        pendingStatScreenshotUrl: null,
-        pendingClasses: null,
-        pendingLevel: null,
-        pendingLegendClasses: null,
-        pendingLegendAgathions: null,
-        statRejectionReason: rejectionReason,
-        statRejectionAt: now,
-        updatedAt: now
-      });
+      await updateUserDoc(userId, rejectUpdates);
+
+      fetch('/api/update-user-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, updates: rejectUpdates })
+      }).catch(() => {});
+
       showToast(
         lang === 'th'
           ? `ส่งผลการปฏิเสธคำขอของ ${target?.inGameName || 'สมาชิก'} เรียบร้อยแล้ว`
@@ -4210,19 +4234,28 @@ export const App: React.FC = () => {
       true
     );
 
+    const cancelUpdates = {
+      pendingPowerLevel: null,
+      pendingPowerLevelRequestedAt: null,
+      pendingStats: null,
+      pendingSpiritEnhancements: null,
+      pendingStatScreenshotUrl: null,
+      pendingClasses: null,
+      pendingLevel: null,
+      pendingLegendClasses: null,
+      pendingLegendAgathions: null,
+      updatedAt: now
+    };
+
     try {
-      await updateUserDoc(userId, {
-        pendingPowerLevel: null,
-        pendingPowerLevelRequestedAt: null,
-        pendingStats: null,
-        pendingSpiritEnhancements: null,
-        pendingStatScreenshotUrl: null,
-        pendingClasses: null,
-        pendingLevel: null,
-        pendingLegendClasses: null,
-        pendingLegendAgathions: null,
-        updatedAt: now
-      });
+      await updateUserDoc(userId, cancelUpdates);
+
+      fetch('/api/update-user-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, updates: cancelUpdates })
+      }).catch(() => {});
+
       showToast(
         lang === 'th' ? 'ยกเลิกคำขออัปเดตค่าพลังแล้ว' : 'PL update request cancelled',
         'info'

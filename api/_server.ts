@@ -767,17 +767,45 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
         // Instantly notify all connected clan members!
         liveStateEmitter.emit('update');
 
-        // Asynchronously persist claimants to Firestore using Admin SDK if available
+        // Asynchronously persist claimants and users to Firestore using Admin SDK if available
         (async () => {
           try {
             const sdk = await getAdminSdk();
-            if (sdk && sdk.db && Array.isArray(data.vaultItems)) {
-              for (const item of data.vaultItems) {
-                if (item && item.id && Array.isArray(item.claimants) && item.claimants.length > 0) {
-                  await sdk.db.collection('items').doc(item.id).set({
-                    claimants: item.claimants,
-                    updatedAt: item.updatedAt || Date.now()
-                  }, { merge: true });
+            if (sdk && sdk.db) {
+              if (Array.isArray(data.vaultItems)) {
+                for (const item of data.vaultItems) {
+                  if (item && item.id && Array.isArray(item.claimants) && item.claimants.length > 0) {
+                    await sdk.db.collection('items').doc(item.id).set({
+                      claimants: item.claimants,
+                      updatedAt: item.updatedAt || Date.now()
+                    }, { merge: true });
+                  }
+                }
+              }
+              if (Array.isArray(data.users)) {
+                for (const u of data.users) {
+                  if (u && u.id && (u.pendingPowerLevel !== undefined || u.pendingStats || u.pendingStatScreenshotUrl || u.powerLevel !== undefined)) {
+                    await sdk.db.collection('users').doc(u.id).set({
+                      ...(u.pendingPowerLevel !== undefined ? { pendingPowerLevel: u.pendingPowerLevel } : {}),
+                      ...(u.pendingPowerLevelRequestedAt !== undefined ? { pendingPowerLevelRequestedAt: u.pendingPowerLevelRequestedAt } : {}),
+                      ...(u.pendingStats !== undefined ? { pendingStats: u.pendingStats } : {}),
+                      ...(u.pendingSpiritEnhancements !== undefined ? { pendingSpiritEnhancements: u.pendingSpiritEnhancements } : {}),
+                      ...(u.pendingStatScreenshotUrl !== undefined ? { pendingStatScreenshotUrl: u.pendingStatScreenshotUrl } : {}),
+                      ...(u.pendingClasses !== undefined ? { pendingClasses: u.pendingClasses } : {}),
+                      ...(u.pendingLevel !== undefined ? { pendingLevel: u.pendingLevel } : {}),
+                      ...(u.pendingLegendClasses !== undefined ? { pendingLegendClasses: u.pendingLegendClasses } : {}),
+                      ...(u.pendingLegendAgathions !== undefined ? { pendingLegendAgathions: u.pendingLegendAgathions } : {}),
+                      ...(u.statRejectionReason !== undefined ? { statRejectionReason: u.statRejectionReason } : {}),
+                      ...(u.statRejectionAt !== undefined ? { statRejectionAt: u.statRejectionAt } : {}),
+                      ...(u.statApprovalAt !== undefined ? { statApprovalAt: u.statApprovalAt } : {}),
+                      ...(u.powerLevel !== undefined ? { powerLevel: u.powerLevel } : {}),
+                      ...(u.stats !== undefined ? { stats: u.stats } : {}),
+                      ...(u.spiritEnhancements !== undefined ? { spiritEnhancements: u.spiritEnhancements } : {}),
+                      ...(u.statScreenshotUrl !== undefined ? { statScreenshotUrl: u.statScreenshotUrl } : {}),
+                      ...(u.statHistory !== undefined ? { statHistory: u.statHistory } : {}),
+                      updatedAt: u.updatedAt || Date.now()
+                    }, { merge: true }).catch(() => {});
+                  }
                 }
               }
             }
@@ -988,6 +1016,86 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       res.json({ success: true, queueId });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_UPDATE_QUEUE' });
+    }
+  });
+
+  // Dedicated Member Stat Update Request persistence endpoint
+  app.post("/api/request-stat-update", async (req, res) => {
+    try {
+      const { userId, updates } = req.body;
+      if (!userId || !updates || typeof updates !== 'object') {
+        return res.status(400).json({ success: false, error: 'INVALID_PAYLOAD' });
+      }
+      const now = Date.now();
+      const safeUpdates: any = {
+        ...updates,
+        updatedAt: now
+      };
+
+      // 1. Update in-memory liveHubState
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.users)) {
+        liveHubState.data.users = liveHubState.data.users.map((u: any) =>
+          u.id === userId ? { ...u, ...safeUpdates } : u
+        );
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
+        liveStateEmitter.emit('update');
+      }
+
+      // 2. Persist to Firestore via Admin SDK
+      try {
+        const sdk = await getAdminSdk();
+        if (sdk && sdk.db) {
+          await sdk.db.collection('users').doc(userId).set(safeUpdates, { merge: true });
+        }
+      } catch (dbErr: any) {
+        console.warn('Notice: Firestore admin stat update write skipped:', dbErr?.message || dbErr);
+      }
+
+      res.json({ success: true, userId });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_REQUEST_STAT_UPDATE' });
+    }
+  });
+
+  // Dedicated Admin/Owner User Stats update persistence endpoint (approvals, rejections, edits)
+  app.post("/api/update-user-stats", async (req, res) => {
+    try {
+      const { userId, updates } = req.body;
+      if (!userId || !updates || typeof updates !== 'object') {
+        return res.status(400).json({ success: false, error: 'INVALID_PAYLOAD' });
+      }
+      const now = Date.now();
+      const safeUpdates: any = {
+        ...updates,
+        updatedAt: now
+      };
+
+      // 1. Update in-memory liveHubState
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.users)) {
+        liveHubState.data.users = liveHubState.data.users.map((u: any) =>
+          u.id === userId ? { ...u, ...safeUpdates } : u
+        );
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
+        liveStateEmitter.emit('update');
+      }
+
+      // 2. Persist to Firestore via Admin SDK
+      try {
+        const sdk = await getAdminSdk();
+        if (sdk && sdk.db) {
+          await sdk.db.collection('users').doc(userId).set(safeUpdates, { merge: true });
+        }
+      } catch (dbErr: any) {
+        console.warn('Notice: Firestore admin user update write skipped:', dbErr?.message || dbErr);
+      }
+
+      res.json({ success: true, userId });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_UPDATE_USER_STATS' });
     }
   });
 

@@ -920,13 +920,42 @@ async function createApp(options = {}) {
         (async () => {
           try {
             const sdk = await getAdminSdk();
-            if (sdk && sdk.db && Array.isArray(data.vaultItems)) {
-              for (const item of data.vaultItems) {
-                if (item && item.id && Array.isArray(item.claimants) && item.claimants.length > 0) {
-                  await sdk.db.collection("items").doc(item.id).set({
-                    claimants: item.claimants,
-                    updatedAt: item.updatedAt || Date.now()
-                  }, { merge: true });
+            if (sdk && sdk.db) {
+              if (Array.isArray(data.vaultItems)) {
+                for (const item of data.vaultItems) {
+                  if (item && item.id && Array.isArray(item.claimants) && item.claimants.length > 0) {
+                    await sdk.db.collection("items").doc(item.id).set({
+                      claimants: item.claimants,
+                      updatedAt: item.updatedAt || Date.now()
+                    }, { merge: true });
+                  }
+                }
+              }
+              if (Array.isArray(data.users)) {
+                for (const u of data.users) {
+                  if (u && u.id && (u.pendingPowerLevel !== void 0 || u.pendingStats || u.pendingStatScreenshotUrl || u.powerLevel !== void 0)) {
+                    await sdk.db.collection("users").doc(u.id).set({
+                      ...u.pendingPowerLevel !== void 0 ? { pendingPowerLevel: u.pendingPowerLevel } : {},
+                      ...u.pendingPowerLevelRequestedAt !== void 0 ? { pendingPowerLevelRequestedAt: u.pendingPowerLevelRequestedAt } : {},
+                      ...u.pendingStats !== void 0 ? { pendingStats: u.pendingStats } : {},
+                      ...u.pendingSpiritEnhancements !== void 0 ? { pendingSpiritEnhancements: u.pendingSpiritEnhancements } : {},
+                      ...u.pendingStatScreenshotUrl !== void 0 ? { pendingStatScreenshotUrl: u.pendingStatScreenshotUrl } : {},
+                      ...u.pendingClasses !== void 0 ? { pendingClasses: u.pendingClasses } : {},
+                      ...u.pendingLevel !== void 0 ? { pendingLevel: u.pendingLevel } : {},
+                      ...u.pendingLegendClasses !== void 0 ? { pendingLegendClasses: u.pendingLegendClasses } : {},
+                      ...u.pendingLegendAgathions !== void 0 ? { pendingLegendAgathions: u.pendingLegendAgathions } : {},
+                      ...u.statRejectionReason !== void 0 ? { statRejectionReason: u.statRejectionReason } : {},
+                      ...u.statRejectionAt !== void 0 ? { statRejectionAt: u.statRejectionAt } : {},
+                      ...u.statApprovalAt !== void 0 ? { statApprovalAt: u.statApprovalAt } : {},
+                      ...u.powerLevel !== void 0 ? { powerLevel: u.powerLevel } : {},
+                      ...u.stats !== void 0 ? { stats: u.stats } : {},
+                      ...u.spiritEnhancements !== void 0 ? { spiritEnhancements: u.spiritEnhancements } : {},
+                      ...u.statScreenshotUrl !== void 0 ? { statScreenshotUrl: u.statScreenshotUrl } : {},
+                      ...u.statHistory !== void 0 ? { statHistory: u.statHistory } : {},
+                      updatedAt: u.updatedAt || Date.now()
+                    }, { merge: true }).catch(() => {
+                    });
+                  }
                 }
               }
             }
@@ -1130,6 +1159,78 @@ async function createApp(options = {}) {
       res.json({ success: true, queueId });
     } catch (err) {
       res.status(500).json({ success: false, error: err?.message || "FAILED_TO_UPDATE_QUEUE" });
+    }
+  });
+  app.post("/api/request-stat-update", async (req, res) => {
+    try {
+      const { userId, updates } = req.body;
+      if (!userId || !updates || typeof updates !== "object") {
+        return res.status(400).json({ success: false, error: "INVALID_PAYLOAD" });
+      }
+      const now = Date.now();
+      const safeUpdates = {
+        ...updates,
+        updatedAt: now
+      };
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.users)) {
+        liveHubState.data.users = liveHubState.data.users.map(
+          (u) => u.id === userId ? { ...u, ...safeUpdates } : u
+        );
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+        liveStateEmitter.emit("update");
+      }
+      try {
+        const sdk = await getAdminSdk();
+        if (sdk && sdk.db) {
+          await sdk.db.collection("users").doc(userId).set(safeUpdates, { merge: true });
+        }
+      } catch (dbErr) {
+        console.warn("Notice: Firestore admin stat update write skipped:", dbErr?.message || dbErr);
+      }
+      res.json({ success: true, userId });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "FAILED_TO_REQUEST_STAT_UPDATE" });
+    }
+  });
+  app.post("/api/update-user-stats", async (req, res) => {
+    try {
+      const { userId, updates } = req.body;
+      if (!userId || !updates || typeof updates !== "object") {
+        return res.status(400).json({ success: false, error: "INVALID_PAYLOAD" });
+      }
+      const now = Date.now();
+      const safeUpdates = {
+        ...updates,
+        updatedAt: now
+      };
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.users)) {
+        liveHubState.data.users = liveHubState.data.users.map(
+          (u) => u.id === userId ? { ...u, ...safeUpdates } : u
+        );
+        liveHubState.updatedAt = now;
+        liveHubState.version = (liveHubState.version || 0) + 1;
+        try {
+          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+        } catch {
+        }
+        liveStateEmitter.emit("update");
+      }
+      try {
+        const sdk = await getAdminSdk();
+        if (sdk && sdk.db) {
+          await sdk.db.collection("users").doc(userId).set(safeUpdates, { merge: true });
+        }
+      } catch (dbErr) {
+        console.warn("Notice: Firestore admin user update write skipped:", dbErr?.message || dbErr);
+      }
+      res.json({ success: true, userId });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err?.message || "FAILED_TO_UPDATE_USER_STATS" });
     }
   });
   app.post("/api/scan-hunters", requireRoles(["owner", "admin", "manager"]), async (req, res) => {

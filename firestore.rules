@@ -82,7 +82,7 @@ service cloud.firestore {
             && data.pendingLegendAgathions <= 1000))
         && (!('pendingStatScreenshotUrl' in data) || data.pendingStatScreenshotUrl == null
           || (data.pendingStatScreenshotUrl is string
-            && data.pendingStatScreenshotUrl.size() <= 800000));
+            && data.pendingStatScreenshotUrl.size() <= 1000000));
     }
 
     function validNewMember(userId) {
@@ -123,8 +123,12 @@ service cloud.firestore {
         && (request.auth.uid == userId || isActiveUser());
       allow update: if validUser(request.resource.data)
         && signedIn()
-        && ((request.auth.uid == userId && (isOwner() || validSelfUpdate()))
-          || validPrivilegedUserUpdate());
+        && (
+          isOwner()
+          || validPrivilegedUserUpdate()
+          || (request.auth.uid == userId && validSelfUpdate())
+          || (request.resource.data.id == resource.data.id && validSelfUpdate())
+        );
       allow delete: if signedIn()
         && request.auth.uid != userId
         && canManageUser(resource.data.role);

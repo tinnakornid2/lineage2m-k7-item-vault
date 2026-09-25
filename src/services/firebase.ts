@@ -177,7 +177,7 @@ export const INITIAL_VAULT_ITEMS: VaultItem[] = [];
 export const INITIAL_QUEUES: QueueItem[] = [];
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.17-queue-claim-sync';
+const CACHE_SCHEMA_VERSION = '2.10.18-stat-sync';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v272',
   VAULT_ITEMS: 'l2m_cached_vault_items_v271',
@@ -1649,19 +1649,34 @@ export function listenToUsers(callback: (users: User[]) => void) {
 }
 
 export async function updateUserDoc(userId: string, updates: Partial<User>) {
+  const sanitizedUpdates = { ...updates };
+  if (sanitizedUpdates.clan) {
+    sanitizedUpdates.clan = cleanClanName(sanitizedUpdates.clan);
+  }
+  const cleanUpdates = sanitizeForFirestore(sanitizedUpdates);
+
+  // 1. Try Firestore direct client write with fallback to setDoc merge
   try {
     const ref = doc(db, USERS_COLLECTION, userId);
-    const sanitizedUpdates = { ...updates };
-    if (sanitizedUpdates.clan) {
-      sanitizedUpdates.clan = cleanClanName(sanitizedUpdates.clan);
+    try {
+      await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateUserDoc');
+    } catch {
+      await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1200, 'updateUserDoc:setMerge');
     }
-    const cleanUpdates = sanitizeForFirestore(sanitizedUpdates);
-    await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateUserDoc');
     bumpSystemVersion('usersVersion', userId).catch(() => {});
   } catch (err: any) {
-    console.warn('Notice: Failed to update user in Firestore (saved locally):', err);
+    console.warn('Notice: Failed to update user directly in Firestore (saved locally):', err);
     notifyQuotaExceeded(err);
   }
+
+  // 2. Serverless fallback: notify /api/update-user-stats in background (Admin SDK persistence & live relay)
+  try {
+    fetch('/api/update-user-stats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, updates: cleanUpdates })
+    }).catch(() => {});
+  } catch {}
 }
 
 export async function deleteUserDoc(userId: string) {
