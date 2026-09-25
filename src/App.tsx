@@ -917,6 +917,100 @@ export const App: React.FC = () => {
     previousPendingStatKeysRef.current = currentKeys;
   }, [users, currentUser, lang]);
 
+  // Real-time detection of members joining boss item queues to alert Admin & Owner
+  const previousQueueMemberKeysRef = useRef<Set<string> | null>(null);
+  const hasInitializedQueueMembersRef = useRef(false);
+
+  useEffect(() => {
+    const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+    if (!isPrivileged) return;
+
+    const currentMemberList: Array<{ queue: QueueItem; member: QueueMember }> = [];
+    queueItems.forEach((q) => {
+      (q.queueList || []).forEach((m) => {
+        currentMemberList.push({ queue: q, member: m });
+      });
+    });
+
+    const currentKeys = new Set(
+      currentMemberList.map(({ queue, member }) => `${queue.id}_${member.id}_${member.joinedAt || 0}`)
+    );
+
+    if (!hasInitializedQueueMembersRef.current) {
+      if (queueItems.length > 0) {
+        previousQueueMemberKeysRef.current = currentKeys;
+        hasInitializedQueueMembersRef.current = true;
+      }
+      return;
+    }
+
+    if (previousQueueMemberKeysRef.current === null) {
+      previousQueueMemberKeysRef.current = currentKeys;
+      return;
+    }
+
+    const newlyJoined = currentMemberList.filter(
+      ({ queue, member }) =>
+        !previousQueueMemberKeysRef.current!.has(`${queue.id}_${member.id}_${member.joinedAt || 0}`) &&
+        member.id !== currentUser?.id
+    );
+
+    if (newlyJoined.length > 0) {
+      sounds.playNotification();
+      const newest = newlyJoined[newlyJoined.length - 1];
+      showToast(
+        lang === 'th'
+          ? `📋 ${newest.member.name} (${cleanClanName(newest.member.clan) || 'VoltZ'}) ลงคิว [${newest.queue.name}]!`
+          : `📋 ${newest.member.name} (${cleanClanName(newest.member.clan) || 'VoltZ'}) joined queue [${newest.queue.name}]!`,
+        'info'
+      );
+    }
+
+    previousQueueMemberKeysRef.current = currentKeys;
+  }, [queueItems, currentUser, lang]);
+
+  // Real-time detection of new diamond vault transactions to alert Admin & Owner
+  const previousDiamondKeysRef = useRef<Set<string> | null>(null);
+  const hasInitializedDiamondsRef = useRef(false);
+
+  useEffect(() => {
+    const isPrivileged = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+    if (!isPrivileged) return;
+
+    const currentKeys = new Set(diamondLogs.map((d) => d.id));
+
+    if (!hasInitializedDiamondsRef.current) {
+      if (diamondLogs.length > 0) {
+        previousDiamondKeysRef.current = currentKeys;
+        hasInitializedDiamondsRef.current = true;
+      }
+      return;
+    }
+
+    if (previousDiamondKeysRef.current === null) {
+      previousDiamondKeysRef.current = currentKeys;
+      return;
+    }
+
+    const newlyAdded = diamondLogs.filter(
+      (d) => !previousDiamondKeysRef.current!.has(d.id) && d.recordedBy !== currentUser?.inGameName && d.recordedBy !== currentUser?.username
+    );
+
+    if (newlyAdded.length > 0) {
+      sounds.playNotification();
+      const newest = newlyAdded[0];
+      const isDeposit = newest.type === 'deposit';
+      showToast(
+        lang === 'th'
+          ? `💎 มีรายการเพชรใหม่: ${isDeposit ? '+' : '-'}${newest.amount.toLocaleString()} เพชร (${newest.note || (isDeposit ? 'ฝากเข้าคลัง' : 'เบิกจ่าย')})`
+          : `💎 New Diamond Transaction: ${isDeposit ? '+' : '-'}${newest.amount.toLocaleString()} Dia (${newest.note || (isDeposit ? 'Deposit' : 'Withdrawal')})`,
+        isDeposit ? 'success' : 'warning'
+      );
+    }
+
+    previousDiamondKeysRef.current = currentKeys;
+  }, [diamondLogs, currentUser, lang]);
+
   const handleMarkAllNotificationsAsRead = () => {
     const allIds = notifications.map((n) => n.id);
     setReadNotificationIds(allIds);

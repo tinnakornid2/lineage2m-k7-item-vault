@@ -963,13 +963,13 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
           };
         }
 
-        // Preserve registration status if one is pending_approval and not yet approved by a newer active status
+        // Preserve registration status: newly registered users MUST stay pending_approval until approved by admin/owner
         if (local.status === 'pending_approval' || incoming.status === 'pending_approval') {
           const activeUser = local.status === 'active' ? local : incoming.status === 'active' ? incoming : null;
           const pendingUser = local.status === 'pending_approval' ? local : incoming;
-          if (activeUser && Number(activeUser.updatedAt || 0) > Number(pendingUser.createdAt || 0)) {
+          if (activeUser && Number(activeUser.updatedAt || 0) > Number(pendingUser.createdAt || 0) && (activeUser.verified || activeUser.role !== 'member')) {
             base.status = 'active';
-          } else if (!activeUser) {
+          } else {
             base.status = 'pending_approval';
           }
         }
@@ -2068,7 +2068,7 @@ export async function loginUserQuery(
           role: 'member',
           clan: DEFAULT_CLAN,
           powerLevel: 0,
-          status: 'active',
+          status: 'pending_approval',
           verified: false,
           createdAt: Date.now()
         };
