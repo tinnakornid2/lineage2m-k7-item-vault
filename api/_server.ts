@@ -231,9 +231,9 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       const sdk = await getAdminSdk();
       if (!sdk || !sdk.db) return;
 
-      const hasUsers = Array.isArray(liveHubState?.data?.users) && liveHubState.data.users.length > 0;
-      const hasItems = Array.isArray(liveHubState?.data?.vaultItems) && liveHubState.data.vaultItems.length > 0;
-      if (hasUsers && hasItems) return;
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.users) && liveHubState.data.users.length > 0) {
+        return;
+      }
 
       const [usersSnap, itemsSnap, queuesSnap, generalSnap, quickSnap, clansSnap] = await Promise.all([
         sdk.db.collection('users').limit(500).get().catch(() => null),
@@ -716,25 +716,35 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
 
         data.syncMeta = syncMeta;
 
-        if (Array.isArray(data.vaultItems) && data.vaultItems.length === 0 && (previousData.vaultItems?.length || 0) > 0) {
-          data.vaultItems = [];
+        if (req.body.isReset || data.isReset) {
+          data.vaultItems = Array.isArray(data.vaultItems) ? data.vaultItems : [];
+          data.queueItems = Array.isArray(data.queueItems) ? data.queueItems : [];
+          data.generalItems = Array.isArray(data.generalItems) ? data.generalItems : [];
+          data.quickItems = Array.isArray(data.quickItems) ? data.quickItems : [];
+          data.diamondLogs = Array.isArray(data.diamondLogs) ? data.diamondLogs : [];
+          data.vaultBalance = 0;
+          data.users = sanitizeAndDeduplicateUsers(Array.isArray(data.users) && data.users.length > 0 ? data.users : []);
         } else {
-          data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
-        }
+          if (Array.isArray(data.vaultItems) && data.vaultItems.length === 0 && (previousData.vaultItems?.length || 0) > 0) {
+            data.vaultItems = [];
+          } else {
+            data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
+          }
 
-        if (Array.isArray(data.queueItems) && data.queueItems.length === 0 && (previousData.queueItems?.length || 0) > 0) {
-          data.queueItems = [];
-        } else {
-          data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems, false, true);
-        }
+          if (Array.isArray(data.queueItems) && data.queueItems.length === 0 && (previousData.queueItems?.length || 0) > 0) {
+            data.queueItems = [];
+          } else {
+            data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems, false, true);
+          }
 
-        if (Array.isArray(data.generalItems) && data.generalItems.length === 0 && (previousData.generalItems?.length || 0) > 0) {
-          data.generalItems = [];
-        } else {
-          data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
-        }
+          if (Array.isArray(data.generalItems) && data.generalItems.length === 0 && (previousData.generalItems?.length || 0) > 0) {
+            data.generalItems = [];
+          } else {
+            data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
+          }
 
-        data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
+          data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
+        }
 
         if (Array.isArray(data.diamondLogs)) {
           if (data.diamondLogs.length === 0) {
@@ -847,86 +857,125 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
           try {
             const sdk = await getAdminSdk();
             if (sdk && sdk.db) {
-              // 1. Vault Items: Full item persistence & deletions
-              if (Array.isArray(data.vaultItems)) {
-                for (const item of data.vaultItems) {
-                  if (item && item.id) {
-                    await sdk.db.collection('items').doc(item.id).set(cleanForAdminFirestore(item), { merge: true }).catch(() => {});
+              if (req.body.isReset || data.isReset) {
+                // Complete clean slate: wipe items, queues, general items, quick items, diamond logs
+                const wipeCollections = ['items', 'item_queues', 'general_items', 'quick_items', 'diamond_vault', 'item_claims'];
+                for (const col of wipeCollections) {
+                  const snap = await sdk.db.collection(col).limit(500).get().catch(() => null);
+                  if (snap) {
+                    for (const doc of snap.docs) {
+                      await doc.ref.delete().catch(() => {});
+                    }
                   }
                 }
-              }
-              if (syncMeta.deletedVaultItems) {
-                for (const deletedId of Object.keys(syncMeta.deletedVaultItems)) {
-                  await sdk.db.collection('items').doc(deletedId).delete().catch(() => {});
-                }
-              }
-
-              // 2. Queue Items (item_queues): Full persistence & deletions
-              if (Array.isArray(data.queueItems)) {
-                for (const queue of data.queueItems) {
-                  if (queue && queue.id) {
-                    await sdk.db.collection('item_queues').doc(queue.id).set(cleanForAdminFirestore(queue), { merge: true }).catch(() => {});
+                // Wipe all non-owner users
+                const usersSnap = await sdk.db.collection('users').limit(500).get().catch(() => null);
+                if (usersSnap) {
+                  for (const doc of usersSnap.docs) {
+                    if (doc.id !== 'user_owner_eloni' && doc.id !== 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' && doc.data()?.role !== 'owner') {
+                      await doc.ref.delete().catch(() => {});
+                    }
                   }
                 }
-              }
-              if (syncMeta.deletedQueueItems) {
-                for (const deletedId of Object.keys(syncMeta.deletedQueueItems)) {
-                  await sdk.db.collection('item_queues').doc(deletedId).delete().catch(() => {});
-                }
-              }
-
-              // 3. General Items (general_items): Full persistence & deletions
-              if (Array.isArray(data.generalItems)) {
-                for (const gi of data.generalItems) {
-                  if (gi && gi.id) {
-                    await sdk.db.collection('general_items').doc(gi.id).set(cleanForAdminFirestore(gi), { merge: true }).catch(() => {});
+                // Persist Owner user profile
+                if (Array.isArray(data.users)) {
+                  for (const u of data.users) {
+                    if (u && u.id) {
+                      const { password: _p, ...safeUser } = u;
+                      await sdk.db.collection('users').doc(u.id).set(cleanForAdminFirestore(safeUser), { merge: true }).catch(() => {});
+                    }
                   }
                 }
-              }
-              if (syncMeta.deletedGeneralItems) {
-                for (const deletedId of Object.keys(syncMeta.deletedGeneralItems)) {
-                  await sdk.db.collection('general_items').doc(deletedId).delete().catch(() => {});
-                }
-              }
-
-              // 4. Quick Items (quick_items): Full persistence
-              if (Array.isArray(data.quickItems)) {
-                for (const qi of data.quickItems) {
-                  if (qi && qi.id) {
-                    await sdk.db.collection('quick_items').doc(qi.id).set(cleanForAdminFirestore(qi), { merge: true }).catch(() => {});
+                // Persist Clans if provided
+                if (Array.isArray(data.clans)) {
+                  for (const clan of data.clans) {
+                    if (clan && clan.id) {
+                      await sdk.db.collection('clans').doc(clan.id).set(cleanForAdminFirestore(clan), { merge: true }).catch(() => {});
+                    }
                   }
                 }
-              }
-
-              // 5. Clans (clans): Full persistence
-              if (Array.isArray(data.clans)) {
-                for (const clan of data.clans) {
-                  if (clan && clan.id) {
-                    await sdk.db.collection('clans').doc(clan.id).set(cleanForAdminFirestore(clan), { merge: true }).catch(() => {});
+              } else {
+                // 1. Vault Items: Full item persistence & deletions
+                if (Array.isArray(data.vaultItems)) {
+                  for (const item of data.vaultItems) {
+                    if (item && item.id) {
+                      await sdk.db.collection('items').doc(item.id).set(cleanForAdminFirestore(item), { merge: true }).catch(() => {});
+                    }
                   }
                 }
-              }
-
-              // 6. Users: Full persistence & deletions (excluding password)
-              if (Array.isArray(data.users)) {
-                for (const u of data.users) {
-                  if (u && u.id) {
-                    const { password: _p, ...safeUser } = u;
-                    await sdk.db.collection('users').doc(u.id).set(cleanForAdminFirestore(safeUser), { merge: true }).catch(() => {});
+                if (syncMeta.deletedVaultItems) {
+                  for (const deletedId of Object.keys(syncMeta.deletedVaultItems)) {
+                    await sdk.db.collection('items').doc(deletedId).delete().catch(() => {});
                   }
                 }
-              }
-              if (syncMeta.deletedUsers) {
-                for (const deletedId of Object.keys(syncMeta.deletedUsers)) {
-                  await sdk.db.collection('users').doc(deletedId).delete().catch(() => {});
-                }
-              }
 
-              // 7. Diamond Logs (diamond_vault)
-              if (Array.isArray(data.diamondLogs)) {
-                for (const dlog of data.diamondLogs) {
-                  if (dlog && dlog.id) {
-                    await sdk.db.collection('diamond_vault').doc(dlog.id).set(cleanForAdminFirestore(dlog), { merge: true }).catch(() => {});
+                // 2. Queue Items (item_queues): Full persistence & deletions
+                if (Array.isArray(data.queueItems)) {
+                  for (const queue of data.queueItems) {
+                    if (queue && queue.id) {
+                      await sdk.db.collection('item_queues').doc(queue.id).set(cleanForAdminFirestore(queue), { merge: true }).catch(() => {});
+                    }
+                  }
+                }
+                if (syncMeta.deletedQueueItems) {
+                  for (const deletedId of Object.keys(syncMeta.deletedQueueItems)) {
+                    await sdk.db.collection('item_queues').doc(deletedId).delete().catch(() => {});
+                  }
+                }
+
+                // 3. General Items (general_items): Full persistence & deletions
+                if (Array.isArray(data.generalItems)) {
+                  for (const gi of data.generalItems) {
+                    if (gi && gi.id) {
+                      await sdk.db.collection('general_items').doc(gi.id).set(cleanForAdminFirestore(gi), { merge: true }).catch(() => {});
+                    }
+                  }
+                }
+                if (syncMeta.deletedGeneralItems) {
+                  for (const deletedId of Object.keys(syncMeta.deletedGeneralItems)) {
+                    await sdk.db.collection('general_items').doc(deletedId).delete().catch(() => {});
+                  }
+                }
+
+                // 4. Quick Items (quick_items): Full persistence
+                if (Array.isArray(data.quickItems)) {
+                  for (const qi of data.quickItems) {
+                    if (qi && qi.id) {
+                      await sdk.db.collection('quick_items').doc(qi.id).set(cleanForAdminFirestore(qi), { merge: true }).catch(() => {});
+                    }
+                  }
+                }
+
+                // 5. Clans (clans): Full persistence
+                if (Array.isArray(data.clans)) {
+                  for (const clan of data.clans) {
+                    if (clan && clan.id) {
+                      await sdk.db.collection('clans').doc(clan.id).set(cleanForAdminFirestore(clan), { merge: true }).catch(() => {});
+                    }
+                  }
+                }
+
+                // 6. Users: Full persistence & deletions (excluding password)
+                if (Array.isArray(data.users)) {
+                  for (const u of data.users) {
+                    if (u && u.id) {
+                      const { password: _p, ...safeUser } = u;
+                      await sdk.db.collection('users').doc(u.id).set(cleanForAdminFirestore(safeUser), { merge: true }).catch(() => {});
+                    }
+                  }
+                }
+                if (syncMeta.deletedUsers) {
+                  for (const deletedId of Object.keys(syncMeta.deletedUsers)) {
+                    await sdk.db.collection('users').doc(deletedId).delete().catch(() => {});
+                  }
+                }
+
+                // 7. Diamond Logs (diamond_vault)
+                if (Array.isArray(data.diamondLogs)) {
+                  for (const dlog of data.diamondLogs) {
+                    if (dlog && dlog.id) {
+                      await sdk.db.collection('diamond_vault').doc(dlog.id).set(cleanForAdminFirestore(dlog), { merge: true }).catch(() => {});
+                    }
                   }
                 }
               }

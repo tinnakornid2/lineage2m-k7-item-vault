@@ -117,8 +117,13 @@ service cloud.firestore {
           || request.resource.data.role == resource.data.role);
     }
 
+    match /system/{docId} {
+      allow read, write: if isAdminOrOwner();
+    }
+
     match /users/{userId} {
-      allow create: if validUser(request.resource.data) && validNewMember(userId);
+      allow create: if (isOwner() && validUser(request.resource.data))
+        || (validUser(request.resource.data) && validNewMember(userId));
       allow read: if signedIn()
         && (request.auth.uid == userId || isActiveUser());
       allow update: if validUser(request.resource.data)
