@@ -185,15 +185,15 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.28-clan-hub-fresh-cutoff';
+const CACHE_SCHEMA_VERSION = '2.10.29-clan-hub-fresh-cutoff';
 export const CACHE_KEYS = {
-  USERS: 'l2m_cached_users_v21028',
-  VAULT_ITEMS: 'l2m_cached_vault_items_v21028',
-  QUEUES: 'l2m_cached_queues_v21028',
-  CLANS: 'l2m_cached_clans_v21028',
-  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21028',
-  QUICK_ITEMS: 'l2m_cached_quick_items_v21028',
-  GENERAL_ITEMS: 'l2m_cached_general_items_v21028'
+  USERS: 'l2m_cached_users_v21029',
+  VAULT_ITEMS: 'l2m_cached_vault_items_v21029',
+  QUEUES: 'l2m_cached_queues_v21029',
+  CLANS: 'l2m_cached_clans_v21029',
+  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21029',
+  QUICK_ITEMS: 'l2m_cached_quick_items_v21029',
+  GENERAL_ITEMS: 'l2m_cached_general_items_v21029'
 };
 
 export function clearAllLocalCaches(): void {

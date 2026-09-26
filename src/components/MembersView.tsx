@@ -975,7 +975,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                     type="number"
                     min="0"
                     max="99"
-                    value={editLevel === 0 ? '' : editLevel}
+                    value={editLevel ? editLevel : ''}
                     onFocus={(e) => e.target.select()}
                     onChange={(e) => setEditLevel(Math.max(0, parseInt(e.target.value, 10) || 0))}
                     placeholder="0"
@@ -989,7 +989,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                   <input
                     type="number"
                     min="0"
-                    value={editLegendClasses === 0 ? '' : editLegendClasses}
+                    value={editLegendClasses ? editLegendClasses : ''}
                     onFocus={(e) => e.target.select()}
                     onChange={(e) => setEditLegendClasses(Math.max(0, parseInt(e.target.value, 10) || 0))}
                     placeholder="0"
@@ -1003,7 +1003,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                   <input
                     type="number"
                     min="0"
-                    value={editLegendAgathions === 0 ? '' : editLegendAgathions}
+                    value={editLegendAgathions ? editLegendAgathions : ''}
                     onFocus={(e) => e.target.select()}
                     onChange={(e) => setEditLegendAgathions(Math.max(0, parseInt(e.target.value, 10) || 0))}
                     placeholder="0"

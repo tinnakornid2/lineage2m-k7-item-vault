@@ -736,98 +736,105 @@ export const Sidebar: React.FC<SidebarProps> = ({
           
           {/* User Profile Card */}
           {currentUser ? (
-            <div className="p-2.5 rounded-xl bg-[#0a101f]/80 border border-slate-800/80 flex items-center justify-between gap-2 shadow-inner">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs font-bold text-slate-200 truncate">
+            <div className="p-3 rounded-2xl bg-[#0a101f]/90 border border-slate-800/90 space-y-2.5 shadow-lg">
+              {/* Row 1: User Identity & Action Buttons */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs font-bold text-slate-100 truncate">
                     {currentUser.inGameName || currentUser.username}
                   </span>
                   {currentUser.role === 'owner' && (
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/50 font-semibold uppercase">
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/50 font-semibold uppercase shrink-0">
                       {t.ownerBadge}
                     </span>
                   )}
                   {currentUser.role === 'admin' && (
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/50 font-semibold uppercase">
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/50 font-semibold uppercase shrink-0">
                       {t.adminBadge}
                     </span>
                   )}
                   {currentUser.role === 'member' && (
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-700 text-slate-300 border border-slate-600 font-semibold uppercase">
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-700 text-slate-300 border border-slate-600 font-semibold uppercase shrink-0">
                       {t.memberBadge}
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-1.5 mt-1">
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {onOpenChangePassword && (
+                    <button
+                      id="btn-sidebar-change-password"
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        onOpenChangePassword();
+                      }}
+                      className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-400 text-amber-300 transition-all cursor-pointer shadow-sm"
+                      title={t.changePasswordModalTitle}
+                      aria-label={t.changePasswordModalTitle}
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
                   <button
-                    id="btn-sidebar-request-cp"
-                    type="button"
+                    id="btn-logout"
                     onClick={() => {
                       sounds.playClick();
-                      if (onOpenMyStats) onOpenMyStats();
-                      else onOpenRequestCp?.();
+                      onLogout();
                     }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 font-mono text-[10px] font-medium transition-all cursor-pointer group shadow-sm"
-                    title={lang === 'th' ? 'คลิกเพื่อเปิดหน้าสเตตัสของฉัน (My Stats)' : 'Click to open My Stats'}
+                    className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 hover:text-white transition-all cursor-pointer shadow-sm"
+                    title={t.logout}
                   >
-                    <Zap className="w-2.5 h-2.5 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
-                    <span>⚡ {(currentUser.powerLevel || 0).toLocaleString()} PL</span>
-                    {isUserStatsPending(currentUser) && (
-                      <span className="ml-0.5 px-1 py-0.2 rounded bg-amber-400/25 text-[#f5d77f] text-[8px] font-sans font-bold animate-pulse">
-                        ⏳
-                      </span>
-                    )}
+                    <LogOut className="w-3.5 h-3.5" />
                   </button>
-                  <span className="text-[10px] text-slate-400 truncate">
-                    • {cleanClanName(currentUser.clan) || 'No Clan'}
-                  </span>
-                  {statUpdateSettings && (
-                    <span
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold border transition-all shrink-0 ${
-                        statUpdateSettings.allowMemberUpdates
-                          ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                          : 'bg-red-950/60 border-red-500/40 text-red-300'
-                      }`}
-                      title={statUpdateSettings.allowMemberUpdates ? t.statUpdateUnlocked : t.statUpdateLocked}
-                    >
-                      {statUpdateSettings.allowMemberUpdates ? (
-                        <Unlock className="w-2 h-2 text-emerald-400" />
-                      ) : (
-                        <Lock className="w-2 h-2 text-red-400" />
-                      )}
-                      <span>{statUpdateSettings.allowMemberUpdates ? t.statusUnlockedBadge : t.statusLockedBadge}</span>
-                    </span>
-                  )}
                 </div>
               </div>
 
-              {onOpenChangePassword && (
+              {/* Row 2: Power Level Pill (Left) and Clan / Stat Status Pill (Right) */}
+              <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-800/80">
                 <button
-                  id="btn-sidebar-change-password"
+                  id="btn-sidebar-request-cp"
                   type="button"
                   onClick={() => {
                     sounds.playClick();
-                    onOpenChangePassword();
+                    if (onOpenMyStats) onOpenMyStats();
+                    else onOpenRequestCp?.();
                   }}
-                  className="p-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-white transition-all cursor-pointer shrink-0 shadow-sm"
-                  title={t.changePasswordModalTitle}
-                  aria-label={t.changePasswordModalTitle}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 font-mono text-[11px] font-bold transition-all cursor-pointer group shadow-sm shrink-0 whitespace-nowrap"
+                  title={lang === 'th' ? 'คลิกเพื่อเปิดหน้าสเตตัสของฉัน (My Stats)' : 'Click to open My Stats'}
                 >
-                  <KeyRound className="w-3.5 h-3.5" />
+                  <Zap className="w-3 h-3 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
+                  <span>⚡ {(currentUser.powerLevel || 0).toLocaleString()} PL</span>
+                  {isUserStatsPending(currentUser) && (
+                    <span className="ml-0.5 px-1 py-0.2 rounded bg-amber-400/25 text-[#f5d77f] text-[8px] font-sans font-bold animate-pulse">
+                      ⏳
+                    </span>
+                  )}
                 </button>
-              )}
 
-              <button
-                id="btn-logout"
-                onClick={() => {
-                  sounds.playClick();
-                  onLogout();
-                }}
-                className="p-2 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 hover:text-white transition-all cursor-pointer shrink-0"
-                title={t.logout}
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
+                {statUpdateSettings ? (
+                  <span
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold border transition-all shrink-0 ${
+                      statUpdateSettings.allowMemberUpdates
+                        ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                        : 'bg-red-950/60 border-red-500/40 text-red-300'
+                    }`}
+                    title={statUpdateSettings.allowMemberUpdates ? t.statUpdateUnlocked : t.statUpdateLocked}
+                  >
+                    {statUpdateSettings.allowMemberUpdates ? (
+                      <Unlock className="w-2.5 h-2.5 text-emerald-400" />
+                    ) : (
+                      <Lock className="w-2.5 h-2.5 text-red-400" />
+                    )}
+                    <span>{statUpdateSettings.allowMemberUpdates ? t.statusUnlockedBadge : t.statusLockedBadge}</span>
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-400 truncate">
+                    {cleanClanName(currentUser.clan) || 'No Clan'}
+                  </span>
+                )}
+              </div>
             </div>
           ) : (
             <button
@@ -995,7 +1002,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[9.5px] font-mono text-emerald-300 font-bold shrink-0 shadow-[0_0_10px_rgba(52,211,153,0.15)]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v2.10.28</span>
+              <span>v2.10.29</span>
             </div>
           </div>
 

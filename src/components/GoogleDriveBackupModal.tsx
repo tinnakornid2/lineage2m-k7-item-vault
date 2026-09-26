@@ -81,7 +81,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
 
       const backupPayload = {
         appName: 'Lineage2M Clan Hub',
-        schemaVersion: '2.10.28',
+        schemaVersion: '2.10.29',
         exportedAt: now.toISOString(),
         exportedTimestamp: now.getTime(),
         exportedBy: isOwner ? 'Owner' : 'Admin',
@@ -343,7 +343,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
 
               <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-mono font-semibold px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>v2.10.28</span>
+                <span>v2.10.29</span>
               </div>
             </div>
 
@@ -508,7 +508,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-t border-white/10 bg-[#0c1424]">
           <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Lineage2M Clan Hub &bull; Owner Database Protection (v2.10.28)</span>
+            <span>Lineage2M Clan Hub &bull; Owner Database Protection (v2.10.29)</span>
           </div>
           <button
             onClick={() => {
