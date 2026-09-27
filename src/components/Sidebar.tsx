@@ -736,11 +736,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           
           {/* User Profile Card */}
           {currentUser ? (
-<<<<<<< HEAD
             <div className="p-2.5 rounded-xl bg-[#0a101f]/90 border border-slate-800/90 space-y-2 shadow-lg">
-=======
-            <div className="p-3 rounded-2xl bg-[#0a101f]/90 border border-slate-800/90 space-y-2.5 shadow-lg">
->>>>>>> origin/main
               {/* Row 1: User Identity & Action Buttons */}
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -796,11 +792,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
 
               {/* Row 2: Power Level Pill (Left) and Clan / Stat Status Pill (Right) */}
-<<<<<<< HEAD
               <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-800/80">
-=======
-              <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-800/80">
->>>>>>> origin/main
                 <button
                   id="btn-sidebar-request-cp"
                   type="button"
