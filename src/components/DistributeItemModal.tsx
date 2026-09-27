@@ -55,12 +55,17 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
 }) => {
   const t = translations[lang];
 
-  const claimants = item?.claimants || [];
+  const rawClaimants = item?.claimants || [];
+  const claimants = useMemo(() => {
+    return [...rawClaimants].sort((a, b) => (b.powerLevel || 0) - (a.powerLevel || 0));
+  }, [rawClaimants]);
   const hasClaimants = claimants.length > 0;
 
-  // Active members only for profile selection
+  // Active members only for profile selection, sorted by powerLevel descending
   const activeMembers = useMemo(() => {
-    return allMembers.filter((m) => m.status === 'active');
+    return allMembers
+      .filter((m) => m.status === 'active')
+      .sort((a, b) => (b.powerLevel || 0) - (a.powerLevel || 0));
   }, [allMembers]);
 
   // Group active members by clan
@@ -332,26 +337,32 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        {/* Header */}
+        {/* Header with Item Image & Name */}
         <div className="flex items-start gap-3.5 mb-3.5 pb-3 border-b border-slate-800">
-          <div className="p-3 rounded-xl bg-gradient-to-br from-[#d4af37]/25 to-[#aa841c]/10 border border-[#d4af37]/50 text-[#f5d77f] shrink-0 shadow-md">
-            <Gift className="w-6 h-6" />
-          </div>
-          <div>
-            <h2 className="text-lg sm:text-xl font-bold font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#f5d77f] to-[#d4af37]">
-              {t.distributeItemBtn}
+          {item.imageUrl ? (
+            <img
+              src={item.imageUrl}
+              alt={item.name}
+              className="w-14 h-14 rounded-xl object-cover border-2 border-[#d4af37]/60 shadow-lg shrink-0 bg-slate-900"
+            />
+          ) : (
+            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#d4af37]/25 to-[#aa841c]/10 border border-[#d4af37]/50 text-[#f5d77f] shrink-0 shadow-md flex items-center justify-center">
+              <Gift className="w-7 h-7" />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg sm:text-xl font-bold font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#f5d77f] to-[#d4af37] truncate">
+              {t.distributeItemBtn}: {item.name}
             </h2>
-            <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="font-semibold text-slate-200">{item.name}</span>
-                <span className="text-[10px] font-bold font-mono px-1.5 py-0.2 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
-                  x{item.quantity || 1}
-                </span>
-              </div>
+            <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400 flex-wrap">
+              <span className="font-semibold text-slate-200">{item.name}</span>
+              <span className="text-[10px] font-bold font-mono px-1.5 py-0.2 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
+                x{item.quantity || 1}
+              </span>
               <span>•</span>
               <span className="text-[#f5d77f] font-mono">{item.rarity}</span>
               <span>•</span>
-              <span>{item.price > 0 ? `💎 ${item.price.toLocaleString()}` : (lang === 'th' ? '🎁 ฟรี (0 เพชร)' : '🎁 FREE (0 Diamonds)')}</span>
+              <span>{item.price > 0 ? `💎 ${item.price.toLocaleString()}` : (lang === 'th' ? '🎁 แจกฟรี' : '🎁 Free')}</span>
             </div>
           </div>
         </div>
@@ -406,10 +417,10 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
             {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, members]) => (
               <optgroup key={clanName} label={`🛡️ ${clanName} (${members.length} คน)`}>
                 {members.map((m) => {
-                  const mClasses = (m.classes && m.classes.length > 0) ? m.classes : (m.characterClass ? [m.characterClass] : []);
+                  const mainClass = m.characterClass || (m.classes && m.classes[0]) || '';
                   return (
                     <option key={m.id} value={`member:${m.id}`}>
-                      {m.inGameName} | {m.clan} {m.powerLevel ? `(⚡ ${(m.powerLevel).toLocaleString()} PL)` : ''} {mClasses.length > 0 ? `• ${mClasses.join(', ')}` : ''}
+                      {m.inGameName} | {m.clan} {m.powerLevel ? `(⚡ ${(m.powerLevel).toLocaleString()} PL)` : ''} {mainClass ? `• ${mainClass}` : ''}
                     </option>
                   );
                 })}
@@ -571,20 +582,16 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                           {selectedRecipient.powerLevel ? `⚡ ${selectedRecipient.powerLevel.toLocaleString()} PL` : ''}
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                          {recClasses.length > 0 ? (
-                            recClasses.map((clsName, idx) => {
-                              const meta = getClassMeta(clsName);
-                              return (
-                                <span
-                                  key={idx}
-                                  className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-slate-900 text-slate-200 border border-slate-700/80"
-                                >
-                                  {meta && <img src={meta.icon} alt={meta.nameEn} className="w-3.5 h-3.5 object-contain" />}
-                                  <span>{meta?.nameEn || clsName}</span>
-                                </span>
-                              );
-                            })
-                          ) : (
+                          {selectedRecipient.characterClass || recClasses[0] ? (() => {
+                            const pClass = selectedRecipient.characterClass || recClasses[0];
+                            const meta = getClassMeta(pClass);
+                            return (
+                              <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-slate-900 text-slate-200 border border-slate-700/80">
+                                {meta && <img src={meta.icon} alt={meta.nameEn} className="w-3.5 h-3.5 object-contain" />}
+                                <span>{meta?.nameEn || pClass}</span>
+                              </span>
+                            );
+                          })() : (
                             <span className="text-xs text-slate-500">-</span>
                           )}
                         </div>
@@ -670,18 +677,15 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                               <span className="text-[11px] text-amber-400 font-mono font-medium">
                                 ⚡ {(c.powerLevel || 0).toLocaleString()} PL
                               </span>
-                              {cClasses.map((clsName, cIdx) => {
-                                const meta = getClassMeta(clsName);
+                              {cClasses[0] ? (() => {
+                                const meta = getClassMeta(cClasses[0]);
                                 return (
-                                  <span
-                                    key={cIdx}
-                                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60"
-                                  >
+                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60">
                                     {meta && <img src={meta.icon} alt={meta.nameEn} className="w-3 h-3 object-contain" />}
-                                    <span>{meta?.nameEn || clsName}</span>
+                                    <span>{meta?.nameEn || cClasses[0]}</span>
                                   </span>
                                 );
-                              })}
+                              })() : null}
                             </div>
                           </div>
                         </div>
@@ -790,18 +794,15 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
                               <span className="text-amber-400 font-mono text-[11px] font-medium">
                                 ⚡ {(m.powerLevel || 0).toLocaleString()} PL
                               </span>
-                              {memberClasses.map((clsName, cIdx) => {
-                                const meta = getClassMeta(clsName);
+                              {memberClasses[0] ? (() => {
+                                const meta = getClassMeta(memberClasses[0]);
                                 return (
-                                  <span
-                                    key={cIdx}
-                                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60"
-                                  >
+                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60">
                                     {meta && <img src={meta.icon} alt={meta.nameEn} className="w-3 h-3 object-contain" />}
-                                    <span>{meta?.nameEn || clsName}</span>
+                                    <span>{meta?.nameEn || memberClasses[0]}</span>
                                   </span>
                                 );
-                              })}
+                              })() : null}
                             </div>
                           </div>
                         </div>

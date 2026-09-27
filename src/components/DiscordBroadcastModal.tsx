@@ -96,7 +96,7 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
   };
 
   const displayRarity = item.rarity === 'LAGEND' ? 'LEGEND' : item.rarity;
-  const priceLabel = item.price > 0 ? `${item.price.toLocaleString()} Diamonds` : (th ? 'ฟรี (0 เพชร)' : 'FREE (0 Diamonds)');
+  const priceLabel = item.price > 0 ? `${item.price.toLocaleString()} Diamonds` : (th ? 'แจกฟรี' : 'Free');
   const discordPriceLabel = item.price > 0
     ? `${item.price.toLocaleString()} Diamonds`
     : 'FREE (0 Diamonds)';
@@ -390,7 +390,7 @@ export const DiscordBroadcastModal: React.FC<DiscordBroadcastModalProps> = ({
           {/* Optional Custom Note */}
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-300">
-              {th ? 'ข้อความประกาศเพิ่มเติม (ถ้ามี):' : 'Custom Announcement Note (Optional):'}
+              {th ? 'ข้อความประกาศเพิ่มเติม:' : 'Custom Announcement Note:'}
             </label>
             <input
               type="text"

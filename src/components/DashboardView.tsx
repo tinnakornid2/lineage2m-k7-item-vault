@@ -39,7 +39,8 @@ import {
   Megaphone,
   MessageSquare,
   Database,
-  RefreshCw
+  RefreshCw,
+  TrendingUp
 } from 'lucide-react';
 import {
   ActiveTab,
@@ -49,6 +50,7 @@ import {
   QueueItem,
   QuickItem,
   GeneralItem,
+  GeneralItemReceipt,
   User,
   VaultItem,
   ClanGroup,
@@ -62,6 +64,7 @@ import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { calculateDiamondNetChange } from '../utils/diamondHelper';
 import { GeneralItemQueueCard } from './GeneralItemQueueCard';
+import { GrowthTimelineChart } from './GrowthTimelineChart';
 
 interface DashboardViewProps {
   lang: Language;
@@ -75,8 +78,13 @@ interface DashboardViewProps {
   generalItems?: GeneralItem[];
   onAddGeneralItem?: (item: Omit<GeneralItem, 'id' | 'createdAt'>) => Promise<void>;
   onUpdateGeneralItem?: (id: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => Promise<void>;
+  onReorderGeneralItem?: (items: GeneralItem[]) => Promise<void>;
   onDeleteGeneralItem?: (id: string) => Promise<void>;
   onRecordDiamondLog?: (record: Omit<DiamondVaultRecord, 'id' | 'timestamp'>) => Promise<void>;
+  onAddDistributedVaultItem?: (
+    itemData: Omit<VaultItem, 'id' | 'createdAt' | 'status' | 'claimants'>,
+    directDistribution?: any
+  ) => Promise<void>;
   allMembers?: User[];
   distributedItems?: VaultItem[];
   clans?: ClanGroup[];
@@ -115,8 +123,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   generalItems = [],
   onAddGeneralItem,
   onUpdateGeneralItem,
+  onReorderGeneralItem,
   onDeleteGeneralItem,
   onRecordDiamondLog,
+  onAddDistributedVaultItem,
   allMembers = [],
   distributedItems = [],
   clans = [],
@@ -206,11 +216,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     } catch {}
     return 'grid';
   });
-  const [queueSearchQuery, setQueueSearchQuery] = React.useState('');
-  const [queueRarityFilter, setQueueRarityFilter] = React.useState<string>('all');
-  const [expandedQueues, setExpandedQueues] = React.useState<Record<string, boolean>>({});
 
-  // Toggle show all states for the 3 compact cards
+  // Toggle show all states for the compact cards
   const [showAllUserQueues, setShowAllUserQueues] = React.useState(false);
   const [showAllUserClaims, setShowAllUserClaims] = React.useState(false);
   const [showAllLeaderboard, setShowAllLeaderboard] = React.useState(false);
@@ -285,32 +292,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
   }, [currentUser, availableItems]);
 
-  // Current User's Queue Positions
+  // Current User's Queue Positions in Item Queue
   const userQueues = React.useMemo(() => {
     if (!currentUser) return [];
-    const results: { item: QueueItem; rank: number; totalWaiting: number }[] = [];
-    (queueItems || []).forEach((q) => {
-      const pendingList = q.queueList.filter((m) => m.status !== 'received');
+    const results: { item: { id: string; name: string }; rank: number; totalWaiting: number }[] = [];
+    (generalItems || []).forEach((q) => {
+      const pendingList = (q.queueList || []).filter((m) => m.status === 'pending' || m.status === 'partially_received');
       const rankIdx = pendingList.findIndex(
         (m) =>
           (m.userId && m.userId === currentUser.id) ||
           (m.name && currentUser.inGameName && m.name.trim().toLowerCase() === currentUser.inGameName.trim().toLowerCase())
       );
       if (rankIdx !== -1) {
-        results.push({ item: q, rank: rankIdx + 1, totalWaiting: pendingList.length });
+        results.push({ item: { id: q.id, name: q.name }, rank: rankIdx + 1, totalWaiting: pendingList.length });
       }
     });
     return results;
-  }, [currentUser, queueItems]);
-
-
-  const toggleExpandQueue = (queueId: string) => {
-    sounds.playClick();
-    setExpandedQueues((prev) => ({
-      ...prev,
-      [queueId]: !prev[queueId]
-    }));
-  };
+  }, [currentUser, generalItems]);
 
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
@@ -326,18 +324,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const isPrivileged = currentUser.role === 'owner' || currentUser.role === 'admin';
     return cleanAvailableItems.filter((item) => isPrivileged || userPower >= Number(item.minPowerLevel || 0));
   }, [cleanAvailableItems, filterAvailableToMe, currentUser]);
-
-  const displayedQueueItems = React.useMemo(() => {
-    return queueItems.filter((q) => {
-      const qQuery = queueSearchQuery.trim().toLowerCase();
-      const matchesSearch =
-        !qQuery ||
-        q.name.toLowerCase().includes(qQuery) ||
-        q.queueList.some((m) => m.name.toLowerCase().includes(qQuery) || m.clan.toLowerCase().includes(qQuery));
-      const matchesRarity = queueRarityFilter === 'all' || q.rarity === queueRarityFilter;
-      return matchesSearch && matchesRarity;
-    });
-  }, [queueItems, queueSearchQuery, queueRarityFilter]);
 
   const formatTimeAgo = (timestamp: number) => {
     const diff = Date.now() - timestamp;
@@ -605,8 +591,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       }`}
                       title={
                         lang === 'th'
-                          ? (isQuotaExceeded ? 'ฐานข้อมูล: Google Sheets (โควต้า Firebase เต็ม) • คลิกเพื่อจัดการ' : 'ฐานข้อมูล: Firebase Cloud (ปกติ) • คลิกเพื่อจัดการ')
-                          : (isQuotaExceeded ? 'DB: Google Sheets (Quota Exceeded) • Click to manage' : 'DB: Firebase Cloud (Normal) • Click to manage')
+                          ? (isQuotaExceeded ? 'ฐานข้อมูล: Google Sheets สำรอง • คลิกเพื่อจัดการ' : 'ฐานข้อมูล: Firebase Cloud • คลิกเพื่อจัดการ')
+                          : (isQuotaExceeded ? 'DB: Google Sheets Backup • Click to manage' : 'DB: Firebase Cloud • Click to manage')
                       }
                       aria-label={lang === 'th' ? 'สถานะเซิร์ฟเวอร์' : 'Server Status'}
                     >
@@ -624,8 +610,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       }`}
                       title={
                         lang === 'th'
-                          ? (isQuotaExceeded ? 'ฐานข้อมูล: Google Sheets (โควต้า Firebase เต็ม)' : 'ฐานข้อมูล: Firebase Cloud (ปกติ)')
-                          : (isQuotaExceeded ? 'DB: Google Sheets (Quota Exceeded)' : 'DB: Firebase Cloud (Normal)')
+                          ? (isQuotaExceeded ? 'ฐานข้อมูล: Google Sheets สำรอง' : 'ฐานข้อมูล: Firebase Cloud')
+                          : (isQuotaExceeded ? 'DB: Google Sheets Backup' : 'DB: Firebase Cloud')
                       }
                     >
                       <Database className={`w-3 h-3 ${isQuotaExceeded ? 'text-amber-400' : 'text-sky-400'}`} />
@@ -642,77 +628,64 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              {/* Title & Subtitle + 4 Stat Tiles */}
-              <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5 items-center">
-                {/* Branding Left (2 cols) */}
-                <div className="sm:col-span-2 space-y-0.5">
-                  <h1 className="text-base sm:text-lg font-extrabold font-cinzel text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#b8860b] leading-tight">
-                    {t.appTitle}
-                  </h1>
-                  <p className="text-[11px] text-slate-300 leading-normal line-clamp-2">
-                    {t.appSubtitle}
-                  </p>
+              {/* 4 Balanced Metrics */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
+                {/* Active Members */}
+                <div className="p-2 sm:p-2.5 rounded-xl bg-[#090e18]/90 border border-slate-800/80 flex items-center gap-2 shadow-inner">
+                  <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 shrink-0">
+                    <Users className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-mono font-bold text-sm sm:text-base text-slate-100 leading-none">
+                      {(allMembers || []).filter((m) => m.status === 'active').length}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1 truncate">
+                      {lang === 'th' ? 'สมาชิก' : 'Members'}
+                    </div>
+                  </div>
                 </div>
 
-                {/* 4 Metrics Matrix (3 cols) */}
-                <div className="sm:col-span-3 grid grid-cols-2 gap-1.5">
-                  {/* Active Members */}
-                  <div className="p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80 flex items-center gap-1.5">
-                    <div className="p-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 shrink-0">
-                      <Users className="w-3 h-3" />
+                {/* Total Clans */}
+                <div className="p-2 sm:p-2.5 rounded-xl bg-[#090e18]/90 border border-slate-800/80 flex items-center gap-2 shadow-inner">
+                  <div className="p-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-400 shrink-0">
+                    <ShieldAlert className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-mono font-bold text-sm sm:text-base text-slate-100 leading-none">
+                      {availableClansList.length}
                     </div>
-                    <div className="min-w-0">
-                      <div className="font-mono font-bold text-xs text-slate-100 leading-none">
-                        {(allMembers || []).filter((m) => m.status === 'active').length}
-                      </div>
-                      <div className="text-[9px] text-slate-400 mt-0.5 truncate">
-                        {lang === 'th' ? 'สมาชิกทั้งหมด' : 'Members'}
-                      </div>
+                    <div className="text-[10px] text-slate-400 mt-1 truncate">
+                      {lang === 'th' ? 'แคลน' : 'Clans'}
                     </div>
                   </div>
+                </div>
 
-                  {/* Total Clans */}
-                  <div className="p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80 flex items-center gap-1.5">
-                    <div className="p-1 rounded bg-purple-500/10 border border-purple-500/30 text-purple-400 shrink-0">
-                      <ShieldAlert className="w-3 h-3" />
+                {/* Claimable Items */}
+                <div className="p-2 sm:p-2.5 rounded-xl bg-[#090e18]/90 border border-slate-800/80 flex items-center gap-2 shadow-inner">
+                  <div className="p-1.5 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-400 shrink-0">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-mono font-bold text-sm sm:text-base text-sky-300 leading-none">
+                      {cleanAvailableItems.length}
                     </div>
-                    <div className="min-w-0">
-                      <div className="font-mono font-bold text-xs text-slate-100 leading-none">
-                        {availableClansList.length}
-                      </div>
-                      <div className="text-[9px] text-slate-400 mt-0.5 truncate">
-                        {lang === 'th' ? 'แคลนพันธมิตร' : 'Clans'}
-                      </div>
+                    <div className="text-[10px] text-slate-400 mt-1 truncate">
+                      {lang === 'th' ? 'เปิดรับ' : 'Claimable'}
                     </div>
                   </div>
+                </div>
 
-                  {/* Claimable Items */}
-                  <div className="p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80 flex items-center gap-1.5">
-                    <div className="p-1 rounded bg-sky-500/10 border border-sky-500/30 text-sky-400 shrink-0">
-                      <Sparkles className="w-3 h-3" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-mono font-bold text-xs text-sky-300 leading-none">
-                        {cleanAvailableItems.length}
-                      </div>
-                      <div className="text-[9px] text-slate-400 mt-0.5 truncate">
-                        {lang === 'th' ? 'ไอเทมเปิดรับ' : 'Claimable'}
-                      </div>
-                    </div>
+                {/* Total Queues Joined */}
+                <div className="p-2 sm:p-2.5 rounded-xl bg-[#090e18]/90 border border-slate-800/80 flex items-center gap-2 shadow-inner">
+                  <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shrink-0">
+                    <Zap className="w-4 h-4" />
                   </div>
-
-                  {/* Total Queues Joined */}
-                  <div className="p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80 flex items-center gap-1.5">
-                    <div className="p-1 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shrink-0">
-                      <Zap className="w-3 h-3" />
+                  <div className="min-w-0">
+                    <div className="font-mono font-bold text-sm sm:text-base text-emerald-300 leading-none">
+                      {(generalItems || []).length}
                     </div>
-                    <div className="min-w-0">
-                      <div className="font-mono font-bold text-xs text-emerald-300 leading-none">
-                        {(queueItems || []).length}
-                      </div>
-                      <div className="text-[9px] text-slate-400 mt-0.5 truncate">
-                        {lang === 'th' ? 'คิวเปิดรอรับ' : 'Active Queues'}
-                      </div>
+                    <div className="text-[10px] text-slate-400 mt-1 truncate">
+                      {lang === 'th' ? 'คิวไอเทม' : 'Item Queue'}
                     </div>
                   </div>
                 </div>
@@ -723,10 +696,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* ─────────────────────────────────────────────────────────────
-            ROW 2: BOTTOM 3 COMPACT BALANCED CARDS (REDUCED SIZES)
+            ROW 2: BOTTOM 3 COMPACT BALANCED CARDS
             (1. My Clan Status | 2. Top Power Leaderboard | 3. Recent Distributions)
            ───────────────────────────────────────────────────────────── */}
-        <div className="relative z-10 pt-1.5 border-t border-[#d4af37]/20 grid grid-cols-1 lg:grid-cols-3 gap-2.5 sm:gap-3 items-stretch">
+        <div className="relative z-10 pt-1.5 border-t border-[#d4af37]/20 grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3 items-stretch">
           
           {/* BOX 1: MY CLAN STATUS (REDUCED SIZE) */}
           <div className="rounded-xl bg-gradient-to-b from-[#111827] via-[#0c121d] to-[#070b12] border border-[#d4af37]/30 hover:border-[#d4af37]/50 p-2.5 sm:p-3 shadow-md flex flex-col justify-between transition-all relative overflow-hidden group min-h-[225px]">
@@ -735,16 +708,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div>
               {/* Header */}
               <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-1.5">
-                <div className="flex items-center gap-1.5">
-                  <div className="p-1 rounded-md bg-gradient-to-br from-amber-500/20 to-amber-950/40 border border-amber-500/40 text-amber-400 shadow-sm">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="p-1 rounded-md bg-gradient-to-br from-amber-500/20 to-amber-950/40 border border-amber-500/40 text-amber-400 shadow-sm shrink-0">
                     <UserCheck className="w-3.5 h-3.5" />
                   </div>
-                  <div>
-                    <h3 className="text-xs sm:text-sm font-bold font-cinzel text-slate-100 flex items-center gap-1">
+                  <div className="min-w-0">
+                    <h3 className="text-xs sm:text-sm font-bold font-cinzel text-slate-100 flex items-center gap-1.5">
                       <span>{t.myClanStatusTitle}</span>
+                      {currentUser && (
+                        <span className="text-[10px] font-mono text-amber-400 font-bold px-1.5 py-0.2 rounded bg-amber-500/10 border border-amber-500/30">
+                          ⚡ {Number(currentUser.powerLevel || 0).toLocaleString()} PL
+                        </span>
+                      )}
                     </h3>
-                    <p className="text-[10px] text-slate-400">
-                      {t.myClanStatusDesc}
+                    <p className="text-[10px] text-slate-400 truncate">
+                      {currentUser
+                        ? `${currentUser.inGameName || currentUser.username} • ${cleanClanName(currentUser.clan)}`
+                        : t.myClanStatusDesc}
                     </p>
                   </div>
                 </div>
@@ -756,7 +736,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       sounds.playClick();
                       onNavigateTab('my_stats');
                     }}
-                    className="text-[11px] text-amber-300 hover:text-white flex items-center gap-0.5 px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all font-semibold cursor-pointer"
+                    className="text-[11px] text-amber-300 hover:text-white flex items-center gap-0.5 px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all font-semibold cursor-pointer shrink-0"
                     title={t.tabMyStats}
                   >
                     <span>{t.tabMyStats}</span>
@@ -767,23 +747,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               {/* Logged in vs Guest */}
               {currentUser ? (
-                <div className="space-y-1.5">
+                <div className="space-y-2 animate-in fade-in duration-150">
                   {/* Profile Banner */}
-                  <div className="flex items-center justify-between p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#d4af37]/30 via-slate-800 to-slate-900 border border-[#d4af37]/50 flex items-center justify-center font-bold text-amber-300 font-cinzel shrink-0 shadow-inner text-xs">
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-[#090e18] border border-slate-800/80 shadow-inner">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#d4af37]/30 via-slate-800 to-slate-900 border border-[#d4af37]/50 flex items-center justify-center font-bold text-amber-300 font-cinzel shrink-0 shadow-inner text-xs">
                         {(currentUser.inGameName || currentUser.username || 'M')[0].toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-bold text-slate-100 truncate">
                             {currentUser.inGameName || currentUser.username}
                           </span>
-                          <span className="text-[9px] px-1 py-0.2 rounded font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40 uppercase">
+                          <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40 uppercase">
                             {currentUser.role}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                        <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-0.5">
                           <span className="font-semibold text-slate-300">{cleanClanName(currentUser.clan)}</span>
                           <span>•</span>
                           <span className="truncate">{currentUser.characterClass || 'Adventurer'}</span>
@@ -794,22 +774,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     {/* Power Level Badge */}
                     <div className="text-right shrink-0">
                       <div className="font-mono font-bold text-xs text-amber-300 flex items-center gap-0.5 justify-end drop-shadow">
-                        <Zap className="w-3 h-3 text-amber-400 fill-amber-400" />
+                        <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                         <span>{Number(currentUser.powerLevel || 0).toLocaleString()} PL</span>
                       </div>
                       {userRankInClan ? (
-                        <span className="text-[9px] text-slate-300 font-medium">
+                        <span className="text-[9.5px] text-slate-300 font-medium">
                           {lang === 'th' ? `อันดับ #${userRankInClan.rank} ใน ${userRankInClan.clanName}` : `Rank #${userRankInClan.rank} in ${userRankInClan.clanName}`}
                         </span>
                       ) : (
-                        <span className="text-[9px] text-slate-400">
+                        <span className="text-[9.5px] text-slate-400">
                           {isUserStatsPending(currentUser) ? `⏳ ${t.myPowerStatusPending}` : `✓ ${t.myPowerStatusVerified}`}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Sub-block: Queues Waiting (คิวไอเทมที่รอรับ - 5 rows max then scroll) */}
+                  {/* Sub-block: Growth Timeline Minimal Sparkline (ตามที่ขอ: แสดงแค่นี้พอ) */}
+                  <div className="pt-1.5 border-t border-slate-800/80 space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+                      <span className="flex items-center gap-1.5 text-amber-300">
+                        <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
+                        <span>{t.myGrowthTimeline || (lang === 'th' ? 'ไทม์ไลน์การเติบโต' : 'Growth Timeline')}</span>
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        ⚡ {Number(currentUser.powerLevel || 0).toLocaleString()} PL
+                      </span>
+                    </div>
+                    <GrowthTimelineChart
+                      user={currentUser}
+                      currentUser={currentUser}
+                      lang={lang}
+                      minimal={true}
+                    />
+                  </div>
+
+                  {/* Sub-block: Queues Waiting */}
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
                       <span className="flex items-center gap-1 text-slate-200">
@@ -822,16 +821,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
 
                     {userQueues.length === 0 ? (
-                      <div className="p-1.5 rounded bg-[#070b14] border border-slate-800/60 text-[10px] text-slate-400 text-center italic">
+                      <div className="p-2 rounded-lg bg-[#070b14] border border-slate-800/60 text-[10.5px] text-slate-400 text-center italic">
                         {t.noQueuesJoined}
                       </div>
                     ) : (
-                      <div className="space-y-1.5">
+                      <div className="space-y-1">
                         <div className={`space-y-1 ${showAllUserQueues ? 'max-h-[220px] overflow-y-auto pr-0.5 custom-scrollbar' : ''}`}>
                           {(showAllUserQueues ? userQueues : userQueues.slice(0, 5)).map(({ item, rank, totalWaiting }) => (
                             <div
                               key={item.id}
-                              className="flex items-center justify-between p-1 rounded bg-[#080d18] border border-slate-800/70 hover:border-purple-500/40 transition-colors text-[11px]"
+                              className="flex items-center justify-between p-1.5 rounded-lg bg-[#080d18] border border-slate-800/70 hover:border-purple-500/40 transition-colors text-[11px]"
                             >
                               <span className="text-slate-200 font-medium truncate pr-1 text-[11px]">
                                 {item.name}
@@ -849,7 +848,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               sounds.playClick();
                               setShowAllUserQueues((prev) => !prev);
                             }}
-                            className="w-full py-1 px-2 rounded-md bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 hover:border-purple-500/50 text-purple-300 hover:text-purple-200 text-[10px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                            className="w-full py-1 px-2 rounded-md bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 text-[10px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer"
                           >
                             {showAllUserQueues ? (
                               <>
@@ -859,7 +858,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             ) : (
                               <>
                                 <ChevronDown className="w-3 h-3 text-purple-400" />
-                                <span>{lang === 'th' ? `ดูทั้งหมด (${userQueues.length} รายการ)` : `View All (${userQueues.length} Items)`}</span>
+                                <span>{lang === 'th' ? `ดูทั้งหมด ${userQueues.length} รายการ` : `View All ${userQueues.length} Items`}</span>
                               </>
                             )}
                           </button>
@@ -868,7 +867,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     )}
                   </div>
 
-                  {/* Sub-block: Active Claims (ไอเทมที่ลงชื่อรอแจก - 5 rows max then scroll) */}
+                  {/* Sub-block: Active Claims */}
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
                       <span className="flex items-center gap-1 text-slate-200">
@@ -881,22 +880,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
 
                     {userActiveClaims.length === 0 ? (
-                      <div className="p-1.5 rounded bg-[#070b14] border border-slate-800/60 text-[10px] text-slate-400 text-center italic">
+                      <div className="p-2 rounded-lg bg-[#070b14] border border-slate-800/60 text-[10.5px] text-slate-400 text-center italic">
                         {t.noActiveClaims}
                       </div>
                     ) : (
-                      <div className="space-y-1.5">
+                      <div className="space-y-1">
                         <div className={`space-y-1 ${showAllUserClaims ? 'max-h-[220px] overflow-y-auto pr-0.5 custom-scrollbar' : ''}`}>
                           {(showAllUserClaims ? userActiveClaims : userActiveClaims.slice(0, 5)).map((item) => (
                             <div
                               key={item.id}
-                              className="flex items-center justify-between p-1 rounded bg-[#080d18] border border-slate-800/70 hover:border-sky-500/40 transition-colors text-[11px]"
+                              className="flex items-center justify-between p-1.5 rounded-lg bg-[#080d18] border border-slate-800/70 hover:border-sky-500/40 transition-colors text-[11px]"
                             >
                               <div className="flex items-center gap-1.5 min-w-0 pr-1">
                                 <img
                                   src={item.imageUrl}
                                   alt={item.name}
-                                  className="w-7 h-7 rounded-lg object-cover border border-slate-700 shrink-0 shadow-sm"
+                                  className="w-6 h-6 rounded-md object-cover border border-slate-700 shrink-0 shadow-sm"
                                 />
                                 <span className="text-slate-100 font-medium truncate text-[11px]">{item.name}</span>
                                 <span className="text-[9px] font-bold font-mono px-1 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
@@ -922,7 +921,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               sounds.playClick();
                               setShowAllUserClaims((prev) => !prev);
                             }}
-                            className="w-full py-1 px-2 rounded-md bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 hover:border-sky-500/50 text-sky-300 hover:text-sky-200 text-[10px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                            className="w-full py-1 px-2 rounded-md bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 text-[10px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer"
                           >
                             {showAllUserClaims ? (
                               <>
@@ -932,7 +931,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             ) : (
                               <>
                                 <ChevronDown className="w-3 h-3 text-sky-400" />
-                                <span>{lang === 'th' ? `ดูทั้งหมด (${userActiveClaims.length} รายการ)` : `View All (${userActiveClaims.length} Items)`}</span>
+                                <span>{lang === 'th' ? `ดูทั้งหมด ${userActiveClaims.length} รายการ` : `View All ${userActiveClaims.length} Items`}</span>
                               </>
                             )}
                           </button>
@@ -942,7 +941,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="py-5 text-center space-y-2">
+                <div className="py-8 text-center space-y-2">
                   <Lock className="w-5 h-5 mx-auto text-amber-400" />
                   <p className="text-[11px] text-slate-300">
                     {lang === 'th' ? 'เข้าสู่ระบบเพื่อดูสถานะของคุณ' : 'Log in to view your status'}
@@ -987,7 +986,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <Crown className="w-2.5 h-2.5" />
                   <span>
                     {showAllLeaderboard
-                      ? (lang === 'th' ? `ทั้งหมด (${allLeaderboardMembers.length})` : `ALL (${allLeaderboardMembers.length})`)
+                      ? (lang === 'th' ? `ทั้งหมด ${allLeaderboardMembers.length}` : `ALL ${allLeaderboardMembers.length}`)
                       : 'TOP 5'}
                   </span>
                 </span>
@@ -1130,7 +1129,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       ) : (
                         <>
                           <ChevronDown className="w-3.5 h-3.5 text-purple-400" />
-                          <span>{lang === 'th' ? `ดูทั้งหมด (${allLeaderboardMembers.length} คน)` : `View All (${allLeaderboardMembers.length} Members)`}</span>
+                          <span>{lang === 'th' ? `ดูทั้งหมด ${allLeaderboardMembers.length} คน` : `View All ${allLeaderboardMembers.length} Members`}</span>
                         </>
                       )}
                     </button>
@@ -1202,6 +1201,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               <span className="font-bold text-slate-100 text-xs truncate max-w-[120px]">
                                 {item.name}
                               </span>
+                              {item.source === 'item_queue' && (
+                                <span className="text-[8.5px] font-semibold px-1 py-0.2 rounded bg-cyan-950/80 border border-cyan-500/50 text-cyan-300">
+                                  {lang === 'th' ? 'คิวไอเทม' : 'Queue'}
+                                </span>
+                              )}
                               <span className="text-[9px] font-mono font-bold px-1 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300">
                                 x{item.quantity || 1}
                               </span>
@@ -1285,7 +1289,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       ) : (
                         <>
                           <ChevronDown className="w-3.5 h-3.5 text-sky-400" />
-                          <span>{lang === 'th' ? `ดูทั้งหมด (${allDistributedList.length} รายการ)` : `View All (${allDistributedList.length} Items)`}</span>
+                          <span>{lang === 'th' ? `ดูทั้งหมด ${allDistributedList.length} รายการ` : `View All ${allDistributedList.length} Items`}</span>
                         </>
                       )}
                     </button>
@@ -1336,7 +1340,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow font-black'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                 }`}
-                title={lang === 'th' ? 'แสดงแบบตารางแถวละ 2 ไอเทม (2 Columns)' : 'Grid View (2 items per row)'}
+                title={lang === 'th' ? 'แสดงแบบตาราง 2 คอลัมน์' : 'Grid View (2 Columns)'}
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
                 <span>{lang === 'th' ? 'ตาราง 2 แถว' : '2 Columns'}</span>
@@ -1354,7 +1358,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow font-black'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                 }`}
-                title={lang === 'th' ? 'แสดงแบบตารางแนวนอนเต็มจอ (Table View)' : 'Table View (Full width)'}
+                title={lang === 'th' ? 'แสดงแบบตารางแนวนอน' : 'Table View'}
               >
                 <List className="w-3.5 h-3.5" />
                 <span>{lang === 'th' ? 'ตารางเต็ม' : 'Table'}</span>
@@ -1795,7 +1799,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <th className="py-3 px-3 w-16 text-center">{lang === 'th' ? 'รูป' : 'Image'}</th>
                       <th className="py-3 px-3">{lang === 'th' ? 'ชื่อไอเทม & ระดับ' : 'Item & Rarity'}</th>
                       <th className="py-3 px-3 text-center">{lang === 'th' ? 'ราคาเพชร' : 'Price'}</th>
-                      <th className="py-3 px-3 text-center">{lang === 'th' ? 'พลังขั้นต่ำ (PL)' : 'Min PL'}</th>
+                      <th className="py-3 px-3 text-center">{lang === 'th' ? 'พลังขั้นต่ำ' : 'Min Power'}</th>
                       <th className="py-3 px-3 text-center">{lang === 'th' ? 'ผู้ขอรับ' : 'Claimants'}</th>
                       <th className="py-3 px-3 text-center">{lang === 'th' ? 'สถานะ / ขอรับ' : 'Claim Status'}</th>
                       {isAdminOrOwner && (
@@ -2089,6 +2093,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         )}
       </section>
 
+      {/* Announcement Banner for Item Queue */}
+      {(activeAnnouncement.enabled || canEditAnnouncement) && (
+        <div className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+          activeAnnouncement.enabled
+            ? 'bg-gradient-to-r from-[#191508]/90 via-[#231b0a]/90 to-[#120f06]/90 border-[#d4af37]/45 shadow-[0_0_20px_rgba(212,175,55,0.12)]'
+            : 'bg-slate-900/60 border-dashed border-slate-700/60 opacity-60'
+        }`}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-[#d4af37]/20 to-[#8c6b12]/20 border border-[#d4af37]/40 text-[#f5d77f] shrink-0 shadow-md">
+              <Megaphone className="w-5 h-5 animate-pulse" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#d4af37]/20 border border-[#d4af37]/40 text-[#f5d77f] font-mono tracking-wider uppercase">
+                  {lang === 'th' ? 'ประกาศจากกิลด์' : 'ANNOUNCEMENT'}
+                </span>
+                {!activeAnnouncement.enabled && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                    {lang === 'th' ? 'ซ่อนอยู่' : 'Hidden'}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs sm:text-sm font-semibold text-slate-100 mt-1 leading-relaxed">
+                {lang === 'th' ? activeAnnouncement.textTh : activeAnnouncement.textEn}
+              </p>
+            </div>
+          </div>
+
+          {canEditAnnouncement && (
+            <button
+              type="button"
+              id="btn-edit-queue-announcement"
+              onClick={handleOpenEditAnnouncement}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1f2838] hover:bg-[#28354a] border border-[#d4af37]/40 hover:border-[#d4af37] text-[#f5d77f] hover:text-white text-xs font-bold transition-all shadow cursor-pointer shrink-0 self-start sm:self-center group"
+              title={lang === 'th' ? 'แก้ไขข้อความประกาศ' : 'Edit Announcement'}
+            >
+              <Edit3 className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
+              <span>{lang === 'th' ? 'แก้ไขประกาศ' : 'Edit Announcement'}</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Unified Item Queue with 2 Boxes */}
       {onAddGeneralItem && onUpdateGeneralItem && onDeleteGeneralItem && (
         <GeneralItemQueueCard
           lang={lang}
@@ -2098,323 +2146,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           allMembers={allMembers}
           onAdd={onAddGeneralItem}
           onUpdate={onUpdateGeneralItem}
+          onReorder={onReorderGeneralItem}
           onDelete={onDeleteGeneralItem}
           onRecordDiamondLog={onRecordDiamondLog}
+          onAddDistributedVaultItem={onAddDistributedVaultItem}
           onViewImageZoom={onViewImage}
+          showToast={showToast}
         />
       )}
-
-      {/* 3. ITEM QUEUE PREVIEW (คิวไอเทมบนแดชบอร์ด - แสดงทุกรายการ) */}
-      <section className="space-y-4">
-        {/* Section Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 shadow-sm shrink-0">
-              <Crown className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold font-cinzel text-slate-100 flex flex-wrap items-center gap-2">
-                <span>{t.queueTitle}</span>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 font-mono font-bold">
-                  {queueItems.length} {lang === 'th' ? 'รายการทั้งหมด' : 'total items'}
-                </span>
-                {displayedQueueItems.length !== queueItems.length && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-mono">
-                    {lang === 'th' ? `ตรงกับค้นหา ${displayedQueueItems.length}` : `Matches: ${displayedQueueItems.length}`}
-                  </span>
-                )}
-              </h2>
-              <p className="text-xs text-slate-400">
-                {lang === 'th'
-                  ? 'แสดงลำดับคิวและผู้รอรับไอเทมทุกรายการในระบบ'
-                  : 'Displaying all item queues and waiting claimants in the system'}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
-            {/* Quick search input */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-              <input
-                type="text"
-                value={queueSearchQuery}
-                onChange={(e) => setQueueSearchQuery(e.target.value)}
-                placeholder={lang === 'th' ? 'ค้นหาคิว / ชื่อคน...' : 'Search queue / name...'}
-                className="pl-8 pr-7 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500/70 focus:ring-1 focus:ring-purple-500/50 w-36 sm:w-48 transition-all"
-              />
-              {queueSearchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setQueueSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Link to Full Queue Management Tab */}
-            <button
-              onClick={() => {
-                sounds.playClick();
-                onNavigateTab('queue');
-              }}
-              className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600/30 to-purple-500/20 hover:from-purple-600/40 hover:to-purple-500/30 text-[#f5d77f] hover:text-white border border-purple-500/40 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer shrink-0"
-            >
-              <span>{lang === 'th' ? 'จัดการคิวทั้งหมด' : 'Manage All Queues'}</span>
-              <ChevronRight className="w-3.5 h-3.5 text-[#f5d77f]" />
-            </button>
-          </div>
-        </div>
-
-        {/* Announcement Banner for Item Queue (Placed inside คิวรับไอเทม) */}
-        {(activeAnnouncement.enabled || canEditAnnouncement) && (
-          <div className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-            activeAnnouncement.enabled
-              ? 'bg-gradient-to-r from-[#191508]/90 via-[#231b0a]/90 to-[#120f06]/90 border-[#d4af37]/45 shadow-[0_0_20px_rgba(212,175,55,0.12)]'
-              : 'bg-slate-900/60 border-dashed border-slate-700/60 opacity-60'
-          }`}>
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-[#d4af37]/20 to-[#8c6b12]/20 border border-[#d4af37]/40 text-[#f5d77f] shrink-0 shadow-md">
-                <Megaphone className="w-5 h-5 animate-pulse" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#d4af37]/20 border border-[#d4af37]/40 text-[#f5d77f] font-mono tracking-wider uppercase">
-                    {lang === 'th' ? 'ประกาศจากกิลด์' : 'ANNOUNCEMENT'}
-                  </span>
-                  {!activeAnnouncement.enabled && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-                      {lang === 'th' ? 'ซ่อนอยู่ (ปิดใช้งาน)' : 'Hidden (Disabled)'}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs sm:text-sm font-semibold text-slate-100 mt-1 leading-relaxed">
-                  {lang === 'th' ? activeAnnouncement.textTh : activeAnnouncement.textEn}
-                </p>
-              </div>
-            </div>
-
-            {canEditAnnouncement && (
-              <button
-                type="button"
-                id="btn-edit-queue-announcement"
-                onClick={handleOpenEditAnnouncement}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1f2838] hover:bg-[#28354a] border border-[#d4af37]/40 hover:border-[#d4af37] text-[#f5d77f] hover:text-white text-xs font-bold transition-all shadow cursor-pointer shrink-0 self-start sm:self-center group"
-                title={lang === 'th' ? 'แก้ไขข้อความประกาศ (เฉพาะ Owner/Admin)' : 'Edit Announcement (Owner/Admin)'}
-              >
-                <Edit3 className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
-                <span>{lang === 'th' ? 'แก้ไขประกาศ' : 'Edit Announcement'}</span>
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Rarity Quick Filter Pills */}
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="text-[11px] text-slate-500 mr-1 flex items-center gap-1">
-            <SlidersHorizontal className="w-3 h-3" />
-            <span>{lang === 'th' ? 'ระดับ:' : 'Rarity:'}</span>
-          </span>
-          {[
-            { id: 'all', labelTh: 'ทั้งหมด', labelEn: 'All' },
-            { id: 'MYTHIC', labelTh: 'MYTHIC (ทอง)', labelEn: 'Mythic' },
-            { id: 'LAGEND', labelTh: 'LAGEND (ม่วง)', labelEn: 'Legend' },
-            { id: 'EPIC', labelTh: 'EPIC (แดง)', labelEn: 'Epic' },
-            { id: 'RARE', labelTh: 'RARE (ฟ้า)', labelEn: 'Rare' }
-          ].map((pill) => {
-            const isSelected = queueRarityFilter === pill.id;
-            return (
-              <button
-                key={pill.id}
-                type="button"
-                onClick={() => {
-                  sounds.playClick();
-                  setQueueRarityFilter(pill.id);
-                }}
-                className={`px-2.5 py-0.5 rounded-lg text-[11px] font-medium transition cursor-pointer border ${
-                  isSelected
-                    ? 'bg-purple-500/25 border-purple-500/60 text-purple-200 shadow-sm'
-                    : 'bg-slate-900/60 hover:bg-slate-800/80 border-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {lang === 'th' ? pill.labelTh : pill.labelEn}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Queue Items Grid */}
-        {displayedQueueItems.length === 0 ? (
-          <div className="rounded-2xl border border-slate-800 bg-[#0d131f]/60 p-10 text-center space-y-2">
-            <Crown className="w-8 h-8 mx-auto text-slate-600 opacity-60" />
-            <div className="text-slate-400 font-semibold text-xs">
-              {queueItems.length === 0
-                ? t.noQueueItems
-                : (lang === 'th' ? 'ไม่พบคิวไอเทมที่ตรงกับเงื่อนไขค้นหา' : 'No queue items matching your filter')}
-            </div>
-            {queueItems.length > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  setQueueSearchQuery('');
-                  setQueueRarityFilter('all');
-                }}
-                className="text-[11px] text-purple-400 hover:text-purple-300 underline cursor-pointer"
-              >
-                {lang === 'th' ? 'ล้างตัวกรองทั้งหมด' : 'Clear all filters'}
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-            {displayedQueueItems.map((q) => {
-              const isExpanded = !!expandedQueues[q.id];
-              const pendingList = q.queueList.filter((m) => m.status !== 'received');
-              const receivedList = q.queueList.filter((m) => m.status === 'received');
-              const displayedMembers = isExpanded ? q.queueList : q.queueList.slice(0, 3);
-
-              return (
-                <div
-                  key={q.id}
-                  className={`p-4 rounded-2xl bg-gradient-to-b from-[#101728] to-[#090e18] border border-slate-800/90 hover:border-purple-500/50 transition-all duration-200 flex flex-col justify-between gap-3 shadow-xl ${getRarityBorder(
-                    q.rarity
-                  )}`}
-                >
-                  <div>
-                    {/* Top Header: Image, Title, Rarity */}
-                    <div className="flex items-start gap-3">
-                      {q.imageUrl ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            sounds.playClick();
-                            onViewImage?.(q.imageUrl, q.name);
-                          }}
-                          title={t.zoomImage}
-                          className="shrink-0 relative group cursor-pointer"
-                        >
-                          <img
-                            src={q.imageUrl}
-                            alt={q.name}
-                            className="w-13 h-13 rounded-xl object-cover border border-slate-700 group-hover:border-[#d4af37] transition-all shadow-md group-hover:scale-105"
-                          />
-                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 rounded-xl flex items-center justify-center transition">
-                            <Eye className="w-3.5 h-3.5 text-white drop-shadow" />
-                          </div>
-                        </button>
-                      ) : (
-                        <div className="w-13 h-13 rounded-xl bg-[#151d2f] border border-dashed border-slate-700 flex items-center justify-center text-[10px] text-slate-500 text-center p-1 shrink-0">
-                          {t.waitingForImage}
-                        </div>
-                      )}
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-1.5">
-                          <h4 className={`text-xs sm:text-sm font-bold text-slate-100 truncate ${getRarityTextGlow(q.rarity)}`} title={q.name}>
-                            {q.name}
-                          </h4>
-                          <span
-                            className={`text-[9px] font-bold px-1.5 py-0.2 rounded border shrink-0 ${getRarityBadge(
-                              q.rarity
-                            )}`}
-                          >
-                            {q.rarity}
-                          </span>
-                        </div>
-
-                        {/* Counts summary badge */}
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                          <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
-                            {q.queueList.length} {lang === 'th' ? 'คน' : 'total'}
-                          </span>
-                          {pendingList.length > 0 && (
-                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                              {pendingList.length} {lang === 'th' ? 'รอรับ' : 'waiting'}
-                            </span>
-                          )}
-                          {receivedList.length > 0 && (
-                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                              {receivedList.length} {lang === 'th' ? 'ได้รับแล้ว' : 'received'}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Members In Queue List */}
-                    <div className="mt-3">
-                      {q.queueList.length === 0 ? (
-                        <div className="p-2.5 rounded-xl bg-[#060a12] border border-slate-800/80 text-center text-[11px] text-slate-500">
-                          {lang === 'th' ? 'ยังไม่มีรายชื่อในคิว' : 'No members queued yet'}
-                        </div>
-                      ) : (
-                        <div className={`space-y-1 ${isExpanded ? 'max-h-56 overflow-y-auto pr-1' : ''}`}>
-                          {displayedMembers.map((m, idx) => (
-                            <div
-                              key={m.id || idx}
-                              className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-[#070c16] border border-slate-800/50 hover:border-slate-700/60 transition-colors"
-                            >
-                              <div className="flex items-center gap-1.5 truncate min-w-0 pr-1">
-                                <span className="text-[10px] font-mono text-purple-400 font-bold shrink-0">
-                                  #{idx + 1}
-                                </span>
-                                <span className="text-slate-200 font-medium truncate text-xs">
-                                  {m.name}
-                                </span>
-                                <span className="text-[10px] text-slate-400 shrink-0">
-                                  ({m.clan})
-                                </span>
-                              </div>
-                              <span
-                                className={`text-[9px] px-1.5 py-0.2 rounded font-semibold shrink-0 ${
-                                  m.status === 'received'
-                                    ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                                    : 'bg-amber-950 text-amber-400 border border-amber-800'
-                                }`}
-                              >
-                                {m.status === 'received' ? t.statusReceived : t.statusPending}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Card Expand / Collapse Toggle Button */}
-                  {q.queueList.length > 3 && (
-                    <div className="pt-2 border-t border-slate-800/80">
-                      <button
-                        type="button"
-                        onClick={() => toggleExpandQueue(q.id)}
-                        className="w-full py-1 text-[11px] font-semibold text-purple-300 hover:text-purple-200 bg-purple-950/30 hover:bg-purple-900/40 rounded-lg border border-purple-800/30 transition-colors flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        {isExpanded ? (
-                          <>
-                            <span>{lang === 'th' ? 'ย่อรายการ' : 'Show less'}</span>
-                            <ChevronUp className="w-3.5 h-3.5" />
-                          </>
-                        ) : (
-                          <>
-                            <span>
-                              {lang === 'th'
-                                ? `+ดูคิวทั้งหมด (อีก ${q.queueList.length - 3} คน)`
-                                : `+Show full queue (${q.queueList.length - 3} more)`}
-                            </span>
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
 
       {/* IN-APP CONFIRM DELETE ACTIVE ITEM MODAL */}
       {itemToDelete && (

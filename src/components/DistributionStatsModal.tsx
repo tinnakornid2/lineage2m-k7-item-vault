@@ -416,8 +416,8 @@ export const DistributionStatsModal: React.FC<DistributionStatsModalProps> = ({
                   </p>
                   <p className="text-[11px] text-amber-300/80 mt-0.5">
                     {lang === 'th'
-                      ? 'เรียงตามลำดับค่าพลังรบ (CP) สูงไปต่ำ เพื่อให้หัวหน้ากิลด์พิจารณาความยุติธรรมและจัดสรรให้ในรอบถัดไป'
-                      : 'Sorted by Combat Power (CP) descending to help leaders maintain distribution fairness.'}
+                      ? 'เรียงตามลำดับค่าพลังรบสูงไปต่ำ เพื่อให้หัวหน้ากิลด์พิจารณาความยุติธรรมและจัดสรรให้ในรอบถัดไป'
+                      : 'Sorted by Combat Power descending to help leaders maintain distribution fairness.'}
                   </p>
                 </div>
               </div>

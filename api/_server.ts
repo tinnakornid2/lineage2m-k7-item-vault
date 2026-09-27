@@ -2225,7 +2225,8 @@ Do not include markdown or explanations. Return pure JSON only.`;
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        watch: {
+        hmr: process.env.DISABLE_HMR === 'true' ? false : undefined,
+        watch: process.env.DISABLE_HMR === 'true' ? null : {
           ignored: ['**/scratch/**', '**/tests/**', '**/.git/**', '**/backups/**', '**/data/**', '**/*.json']
         }
       },
@@ -2258,10 +2259,16 @@ Do not include markdown or explanations. Return pure JSON only.`;
 
 async function startServer() {
   const app = await createApp();
-  const port = Number(process.env.PORT) || 3000;
-  app.listen(port, "0.0.0.0", () => {
+  // In AI Studio / Cloud Run containers, PORT is often set to 8080 by the outer host,
+  // but AI Studio expects the application to listen on port 3000.
+  const port = process.env.PORT && process.env.PORT !== "8080" ? Number(process.env.PORT) : 3000;
+  const server = app.listen(port, "0.0.0.0", () => {
     console.log(`Lineage2M Clan Hub server running on http://0.0.0.0:${port}`);
   });
+  server.on("error", (err: any) => {
+    console.error("Server listen error:", err);
+  });
+  return server;
 }
 
 process.on("unhandledRejection", (reason, promise) => {

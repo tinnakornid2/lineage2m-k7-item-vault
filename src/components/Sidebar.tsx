@@ -222,7 +222,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* 1. MOBILE TOP NAVIGATION BAR (Visible on screens < lg) */}
-      <header className="lg:hidden sticky top-0 z-30 w-full bg-[#070c18]/90 border-b border-[#1c2942]/80 backdrop-blur-xl px-4 py-3 flex items-center justify-between shadow-xl">
+      <header className="lg:hidden sticky top-0 z-[35] w-full h-14 bg-[#070c18]/90 border-b border-[#1c2942]/80 backdrop-blur-xl px-4 py-3 flex items-center justify-between shadow-xl">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -383,32 +383,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* 3. MAIN LEFT SIDEBAR CONTAINER */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 w-64 xl:w-72 bg-[#070c18]/95 lg:bg-[#070c18]/85 border-r border-[#1c2942]/80 backdrop-blur-2xl shadow-2xl flex flex-col transition-transform duration-300 ease-in-out ${
+        className={`fixed top-0 bottom-0 left-0 z-50 w-64 xl:w-72 bg-[#070c18]/95 lg:bg-[#070c18]/85 border-r border-[#1c2942]/80 backdrop-blur-2xl shadow-2xl flex flex-col overflow-x-hidden transition-transform duration-300 ease-in-out ${
           isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-        {/* SIDEBAR HEADER / BRAND */}
-        <div className="p-4 sm:p-5 border-b border-[#1c2942]/70 flex items-center justify-between">
+        {/* SIDEBAR HEADER / BRAND (CONTAINED WITHIN MENU BOUNDS) */}
+        <div className="px-3.5 sm:px-4 py-2 sm:py-2.5 border-b border-[#1c2942]/70 flex items-center justify-between overflow-hidden">
           <div
             id="brand-logo"
             onClick={() => handleTabSelect('dashboard')}
-            className="flex items-center gap-3 cursor-pointer group select-none flex-1 min-w-0"
+            className="flex items-center gap-2.5 cursor-pointer group select-none flex-1 min-w-0"
           >
-            <div className="relative w-10 h-10 rounded-xl bg-gradient-to-br from-[#d4af37] via-[#91711e] to-[#45330a] p-[1.5px] shadow-lg shadow-[#d4af37]/20 group-hover:shadow-[#d4af37]/40 transition-all duration-300 shrink-0">
-              <div className="w-full h-full bg-[#090f1d] rounded-[10px] flex items-center justify-center">
-                <Crown className="w-5 h-5 text-[#f5d77f] group-hover:scale-110 transition-transform duration-300" />
+            <div className="relative w-8 h-8 xl:w-9 xl:h-9 rounded-lg bg-gradient-to-br from-[#d4af37] via-[#91711e] to-[#45330a] p-[1.5px] shadow-md shadow-[#d4af37]/20 group-hover:shadow-[#d4af37]/40 transition-all duration-300 shrink-0">
+              <div className="w-full h-full bg-[#090f1d] rounded-[7px] flex items-center justify-center">
+                <Crown className="w-4 h-4 text-[#f5d77f] group-hover:scale-105 transition-transform duration-200" />
               </div>
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="font-cinzel text-base xl:text-lg font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#c99a22] truncate">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-cinzel text-sm xl:text-base font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#fff2b8] via-[#e6be44] to-[#c99a22] truncate">
                   LINEAGE <span className="text-[#38bdf8]">2M</span>
                 </span>
-                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[#d4af37]/20 border border-[#d4af37]/40 text-[#f5d77f] tracking-wide uppercase shrink-0">
+                <span className="text-[8.5px] font-semibold px-1 py-0.2 rounded bg-[#d4af37]/20 border border-[#d4af37]/40 text-[#f5d77f] tracking-wide uppercase shrink-0">
                   CLAN HUB
                 </span>
               </div>
-              <p className="text-[10px] text-slate-400 truncate">
+              <p className="text-[9.5px] text-slate-400 truncate">
                 {t.appSubtitle}
               </p>
             </div>
@@ -425,7 +425,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* GLOBAL CLAN SCOPE SWITCHER */}
-        <div className="px-3 sm:px-4 pt-2 pb-1">
+        <div className="px-3 sm:px-4 pt-1.5 pb-0.5">
           <div className="relative">
             <button
               id="sidebar-clan-scope-btn"
@@ -525,36 +525,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
 
         {/* DIAMOND VAULT QUICK CARD IN SIDEBAR */}
-        <div className="p-3 sm:p-4">
+        <div className="px-3 py-1">
           <div
             id="diamond-vault-trigger"
             onClick={() => {
               sounds.playClick();
               onOpenVaultModal();
             }}
-            className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-[#131929] via-[#0d131f] to-[#070a12] border border-white/20 hover:border-white/45 p-3 shadow-lg shadow-black/50 transition-all duration-200 cursor-pointer"
+            className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-[#131929] via-[#0d131f] to-[#070a12] border border-white/20 hover:border-white/45 p-2 shadow-md shadow-black/50 transition-all duration-200 cursor-pointer"
           >
             {/* Ambient inner glow */}
             <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full blur-xl pointer-events-none -mr-6 -mt-6" />
 
             <div className="relative flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-white/10 border border-white/25 group-hover:scale-105 transition-transform shadow-inner">
-                  <Gem className="w-4 h-4 text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
+              <div className="flex items-center gap-2">
+                <div className="p-1 rounded-lg bg-white/10 border border-white/25 group-hover:scale-105 transition-transform shadow-inner">
+                  <Gem className="w-3.5 h-3.5 text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
                 </div>
                 <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-300 group-hover:text-white flex items-center gap-1">
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-300 group-hover:text-white flex items-center gap-1">
                     <span>{t.diamondVault}</span>
-                    <Sparkles className="w-2.5 h-2.5 text-white animate-pulse" />
+                    <Sparkles className="w-2 h-2 text-white animate-pulse" />
                   </div>
-                  <div className="text-base sm:text-lg font-bold font-mono text-white tracking-tight drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]">
+                  <div className="text-sm sm:text-base font-bold font-mono text-white tracking-tight drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]">
                     {vaultBalance.toLocaleString()}
                   </div>
                 </div>
               </div>
 
               <div className="text-right">
-                <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-slate-200 font-medium border border-white/20 group-hover:bg-white/20 group-hover:text-white transition-colors">
+                <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-white/10 text-slate-200 font-medium border border-white/20 group-hover:bg-white/20 group-hover:text-white transition-colors">
                   {lang === 'th' ? 'เปิดคลัง' : 'Open'}
                 </span>
               </div>
@@ -563,8 +563,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* NAVIGATION LINKS LIST */}
-        <div className="flex-1 overflow-y-auto px-3 py-1 space-y-1.5 custom-scrollbar">
-          <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <div className="flex-1 overflow-y-auto px-2.5 py-0.5 space-y-0.5 custom-scrollbar">
+          <div className="px-2 pb-0.5 text-[9.5px] font-bold uppercase tracking-wider text-slate-400">
             {lang === 'th' ? 'เมนูระบบกิลด์' : 'Guild Navigation'}
           </div>
 
@@ -577,36 +577,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={item.id}
                 id={`nav-tab-${item.id}`}
                 onClick={() => handleTabSelect(item.id)}
-                className={`relative w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all group select-none cursor-pointer ${
+                className={`relative w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition-all group select-none cursor-pointer ${
                   isActive
-                    ? 'bg-gradient-to-r from-[#d4af37]/20 via-[#d4af37]/10 to-transparent text-[#f5d77f] border border-[#d4af37]/60 shadow-lg shadow-black/40 font-semibold'
+                    ? 'bg-gradient-to-r from-[#d4af37]/20 via-[#d4af37]/10 to-transparent text-[#f5d77f] border border-[#d4af37]/60 shadow-md font-semibold'
                     : 'text-slate-300 hover:text-white hover:bg-[#111929]/80 border border-transparent'
                 }`}
               >
                 {/* Active left indicator bar */}
                 {isActive && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[#d4af37] rounded-r-full shadow-[0_0_8px_#d4af37]" />
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-[#d4af37] rounded-r-full shadow-[0_0_8px_#d4af37]" />
                 )}
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5">
                   <div
-                    className={`p-1.5 rounded-lg transition-colors ${
+                    className={`p-1 rounded-md transition-colors ${
                       isActive
                         ? 'bg-[#d4af37]/25 text-[#f5d77f]'
                         : 'bg-slate-900/60 text-slate-400 group-hover:text-slate-200 group-hover:bg-slate-800/80'
                     }`}
                   >
                     <IconComponent
-                      className={`w-4 h-4 ${isActive ? 'text-[#f5d77f]' : item.accentColor}`}
+                      className={`w-3.5 h-3.5 ${isActive ? 'text-[#f5d77f]' : item.accentColor}`}
                     />
                   </div>
-                  <span className="tracking-wide">{item.label}</span>
+                  <span className="tracking-wide text-xs">{item.label}</span>
                 </div>
 
-                {/* Optional notification badge (e.g. queue items count or pending registrations) */}
+                {/* Optional notification badge */}
                 {typeof item.badge === 'number' && item.badge > 0 && (
                   <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold font-mono shadow-sm ${
+                    className={`px-1.5 py-0.2 rounded-full text-[9.5px] font-bold font-mono shadow-sm ${
                       item.id === 'all_members'
                         ? 'bg-emerald-500/25 border border-emerald-500/50 text-emerald-300 animate-pulse'
                         : 'bg-purple-500/25 border border-purple-500/50 text-purple-300'
@@ -732,102 +732,109 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* SIDEBAR FOOTER: USER PROFILE & UTILITIES */}
-        <div className="p-3 sm:p-4 border-t border-[#1c2942]/80 bg-[#050913]/70 space-y-3">
+        <div className="p-2.5 sm:p-3 border-t border-[#1c2942]/80 bg-[#050913]/70 space-y-2">
           
           {/* User Profile Card */}
           {currentUser ? (
-            <div className="p-2.5 rounded-xl bg-[#0a101f]/80 border border-slate-800/80 flex items-center justify-between gap-2 shadow-inner">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs font-bold text-slate-200 truncate">
+            <div className="p-2.5 rounded-xl bg-[#0a101f]/90 border border-slate-800/90 space-y-2 shadow-lg">
+              {/* Row 1: User Identity & Action Buttons */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs font-bold text-slate-100 truncate">
                     {currentUser.inGameName || currentUser.username}
                   </span>
                   {currentUser.role === 'owner' && (
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/50 font-semibold uppercase">
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/50 font-semibold uppercase shrink-0">
                       {t.ownerBadge}
                     </span>
                   )}
                   {currentUser.role === 'admin' && (
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/50 font-semibold uppercase">
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/50 font-semibold uppercase shrink-0">
                       {t.adminBadge}
                     </span>
                   )}
                   {currentUser.role === 'member' && (
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-700 text-slate-300 border border-slate-600 font-semibold uppercase">
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-700 text-slate-300 border border-slate-600 font-semibold uppercase shrink-0">
                       {t.memberBadge}
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-1.5 mt-1">
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {onOpenChangePassword && (
+                    <button
+                      id="btn-sidebar-change-password"
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        onOpenChangePassword();
+                      }}
+                      className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-400 text-amber-300 transition-all cursor-pointer shadow-sm"
+                      title={t.changePasswordModalTitle}
+                      aria-label={t.changePasswordModalTitle}
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
                   <button
-                    id="btn-sidebar-request-cp"
-                    type="button"
+                    id="btn-logout"
                     onClick={() => {
                       sounds.playClick();
-                      if (onOpenMyStats) onOpenMyStats();
-                      else onOpenRequestCp?.();
+                      onLogout();
                     }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 font-mono text-[10px] font-medium transition-all cursor-pointer group shadow-sm"
-                    title={lang === 'th' ? 'คลิกเพื่อเปิดหน้าสเตตัสของฉัน (My Stats)' : 'Click to open My Stats'}
+                    className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 hover:text-white transition-all cursor-pointer shadow-sm"
+                    title={t.logout}
                   >
-                    <Zap className="w-2.5 h-2.5 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
-                    <span>⚡ {(currentUser.powerLevel || 0).toLocaleString()} PL</span>
-                    {isUserStatsPending(currentUser) && (
-                      <span className="ml-0.5 px-1 py-0.2 rounded bg-amber-400/25 text-[#f5d77f] text-[8px] font-sans font-bold animate-pulse">
-                        ⏳
-                      </span>
-                    )}
+                    <LogOut className="w-3.5 h-3.5" />
                   </button>
-                  <span className="text-[10px] text-slate-400 truncate">
-                    • {cleanClanName(currentUser.clan) || 'No Clan'}
-                  </span>
-                  {statUpdateSettings && (
-                    <span
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold border transition-all shrink-0 ${
-                        statUpdateSettings.allowMemberUpdates
-                          ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                          : 'bg-red-950/60 border-red-500/40 text-red-300'
-                      }`}
-                      title={statUpdateSettings.allowMemberUpdates ? t.statUpdateUnlocked : t.statUpdateLocked}
-                    >
-                      {statUpdateSettings.allowMemberUpdates ? (
-                        <Unlock className="w-2 h-2 text-emerald-400" />
-                      ) : (
-                        <Lock className="w-2 h-2 text-red-400" />
-                      )}
-                      <span>{statUpdateSettings.allowMemberUpdates ? t.statusUnlockedBadge : t.statusLockedBadge}</span>
-                    </span>
-                  )}
                 </div>
               </div>
 
-              {onOpenChangePassword && (
+              {/* Row 2: Power Level Pill (Left) and Clan / Stat Status Pill (Right) */}
+              <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-800/80">
                 <button
-                  id="btn-sidebar-change-password"
+                  id="btn-sidebar-request-cp"
                   type="button"
                   onClick={() => {
                     sounds.playClick();
-                    onOpenChangePassword();
+                    if (onOpenMyStats) onOpenMyStats();
+                    else onOpenRequestCp?.();
                   }}
-                  className="p-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 hover:text-white transition-all cursor-pointer shrink-0 shadow-sm"
-                  title={t.changePasswordModalTitle}
-                  aria-label={t.changePasswordModalTitle}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 hover:border-amber-400 text-amber-300 font-mono text-[11px] font-bold transition-all cursor-pointer group shadow-sm shrink-0 whitespace-nowrap"
+                  title={lang === 'th' ? 'คลิกเพื่อเปิดหน้าสเตตัสของฉัน (My Stats)' : 'Click to open My Stats'}
                 >
-                  <KeyRound className="w-3.5 h-3.5" />
+                  <Zap className="w-3 h-3 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
+                  <span>⚡ {(currentUser.powerLevel || 0).toLocaleString()} PL</span>
+                  {isUserStatsPending(currentUser) && (
+                    <span className="ml-0.5 px-1 py-0.2 rounded bg-amber-400/25 text-[#f5d77f] text-[8px] font-sans font-bold animate-pulse">
+                      ⏳
+                    </span>
+                  )}
                 </button>
-              )}
 
-              <button
-                id="btn-logout"
-                onClick={() => {
-                  sounds.playClick();
-                  onLogout();
-                }}
-                className="p-2 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-300 hover:text-white transition-all cursor-pointer shrink-0"
-                title={t.logout}
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
+                {statUpdateSettings ? (
+                  <span
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold border transition-all shrink-0 ${
+                      statUpdateSettings.allowMemberUpdates
+                        ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                        : 'bg-red-950/60 border-red-500/40 text-red-300'
+                    }`}
+                    title={statUpdateSettings.allowMemberUpdates ? t.statUpdateUnlocked : t.statUpdateLocked}
+                  >
+                    {statUpdateSettings.allowMemberUpdates ? (
+                      <Unlock className="w-2.5 h-2.5 text-emerald-400" />
+                    ) : (
+                      <Lock className="w-2.5 h-2.5 text-red-400" />
+                    )}
+                    <span>{statUpdateSettings.allowMemberUpdates ? t.statusUnlockedBadge : t.statusLockedBadge}</span>
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-400 truncate">
+                    {cleanClanName(currentUser.clan) || 'No Clan'}
+                  </span>
+                )}
+              </div>
             </div>
           ) : (
             <button
@@ -930,7 +937,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onOpenGoogleBackupModal();
                 }}
                 className="relative p-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-400 hover:text-white transition-all cursor-pointer"
-                title={lang === 'th' ? 'สำรองและกู้คืนฐานข้อมูล (JSON Export / Cloud) (เฉพาะ Owner)' : 'Database Backup & Restore (JSON / Cloud) (Owner Only)'}
+                title={lang === 'th' ? 'สำรองและกู้คืนฐานข้อมูล เฉพาะ Owner' : 'Database Backup & Restore Owner Only'}
                 aria-label={lang === 'th' ? 'สำรองและกู้คืนฐานข้อมูล' : 'Database Backup & Restore'}
               >
                 <Database className="w-4 h-4" />
@@ -953,6 +960,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </button>
 
+
             {/* Language Switcher */}
             <button
               id="btn-language-toggle"
@@ -965,26 +973,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
-          {/* Reset Cache Row */}
-          {onClearCacheAndReload && (
-            <div className="pt-2">
-              <button
-                id="btn-sidebar-clear-cache"
-                type="button"
-                onClick={() => {
-                  sounds.playClick();
-                  onClearCacheAndReload();
-                }}
-                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-400/50 text-[10px] font-semibold text-red-300 hover:text-white transition-all cursor-pointer shadow-sm"
-                title={t.clearCacheReload}
-                aria-label={t.clearCacheReload}
-              >
-                <Trash2 className="w-3 h-3 text-red-400" />
-                <span>{t.clearCacheReload}</span>
-              </button>
-            </div>
-          )}
-
           {/* System Version & Status Indicator */}
           <div className="pt-2 pb-0.5 flex items-center justify-between gap-1.5 px-1">
             <span
@@ -995,7 +983,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
             <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[9.5px] font-mono text-emerald-300 font-bold shrink-0 shadow-[0_0_10px_rgba(52,211,153,0.15)]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v2.10.28</span>
+              <span>v2.10.50</span>
             </div>
           </div>
 

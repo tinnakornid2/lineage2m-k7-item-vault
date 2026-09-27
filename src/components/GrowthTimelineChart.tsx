@@ -31,17 +31,22 @@ import { sounds } from '../utils/sound';
 
 interface GrowthTimelineChartProps {
   user: User;
+  currentUser?: User | null;
   lang: 'th' | 'en';
+  minimal?: boolean;
   onSaveHistory?: (newHistory: StatHistoryPoint[]) => Promise<void>;
   showToast?: (msg: string, type: 'info' | 'success' | 'warning' | 'error') => void;
 }
 
 export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
   user,
+  currentUser,
   lang,
+  minimal = false,
   onSaveHistory,
   showToast
 }) => {
+  const isOwner = currentUser?.role === 'owner' || (!currentUser && user.role === 'owner');
   const [selectedMetric, setSelectedMetric] = useState<GrowthMetric>('powerLevel');
   const [timeframe, setTimeframe] = useState<GrowthTimeframe>('all');
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
@@ -97,10 +102,12 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
     }
   };
 
-  // 5. Mini Sparkline SVG Coordinate Calculations (Very Compact ~75px height)
-  const chartWidth = 650;
-  const chartHeight = 85;
-  const padding = { top: 12, right: 20, bottom: 20, left: 40 };
+  // 5. Mini Sparkline SVG Coordinate Calculations
+  const chartWidth = minimal ? 600 : 650;
+  const chartHeight = minimal ? 80 : 85;
+  const padding = minimal
+    ? { top: 12, right: 20, bottom: 20, left: 30 }
+    : { top: 12, right: 20, bottom: 20, left: 40 };
   const graphWidth = chartWidth - padding.left - padding.right;
   const graphHeight = chartHeight - padding.top - padding.bottom;
 
@@ -198,8 +205,18 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
     }
   };
 
-  // Handle Delete Any Milestone (User has full control to delete any entry)
+  // Handle Delete Any Milestone (Only Clan Owner can delete logs)
   const handleDeleteMilestone = async (pointId: string) => {
+    if (!isOwner) {
+      if (showToast) {
+        showToast(
+          lang === 'th' ? 'เฉพาะ Owner เท่านั้นที่สามารถลบ Log ได้' : 'Only Clan Owner can delete logs',
+          'error'
+        );
+      }
+      return;
+    }
+
     sounds.playClick();
     try {
       const updated = fullHistory.filter((p) => p.id !== pointId);
@@ -214,10 +231,20 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
     }
   };
 
-  // Handle Reset / Clear All History (Keep only the latest active point)
+  // Handle Reset / Clear All History (Only Clan Owner can clear history)
   const handleClearHistory = async () => {
+    if (!isOwner) {
+      if (showToast) {
+        showToast(
+          lang === 'th' ? 'เฉพาะ Owner เท่านั้นที่สามารถล้างประวัติได้' : 'Only Clan Owner can clear history',
+          'error'
+        );
+      }
+      return;
+    }
+
     sounds.playClick();
-    if (!window.confirm(lang === 'th' ? 'คุณต้องการล้างประวัติย้อนหลังทั้งหมดใช่หรือไม่?' : 'Clear all progression history?')) {
+    if (!window.confirm(lang === 'th' ? 'คุณต้องการล้างประวัติย้อนหลังทั้งหมดใช่หรือไม่? (สิทธิ์ Owner)' : 'Clear all progression history? (Owner Permission)')) {
       return;
     }
 
@@ -251,6 +278,136 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
   };
 
   const activePoint = hoveredIdx !== null ? points[hoveredIdx] : points[points.length - 1];
+
+  // ══════════════════════════════════════════════════════════
+  // MINIMAL MODE (Dashboard View - Exact match to user screenshot)
+  // Shows ONLY the sleek golden sparkline chart with dates
+  // ══════════════════════════════════════════════════════════
+  if (minimal) {
+    return (
+      <div className="rounded-xl bg-[#090e18] border border-amber-500/25 p-1.5 sm:p-2 shadow-inner relative overflow-hidden flex flex-col justify-center">
+        {/* Subtle ambient gold glow */}
+        <div className="absolute -top-10 -right-10 w-28 h-28 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+
+        <svg
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          className="w-full h-20 sm:h-24 select-none overflow-visible"
+        >
+          <defs>
+            <linearGradient id="minimal-amber-glow-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.45" />
+              <stop offset="65%" stopColor="#f59e0b" stopOpacity="0.12" />
+              <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.0" />
+            </linearGradient>
+            <filter id="gold-line-glow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="0" stdDeviation="1.5" floodColor="#f59e0b" floodOpacity="0.6" />
+            </filter>
+          </defs>
+
+          {/* Grid lines */}
+          {yTicks.map((val, idx) => {
+            const normY = (val - minVal) / (maxVal - minVal || 1);
+            const y = padding.top + graphHeight - normY * graphHeight;
+            return (
+              <line
+                key={`yt-min-${idx}`}
+                x1={padding.left}
+                y1={y}
+                x2={padding.left + graphWidth}
+                y2={y}
+                stroke="#1e293b"
+                strokeWidth="0.8"
+                strokeDasharray="2 2"
+              />
+            );
+          })}
+
+          {/* Area Fill under curve */}
+          {areaPath && <path d={areaPath} fill="url(#minimal-amber-glow-grad)" />}
+
+          {/* Smooth Bezier Line */}
+          {linePath && (
+            <path
+              d={linePath}
+              fill="none"
+              stroke="#f59e0b"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              filter="url(#gold-line-glow)"
+            />
+          )}
+
+          {/* Hover Guide line */}
+          {hoveredIdx !== null && points[hoveredIdx] && (
+            <line
+              x1={points[hoveredIdx].x}
+              y1={padding.top}
+              x2={points[hoveredIdx].x}
+              y2={padding.top + graphHeight}
+              stroke="#fbbf24"
+              strokeWidth="1"
+              strokeDasharray="2 2"
+              opacity="0.6"
+            />
+          )}
+
+          {/* Data Points and X-Axis Dates */}
+          {points.map((pt, idx) => {
+            const isHovered = hoveredIdx === idx;
+            const isLast = idx === points.length - 1;
+            return (
+              <g
+                key={`dot-min-${idx}`}
+                className="cursor-pointer"
+                onMouseEnter={() => setHoveredIdx(idx)}
+                onMouseLeave={() => setHoveredIdx(null)}
+              >
+                <circle cx={pt.x} cy={pt.y} r="14" fill="transparent" />
+                <circle
+                  cx={pt.x}
+                  cy={pt.y}
+                  r={isHovered ? '5' : isLast ? '3.8' : '3'}
+                  fill="#0c1220"
+                  stroke="#f59e0b"
+                  strokeWidth={isHovered ? '2.5' : '1.8'}
+                />
+                <text
+                  x={pt.x}
+                  y={padding.top + graphHeight + 16}
+                  textAnchor="middle"
+                  fill={isHovered ? '#fbbf24' : '#64748b'}
+                  fontSize="8.5"
+                  fontWeight={isHovered ? 'bold' : 'normal'}
+                >
+                  {new Date(pt.point.date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', {
+                    day: 'numeric',
+                    month: 'short'
+                  })}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* Hover / Current Point Info Strip */}
+        {activePoint && (
+          <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 px-2 pt-1 border-t border-slate-800/60 mt-0.5">
+            <span className="text-slate-500">
+              {new Date(activePoint.point.date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+              })}
+            </span>
+            <span className="font-bold text-amber-400">
+              ⚡ {activePoint.point.powerLevel.toLocaleString()} PL
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-2xl bg-gradient-to-br from-slate-900/90 via-[#0c1220]/90 to-slate-950/90 border border-amber-500/25 p-3.5 sm:p-4 shadow-lg backdrop-blur-sm space-y-2.5 relative overflow-hidden">
@@ -329,45 +486,38 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
               setIsManageModalOpen(true);
             }}
             className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold text-[10px] border border-slate-700 transition shrink-0"
-            title={lang === 'th' ? 'จัดการและลบประวัติหมุด' : 'Manage & Delete Log'}
+            title={
+              lang === 'th'
+                ? isOwner
+                  ? 'จัดการและลบประวัติหมุด (สิทธิ์ Owner)'
+                  : 'ดูประวัติหมุดการเติบโต'
+                : isOwner
+                  ? 'Manage & Delete Log (Owner Only)'
+                  : 'View Progression Log'
+            }
           >
-            <Settings className="size-3" />
-            <span>{lang === 'th' ? `จัดการ (${fullHistory.length})` : `Log (${fullHistory.length})`}</span>
+            {isOwner ? <Settings className="size-3" /> : <Crown className="size-3 text-amber-400" />}
+            <span>
+              {lang === 'th'
+                ? (isOwner ? `จัดการ (${fullHistory.length})` : `ประวัติ (${fullHistory.length})`)
+                : (isOwner ? `Manage (${fullHistory.length})` : `Log (${fullHistory.length})`)}
+            </span>
           </button>
         </div>
       </div>
 
-      {/* 2. MINI METRIC CHIPS ROW */}
+      {/* 2. POWER LEVEL DISPLAY STRIP (แสดงค่าพลังอย่างเดียวพอ) */}
       <div className="flex items-center justify-between gap-1 overflow-x-auto pb-0.5 custom-scrollbar">
-        <div className="flex items-center gap-1">
-          {GROWTH_METRICS.slice(0, 4).map((metric) => {
-            const isActive = selectedMetric === metric.id;
-            return (
-              <button
-                key={metric.id}
-                type="button"
-                onClick={() => {
-                  sounds.playClick();
-                  setSelectedMetric(metric.id);
-                }}
-                className={`px-2 py-0.5 rounded text-[10px] font-bold transition shrink-0 border ${
-                  isActive
-                    ? 'border-transparent text-slate-950'
-                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-                style={{
-                  backgroundColor: isActive ? metric.color : undefined
-                }}
-              >
-                {metric.labelTh.split(' ')[0]}
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950 shadow-sm border border-amber-400">
+            <Zap className="size-3 fill-slate-950" />
+            <span>{lang === 'th' ? 'พลังรบ' : 'Power Level'}</span>
+          </div>
         </div>
 
         {/* Hover / Current Point Info Strip */}
         {activePoint && (
-          <div className="text-[10px] font-mono text-slate-300 flex items-center gap-2 truncate shrink-0">
+          <div className="text-[10px] font-mono text-slate-300 flex items-center gap-2 truncate shrink-0 ml-auto">
             <span className="text-slate-500">
               {new Date(activePoint.point.date).toLocaleDateString(lang === 'th' ? 'th-TH' : 'en-US', {
                 day: 'numeric',
@@ -486,7 +636,7 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
                 <th className="px-2.5 py-1.5">{lang === 'th' ? 'วันที่' : 'Date'}</th>
                 <th className="px-2.5 py-1.5 text-right">{lang === 'th' ? 'พลังรบ' : 'Power'}</th>
                 <th className="px-2 py-1.5 text-center">{lang === 'th' ? 'สถานะ' : 'Status'}</th>
-                <th className="px-2 py-1.5 text-center w-8"></th>
+                {isOwner && <th className="px-2 py-1.5 text-center w-8">{lang === 'th' ? 'ลบ' : 'Del'}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800 bg-zinc-900/60">
@@ -522,16 +672,18 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
                         {point.type === 'approval' ? (lang === 'th' ? 'ยืนยัน' : 'Verified') : (lang === 'th' ? 'หมุด' : 'Log')}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteMilestone(point.id)}
-                        className="p-1 rounded text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition"
-                        title={lang === 'th' ? 'ลบหมุดนี้' : 'Delete'}
-                      >
-                        <Trash2 className="size-3" />
-                      </button>
-                    </td>
+                    {isOwner && (
+                      <td className="px-2 py-1.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMilestone(point.id)}
+                          className="p-1 rounded text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                          title={lang === 'th' ? 'ลบหมุดนี้ (Owner)' : 'Delete milestone (Owner)'}
+                        >
+                          <Trash2 className="size-3" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -541,7 +693,7 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
       </div>
 
       {/* ══════════════════════════════════════════════════════════
-          MODAL 1: MANAGE & DELETE LOG MODAL (แก้ปัญหา log เพิ่มได้แต่ลบไม่ได้)
+          MODAL 1: MANAGE & DELETE LOG MODAL (เฉพาะ Owner ที่ลบได้)
          ══════════════════════════════════════════════════════════ */}
       {isManageModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
@@ -553,10 +705,16 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-white font-cinzel">
-                    {lang === 'th' ? 'จัดการและลบหมุดประวัติ' : 'Manage & Delete Log'}
+                    {lang === 'th' ? 'ประวัติหมุดการเติบโต' : 'Progression Log'}
                   </h3>
                   <div className="text-[10px] text-slate-400">
-                    {lang === 'th' ? `มีประวัติทั้งหมด ${fullHistory.length} รายการ (ลบรายการที่ไม่ต้องการได้)` : `Total ${fullHistory.length} entries`}
+                    {lang === 'th'
+                      ? isOwner
+                        ? `มีประวัติทั้งหมด ${fullHistory.length} รายการ (สิทธิ์ Owner: สามารถลบหรือล้างประวัติได้)`
+                        : `มีประวัติทั้งหมด ${fullHistory.length} รายการ (เฉพาะ Owner ที่มีสิทธิ์ลบ Log)`
+                      : isOwner
+                        ? `Total ${fullHistory.length} entries (Owner: Delete and Clear enabled)`
+                        : `Total ${fullHistory.length} entries (Only Owner can delete logs)`}
                   </div>
                 </div>
               </div>
@@ -568,6 +726,18 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
                 <X className="size-4" />
               </button>
             </div>
+
+            {/* Permission banner for non-owner */}
+            {!isOwner && (
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+                <Crown className="size-4 text-amber-400 shrink-0" />
+                <span>
+                  {lang === 'th'
+                    ? 'สิทธิ์จำกัด: เฉพาะ Owner เท่านั้นที่สามารถลบ Log หรือล้างประวัติการเติบโตได้'
+                    : 'Restricted: Only Clan Owner can delete or clear progression logs.'}
+                </span>
+              </div>
+            )}
 
             {/* List of points with individual delete buttons */}
             <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
@@ -600,30 +770,39 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
                       <span className="font-mono font-bold text-amber-400 text-xs">
                         ⚡ {point.powerLevel.toLocaleString()} PL
                       </span>
-                      {/* Delete button (Always available for every point!) */}
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteMilestone(point.id)}
-                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition active:scale-95"
-                        title={lang === 'th' ? 'ลบหมุดนี้' : 'Delete'}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
+                      {/* Delete button (Only available to Owner!) */}
+                      {isOwner && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMilestone(point.id)}
+                          className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition active:scale-95"
+                          title={lang === 'th' ? 'ลบหมุดนี้ (Owner)' : 'Delete milestone (Owner)'}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
             </div>
 
-            {/* Bottom Actions: Clear All History */}
+            {/* Bottom Actions: Clear All History (Owner only) */}
             <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={handleClearHistory}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 text-[11px] font-semibold transition"
-              >
-                <RotateCcw className="size-3" />
-                <span>{lang === 'th' ? 'ล้างประวัติย้อนหลังทั้งหมด' : 'Clear All History'}</span>
-              </button>
+              {isOwner ? (
+                <button
+                  type="button"
+                  onClick={handleClearHistory}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 text-[11px] font-semibold transition"
+                >
+                  <RotateCcw className="size-3" />
+                  <span>{lang === 'th' ? 'ล้างประวัติย้อนหลังทั้งหมด' : 'Clear All History'}</span>
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                  <Crown className="size-3 text-amber-400" />
+                  <span>{lang === 'th' ? 'เฉพาะ Owner ที่สามารถลบ Log ได้' : 'Only Owner can delete logs'}</span>
+                </div>
+              )}
 
               <button
                 type="button"
@@ -678,7 +857,7 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    {lang === 'th' ? 'ค่าพลัง (PL)' : 'Power Level'}
+                    {lang === 'th' ? 'ค่าพลัง' : 'Power Level'}
                   </label>
                   <input
                     type="number"
@@ -691,7 +870,7 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
 
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    {lang === 'th' ? 'เลเวล (Lv)' : 'Level'}
+                    {lang === 'th' ? 'เลเวล' : 'Level'}
                   </label>
                   <input
                     type="number"

@@ -179,7 +179,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           title="Switch Language"
         >
           <Globe className="w-3.5 h-3.5 text-[#d4af37]" />
-          <span>{lang === 'th' ? 'TH (ไทย)' : 'EN (English)'}</span>
+          <span>{lang === 'th' ? 'TH' : 'EN'}</span>
         </button>
       </div>
 
@@ -209,7 +209,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 CLAN HUB SYSTEM
               </span>
               <span className="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/35 text-[10px] font-mono font-bold text-sky-300">
-                v2.10.28
+                v2.10.50
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-2 font-prompt">

@@ -2315,7 +2315,8 @@ Do not include markdown or explanations. Return pure JSON only.`;
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        watch: {
+        hmr: process.env.DISABLE_HMR === "true" ? false : void 0,
+        watch: process.env.DISABLE_HMR === "true" ? null : {
           ignored: ["**/scratch/**", "**/tests/**", "**/.git/**", "**/backups/**", "**/data/**", "**/*.json"]
         }
       },

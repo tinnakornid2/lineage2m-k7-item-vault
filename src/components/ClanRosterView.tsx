@@ -11,7 +11,7 @@ import {
   Crown,
   ShieldCheck
 } from 'lucide-react';
-import { ClanGroup, Language, User, cleanClanName, isNoClan } from '../types';
+import { ClanGroup, Language, User, cleanClanName, isNoClan, OFFICIAL_CLASSES } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -182,7 +182,7 @@ export const ClanRosterView: React.FC<ClanRosterViewProps> = ({
               title={lang === 'th' ? 'ไปที่หน้าจัดสรรแคลนแบบกลุ่ม' : 'Go to Bulk Swap'}
             >
               <ArrowRightLeft className="w-3.5 h-3.5 text-purple-300" />
-              <span>{t.tabBulkSwap || (lang === 'th' ? 'จัดสรรแคลน (Bulk Swap)' : 'Bulk Swap')}</span>
+              <span>{t.tabBulkSwap || (lang === 'th' ? 'จัดสรรแคลน' : 'Bulk Swap')}</span>
             </button>
           )}
         </div>
@@ -234,9 +234,9 @@ export const ClanRosterView: React.FC<ClanRosterViewProps> = ({
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          3. CLANS & UNASSIGNED POOL GRID
+          3. CLANS & UNASSIGNED POOL GRID (EXPANDED SPACIOUS ROSTER)
          ───────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-5">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
         {/* Render Each Visible Clan */}
         {visibleClans.map((clan, idx) => {
           const cleanName = cleanClanName(clan.name);
@@ -260,6 +260,17 @@ export const ClanRosterView: React.FC<ClanRosterViewProps> = ({
               ? cleanName.substring(0, 2).toUpperCase()
               : cleanName.toUpperCase();
 
+          const getClassMeta = (nameOrId?: string) => {
+            if (!nameOrId) return null;
+            const lower = nameOrId.toLowerCase().trim();
+            return OFFICIAL_CLASSES.find(
+              (c) =>
+                c.id.toLowerCase() === lower ||
+                c.nameEn.toLowerCase() === lower ||
+                c.nameTh.toLowerCase().includes(lower)
+            ) || null;
+          };
+
           return (
             <div
               key={clan.id || cleanName}
@@ -267,26 +278,26 @@ export const ClanRosterView: React.FC<ClanRosterViewProps> = ({
               className="rounded-2xl bg-gradient-to-b from-[#111726] to-[#0a0f19] border border-slate-800 transition-all duration-200 shadow-xl flex flex-col justify-between overflow-hidden hover:border-slate-700"
             >
               {/* Clan Header */}
-              <div className="p-3.5 bg-[#0d1422] border-b border-slate-800 flex items-center justify-between gap-2.5">
-                <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-3.5 sm:p-4 bg-[#0d1422] border-b border-slate-800 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white font-mono text-xs shrink-0 shadow-md border border-white/10"
+                    className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white font-mono text-sm shrink-0 shadow-md border border-white/10"
                     style={{ backgroundColor: clanColor }}
                   >
                     {clanInitial}
                   </div>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <h3 className="text-base font-bold font-cinzel text-slate-100 truncate">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base sm:text-lg font-bold font-cinzel text-slate-100 truncate">
                         {cleanName}
                       </h3>
-                      <span className="text-[10px] font-mono text-slate-500">
+                      <span className="text-[10px] font-mono text-slate-400">
                         #{idx + 1}
                       </span>
                     </div>
-                    <div className="text-[11px] text-slate-400 flex items-center gap-1.5 truncate mt-0.5">
-                      <span className="text-emerald-400 font-semibold">
-                        {clanMembers.length} {lang === 'th' ? 'คน' : 'members'}
+                    <div className="text-xs text-slate-400 flex items-center gap-2 truncate mt-0.5">
+                      <span className="text-emerald-400 font-semibold font-mono">
+                        {clanMembers.length}/50 {lang === 'th' ? 'คน' : 'members'}
                       </span>
                       <span>•</span>
                       <span className="text-amber-400 font-mono font-bold">
@@ -298,79 +309,149 @@ export const ClanRosterView: React.FC<ClanRosterViewProps> = ({
 
                 <div className="text-right shrink-0">
                   <div className="text-[10px] text-slate-400">{t.avgPower || (lang === 'th' ? 'เฉลี่ย' : 'Avg')}</div>
-                  <div className="text-xs font-mono font-semibold text-slate-200">
+                  <div className="text-xs sm:text-sm font-mono font-bold text-slate-200">
                     ⚡ {avgPower.toLocaleString()}
                   </div>
                 </div>
               </div>
 
-              {/* Members List */}
-              <div className="p-3 flex-1 space-y-2 min-h-[180px] max-h-[580px] overflow-y-auto custom-scrollbar">
+              {/* Members List - Spacious 2-column 50-member grid */}
+              <div className="p-3 sm:p-3.5 flex-1 min-h-[240px]">
                 {clanMembers.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center py-10 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
-                    <Shield className="w-8 h-8 text-slate-600 mb-1.5 stroke-[1.2]" />
+                  <div className="h-full flex flex-col items-center justify-center py-12 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
+                    <Shield className="w-8 h-8 text-slate-600 mb-2 stroke-[1.2]" />
                     <p>{lang === 'th' ? 'ไม่มีสมาชิกในแคลนนี้' : 'No members in this clan'}</p>
                   </div>
                 ) : filteredClanMembers.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center py-10 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
-                    <Search className="w-6 h-6 text-slate-600 mb-1.5" />
+                  <div className="h-full flex flex-col items-center justify-center py-12 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
+                    <Search className="w-6 h-6 text-slate-600 mb-2" />
                     <p>{lang === 'th' ? 'ไม่พบสมาชิกที่ตรงกับการค้นหา' : 'No matching members found'}</p>
                   </div>
-                ) : (
-                  filteredClanMembers.map((member, memberIdx) => {
-                    const primaryClass = (member.classes && member.classes[0]) || member.characterClass || '';
-                    const isOwner = member.role === 'owner';
-                    const isAdmin = member.role === 'admin';
+                ) : (() => {
+                    const totalSlots = cleanSearch ? filteredClanMembers.length : Math.max(50, clanMembers.length);
+                    const midPoint = Math.ceil(totalSlots / 2);
+                    const leftSlots = Array.from({ length: midPoint }, (_, i) => ({
+                      slotIdx: i,
+                      slotRank: i + 1,
+                      member: filteredClanMembers[i]
+                    }));
+                    const rightSlots = Array.from({ length: totalSlots - midPoint }, (_, i) => {
+                      const slotIdx = midPoint + i;
+                      return {
+                        slotIdx,
+                        slotRank: slotIdx + 1,
+                        member: filteredClanMembers[slotIdx]
+                      };
+                    });
 
-                    return (
-                      <div
-                        key={member.id}
-                        className="p-2.5 rounded-xl bg-[#090e1a]/90 border border-slate-800/90 hover:border-slate-700 transition-all flex items-center justify-between gap-2 shadow-sm group"
-                      >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <span className="text-[10px] font-mono text-slate-500 w-4 text-center shrink-0">
-                            {memberIdx + 1}
+                    const renderSlotItem = (item: { slotIdx: number; slotRank: number; member?: User }, keyPrefix: string) => {
+                      const { member, slotRank, slotIdx } = item;
+                      if (!member) {
+                        if (cleanSearch) return null;
+                        return (
+                          <div
+                            key={`${keyPrefix}-empty-${slotIdx}`}
+                            className="py-1.5 px-2 rounded-lg bg-[#070b14]/50 border border-slate-800/40 flex items-center justify-between text-[10.5px] text-slate-600 select-none min-h-[36px]"
+                          >
+                            <span className="font-mono w-5 text-center text-slate-600 shrink-0 font-bold">
+                              {slotRank}
+                            </span>
+                            <span className="italic truncate flex-1 pl-1.5">
+                              {lang === 'th' ? '- ตำแหน่งว่าง -' : '- Open Slot -'}
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      const primaryClass = (member.classes && member.classes[0]) || member.characterClass || '';
+                      const meta = getClassMeta(primaryClass);
+                      const isOwner = member.role === 'owner';
+                      const isAdmin = member.role === 'admin';
+
+                      return (
+                        <div
+                          key={member.id}
+                          className="py-1.5 px-2.5 rounded-lg bg-[#090e1a]/90 border border-slate-800/80 hover:border-[#d4af37]/40 hover:bg-[#0d1527] transition-all flex items-center justify-between gap-2 shadow-sm group min-w-0 min-h-[36px]"
+                          title={`${member.inGameName} | ${primaryClass || 'Class'} | ⚡ ${(member.powerLevel || 0).toLocaleString()} PL`}
+                        >
+                          {/* Rank # */}
+                          <span className={`text-[11px] font-mono font-bold w-5 text-center shrink-0 ${
+                            slotRank <= 3 ? 'text-amber-400 drop-shadow' : 'text-slate-400'
+                          }`}>
+                            {slotRank}
                           </span>
 
-                          <div className="min-w-0 flex-1">
-                            <div className="text-xs font-bold text-slate-100 truncate flex items-center gap-1.5">
-                              <span className="truncate">{member.inGameName}</span>
-                              {Boolean(member.level && member.level > 0) && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono shrink-0">
-                                  Lv.{member.level}
-                                </span>
-                              )}
-                              {isOwner && (
-                                <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold shrink-0 flex items-center gap-0.5">
-                                  <Crown className="w-2.5 h-2.5" />
-                                  <span>Owner</span>
-                                </span>
-                              )}
-                              {isAdmin && !isOwner && (
-                                <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold shrink-0 flex items-center gap-0.5">
-                                  <ShieldCheck className="w-2.5 h-2.5" />
-                                  <span>Admin</span>
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5 truncate">
-                              {primaryClass && (
-                                <span className="text-purple-300 truncate font-medium">
-                                  {primaryClass}
-                                </span>
-                              )}
-                              {primaryClass && <span>•</span>}
-                              <span className="text-amber-400 font-mono font-bold shrink-0">
-                                ⚡ {(member.powerLevel || 0).toLocaleString()} PL
+                          {/* Member Name + Role Badges */}
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span className="text-xs font-bold text-slate-100 truncate group-hover:text-amber-300 transition-colors">
+                              {member.inGameName}
+                            </span>
+                            {isOwner && (
+                              <Crown className="w-3 h-3 text-amber-400 shrink-0" title="Clan Owner" />
+                            )}
+                            {isAdmin && !isOwner && (
+                              <ShieldCheck className="w-3 h-3 text-sky-400 shrink-0" title="Admin" />
+                            )}
+                            {member.level && (
+                              <span className="text-[9.5px] font-mono text-slate-400 shrink-0">
+                                Lv.{member.level}
                               </span>
-                            </div>
+                            )}
                           </div>
+
+                          {/* Main Class & Power Level */}
+                          <div className="flex items-center gap-2 shrink-0 text-right">
+                            {primaryClass && (
+                              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-950/40 border border-purple-800/40 shrink-0" title={primaryClass}>
+                                {meta?.icon && (
+                                  <img src={meta.icon} alt={meta.nameEn} className="w-3.5 h-3.5 object-contain shrink-0" />
+                                )}
+                                <span className="text-[10px] text-purple-300 font-medium truncate max-w-[80px]">
+                                  {lang === 'th' ? (meta?.nameTh || primaryClass) : (meta?.nameEn || primaryClass)}
+                                </span>
+                              </div>
+                            )}
+
+                            <span className="text-xs font-mono font-bold text-amber-400 shrink-0">
+                              ⚡ {(member.powerLevel || 0).toLocaleString()} <span className="text-[9px] text-slate-400 font-normal">PL</span>
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    };
+
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 items-start">
+                        {/* Left Column: Ranks 1 to 25 */}
+                        <div className="space-y-1.5 sm:space-y-2">
+                          <div className="flex items-center justify-between px-1.5 pb-1 border-b border-slate-800/60 mb-1">
+                            <span className="text-[10.5px] font-mono font-bold text-slate-300 flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_#f59e0b]"></span>
+                              <span>{lang === 'th' ? `ลำดับ 1 - ${midPoint}` : `Rank 1 - ${midPoint}`}</span>
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              {clanMembers.slice(0, midPoint).length} {lang === 'th' ? 'คน' : 'members'}
+                            </span>
+                          </div>
+                          {leftSlots.map((item) => renderSlotItem(item, 'left'))}
+                        </div>
+
+                        {/* Right Column: Ranks 26 to 50 */}
+                        <div className="space-y-1.5 sm:space-y-2">
+                          <div className="flex items-center justify-between px-1.5 pb-1 border-b border-slate-800/60 mb-1">
+                            <span className="text-[10.5px] font-mono font-bold text-slate-300 flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_6px_#38bdf8]"></span>
+                              <span>{lang === 'th' ? `ลำดับ ${midPoint + 1} - ${totalSlots}` : `Rank ${midPoint + 1} - ${totalSlots}`}</span>
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              {clanMembers.slice(midPoint, totalSlots).length} {lang === 'th' ? 'คน' : 'members'}
+                            </span>
+                          </div>
+                          {rightSlots.map((item) => renderSlotItem(item, 'right'))}
                         </div>
                       </div>
                     );
-                  })
-                )}
+                  })()}
               </div>
             </div>
           );
@@ -384,24 +465,24 @@ export const ClanRosterView: React.FC<ClanRosterViewProps> = ({
           className="rounded-2xl bg-gradient-to-b from-[#111726] to-[#0a0f19] border border-slate-800 transition-all duration-200 shadow-xl flex flex-col justify-between overflow-hidden hover:border-slate-700"
         >
           {/* Clan Header (เหมือนหัวกล่องแคลนทุกประการ) */}
-          <div className="p-3.5 bg-[#0d1422] border-b border-slate-800 flex items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-3.5 sm:p-4 bg-[#0d1422] border-b border-slate-800 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white font-mono text-xs shrink-0 shadow-md border border-white/10"
+                className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white font-mono text-sm shrink-0 shadow-md border border-white/10"
                 style={{ backgroundColor: '#64748b' }}
               >
                 NC
               </div>
               <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <h3 className="text-base font-bold font-cinzel text-slate-100 truncate">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base sm:text-lg font-bold font-cinzel text-slate-100 truncate">
                     {lang === 'th' ? 'ไม่มีแคลน' : 'No Clan'}
                   </h3>
                   <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-700/60 text-slate-300 border border-slate-600/60 font-semibold shrink-0">
                     {lang === 'th' ? 'รอจัดสรร' : 'Unassigned'}
                   </span>
                 </div>
-                <div className="text-[11px] text-slate-400 flex items-center gap-1.5 truncate mt-0.5">
+                <div className="text-xs text-slate-400 flex items-center gap-2 truncate mt-0.5">
                   <span className="text-slate-300 font-semibold">
                     {unassignedMembers.length} {lang === 'th' ? 'คน' : 'members'}
                   </span>
@@ -415,79 +496,117 @@ export const ClanRosterView: React.FC<ClanRosterViewProps> = ({
 
             <div className="text-right shrink-0">
               <div className="text-[10px] text-slate-400">{t.avgPower || (lang === 'th' ? 'เฉลี่ย' : 'Avg')}</div>
-              <div className="text-xs font-mono font-semibold text-slate-200">
+              <div className="text-xs sm:text-sm font-mono font-bold text-slate-200">
                 ⚡ {unassignedMembers.length ? Math.round(unassignedPower / unassignedMembers.length).toLocaleString() : 0}
               </div>
             </div>
           </div>
 
-          {/* Members List (เหมือนรายการสมาชิกในกล่องแคลนทุกประการ) */}
-          <div className="p-3 flex-1 space-y-2 min-h-[180px] max-h-[580px] overflow-y-auto custom-scrollbar">
+          {/* Members List - Spacious 2-column unassigned grid */}
+          <div className="p-3 sm:p-3.5 flex-1 min-h-[240px]">
             {unassignedMembers.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center py-10 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
-                <Shield className="w-8 h-8 text-slate-600 mb-1.5 stroke-[1.2]" />
-                <p>{lang === 'th' ? 'ไม่มีสมาชิกตกค้าง (ทุกคนมีแคลนแล้ว)' : 'No unassigned members'}</p>
+              <div className="h-full flex flex-col items-center justify-center py-12 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
+                <UserX className="w-8 h-8 text-slate-600 mb-2 stroke-[1.2]" />
+                <p>{lang === 'th' ? 'ไม่มีสมาชิกที่รอจัดสรร' : 'No unassigned members'}</p>
               </div>
             ) : filteredUnassignedMembers.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center py-10 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
-                <Search className="w-6 h-6 text-slate-600 mb-1.5" />
+              <div className="h-full flex flex-col items-center justify-center py-12 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
+                <Search className="w-6 h-6 text-slate-600 mb-2" />
                 <p>{lang === 'th' ? 'ไม่พบสมาชิกที่ตรงกับการค้นหา' : 'No matching members found'}</p>
               </div>
-            ) : (
-              filteredUnassignedMembers.map((member, memberIdx) => {
-                const primaryClass = (member.classes && member.classes[0]) || member.characterClass || '';
-                const isOwner = member.role === 'owner';
-                const isAdmin = member.role === 'admin';
+            ) : (() => {
+                const totalCount = filteredUnassignedMembers.length;
+                const midPoint = Math.ceil(totalCount / 2);
+                const leftMembers = filteredUnassignedMembers.slice(0, midPoint);
+                const rightMembers = filteredUnassignedMembers.slice(midPoint);
 
-                return (
-                  <div
-                    key={member.id}
-                    className="p-2.5 rounded-xl bg-[#090e1a]/90 border border-slate-800/90 hover:border-slate-700 transition-all flex items-center justify-between gap-2 shadow-sm group"
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="text-[10px] font-mono text-slate-500 w-4 text-center shrink-0">
-                        {memberIdx + 1}
+                const renderUnassignedItem = (member: User, slotRank: number) => {
+                  const primaryClass = (member.classes && member.classes[0]) || member.characterClass || '';
+                  const meta = OFFICIAL_CLASSES.find(
+                    (c) =>
+                      c.id.toLowerCase() === primaryClass.toLowerCase() ||
+                      c.nameEn.toLowerCase() === primaryClass.toLowerCase() ||
+                      c.nameTh.toLowerCase().includes(primaryClass.toLowerCase())
+                  ) || null;
+
+                  return (
+                    <div
+                      key={member.id}
+                      className="py-1.5 px-2.5 rounded-lg bg-[#090e1a]/90 border border-slate-800/80 hover:border-amber-500/40 hover:bg-[#0d1527] transition-all flex items-center justify-between gap-2 shadow-sm group min-w-0 min-h-[36px]"
+                      title={`${member.inGameName} | ${primaryClass || 'Class'} | ⚡ ${(member.powerLevel || 0).toLocaleString()} PL`}
+                    >
+                      {/* Rank # */}
+                      <span className={`text-[11px] font-mono font-bold w-5 text-center shrink-0 ${
+                        slotRank <= 3 ? 'text-amber-400 drop-shadow' : 'text-slate-400'
+                      }`}>
+                        {slotRank}
                       </span>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-bold text-slate-100 truncate flex items-center gap-1.5">
-                          <span className="truncate">{member.inGameName}</span>
-                          {Boolean(member.level && member.level > 0) && (
-                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono shrink-0">
-                              Lv.{member.level}
-                            </span>
-                          )}
-                          {isOwner && (
-                            <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold shrink-0 flex items-center gap-0.5">
-                              <Crown className="w-2.5 h-2.5" />
-                              <span>Owner</span>
-                            </span>
-                          )}
-                          {isAdmin && !isOwner && (
-                            <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold shrink-0 flex items-center gap-0.5">
-                              <ShieldCheck className="w-2.5 h-2.5" />
-                              <span>Admin</span>
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5 truncate">
-                          {primaryClass && (
-                            <span className="text-purple-300 truncate font-medium">
-                              {primaryClass}
-                            </span>
-                          )}
-                          {primaryClass && <span>•</span>}
-                          <span className="text-amber-400 font-mono font-bold shrink-0">
-                            ⚡ {(member.powerLevel || 0).toLocaleString()} PL
+                      {/* Member Name */}
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <span className="text-xs font-bold text-slate-100 truncate group-hover:text-amber-300 transition-colors">
+                          {member.inGameName}
+                        </span>
+                        {member.level && (
+                          <span className="text-[9.5px] font-mono text-slate-400 shrink-0">
+                            Lv.{member.level}
                           </span>
-                        </div>
+                        )}
                       </div>
+
+                      {/* Class & Power */}
+                      <div className="flex items-center gap-2 shrink-0 text-right">
+                        {primaryClass && (
+                          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-950/40 border border-purple-800/40 shrink-0">
+                            {meta?.icon && (
+                              <img src={meta.icon} alt={meta.nameEn} className="w-3.5 h-3.5 object-contain shrink-0" />
+                            )}
+                            <span className="text-[10px] text-purple-300 font-medium truncate max-w-[80px]">
+                              {lang === 'th' ? (meta?.nameTh || primaryClass) : (meta?.nameEn || primaryClass)}
+                            </span>
+                          </div>
+                        )}
+
+                        <span className="text-xs font-mono font-bold text-amber-400 shrink-0">
+                          ⚡ {(member.powerLevel || 0).toLocaleString()} <span className="text-[9px] text-slate-400 font-normal">PL</span>
+                        </span>
+                      </div>
+                    </div>
+                  );
+                };
+
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 items-start">
+                    {/* Left Column: 1 to midPoint */}
+                    <div className="space-y-1.5 sm:space-y-2">
+                      <div className="flex items-center justify-between px-1.5 pb-1 border-b border-slate-800/60 mb-1">
+                        <span className="text-[10.5px] font-mono font-bold text-slate-300 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_#f59e0b]"></span>
+                          <span>{lang === 'th' ? `ลำดับ 1 - ${midPoint}` : `Rank 1 - ${midPoint}`}</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {leftMembers.length} {lang === 'th' ? 'คน' : 'members'}
+                        </span>
+                      </div>
+                      {leftMembers.map((m, idx) => renderUnassignedItem(m, idx + 1))}
+                    </div>
+
+                    {/* Right Column: midPoint + 1 to totalCount */}
+                    <div className="space-y-1.5 sm:space-y-2">
+                      <div className="flex items-center justify-between px-1.5 pb-1 border-b border-slate-800/60 mb-1">
+                        <span className="text-[10.5px] font-mono font-bold text-slate-300 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_6px_#38bdf8]"></span>
+                          <span>{lang === 'th' ? `ลำดับ ${midPoint + 1} - ${totalCount}` : `Rank ${midPoint + 1} - ${totalCount}`}</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {rightMembers.length} {lang === 'th' ? 'คน' : 'members'}
+                        </span>
+                      </div>
+                      {rightMembers.map((m, idx) => renderUnassignedItem(m, midPoint + idx + 1))}
                     </div>
                   </div>
                 );
-              })
-            )}
+              })()}
           </div>
         </div>
       </div>

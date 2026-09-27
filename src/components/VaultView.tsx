@@ -38,7 +38,8 @@ import {
   Square,
   Gift,
   Receipt,
-  Edit
+  Edit,
+  X
 } from 'lucide-react';
 import {
   HunterRecord,
@@ -214,6 +215,31 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [directRecipient, setDirectRecipient] = useState<User | null>(null);
   const [directReceiptImages, setDirectReceiptImages] = useState<string[]>([]);
   const [directPaymentStatus, setDirectPaymentStatus] = useState<'pending' | 'paid'>('pending');
+  const [showHunterChecklistModal, setShowHunterChecklistModal] = useState(false);
+  const [showQuickItemsDropdown, setShowQuickItemsDropdown] = useState(false);
+
+  const handleResetCreateForm = () => {
+    if (name || itemImagePreview || hunters.length > 0 || hunterScreenshots.length > 0 || price !== '') {
+      if (window.confirm(lang === 'th' ? 'ต้องการล้างข้อมูลในฟอร์มทั้งหมดหรือไม่?' : 'Do you want to reset the form?')) {
+        sounds.playClick();
+        setName('');
+        setPrice('');
+        setQuantity(1);
+        setMinPowerLevel('');
+        setItemImageUrl('');
+        setItemImagePreview('');
+        setHunters([]);
+        setHunterScreenshots([]);
+        setOcrStatusText('');
+        setDuplicatesRemovedCount(null);
+        setDirectRecipient(null);
+        setDirectReceiptImages([]);
+        setDirectPaymentStatus('pending');
+        setFormError('');
+        setFormSuccess('');
+      }
+    }
+  };
 
   const activeMembersByClan = useMemo(() => {
     const groups: Record<string, User[]> = {};
@@ -244,6 +270,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [distHuntersTextFormat, setDistHuntersTextFormat] = useState<'by-clan' | 'plain' | 'inline' | 'comma'>('by-clan');
   const [distHuntersClanFilter, setDistHuntersClanFilter] = useState<string>('all');
   const [copiedDistHunters, setCopiedDistHunters] = useState<boolean>(false);
+  const [distFilterStatus, setDistFilterStatus] = useState<'all' | 'incomplete' | 'complete'>('all');
 
   // Check Gemini API status and sync from Firestore in real-time
   useEffect(() => {
@@ -287,7 +314,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
     };
   }, [isOwner, currentUser]);
 
-  // Group active members by Clan for hunter dropdown selection
+  // Group active members by Clan for hunter dropdown selection, sorted by powerLevel descending
   const membersByClan = useMemo(() => {
     const groups: Record<string, User[]> = {};
     allMembers
@@ -297,12 +324,17 @@ export const VaultView: React.FC<VaultViewProps> = ({
         if (!groups[clan]) groups[clan] = [];
         groups[clan].push(m);
       });
+    Object.keys(groups).forEach((clan) => {
+      groups[clan].sort((a, b) => (b.powerLevel || 0) - (a.powerLevel || 0));
+    });
     return groups;
   }, [allMembers]);
 
-  // Active members who have an inGameName
+  // Active members who have an inGameName, sorted by power level descending
   const activeMembersList = useMemo(() => {
-    return allMembers.filter((m) => m.status === 'active' && m.inGameName);
+    return allMembers
+      .filter((m) => m.status === 'active' && m.inGameName)
+      .sort((a, b) => (b.powerLevel || 0) - (a.powerLevel || 0));
   }, [allMembers]);
 
   // Set of selected hunter names (case-insensitive for fast lookup)
@@ -555,7 +587,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
   };
 
   // Active view inside Vault: 'create', 'active', or 'distributed'
-  const [vaultSubTab, setVaultSubTab] = useState<'create' | 'active' | 'distributed'>('create');
+  const [vaultSubTab, setVaultSubTab] = useState<'create' | 'active' | 'distributed'>('active');
+  const [distViewMode, setDistViewMode] = useState<'boxes' | 'table'>('boxes');
 
   // State to track deduplication stats
   const [duplicatesRemovedCount, setDuplicatesRemovedCount] = useState<number | null>(null);
@@ -1228,7 +1261,277 @@ export const VaultView: React.FC<VaultViewProps> = ({
     return Array.from(clanSet);
   }, [hunters]);
 
-  const distributedItems = vaultItems.filter((i) => isItemDistributed(i));
+  const distributedItems = useMemo(() => {
+    return vaultItems
+      .filter((i) => isItemDistributed(i))
+      .sort((a, b) => {
+        const timeA = Number(a.distributedTo?.distributedAt || a.updatedAt || a.createdAt || 0);
+        const timeB = Number(b.distributedTo?.distributedAt || b.updatedAt || b.createdAt || 0);
+        return timeB - timeA;
+      });
+  }, [vaultItems]);
+
+  const incompleteDistributedItems = useMemo(() => {
+    return distributedItems.filter(
+      (i) => i.price > 0 && (i.paymentStatus === 'pending' || i.distributedTo?.paymentStatus === 'pending')
+    );
+  }, [distributedItems]);
+
+  const completeDistributedItems = useMemo(() => {
+    return distributedItems.filter(
+      (i) => !(i.price > 0 && (i.paymentStatus === 'pending' || i.distributedTo?.paymentStatus === 'pending'))
+    );
+  }, [distributedItems]);
+
+  const displayedDistributedItems = useMemo(() => {
+    if (distFilterStatus === 'incomplete') return incompleteDistributedItems;
+    if (distFilterStatus === 'complete') return completeDistributedItems;
+    return distributedItems;
+  }, [distFilterStatus, incompleteDistributedItems, completeDistributedItems, distributedItems]);
+
+  const renderDistributedCard = (item: VaultItem, isPending: boolean) => {
+    return (
+      <div
+        key={item.id}
+        className={`p-3 rounded-xl border transition-all ${
+          isPending
+            ? 'bg-[#15111c] border-amber-500/40 hover:border-amber-400/70 shadow-md'
+            : 'bg-[#0b1424] border-slate-800 hover:border-emerald-500/40 shadow-md'
+        }`}
+      >
+        {/* Top Row: Thumbnail + Item info + Price */}
+        <div className="flex items-start gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              sounds.playClick();
+              onViewImageZoom(item.imageUrl, item.name);
+            }}
+            className="w-14 h-14 rounded-xl overflow-hidden border border-slate-700 hover:border-sky-400 bg-slate-900 shrink-0 cursor-pointer relative group/thumb shadow"
+            title={t.zoomImage}
+          >
+            <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity">
+              <ZoomIn className="w-4 h-4 text-white drop-shadow" />
+            </div>
+          </button>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border uppercase ${getRarityBadge(item.rarity)}`}>
+                {item.rarity}
+              </span>
+              {item.quantity && item.quantity > 1 && (
+                <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-500/40">
+                  x{item.quantity}
+                </span>
+              )}
+              <span className="text-[10px] text-slate-400 font-mono ml-auto">
+                {item.distributedTo?.distributedAt ? new Date(item.distributedTo.distributedAt).toLocaleDateString() : '-'}
+              </span>
+            </div>
+
+            <h4 className={`text-xs sm:text-sm font-bold truncate mt-0.5 text-slate-100 ${getRarityTextGlow(item.rarity)}`}>
+              {item.name}
+            </h4>
+
+            {/* Recipient + Clan */}
+            <div className="flex items-center gap-1 text-[11px] text-slate-300 mt-0.5 truncate">
+              <span className="text-slate-400">{lang === 'th' ? 'ผู้รับ:' : 'To:'}</span>
+              <strong className="text-amber-300 font-bold truncate">
+                {item.distributedTo?.name || 'Unknown'}
+              </strong>
+              <span className="text-[10px] px-1 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700/60 shrink-0">
+                {cleanClanName(item.distributedTo?.clan) || 'No Clan'}
+              </span>
+            </div>
+          </div>
+
+          {/* Price badge */}
+          <div className="shrink-0 text-right">
+            {item.price > 0 ? (
+              <span className="text-xs sm:text-sm font-mono font-bold text-white drop-shadow block">
+                💎 {item.price.toLocaleString()}
+              </span>
+            ) : (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/70 text-emerald-300 border border-emerald-500/40 font-bold">
+                🎁 {lang === 'th' ? 'ฟรี' : 'Free'}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Middle Row: Proof screenshots & Receipts */}
+        <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2 flex-wrap">
+          {/* Proof thumbnails / buttons */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {item.hunterScreenshots && item.hunterScreenshots.length > 0 ? (
+              <div className="flex items-center gap-1">
+                {item.hunterScreenshots.slice(0, 3).map((shot, sIdx) => (
+                  <button
+                    key={sIdx}
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      onViewImageZoom(shot, `${item.name} - Hunter Proof #${sIdx + 1}`, item.hunterScreenshots, sIdx);
+                    }}
+                    className="w-7 h-7 rounded-lg overflow-hidden border border-slate-700 hover:border-sky-400 bg-slate-900 shrink-0 shadow-sm cursor-pointer"
+                  >
+                    <img src={shot} alt="Proof" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+                {item.hunterScreenshots.length > 3 && (
+                  <span className="text-[9px] font-mono text-sky-400">+{item.hunterScreenshots.length - 3}</span>
+                )}
+              </div>
+            ) : null}
+
+            {item.hunters && item.hunters.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  setViewingDistributedHuntersItem(item);
+                  setDistHuntersViewMode('cards');
+                  setDistHuntersTextFormat('by-clan');
+                  setDistHuntersClanFilter('all');
+                }}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[10px] font-semibold cursor-pointer"
+              >
+                <Users className="w-2.5 h-2.5 text-amber-400" />
+                <span>{item.hunters.length} {lang === 'th' ? 'ผู้ล่า' : 'hunters'}</span>
+              </button>
+            )}
+
+            {/* Receipts */}
+            {item.receiptImages && item.receiptImages.length > 0 && (
+              <div className="flex items-center gap-1">
+                {item.receiptImages.slice(0, 2).map((rImg, rIdx) => (
+                  <button
+                    key={rIdx}
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      onViewImageZoom(rImg, `${item.name} - Receipt #${rIdx + 1}`, item.receiptImages, rIdx);
+                    }}
+                    className="w-7 h-7 rounded-lg overflow-hidden border border-emerald-500/40 hover:border-emerald-400 bg-slate-900 shrink-0 shadow-sm cursor-pointer"
+                  >
+                    <img src={rImg} alt="Receipt" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Attach Receipt for Admin */}
+            {isAdminOrOwner && (
+              <label
+                htmlFor={`card-file-receipt-${item.id}`}
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-600/30 text-emerald-300 text-[10px] font-medium cursor-pointer"
+                title={t.attachReceipt}
+              >
+                <Upload className="w-2.5 h-2.5 text-emerald-400" />
+                <span>+{t.attachReceipt}</span>
+                <input
+                  id={`card-file-receipt-${item.id}`}
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const files = e.target.files;
+                    if (!files || files.length === 0) return;
+                    try {
+                      sounds.playClick();
+                      const compressedList = await Promise.all(
+                        (Array.from(files) as File[]).map((f) => compressImageFile(f, { maxWidth: 1600, maxHeight: 1600, quality: 0.8 }))
+                      );
+                      const existing = item.receiptImages || [];
+                      await updateVaultItemDoc(item.id, { receiptImages: [...existing, ...compressedList] });
+                      sounds.playClaim();
+                    } catch (err) {
+                      console.error('Error uploading receipts:', err);
+                    } finally {
+                      e.target.value = '';
+                    }
+                  }}
+                  className="hidden"
+                />
+              </label>
+            )}
+          </div>
+
+          {/* Action Button: Confirm Paid / Paid Status / Revert */}
+          <div className="flex items-center gap-1.5 ml-auto">
+            {isPending ? (
+              onConfirmPayment && (
+                <button
+                  type="button"
+                  id={`btn-card-confirm-pay-${item.id}`}
+                  onClick={() => {
+                    sounds.playClick();
+                    onConfirmPayment(item, 'paid');
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md cursor-pointer transition-all hover:scale-105 active:scale-95 border border-emerald-400/40 flex items-center gap-1"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{t.confirmPayment || (lang === 'th' ? 'ยืนยันการชำระ' : 'Confirm Payment')}</span>
+                </button>
+              )
+            ) : item.price > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!onConfirmPayment) return;
+                  sounds.playClick();
+                  if (window.confirm(lang === 'th' ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นรอชำระใช่หรือไม่?` : `Revert "${item.name}" status to pending payment?`)) {
+                    onConfirmPayment(item, 'pending');
+                  }
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer hover:bg-emerald-500/30 transition-all"
+                title={lang === 'th' ? 'ชำระแล้ว - คลิกเพื่อเปลี่ยนกลับเป็นรอชำระ' : 'Paid - Click to revert to pending'}
+              >
+                <CheckCircle className="w-3 h-3 text-emerald-400" />
+                <span>{t.paymentStatusPaid || (lang === 'th' ? 'ชำระแล้ว' : 'Paid')}</span>
+              </button>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/70 border border-emerald-500/40 text-emerald-300">
+                🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
+              </span>
+            )}
+
+            {/* Admin Edit */}
+            {isAdminOrOwner && onEditItem && (
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  onEditItem(item);
+                }}
+                className="p-1 rounded-lg bg-amber-950/40 hover:bg-amber-900/60 text-amber-400 border border-amber-800/40 transition cursor-pointer"
+                title={t.editItem}
+              >
+                <Edit className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Admin Delete */}
+            {isAdminOrOwner && (
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  setItemToDelete(item);
+                }}
+                className="p-1 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/40 transition cursor-pointer"
+                title={t.deleteDistributedItem}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -1301,7 +1604,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
       </div>
 
       {/* Sub-Tabs: Add/Active Item Form VS Active Items VS Distributed Archive */}
-      <div className="sticky top-2 z-20 flex w-fit items-center gap-2 rounded-xl border border-slate-700/80 bg-[#0b0e17]/95 p-1 shadow-xl backdrop-blur">
+      <div className="sticky top-[108px] lg:top-[56px] z-20 flex w-fit items-center gap-2 rounded-xl border border-slate-700/80 bg-[#0b0e17]/95 p-1 shadow-xl backdrop-blur">
         <button
           onClick={() => {
             sounds.playClick();
@@ -1352,24 +1655,119 @@ export const VaultView: React.FC<VaultViewProps> = ({
         </button>
       </div>
 
-      {/* VIEW 1: CREATE / ADD ITEM FORM */}
+      {/* VIEW 1: CREATE / ADD ITEM FORM (Zero-Scroll Cockpit Dashboard) */}
       {vaultSubTab === 'create' && (
-        <div className="space-y-6">
-          
-          {/* Quick presets shortcut strip */}
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-[#0d1525] via-[#0b101c] to-[#080d17] border border-[#d4af37]/35 shadow-xl space-y-2.5 relative">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-[#f5d77f]" />
-                <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                  {t.selectFromQuickItem}:
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-[#f5d77f] font-mono border border-slate-700">
-                  {quickItems.length}
-                </span>
+        <div className="space-y-3">
+          {/* 1. TOP HEADER & ACTIONS ROW */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 rounded-xl bg-gradient-to-r from-[#0d1525] via-[#0b101c] to-[#080d17] border border-[#d4af37]/30 shadow-md">
+            {/* Left: Mode Switcher */}
+            <div className="flex items-center bg-[#060a12] p-0.5 rounded-lg border border-slate-800 text-xs shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  setItemEntryMode('normal');
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
+                  itemEntryMode === 'normal'
+                    ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-950 shadow font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>{t.modeNormalVault}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClick();
+                  setItemEntryMode('direct_distribute');
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
+                  itemEntryMode === 'direct_distribute'
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 shadow font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Gift className="w-3.5 h-3.5" />
+                <span>{t.modeDirectDistribute}</span>
+              </button>
+            </div>
+
+            {/* Right: Quick Presets & Form Controls */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Quick Presets Dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickItemsDropdown((prev) => !prev)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#11192a] hover:bg-[#18233a] border border-[#d4af37]/40 text-[#f5d77f] text-xs font-semibold transition cursor-pointer shadow-sm"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#f5d77f]" />
+                  <span>{t.selectFromQuickItem}</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 font-mono text-amber-300">
+                    {quickItems.length}
+                  </span>
+                  <span className="text-[10px] text-slate-400 ml-0.5">▾</span>
+                </button>
+
+                {/* Quick Presets Floating Menu */}
+                {showQuickItemsDropdown && (
+                  <div className="absolute right-0 top-full mt-1.5 w-72 max-h-80 overflow-y-auto rounded-xl bg-slate-900 border border-[#d4af37]/40 shadow-2xl p-2 z-40 space-y-1 custom-scrollbar">
+                    <div className="flex items-center justify-between pb-1.5 mb-1 border-b border-slate-800 text-[11px] text-slate-400 font-semibold px-1">
+                      <span>{t.selectFromQuickItem}</span>
+                      {isAdminOrOwner && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowQuickItemsDropdown(false);
+                            onOpenQuickItemsModal();
+                          }}
+                          className="text-[#f5d77f] hover:underline"
+                        >
+                          {t.manageQuickItems}
+                        </button>
+                      )}
+                    </div>
+
+                    {quickItems.length === 0 ? (
+                      <div className="p-3 text-center text-xs text-slate-500">
+                        {lang === 'th' ? 'ยังไม่มีควิกไอเทม' : 'No quick items yet.'}
+                      </div>
+                    ) : (
+                      quickItems.map((qi) => (
+                        <button
+                          key={qi.id}
+                          type="button"
+                          onClick={() => {
+                            handleApplyQuickItem(qi);
+                            setShowQuickItemsDropdown(false);
+                          }}
+                          className="w-full flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-800 text-left transition cursor-pointer group"
+                        >
+                          {qi.imageUrl ? (
+                            <img src={qi.imageUrl} alt={qi.name} className="w-8 h-8 rounded object-cover border border-slate-700" />
+                          ) : (
+                            <span className="w-8 h-8 rounded bg-slate-800 border border-slate-700 flex items-center justify-center">
+                              <Sparkles className="w-4 h-4 text-[#f5d77f]" />
+                            </span>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold text-slate-200 group-hover:text-white truncate">
+                              {qi.name}
+                            </div>
+                            <span className={`text-[9px] px-1 py-0.2 rounded font-mono border ${getRarityBadge(qi.rarity)}`}>
+                              {qi.rarity}
+                            </span>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Direct Manage Quick Items Button */}
+              {/* Manage Presets direct button for Admin/Owner */}
               {isAdminOrOwner && (
                 <button
                   type="button"
@@ -1377,1379 +1775,770 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     sounds.playClick();
                     onOpenQuickItemsModal();
                   }}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-[#1f2b42] to-[#141c2c] hover:from-[#263755] hover:to-[#1b263b] border border-[#d4af37]/50 hover:border-[#d4af37] text-[#f5d77f] hover:text-white text-xs font-bold transition-all shadow-sm cursor-pointer group"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#0e1627] hover:bg-[#162138] border border-slate-700 hover:border-[#d4af37]/60 text-slate-300 hover:text-[#f5d77f] text-xs font-semibold transition cursor-pointer"
+                  title={t.manageQuickItems}
                 >
-                  <Sparkles className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
-                  <span>{t.manageQuickItems}</span>
+                  <Sparkles className="w-3.5 h-3.5 text-[#f5d77f]" />
+                  <span className="hidden sm:inline">{t.manageQuickItems}</span>
                 </button>
               )}
+
+              {/* Reset form button */}
+              <button
+                type="button"
+                onClick={handleResetCreateForm}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-slate-200 text-xs font-medium transition cursor-pointer"
+                title={lang === 'th' ? 'ล้างข้อมูลในฟอร์ม' : 'Reset Form'}
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span className="hidden sm:inline">{lang === 'th' ? 'ล้างฟอร์ม' : 'Reset'}</span>
+              </button>
             </div>
-
-            {quickItems.length > 0 ? (
-              <div className="flex items-center gap-2.5 overflow-x-auto pb-1 no-scrollbar">
-                {quickItems.map((qi) => (
-                  <button
-                    key={qi.id}
-                    onClick={() => handleApplyQuickItem(qi)}
-                    className="flex items-center gap-2.5 p-2 rounded-xl bg-[#11192a]/90 hover:bg-[#18233a] border border-slate-700/80 hover:border-[#d4af37] transition-all shrink-0 text-left shadow-md hover:shadow-[#d4af37]/10 group cursor-pointer"
-                  >
-                    {qi.imageUrl ? <img src={qi.imageUrl} alt={qi.name} className="w-11 h-11 rounded-lg object-cover border border-slate-700 group-hover:border-[#d4af37]/80 group-hover:scale-105 transition-all" /> : <span className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-700 bg-slate-800"><Sparkles className="h-5 w-5 text-[#f5d77f]" /></span>}
-                    <div className="pr-1">
-                      <div className="text-xs font-bold text-slate-200 group-hover:text-white truncate max-w-[130px]">
-                        {qi.name}
-                      </div>
-                      <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold border ${getRarityBadge(qi.rarity)}`}>
-                        {qi.rarity}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-
-                {/* Direct quick add button at the end of strip */}
-                {isAdminOrOwner && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      onOpenQuickItemsModal();
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-3 rounded-xl bg-[#0e1627]/60 hover:bg-[#18233b] border border-dashed border-slate-700 hover:border-[#d4af37] text-slate-400 hover:text-[#f5d77f] text-xs font-semibold shrink-0 transition-all cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4 text-[#f5d77f]" />
-                    <span>{lang === 'th' ? '+ เพิ่มควิกไอเทม' : '+ Add Preset'}</span>
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center justify-between p-3 rounded-xl bg-[#090e1a] border border-dashed border-slate-800 text-xs text-slate-400">
-                <span>{lang === 'th' ? 'ยังไม่มีควิกไอเทม' : 'No quick items yet.'}</span>
-                {isAdminOrOwner && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      onOpenQuickItemsModal();
-                    }}
-                    className="text-[#f5d77f] hover:underline font-bold"
-                  >
-                    {lang === 'th' ? '+ เพิ่มควิกไอเทม' : '+ Add Preset'}
-                  </button>
-                )}
-              </div>
-            )}
           </div>
 
-          {/* Main Item Form */}
-          <form
-            onSubmit={handleCreateItemSubmit}
-            className="rounded-2xl bg-gradient-to-b from-[#131b2c] via-[#0d1320] to-[#080c14] border border-[#d4af37]/30 p-6 sm:p-8 shadow-2xl space-y-6"
-          >
-            {/* Form Header with Mode Switcher */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                {itemEntryMode === 'direct_distribute' ? (
-                  <Gift className="w-5 h-5 text-emerald-400" />
-                ) : (
-                  <Plus className="w-5 h-5 text-[#f5d77f]" />
-                )}
-                <h2 className="text-lg font-bold font-cinzel text-slate-100">
-                  {itemEntryMode === 'direct_distribute' ? t.modeDirectDistribute : t.addNewItem}
-                </h2>
-              </div>
-
-              {/* Mode Switch Tabs */}
-              <div className="flex items-center bg-[#090d16] p-1 rounded-xl border border-slate-700/80 text-xs shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    setItemEntryMode('normal');
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
-                    itemEntryMode === 'normal'
-                      ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-950 shadow-md font-bold'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>{t.modeNormalVault}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    setItemEntryMode('direct_distribute');
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
-                    itemEntryMode === 'direct_distribute'
-                      ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 shadow-md font-bold'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <Gift className="w-3.5 h-3.5" />
-                  <span>{t.modeDirectDistribute}</span>
-                </button>
-              </div>
+          {/* Form Feedback Alerts (compact) */}
+          {formError && (
+            <div className="p-2.5 rounded-lg bg-red-950/60 border border-red-800 text-xs text-red-200 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+              <span>{formError}</span>
             </div>
+          )}
+          {formSuccess && (
+            <div className="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-700 text-xs text-emerald-200 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>{formSuccess}</span>
+            </div>
+          )}
 
-            {/* Direct Distribute Notice Banner */}
-            {itemEntryMode === 'direct_distribute' && (
-              <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs text-emerald-200 flex items-start gap-2.5 shadow-md">
-                <Gift className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <div className="font-bold text-emerald-300">
-                    {lang === 'th' ? 'โหมดแจกไอเทมโดยตรง (Direct Distribution Mode)' : 'Direct Distribution Mode'}
-                  </div>
-                  <p className="text-[11px] text-emerald-300/80 leading-relaxed">
-                    {t.directDistributeNotice}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {formError && (
-              <div className="p-3 rounded-lg bg-red-950/60 border border-red-800 text-xs text-red-200 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-                <span>{formError}</span>
-              </div>
-            )}
-
-            {formSuccess && (
-              <div className="p-3 rounded-lg bg-emerald-950/60 border border-emerald-700 text-xs text-emerald-200 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-                <span>{formSuccess}</span>
-              </div>
-            )}
-
-            {/* Grid 1: Basic Info */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* MAIN COCKPIT FORM */}
+          <form onSubmit={handleCreateItemSubmit} className="space-y-3">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
               
-              {/* 1. Item Image (Upload from device) */}
-              <div className="lg:col-span-1">
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  1. {t.itemImage} *
-                </label>
-                <div
-                  tabIndex={0}
-                  onPaste={handlePasteItemImageZone}
-                  className="flex flex-col items-center justify-center p-3 rounded-xl bg-[#090d16] border border-dashed border-slate-700 hover:border-[#d4af37] focus:border-[#d4af37] focus:ring-1 focus:ring-[#d4af37]/40 transition-all relative group min-h-[140px] outline-none"
-                  title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูป' : 'Click to choose or Ctrl + V to paste'}
-                >
-                  {itemImagePreview ? (
-                    <div className="relative w-full h-36 rounded-xl overflow-hidden border border-slate-700 bg-black/40">
-                      <img
-                        src={itemImagePreview}
-                        alt="preview"
-                        className="w-full h-full object-contain p-1"
-                      />
-                      <label
-                        htmlFor="file-item-image-replace"
-                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1 text-xs font-bold text-white transition-opacity cursor-pointer"
-                      >
-                        <span>{t.chooseImage}</span>
-                        <span className="text-[10px] text-amber-300 font-mono">{lang === 'th' ? 'หรือกด Ctrl + V' : 'or press Ctrl + V'}</span>
-                      </label>
-                    </div>
-                  ) : (
-                    <label
-                      htmlFor="file-item-image"
-                      className="w-full h-full flex flex-col items-center justify-center cursor-pointer text-center p-2"
-                    >
-                      <Upload className="w-6 h-6 text-[#d4af37] mb-1.5 group-hover:scale-110 transition-transform" />
-                      <span className="text-xs font-semibold text-slate-200">
-                        {t.chooseImage}
-                      </span>
-                      <span className="text-[10px] text-amber-300 font-mono mt-1 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 flex items-center gap-1">
-                        <ClipboardCheck className="w-3 h-3" />
-                        <span>Ctrl + V {lang === 'th' ? 'วางรูปได้' : 'Paste Ready'}</span>
-                      </span>
-                    </label>
-                  )}
-                  <input
-                    id="file-item-image"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleItemImageUpload}
-                    className="hidden"
-                  />
-                  <input
-                    id="file-item-image-replace"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleItemImageUpload}
-                    className="hidden"
-                  />
-                </div>
-              </div>
-
-              {/* 2. Name */}
-              <div className="lg:col-span-3 space-y-4">
-                <div className="relative">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-semibold text-slate-300">
-                      2. {t.itemName} *
-                    </label>
-                    {rememberedNames.length > 0 && (
-                      <span className="text-[10px] text-amber-300/80 font-mono">
-                        ✨ {t.recentNamesHint}
-                      </span>
-                    )}
-                  </div>
-                  <input
-                    id="input-vault-name"
-                    type="text"
-                    required
-                    placeholder="e.g. Imperial Crusader Armor"
-                    value={name}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      setShowNameSuggestions(true);
-                    }}
-                    onFocus={() => setShowNameSuggestions(true)}
-                    onBlur={() => setTimeout(() => setShowNameSuggestions(false), 200)}
-                    className="w-full px-3.5 py-2.5 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none"
-                  />
-
-                  {/* Autocomplete Suggestions Dropdown */}
-                  {showNameSuggestions && filteredNameSuggestions.length > 0 && (
-                    <div className="absolute z-30 left-0 right-0 top-full mt-1 bg-slate-900 border border-[#d4af37]/40 rounded-xl shadow-2xl p-1.5 max-h-48 overflow-y-auto space-y-1">
-                      <div className="text-[10px] text-slate-400 font-semibold px-2 py-1 uppercase tracking-wider flex items-center gap-1 border-b border-slate-800">
-                        <Sparkles className="w-3 h-3 text-[#f5d77f]" />
-                        <span>{t.rememberedItemNames}</span>
-                      </div>
-                      {filteredNameSuggestions.map((suggestionName, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setName(suggestionName);
-                            setShowNameSuggestions(false);
-                            sounds.playClick();
-                          }}
-                          className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-slate-200 hover:text-white hover:bg-[#1f2b42] flex items-center justify-between transition cursor-pointer"
-                        >
-                          <span className="font-semibold truncate">{suggestionName}</span>
-                          <span className="text-[9px] text-[#f5d77f] font-mono shrink-0 ml-2">
-                            {lang === 'th' ? 'เลือก' : 'Use'} ↵
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {/* 3. Price (Diamonds) */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs font-semibold text-slate-300">
-                        3. {t.itemPrice} *
-                      </label>
-                      {price === 0 && (
-                        <span className="text-[10px] text-emerald-400 font-bold">🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}</span>
-                      )}
-                    </div>
-                    <div className="relative">
-                      <Gem className="w-4 h-4 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.7)] absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        id="input-vault-price"
-                        type="number"
-                        min="0"
-                        required
-                        placeholder={lang === 'th' ? 'ระบุราคา (เพชร) - ใส่ 0 = ฟรี' : 'Price (Diamonds) - 0 = Free'}
-                        value={price}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setPrice(val === '' ? '' : Math.max(0, Number(val)));
-                        }}
-                        className="w-full pl-9 pr-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm font-mono focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  {/* 4. Quantity (จำนวนชิ้น) */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      4. {t.itemQuantity} *
-                    </label>
-                    <div className="relative">
-                      <Layers className="w-4 h-4 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        id="input-vault-quantity"
-                        type="number"
-                        min="1"
-                        required
-                        placeholder={t.itemQuantityPlaceholder}
-                        value={quantity}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setQuantity(val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
-                        }}
-                        className="w-full pl-9 pr-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm font-mono focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  {/* 5. Min Power Level */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      5. {t.itemMinPower} *
-                    </label>
-                    <div className="relative">
-                      <Zap className="w-4 h-4 text-amber-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        id="input-vault-minpower"
-                        type="number"
-                        min="0"
-                        required
-                        placeholder={lang === 'th' ? 'ระบุพลังขั้นต่ำ (PL)' : 'Min PL required'}
-                        value={minPowerLevel}
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setMinPowerLevel(val === '' ? '' : Math.max(0, Number(val)));
-                        }}
-                        className="w-full pl-9 pr-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm font-mono focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  {/* 6. Rarity: RARE (blue), Epic (red), LAGEND (purple), MYTHIC (gold) */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      6. {t.itemRarity} *
-                    </label>
-                    <select
-                      id="select-vault-rarity"
-                      value={rarity}
-                      onChange={(e) => setRarity(e.target.value as ItemRarity)}
-                      className="w-full px-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-sm focus:outline-none cursor-pointer"
-                    >
-                      <option value="RARE">{t.rarityRare}</option>
-                      <option value="EPIC">{t.rarityEpic}</option>
-                      <option value="LAGEND">{t.rarityLegend}</option>
-                      <option value="MYTHIC">{t.rarityMythic}</option>
-                    </select>
-                  </div>
-                </div></div>
-
-            </div>
-
-            {/* Direct Distribution Mode Details (Recipient, Payment Status, Bill/Receipt Slips) */}
-            {itemEntryMode === 'direct_distribute' && (
-              <div className="p-5 rounded-xl bg-gradient-to-b from-[#0b121e] to-[#070b14] border border-emerald-500/40 space-y-4 shadow-lg">
-                <div className="flex items-center justify-between pb-2 border-b border-emerald-500/20">
-                  <div className="flex items-center gap-2">
-                    <Gift className="w-5 h-5 text-emerald-400" />
-                    <span className="text-sm font-bold text-emerald-300">
-                      {lang === 'th' ? 'ข้อมูลการแจกไอเทมโดยตรง (Direct Distribution Details)' : 'Direct Distribution Details'}
+              {/* LEFT COLUMN: ITEM INFO & DIRECT DISTRIBUTE SETTINGS (5 Cols) */}
+              <div className="lg:col-span-5 space-y-3">
+                
+                {/* Card: Basic Item Info */}
+                <div className="p-3.5 rounded-xl bg-gradient-to-b from-[#131b2c] via-[#0d1320] to-[#080c14] border border-[#d4af37]/30 shadow-lg space-y-3">
+                  {/* Header */}
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-800">
+                    <span className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-[#f5d77f]" />
+                      <span>{lang === 'th' ? 'ข้อมูลไอเทม' : 'Item Info'}</span>
                     </span>
+                    <span className="text-[10px] text-slate-400 font-mono">* {lang === 'th' ? 'จำเป็น' : 'Required'}</span>
                   </div>
-                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-600/50 text-emerald-300 font-mono font-semibold">
-                    {lang === 'th' ? 'แจกทันที • ไม่ผ่านคลังเปิดรับ' : 'Instant Distribution'}
-                  </span>
-                </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* 1. Recipient Selection */}
-                  <div className="space-y-2">
-                    <label className="block text-xs font-semibold text-slate-200 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Users className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>{t.selectRecipient} *</span>
-                      </span>
-                      {directRecipient && (
-                        <span className="text-[10px] text-emerald-400 font-mono font-bold">
-                          ✓ {directRecipient.inGameName} ({directRecipient.clan})
-                        </span>
-                      )}
-                    </label>
-                    
-                    <select
-                      id="select-direct-recipient"
-                      value={directRecipient?.id || ''}
-                      onChange={(e) => {
-                        const selectedId = e.target.value;
-                        const found = allMembers.find((m) => m.id === selectedId) || null;
-                        setDirectRecipient(found);
-                        sounds.playClick();
-                      }}
-                      className="w-full px-3 py-2.5 rounded-lg bg-[#090d16] border border-emerald-500/50 focus:border-emerald-400 text-slate-100 text-xs sm:text-sm focus:outline-none cursor-pointer"
+                  {/* Row 1: Image Dropzone (Left) + Name with Autocomplete (Right) */}
+                  <div className="flex items-start gap-3">
+                    {/* Compact Image Dropzone / Ctrl+V */}
+                    <div
+                      tabIndex={0}
+                      onPaste={handlePasteItemImageZone}
+                      className="w-20 h-20 sm:w-22 sm:h-22 rounded-xl bg-[#090d16] border border-dashed border-slate-700 hover:border-[#d4af37] focus:border-[#d4af37] transition-all relative group flex flex-col items-center justify-center shrink-0 cursor-pointer outline-none overflow-hidden"
+                      title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูป' : 'Click to choose or Ctrl + V to paste'}
                     >
-                      <option value="">{t.selectRecipientPlaceholder}</option>
-                      {(Object.entries(activeMembersByClan) as [string, User[]][]).map(([clanName, cMembers]) => (
-                        <optgroup key={clanName} label={`🏰 ${clanName} (${cMembers.length})`}>
-                          {cMembers.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.inGameName} {m.characterClass ? `• ${m.characterClass}` : ''} {m.powerLevel ? `• PL ${m.powerLevel.toLocaleString()}` : ''}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-
-                    {directRecipient && (
-                      <div className="p-2.5 rounded-lg bg-emerald-950/30 border border-emerald-600/30 flex items-center justify-between text-xs text-emerald-200">
-                        <div className="flex items-center gap-2">
-                          <UserCheck className="w-4 h-4 text-emerald-400" />
-                          <div>
-                            <span className="font-bold">{directRecipient.inGameName}</span>
-                            <span className="text-slate-400 ml-1.5">({directRecipient.clan})</span>
-                          </div>
+                      {itemImagePreview ? (
+                        <div className="relative w-full h-full">
+                          <img src={itemImagePreview} alt="preview" className="w-full h-full object-contain p-1" />
+                          <label
+                            htmlFor="file-item-image-replace"
+                            className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center text-[10px] font-bold text-white transition-opacity cursor-pointer text-center p-1"
+                          >
+                            <Camera className="w-4 h-4 mb-0.5 text-amber-300" />
+                            <span>{lang === 'th' ? 'เปลี่ยนรูป' : 'Change'}</span>
+                            <span className="text-[8px] text-amber-300 font-mono">Ctrl+V</span>
+                          </label>
                         </div>
-                        {directRecipient.verifiedPowerLevel && (
-                          <span className="text-[11px] font-mono text-amber-300">
-                            PL: {directRecipient.verifiedPowerLevel}
+                      ) : (
+                        <label
+                          htmlFor="file-item-image"
+                          className="w-full h-full flex flex-col items-center justify-center cursor-pointer text-center p-1"
+                        >
+                          <Upload className="w-5 h-5 text-[#d4af37] mb-1 group-hover:scale-110 transition-transform" />
+                          <span className="text-[10px] font-semibold text-slate-300 leading-tight">
+                            {lang === 'th' ? 'ใส่รูป' : 'Image'}
                           </span>
+                          <span className="text-[8px] text-amber-300 font-mono mt-0.5">Ctrl+V</span>
+                        </label>
+                      )}
+                      <input id="file-item-image" type="file" accept="image/*" onChange={handleItemImageUpload} className="hidden" />
+                      <input id="file-item-image-replace" type="file" accept="image/*" onChange={handleItemImageUpload} className="hidden" />
+                    </div>
+
+                    {/* Item Name Input with Autocomplete */}
+                    <div className="flex-1 min-w-0 space-y-1 relative">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-300">
+                          {t.itemName} *
+                        </label>
+                        {name && (
+                          <button
+                            type="button"
+                            onClick={() => setName('')}
+                            className="text-[10px] text-slate-500 hover:text-slate-300"
+                          >
+                            ✕
+                          </button>
                         )}
                       </div>
-                    )}
+                      <input
+                        id="input-vault-name"
+                        type="text"
+                        required
+                        placeholder="e.g. Imperial Crusader Armor"
+                        value={name}
+                        onChange={(e) => {
+                          setName(e.target.value);
+                          setShowNameSuggestions(true);
+                        }}
+                        onFocus={() => setShowNameSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowNameSuggestions(false), 200)}
+                        className="w-full px-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-xs sm:text-sm font-semibold focus:outline-none"
+                      />
+
+                      {/* Autocomplete Suggestions Dropdown */}
+                      {showNameSuggestions && filteredNameSuggestions.length > 0 && (
+                        <div className="absolute z-30 left-0 right-0 top-full mt-1 bg-slate-900 border border-[#d4af37]/40 rounded-xl shadow-2xl p-1 max-h-40 overflow-y-auto space-y-0.5 custom-scrollbar">
+                          {filteredNameSuggestions.map((suggestionName, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setName(suggestionName);
+                                setShowNameSuggestions(false);
+                                sounds.playClick();
+                              }}
+                              className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-slate-200 hover:text-white hover:bg-[#1f2b42] flex items-center justify-between transition cursor-pointer"
+                            >
+                              <span className="font-semibold truncate">{suggestionName}</span>
+                              <span className="text-[9px] text-[#f5d77f] font-mono shrink-0 ml-1">↵</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Small indicator when item image is attached */}
+                      {itemImagePreview && (
+                        <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium pt-0.5">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>{lang === 'th' ? 'มีรูปภาพไอเทมแล้ว' : 'Image ready'}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  {/* 2. Payment Status */}
-                  <div className="space-y-2">
-                    <label className="block text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                      <Gem className="w-3.5 h-3.5 text-amber-400" />
-                      <span>{t.paymentStatusChoice}</span>
-                    </label>
-                    
-                    <div className="grid grid-cols-2 gap-3 pt-0.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          sounds.playClick();
-                          setDirectPaymentStatus('pending');
-                        }}
-                        className={`flex items-center justify-center gap-2 p-3 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
-                          directPaymentStatus === 'pending'
-                            ? 'bg-amber-950/60 border-amber-500 text-amber-300 ring-1 ring-amber-500/50 shadow-md'
-                            : 'bg-[#090d16] border-slate-700 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        <Clock className="w-4 h-4 text-amber-400" />
-                        <span>{t.paymentStatusPending}</span>
-                      </button>
+                  {/* Row 2: 4-Field Grid (2x2) */}
+                  <div className="grid grid-cols-2 gap-2.5 pt-1 border-t border-slate-800/80">
+                    {/* Price */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-semibold text-slate-300">
+                          {t.itemPrice} *
+                        </label>
+                        {price === 0 && (
+                          <span className="text-[9px] text-emerald-400 font-bold">🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}</span>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <Gem className="w-3.5 h-3.5 text-white absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          id="input-vault-price"
+                          type="number"
+                          min="0"
+                          required
+                          placeholder="0 = ฟรี"
+                          value={price}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setPrice(val === '' ? '' : Math.max(0, Number(val)));
+                          }}
+                          className="w-full pl-8 pr-2 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-xs font-mono focus:outline-none"
+                        />
+                      </div>
+                    </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          sounds.playClick();
-                          setDirectPaymentStatus('paid');
-                        }}
-                        className={`flex items-center justify-center gap-2 p-3 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
-                          directPaymentStatus === 'paid'
-                            ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300 ring-1 ring-emerald-500/50 shadow-md'
-                            : 'bg-[#090d16] border-slate-700 text-slate-400 hover:text-slate-200'
+                    {/* Quantity */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        {t.itemQuantity} *
+                      </label>
+                      <div className="relative">
+                        <Layers className="w-3.5 h-3.5 text-emerald-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          id="input-vault-quantity"
+                          type="number"
+                          min="1"
+                          required
+                          value={quantity}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setQuantity(val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
+                          }}
+                          className="w-full pl-8 pr-2 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-xs font-mono focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Min Power Level */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        {t.itemMinPower} *
+                      </label>
+                      <div className="relative">
+                        <Zap className="w-3.5 h-3.5 text-amber-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          id="input-vault-minpower"
+                          type="number"
+                          min="0"
+                          required
+                          placeholder="0"
+                          value={minPowerLevel}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setMinPowerLevel(val === '' ? '' : Math.max(0, Number(val)));
+                          }}
+                          className="w-full pl-8 pr-2 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-slate-100 text-xs font-mono focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Rarity */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        {t.itemRarity} *
+                      </label>
+                      <select
+                        id="select-vault-rarity"
+                        value={rarity}
+                        onChange={(e) => setRarity(e.target.value as ItemRarity)}
+                        className={`w-full px-2.5 py-1.5 rounded-lg bg-[#090d16] border text-slate-100 text-xs font-semibold focus:outline-none cursor-pointer ${
+                          rarity === 'MYTHIC'
+                            ? 'border-amber-500/80 text-amber-300'
+                            : rarity === 'LAGEND'
+                            ? 'border-purple-500/80 text-purple-300'
+                            : rarity === 'EPIC'
+                            ? 'border-red-500/80 text-red-300'
+                            : 'border-cyan-500/80 text-cyan-300'
                         }`}
                       >
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        <span>{t.paymentStatusPaid}</span>
-                      </button>
+                        <option value="RARE">🟦 {t.rarityRare}</option>
+                        <option value="EPIC">🟥 {t.rarityEpic}</option>
+                        <option value="LAGEND">🟪 {t.rarityLegend}</option>
+                        <option value="MYTHIC">🟨 {t.rarityMythic}</option>
+                      </select>
                     </div>
                   </div>
                 </div>
 
-                {/* 3. Receipt / Bill Slips */}
-                <div className="space-y-2 pt-2 border-t border-slate-800">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                        <Receipt className="w-3.5 h-3.5 text-teal-400" />
-                        <span>{t.attachReceiptBills}</span>
-                        <span className="text-[11px] text-slate-400 font-normal">({lang === 'th' ? 'ไม่บังคับ' : 'Optional'})</span>
-                      </label>
-                      <p className="text-[11px] text-slate-400">{t.attachReceiptBillsDesc}</p>
+                {/* Card: Direct Distribution Settings (when active) OR Mode Info Note */}
+                {itemEntryMode === 'direct_distribute' ? (
+                  <div className="p-3.5 rounded-xl bg-gradient-to-b from-[#0a141e] to-[#070b14] border border-emerald-500/40 shadow-lg space-y-2.5">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-emerald-500/20">
+                      <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                        <Gift className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{lang === 'th' ? 'การแจกไอเทมโดยตรง' : 'Direct Distribution'}</span>
+                      </span>
+                      <span className="text-[9px] px-2 py-0.2 rounded-full bg-emerald-950 border border-emerald-600/40 text-emerald-300 font-mono">
+                        {lang === 'th' ? 'แจกทันที' : 'Instant'}
+                      </span>
                     </div>
 
-                    <label
-                      tabIndex={0}
-                      onPaste={handlePasteDirectReceiptZone}
-                      htmlFor="file-direct-receipts"
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-950/60 hover:bg-teal-900/80 border border-dashed border-teal-500/50 hover:border-teal-400 text-xs font-medium text-teal-200 cursor-pointer transition-all shrink-0 outline-none"
-                      title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูปบิล' : 'Click to choose or Ctrl + V to paste bill'}
-                    >
-                      <Upload className="w-3.5 h-3.5 text-teal-300" />
-                      <span>{lang === 'th' ? 'แนบสลิป/บิล (หรือ Ctrl+V)' : 'Upload Bill (or Ctrl+V)'}</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-teal-900/90 text-teal-200 border border-teal-700">
-                        Ctrl + V
-                      </span>
-                      <input
-                        id="file-direct-receipts"
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={handleDirectReceiptUpload}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
+                    {/* Recipient Dropdown */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-200 mb-1 flex items-center justify-between">
+                        <span>{t.selectRecipient} *</span>
+                        {directRecipient && (
+                          <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                            ✓ {directRecipient.inGameName} ({directRecipient.clan})
+                          </span>
+                        )}
+                      </label>
+                      <select
+                        id="select-direct-recipient"
+                        value={directRecipient?.id || ''}
+                        onChange={(e) => {
+                          const selectedId = e.target.value;
+                          const found = allMembers.find((m) => m.id === selectedId) || null;
+                          setDirectRecipient(found);
+                          sounds.playClick();
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#090d16] border border-emerald-500/50 focus:border-emerald-400 text-slate-100 text-xs focus:outline-none cursor-pointer"
+                      >
+                        <option value="">{t.selectRecipientPlaceholder}</option>
+                        {(Object.entries(activeMembersByClan) as [string, User[]][]).map(([clanName, cMembers]) => (
+                          <optgroup key={clanName} label={`🏰 ${clanName} (${cMembers.length})`}>
+                            {cMembers.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.inGameName} {m.characterClass ? `• ${m.characterClass}` : ''} {m.powerLevel ? `• PL ${m.powerLevel.toLocaleString()}` : ''}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
 
-                  {directReceiptImages.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-xs text-teal-300">
-                        <ImageIcon className="w-3.5 h-3.5" />
-                        <span>
-                          {lang === 'th'
-                            ? `แนบรูปบิล/สลิปแล้ว ${directReceiptImages.length} รูป`
-                            : `${directReceiptImages.length} receipt image(s) attached`}
-                        </span>
+                    {/* Payment Status & Receipts in 1 row */}
+                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-emerald-500/20">
+                      {/* Payment toggle */}
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-300 mb-1">
+                          {t.paymentStatusChoice}
+                        </label>
+                        <div className="grid grid-cols-2 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              sounds.playClick();
+                              setDirectPaymentStatus('pending');
+                            }}
+                            className={`py-1 rounded text-[10px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+                              directPaymentStatus === 'pending'
+                                ? 'bg-amber-950/80 border border-amber-500 text-amber-300'
+                                : 'bg-[#090d16] border border-slate-800 text-slate-400'
+                            }`}
+                          >
+                            <Clock className="w-3 h-3 text-amber-400" />
+                            <span>{t.paymentStatusPending}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              sounds.playClick();
+                              setDirectPaymentStatus('paid');
+                            }}
+                            className={`py-1 rounded text-[10px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+                              directPaymentStatus === 'paid'
+                                ? 'bg-emerald-950/80 border border-emerald-500 text-emerald-300'
+                                : 'bg-[#090d16] border border-slate-800 text-slate-400'
+                            }`}
+                          >
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                            <span>{t.paymentStatusPaid}</span>
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 overflow-x-auto p-2 rounded-lg bg-[#0a0f19] border border-teal-900/40">
+
+                      {/* Receipt slip attach */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] font-semibold text-slate-300">
+                            {t.attachReceiptBills}
+                          </label>
+                          {directReceiptImages.length > 0 && (
+                            <span className="text-[9px] text-teal-400 font-mono">{directReceiptImages.length} {lang === 'th' ? 'รูป' : 'files'}</span>
+                          )}
+                        </div>
+                        <label
+                          tabIndex={0}
+                          onPaste={handlePasteDirectReceiptZone}
+                          htmlFor="file-direct-receipts"
+                          className="w-full py-1 px-2 rounded bg-teal-950/40 hover:bg-teal-900/60 border border-dashed border-teal-500/50 text-[10px] font-medium text-teal-200 cursor-pointer transition flex items-center justify-center gap-1.5 outline-none"
+                          title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูปบิล' : 'Click to choose or Ctrl + V to paste bill'}
+                        >
+                          <Upload className="w-3 h-3 text-teal-300" />
+                          <span>{lang === 'th' ? 'แนบบิล (Ctrl+V)' : 'Upload Bill'}</span>
+                          <input id="file-direct-receipts" type="file" accept="image/*" multiple onChange={handleDirectReceiptUpload} className="hidden" />
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Receipt Slips Thumbnails Preview */}
+                    {directReceiptImages.length > 0 && (
+                      <div className="flex items-center gap-1.5 overflow-x-auto p-1.5 rounded-lg bg-[#060a12] border border-teal-900/40 no-scrollbar">
                         {directReceiptImages.map((receiptImg, idx) => (
-                          <div key={idx} className="relative group shrink-0 w-24 h-24 rounded-lg overflow-hidden border border-teal-700/50">
-                            <img
-                              src={receiptImg}
-                              alt={`Receipt ${idx + 1}`}
-                              className="w-full h-full object-cover"
-                            />
-                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition-opacity">
+                          <div key={idx} className="relative group shrink-0 w-12 h-12 rounded-lg overflow-hidden border border-teal-700/50">
+                            <img src={receiptImg} alt={`Receipt ${idx + 1}`} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1 transition-opacity">
                               <button
                                 type="button"
                                 onClick={() => onViewImageZoom(receiptImg, `Receipt #${idx + 1}`, directReceiptImages, idx)}
-                                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-white"
-                                title="Zoom"
+                                className="p-0.5 rounded bg-slate-800 text-white"
                               >
-                                <ZoomIn className="w-3.5 h-3.5" />
+                                <ZoomIn className="w-3 h-3" />
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleRemoveDirectReceipt(idx)}
-                                className="p-1 rounded bg-red-900 hover:bg-red-800 text-white"
-                                title="Remove"
+                                className="p-0.5 rounded bg-red-900 text-white"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-3 h-3" />
                               </button>
                             </div>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Grid 2: 6. OCR Hunter Scanner & Clan Matcher */}
-            <div className="p-5 rounded-xl bg-[#090d16] border border-slate-800 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-xs sm:text-sm font-bold text-slate-200 flex items-center gap-2">
-                    <Scan className="w-4 h-4 text-[#38bdf8]" />
-                    <span>7. {t.huntersOcr}</span>
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    {t.uploadHunterOcrDesc}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {isOwner ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sounds.playClick();
-                        setShowGeminiModal(true);
-                      }}
-                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
-                        geminiConfigured
-                          ? 'bg-emerald-950/40 border-emerald-500/40 hover:border-emerald-400 text-emerald-300'
-                          : 'bg-amber-950/40 border-amber-500/50 hover:border-amber-400 text-amber-300 animate-pulse'
-                      }`}
-                      title={lang === 'th' ? 'ตั้งค่า Google Gemini API Key สำหรับ AI OCR (เฉพาะ Owner)' : 'Configure Google Gemini API Key for AI OCR (Owner Only)'}
-                    >
-                      <Cpu className="w-3.5 h-3.5 text-[#38bdf8]" />
-                      <span>
-                        {geminiConfigured
-                          ? lang === 'th' ? 'Gemini AI: เชื่อมต่อแล้ว' : 'Gemini AI: Connected'
-                          : lang === 'th' ? '⚠️ ตั้งค่า Gemini Key' : '⚠️ Set Gemini Key'}
-                      </span>
-                    </button>
-                  ) : (
-                    <div
-                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold shadow-sm ${
-                        geminiConfigured
-                          ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-400'
-                          : 'bg-amber-950/30 border-amber-500/30 text-amber-400'
-                      }`}
-                      title={lang === 'th' ? 'สถานะการเชื่อมต่อ AI OCR พร้อมใช้งานสำหรับแอดมินทุกคน' : 'AI OCR status ready for all Admins'}
-                    >
-                      <Cpu className="w-3.5 h-3.5 text-[#38bdf8]" />
-                      <span>
-                        {geminiConfigured
-                          ? lang === 'th' ? 'Gemini AI: พร้อมใช้งาน' : 'Gemini AI: Ready'
-                          : lang === 'th' ? 'Gemini AI: ยังไม่เชื่อมต่อ' : 'Gemini AI: Not Connected'}
-                      </span>
-                    </div>
-                  )}
-
-                  <label
-                    tabIndex={0}
-                    onPaste={handlePasteOcrZone}
-                    htmlFor="file-ocr-upload"
-                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-white text-xs font-bold transition-all shrink-0 shadow-sm border outline-none ${canUseOcr ? 'bg-[#0284c7] hover:bg-[#0369a1] cursor-pointer border-sky-400/50 hover:border-sky-300' : 'bg-slate-700 cursor-not-allowed border-slate-600 opacity-60'}`}
-                    title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางภาพให้ AI สแกน' : 'Click to choose or Ctrl + V to paste & scan'}
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    <span>{isScanningOCR ? t.uploadingAndScanning : lang === 'th' ? 'สแกน OCR (หรือ Ctrl+V วางภาพ)' : 'Scan OCR (or Ctrl+V)'}</span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-900 text-sky-200 border border-sky-600">
-                      Ctrl + V
-                    </span>
-                    <input
-                      id="file-ocr-upload"
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      disabled={isScanningOCR || !canUseOcr}
-                      onChange={handleOcrScreenshotUpload}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              {/* Gemini Key Missing Warning Banner */}
-              {(!geminiConfigured || ocrErrorType === 'MISSING_API_KEY') && (
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 text-amber-200 text-xs shadow-md">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>{t.ocrMissingKeyWarning}</span>
+                    )}
                   </div>
-                  {isOwner ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sounds.playClick();
-                        setShowGeminiModal(true);
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all shadow cursor-pointer shrink-0"
-                    >
-                      <Key className="w-3.5 h-3.5" />
-                      <span>{t.configureKeyBtn}</span>
-                    </button>
-                  ) : (
-                    <span className="text-[11px] text-amber-300/80 font-medium shrink-0">
-                      {t.geminiOwnerOnlyHint}
-                    </span>
-                  )}
-                </div>
-              )}
+                ) : (
+                  <div className="p-3 rounded-xl bg-[#090d16]/80 border border-slate-800 text-[11px] text-slate-400 space-y-1">
+                    <div className="text-slate-300 font-semibold flex items-center gap-1">
+                      <Layers className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{lang === 'th' ? 'โหมดคลังไอเทมปกติ (Normal Vault Mode)' : 'Normal Vault Mode'}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                      {lang === 'th'
+                        ? 'ไอเทมที่เพิ่มจะถูกนำเข้าสู่คลังหลัก เพื่อให้สมาชิกในแคลนที่มีสิทธิ์และคะแนน PL ถึงเกณฑ์สามารถกดเคลมได้'
+                        : 'Items will be added to the active vault for eligible members to claim.'}
+                    </p>
+                  </div>
+                )}
 
-              {/* OCR Status Banner */}
-              {dynamicOcrStatusMessage && (
-                <div
-                  className={`text-xs flex items-center gap-2 p-2.5 rounded-lg border ${
-                    ocrErrorType === 'MISSING_API_KEY' || ocrErrorType === 'GEMINI_ERROR' || ocrErrorType === 'NETWORK_ERROR'
-                      ? 'bg-red-950/40 border-red-800/40 text-red-300'
-                      : 'bg-sky-950/40 border-sky-800/40 text-[#38bdf8]'
-                  }`}
-                >
-                  <Sparkles className="w-3.5 h-3.5 shrink-0 text-sky-400" />
-                  <span className="flex-1">{dynamicOcrStatusMessage}</span>
-                  {isOwner && ocrErrorType && (
-                    <button
-                      type="button"
-                      onClick={() => setShowGeminiModal(true)}
-                      className="px-2.5 py-1 rounded bg-sky-900/80 hover:bg-sky-800 text-sky-200 text-[11px] font-semibold border border-sky-600/50 shrink-0 cursor-pointer"
-                    >
-                      {lang === 'th' ? 'ตั้งค่า Key' : 'Configure Key'}
-                    </button>
-                  )}
-                  {duplicatesRemovedCount !== null && duplicatesRemovedCount > 0 && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-medium shrink-0">
-                      {lang === 'th' ? `ตัดชื่อซ้ำ ${duplicatesRemovedCount} คน` : `${duplicatesRemovedCount} dupes filtered`}
-                    </span>
-                  )}
-                </div>
-              )}
+              </div>
 
-              {/* 7. Matched hunters grouped by Clan / Text View */}
-              <div>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
-                  <div className="flex items-center gap-2">
-                    <label className="block text-xs font-semibold text-slate-300">
-                      7. {t.scanResults} ({hunters.length} {lang === 'th' ? 'คน' : 'hunters'})
+              {/* RIGHT COLUMN: HUNTERS & EVIDENCE PROOFS (7 Cols) */}
+              <div className="lg:col-span-7 space-y-3">
+                
+                {/* Card: Hunters Cockpit */}
+                <div className="p-3.5 rounded-xl bg-gradient-to-b from-[#131b2c] via-[#0d1320] to-[#080c14] border border-[#d4af37]/30 shadow-lg space-y-2.5">
+                  
+                  {/* Action Bar: AI OCR & Gemini Key */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      {/* AI OCR Button */}
+                      <label
+                        tabIndex={0}
+                        onPaste={handlePasteOcrZone}
+                        htmlFor="file-ocr-upload"
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-xs font-bold transition shrink-0 shadow-sm border outline-none ${
+                          canUseOcr
+                            ? 'bg-sky-600 hover:bg-sky-500 cursor-pointer border-sky-400/50'
+                            : 'bg-slate-700 cursor-not-allowed border-slate-600 opacity-60'
+                        }`}
+                        title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อสแกนภาพ' : 'Click to choose or Ctrl + V to paste & scan'}
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>{isScanningOCR ? t.uploadingAndScanning : lang === 'th' ? 'สแกน AI OCR' : 'Scan OCR'}</span>
+                        <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-sky-950 text-sky-200 border border-sky-500/60">
+                          Ctrl+V
+                        </span>
+                        <input
+                          id="file-ocr-upload"
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          disabled={isScanningOCR || !canUseOcr}
+                          onChange={handleOcrScreenshotUpload}
+                          className="hidden"
+                        />
+                      </label>
+
+                      {/* Gemini Status / Config Button */}
+                      {isOwner ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sounds.playClick();
+                            setShowGeminiModal(true);
+                          }}
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                            geminiConfigured
+                              ? 'bg-emerald-950/40 border-emerald-500/40 hover:border-emerald-400 text-emerald-300'
+                              : 'bg-amber-950/40 border-amber-500/50 hover:border-amber-400 text-amber-300 animate-pulse'
+                          }`}
+                          title={lang === 'th' ? 'ตั้งค่า Gemini API Key' : 'Configure Gemini API Key'}
+                        >
+                          <Cpu className="w-3 h-3 text-[#38bdf8]" />
+                          <span>{geminiConfigured ? (lang === 'th' ? 'Key: ต่อแล้ว' : 'Key: Connected') : '⚠️ Set Key'}</span>
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-800 bg-[#090d16] text-[10px] text-slate-400 font-mono">
+                          <Cpu className="w-3 h-3 text-sky-400" />
+                          <span>{geminiConfigured ? 'AI Ready' : 'AI Offline'}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Status or Duplicate badge */}
+                    <div className="flex items-center gap-1.5 text-xs">
+                      {isScanningOCR && (
+                        <span className="text-sky-300 animate-pulse text-[11px] flex items-center gap-1">
+                          <Sparkles className="w-3 h-3 animate-spin text-sky-400" />
+                          <span>{t.uploadingAndScanning}...</span>
+                        </span>
+                      )}
+                      {duplicatesRemovedCount !== null && duplicatesRemovedCount > 0 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
+                          {lang === 'th' ? `ตัดชื่อซ้ำ ${duplicatesRemovedCount}` : `${duplicatesRemovedCount} dupes`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dynamic OCR Status Message (if error or message) */}
+                  {dynamicOcrStatusMessage && !isScanningOCR && (
+                    <div className="p-2 rounded-lg bg-sky-950/30 border border-sky-800/40 text-[11px] text-sky-300 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <Sparkles className="w-3.5 h-3.5 shrink-0 text-sky-400" />
+                        <span className="truncate">{dynamicOcrStatusMessage}</span>
+                      </div>
+                      {isOwner && ocrErrorType && (
+                        <button
+                          type="button"
+                          onClick={() => setShowGeminiModal(true)}
+                          className="text-[10px] text-amber-300 underline shrink-0 font-semibold"
+                        >
+                          {lang === 'th' ? 'ตั้งค่า Key' : 'Config Key'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Screenshot Proofs Strip */}
+                  <div className="flex items-center gap-2 overflow-x-auto p-1.5 rounded-lg bg-[#080c16] border border-slate-800 no-scrollbar">
+                    {/* Mini dropzone to add screenshot */}
+                    <label
+                      tabIndex={0}
+                      onPaste={handlePasteBackupScreenshotsZone}
+                      htmlFor="file-multiple-screenshots"
+                      className="w-12 h-12 rounded-lg bg-[#111929] hover:bg-[#18233a] border border-dashed border-slate-700 hover:border-[#d4af37] flex flex-col items-center justify-center cursor-pointer shrink-0 transition text-slate-400 hover:text-[#f5d77f] outline-none"
+                      title={lang === 'th' ? 'แนบสกรีนช็อต (Ctrl + V)' : 'Attach screenshot (Ctrl + V)'}
+                    >
+                      <Upload className="w-4 h-4 mb-0.5" />
+                      <span className="text-[8px] font-mono">Ctrl+V</span>
+                      <input id="file-multiple-screenshots" type="file" accept="image/*" multiple onChange={handleBackupScreenshotsUpload} className="hidden" />
                     </label>
 
-                    {/* View Mode Toggle (Cards vs Text) */}
-                    <div className="flex items-center gap-1 p-0.5 rounded-lg bg-[#0e1422] border border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          sounds.playClick();
-                          setHunterResultViewMode('cards');
-                        }}
-                        className={`px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-                          hunterResultViewMode === 'cards'
-                            ? 'bg-sky-950/90 text-sky-300 border border-sky-600/60 shadow-sm'
-                            : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                        title={t.viewAsCards}
-                      >
-                        <LayoutGrid className="w-3 h-3" />
-                        <span>{t.viewAsCards}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          sounds.playClick();
-                          setHunterResultViewMode('text');
-                        }}
-                        className={`px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-                          hunterResultViewMode === 'text'
-                            ? 'bg-amber-950/90 text-amber-300 border border-amber-600/60 shadow-sm'
-                            : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                        title={t.viewAsText}
-                      >
-                        <FileText className="w-3 h-3" />
-                        <span>{t.viewAsText}</span>
-                      </button>
-                    </div>
-                  </div>
+                    {/* Thumbnails */}
+                    {hunterScreenshots.map((shot, idx) => (
+                      <div key={idx} className="relative group shrink-0 w-12 h-12 rounded-lg overflow-hidden border border-slate-700">
+                        <img src={shot} alt={`Proof ${idx + 1}`} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1 transition-opacity">
+                          <button
+                            type="button"
+                            onClick={() => onViewImageZoom(shot, `Proof #${idx + 1}`, hunterScreenshots, idx)}
+                            className="p-0.5 rounded bg-slate-800 text-white"
+                          >
+                            <ZoomIn className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveScreenshot(idx)}
+                            className="p-0.5 rounded bg-red-900 text-white"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
 
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {/* Copy All Button */}
-                    {hunters.length > 0 && (
+                    {/* Quick Scan from Attached Button */}
+                    {hunterScreenshots.length > 0 && (
                       <button
                         type="button"
-                        id="btn-copy-all-hunters"
-                        onClick={() => handleCopyAllHunters()}
-                        className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-600/70 hover:border-emerald-500 text-emerald-300 hover:text-emerald-200 text-[11px] font-bold transition-all cursor-pointer shadow-sm"
-                        title={lang === 'th' ? 'คัดลอกรายชื่อทั้งหมดลงคลิปบอร์ด' : 'Copy all hunter names to clipboard'}
+                        id="btn-scan-attached-screenshots"
+                        disabled={isScanningOCR || !canUseOcr}
+                        onClick={scanExistingScreenshots}
+                        className="px-2.5 py-2 rounded-lg bg-gradient-to-r from-sky-600 to-cyan-600 hover:from-sky-500 hover:to-cyan-500 text-white text-[11px] font-bold transition shadow shrink-0 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        title={lang === 'th' ? 'สแกนชื่อคนล่าจากภาพเหล่านี้' : 'Scan hunters from these images'}
                       >
-                        {copiedHunters ? (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>{lang === 'th' ? '✓ คัดลอกแล้ว!' : '✓ Copied!'}</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>{t.copyAllHunters}</span>
-                          </>
-                        )}
+                        <Scan className="w-3.5 h-3.5" />
+                        <span>
+                          {isScanningOCR
+                            ? '...'
+                            : lang === 'th'
+                            ? `สแกนจากรูปที่แนบ (${hunterScreenshots.length})`
+                            : `Scan Attached (${hunterScreenshots.length})`}
+                        </span>
                       </button>
                     )}
 
-                    {hunters.length > 0 && (
-                      <button
-                        type="button"
-                        id="btn-filter-duplicates"
-                        onClick={handleFilterDuplicates}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 hover:border-amber-500 text-amber-300 hover:text-amber-200 text-[11px] font-semibold transition-all cursor-pointer shadow-sm"
-                        title={lang === 'th' ? 'ตรวจหาและลบรายชื่อผู้ล่าที่ซ้ำกันออก' : 'Check and filter out duplicate hunter names'}
-                      >
-                        <RotateCcw className="w-3 h-3 text-amber-400" />
-                        <span>{t.filterDuplicatesBtn}</span>
-                      </button>
+                    {hunterScreenshots.length === 0 && (
+                      <span className="text-[10px] text-slate-500 pl-1 font-mono">
+                        {lang === 'th' ? 'แนบรูปหลักฐานผู้ล่า (เลือกไฟล์หรือวาง Ctrl+V)' : 'Attach proof screenshots (drop or Ctrl+V)'}
+                      </span>
                     )}
                   </div>
-                </div>
 
-                {/* NO HUNTERS FOUND EMPTY STATE */}
-                {hunters.length === 0 ? (
-                  <div className="p-4 rounded-lg bg-[#0e1422] border border-slate-800 text-center text-xs text-slate-500">
-                    {t.noHuntersFound}
-                  </div>
-                ) : hunterResultViewMode === 'text' ? (
-                  /* TEXT VIEW (Copyable format with Clan Separation) */
-                  <div className="p-3.5 rounded-xl bg-[#0b101c] border border-amber-500/30 space-y-3 shadow-inner">
-                    <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                          <FileText className="w-3.5 h-3.5 text-amber-400" />
-                          <span>{t.viewAsText}</span>
+                  {/* Hunters Tags / List Box */}
+                  <div className="space-y-1.5">
+                    {/* Header with Modal Trigger & Quick Actions */}
+                    <div className="flex flex-wrap items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-200">
+                          👥 {t.scanResults} ({hunters.length} {lang === 'th' ? 'คน' : 'hunters'})
                         </span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
-                          {hunters.length} {lang === 'th' ? 'คน' : 'names'}
-                        </span>
-                        {uniqueClansInHunters.length > 0 && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-800/50 text-amber-300 font-mono">
+                        {uniqueClansInHunters.length > 1 && (
+                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-950/60 border border-amber-800/50 text-amber-300 font-mono">
                             {uniqueClansInHunters.length} {t.clansCount}
                           </span>
                         )}
                       </div>
 
-                      {/* Format selector: By Clan vs Plain vs Inline vs Comma */}
-                      <div className="flex items-center gap-1 bg-[#111726] p-0.5 rounded-lg border border-slate-700 text-[11px] flex-wrap">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {/* OPEN HUNTER CHECKLIST MODAL BUTTON */}
                         <button
                           type="button"
+                          id="btn-open-hunter-checklist-modal"
                           onClick={() => {
                             sounds.playClick();
-                            setHunterTextFormat('by-clan');
+                            setShowHunterChecklistModal(true);
                           }}
-                          className={`px-2.5 py-1 rounded transition-all cursor-pointer flex items-center gap-1 ${
-                            hunterTextFormat === 'by-clan'
-                              ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                              : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                          title={lang === 'th' ? 'แยกรายชื่อตามแคลน พร้อมหัวข้อแคลน' : 'Group list by clan with headers'}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-gradient-to-r from-amber-500 to-yellow-600 hover:brightness-110 text-slate-950 text-xs font-bold transition shadow cursor-pointer"
+                          title={lang === 'th' ? 'เปิดหน้าต่างเลือกสมาชิกแคลน' : 'Open clan member checklist modal'}
                         >
-                          <Layers className="w-3 h-3" />
-                          <span>{t.formatByClan}</span>
+                          <UserCheck className="w-3.5 h-3.5" />
+                          <span>{lang === 'th' ? '+ เลือกสมาชิก' : '+ Pick Members'}</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            sounds.playClick();
-                            setHunterTextFormat('plain');
-                          }}
-                          className={`px-2.5 py-1 rounded transition-all cursor-pointer ${
-                            hunterTextFormat === 'plain'
-                              ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                              : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                          title={lang === 'th' ? 'แสดงเฉพาะชื่อตัวละคร' : 'Plain character names only'}
-                        >
-                          <span>{t.formatPlain}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            sounds.playClick();
-                            setHunterTextFormat('inline');
-                          }}
-                          className={`px-2.5 py-1 rounded transition-all cursor-pointer ${
-                            hunterTextFormat === 'inline'
-                              ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                              : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                          title={lang === 'th' ? 'ชื่อพร้อมแคลนต่อท้าย' : 'Names with clan in parentheses'}
-                        >
-                          <span>{t.formatInline}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            sounds.playClick();
-                            setHunterTextFormat('comma');
-                          }}
-                          className={`px-2.5 py-1 rounded transition-all cursor-pointer ${
-                            hunterTextFormat === 'comma'
-                              ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                              : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                          title={lang === 'th' ? 'คั่นด้วยจุลภาค เช่น Name1, Name2' : 'Comma separated: Name1, Name2'}
-                        >
-                          <span>{t.formatComma}</span>
-                        </button>
-                      </div>
-                    </div>
 
-                    {/* Clan Filter Tabs inside Text View (if multiple clans exist) */}
-                    {uniqueClansInHunters.length > 1 && (
-                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                        <span className="text-[11px] text-slate-400 font-medium mr-1 flex items-center gap-1">
-                          <Filter className="w-3 h-3 text-slate-400" />
-                          <span>{lang === 'th' ? 'กรองแคลน:' : 'Filter Clan:'}</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            sounds.playClick();
-                            setTextClanFilter('all');
-                          }}
-                          className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer ${
-                            textClanFilter === 'all'
-                              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/50'
-                              : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 border border-transparent'
-                          }`}
-                        >
-                          {t.allClansFilter} ({hunters.length})
-                        </button>
-                        {uniqueClansInHunters.map((clanName) => {
-                          const count = hunters.filter(
-                            (h) => (cleanClanName(h.clan) || 'VoltZ').toLowerCase() === cleanClanName(clanName).toLowerCase()
-                          ).length;
-                          return (
-                            <button
-                              key={clanName}
-                              type="button"
-                              onClick={() => {
-                                sounds.playClick();
-                                setTextClanFilter(clanName);
-                              }}
-                              className={`px-2.5 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
-                                textClanFilter.toLowerCase() === clanName.toLowerCase()
-                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
-                                  : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 border border-transparent'
-                              }`}
-                            >
-                              <span>{clanName}</span>
-                              <span className="opacity-75">({count})</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Copyable Text Area */}
-                    <div className="relative">
-                      <textarea
-                        readOnly
-                        rows={Math.min(14, Math.max(6, (getFormattedHunterText().split('\n').length || 6) + 1))}
-                        value={getFormattedHunterText()}
-                        onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-                        className="w-full px-3.5 py-2.5 rounded-lg bg-[#070b13] border border-slate-800 hover:border-amber-500/50 text-xs font-mono text-slate-200 leading-relaxed focus:outline-none focus:border-amber-400 cursor-text resize-y shadow-inner select-all"
-                        placeholder={lang === 'th' ? 'รายชื่อผู้ล่าจะแสดงที่นี่...' : 'Hunter names will appear here...'}
-                      />
-                      <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleCopyAllHunters()}
-                          className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 hover:text-amber-200 text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
-                        >
-                          {copiedHunters ? (
-                            <>
-                              <Check className="w-3.5 h-3.5 text-emerald-400" />
-                              <span className="text-emerald-300">{lang === 'th' ? 'คัดลอกแล้ว!' : 'Copied!'}</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3.5 h-3.5 text-amber-300" />
-                              <span>{t.copyAllHunters}</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Quick Clan Copy Buttons Row (when multiple clans are present) */}
-                    {uniqueClansInHunters.length > 1 && textClanFilter === 'all' && (
-                      <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-800/80">
-                        <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
-                          <Copy className="w-3 h-3 text-amber-400" />
-                          <span>{lang === 'th' ? 'คัดลอกด่วนแยกแคลน:' : 'Quick Copy Clan:'}</span>
-                        </span>
-                        {uniqueClansInHunters.map((clanName) => (
+                        {/* Copy All Hunters */}
+                        {hunters.length > 0 && (
                           <button
-                            key={clanName}
                             type="button"
-                            onClick={() => handleCopyAllHunters('plain', clanName)}
-                            className="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-amber-950/40 border border-slate-700 hover:border-amber-600/50 text-slate-300 hover:text-amber-300 text-[10px] font-medium transition-all cursor-pointer flex items-center gap-1"
-                            title={lang === 'th' ? `คัดลอกเฉพาะรายชื่อของ ${clanName}` : `Copy names of ${clanName}`}
+                            id="btn-copy-all-hunters"
+                            onClick={() => handleCopyAllHunters()}
+                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-600/70 text-emerald-300 text-[11px] font-semibold transition cursor-pointer"
+                            title={lang === 'th' ? 'คัดลอกรายชื่อทั้งหมด' : 'Copy all'}
                           >
-                            <Copy className="w-2.5 h-2.5" />
-                            <span>{clanName}</span>
+                            {copiedHunters ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-400" />
+                                <span>{lang === 'th' ? '✓ แล้ว' : '✓ Copied'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3 text-emerald-400" />
+                                <span>{lang === 'th' ? 'ก๊อปปี้' : 'Copy'}</span>
+                              </>
+                            )}
                           </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  /* CARDS VIEW */
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {Object.entries(groupedHunters).map(([clanName, memberNames]: [string, string[]]) => (
-                      <div
-                        key={clanName}
-                        className="p-3 rounded-lg bg-[#0e1524] border border-[#38bdf8]/40 shadow-sm"
-                      >
-                        <div className="text-xs font-bold text-amber-300 font-mono border-b border-slate-700/80 pb-1.5 mb-2 flex items-center justify-between">
-                          <span>{clanName}</span>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] text-slate-400 font-normal">
-                              ({memberNames.length} {lang === 'th' ? 'คน' : 'hunters'})
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const text = memberNames.join('\n');
-                                navigator.clipboard.writeText(text);
-                                sounds.playClaim();
-                                setCopiedHunters(true);
-                                setTimeout(() => setCopiedHunters(false), 2000);
-                              }}
-                              className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
-                              title={lang === 'th' ? `คัดลอกเฉพาะ ${clanName}` : `Copy ${clanName} only`}
-                            >
-                              <Copy className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          {memberNames.map((mName, idx) => (
-                            <div
-                              key={idx}
-                              className="text-xs text-slate-200 font-medium flex items-center justify-between py-0.5 px-1 rounded bg-[#090d16]"
-                            >
-                              <span>{mName}</span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const targetIndex = hunters.findIndex(
-                                    (h) => (cleanClanName(h.clan) || 'VoltZ') === (cleanClanName(clanName) || 'VoltZ') && h.name === mName
-                                  );
-                                  if (targetIndex >= 0) handleRemoveHunter(targetIndex);
-                                }}
-                                className="text-slate-500 hover:text-red-400 text-xs px-1 cursor-pointer"
-                              >
-                                ×
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                        )}
 
-                {/* INTERACTIVE MEMBER CHECKLIST & SELECTOR (No typing needed) */}
-                <div className="mt-4 pt-4 border-t border-slate-800 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <UserCheck className="w-4 h-4 text-amber-400 shrink-0" />
-                      <div>
-                        <h4 className="text-xs sm:text-sm font-bold text-amber-300">
-                          {t.hunterChecklistTitle}
-                        </h4>
-                        <p className="text-[11px] text-slate-400">
-                          {t.hunterChecklistDesc}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-amber-950/60 border border-amber-600/50 text-amber-300 font-semibold">
-                        {hunters.length} / {activeMembersList.length} {t.selectedHuntersCount}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Search, Clan Filter Tabs & Batch Select/Deselect */}
-                  <div className="p-3 rounded-xl bg-[#0e1422] border border-slate-800/80 space-y-2.5">
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
-                      {/* Search input */}
-                      <div className="relative flex-1">
-                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                        <input
-                          type="text"
-                          value={hunterSearchQuery}
-                          onChange={(e) => setHunterSearchQuery(e.target.value)}
-                          placeholder={t.searchMembersList}
-                          className="w-full pl-8 pr-8 py-1.5 rounded-lg bg-[#141b2d] border border-slate-700/80 hover:border-slate-600 focus:border-[#d4af37] text-xs text-slate-100 placeholder-slate-500 focus:outline-none"
-                        />
-                        {hunterSearchQuery && (
+                        {/* Filter Duplicates */}
+                        {hunters.length > 0 && (
                           <button
                             type="button"
-                            onClick={() => setHunterSearchQuery('')}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-white"
+                            id="btn-filter-duplicates"
+                            onClick={handleFilterDuplicates}
+                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-amber-950/60 hover:bg-amber-900 border border-amber-600/60 text-amber-300 text-[11px] font-semibold transition cursor-pointer"
+                            title={lang === 'th' ? 'ตรวจหาและลบรายชื่อผู้ล่าที่ซ้ำกัน' : 'Filter duplicates'}
                           >
-                            ×
+                            <RotateCcw className="w-3 h-3 text-amber-400" />
+                            <span>{lang === 'th' ? 'ลบซ้ำ' : 'Dedupe'}</span>
+                          </button>
+                        )}
+
+                        {/* Clear All */}
+                        {hunters.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleClearAllHunters}
+                            className="p-1 rounded-md bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-400 transition cursor-pointer"
+                            title={t.clearEntireClan}
+                          >
+                            <Trash2 className="w-3 h-3" />
                           </button>
                         )}
                       </div>
-
-                      {/* Batch Action Buttons */}
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          id="btn-checklist-select-all"
-                          onClick={handleSelectAllFiltered}
-                          className="px-2.5 py-1.5 rounded-lg bg-sky-950/70 hover:bg-sky-900 border border-sky-600/50 hover:border-sky-500 text-sky-300 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
-                          title={lang === 'th' ? 'เลือกสมาชิกที่แสดงอยู่ทั้งหมด' : 'Select all currently filtered members'}
-                        >
-                          <CheckSquare className="w-3.5 h-3.5" />
-                          <span>{t.selectAllMembers}</span>
-                        </button>
-                        <button
-                          type="button"
-                          id="btn-checklist-deselect-all"
-                          onClick={handleDeselectAllFiltered}
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-slate-300 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
-                          title={lang === 'th' ? 'ยกเลิกการเลือกสมาชิกที่แสดงอยู่' : 'Deselect currently filtered members'}
-                        >
-                          <Square className="w-3.5 h-3.5" />
-                          <span>{t.deselectAllMembers}</span>
-                        </button>
-                      </div>
                     </div>
 
-                    {/* Clan Filter Tabs */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => setHunterClanFilter('all')}
-                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer shrink-0 ${
-                          hunterClanFilter === 'all'
-                            ? 'bg-amber-500 text-slate-950 shadow-sm'
-                            : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {t.allClansFilter} ({activeMembersList.length})
-                      </button>
-                      {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, cMembers]) => {
-                        const clanSelectedCount = cMembers.filter((m) =>
-                          selectedHunterNameSet.has(m.inGameName.trim().toLowerCase())
-                        ).length;
-                        return (
-                          <button
-                            key={clanName}
-                            type="button"
-                            onClick={() => setHunterClanFilter(clanName)}
-                            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer shrink-0 flex items-center gap-1.5 ${
-                              hunterClanFilter === clanName
-                                ? 'bg-sky-600 text-white shadow-sm'
-                                : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
-                            }`}
-                          >
-                            <span>{clanName}</span>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/30 font-mono">
-                              {clanSelectedCount}/{cMembers.length}
+                    {/* Scrollable Hunter Chips / Empty State */}
+                    <div className="min-h-[90px] max-h-[150px] overflow-y-auto p-2 rounded-xl bg-[#060a12] border border-slate-800/80 custom-scrollbar">
+                      {hunters.length === 0 ? (
+                        <div className="h-full min-h-[74px] flex flex-col items-center justify-center text-center p-2 text-slate-500 text-xs">
+                          <p>{lang === 'th' ? 'ยังไม่มีรายชื่อผู้ล่า' : 'No hunters added yet'}</p>
+                          <p className="text-[10px] text-slate-600 mt-0.5">
+                            {lang === 'th' ? 'กด "📸 สแกน AI OCR" หรือกด "+ เลือกสมาชิก" เพื่อเลือกจากแคลน' : 'Use AI OCR or click "+ Pick Members" to select'}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {hunters.map((h, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#0e1628] border border-slate-700/80 hover:border-slate-600 text-xs text-slate-200 shadow-sm"
+                            >
+                              <span className="text-[9px] font-mono font-bold text-amber-400 px-1 py-0.2 rounded bg-amber-950/60 border border-amber-700/40">
+                                {h.clan}
+                              </span>
+                              <span className="font-semibold text-slate-100">{h.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveHunter(idx)}
+                                className="text-slate-500 hover:text-red-400 text-sm leading-none pl-0.5 cursor-pointer"
+                              >
+                                ×
+                              </button>
                             </span>
-                          </button>
-                        );
-                      })}
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </div>
 
-                  {/* 2-Channel Clan Layout (แสดงพร้อมกัน 2 ช่อง แยกแคลน) */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
-                    {(Object.entries(membersByClan) as [string, User[]][])
-                      .filter(([cName]) => hunterClanFilter === 'all' || hunterClanFilter.toLowerCase() === cName.toLowerCase())
-                      .map(([clanName, cMembers]) => {
-                        const visibleMembers = cMembers.filter((m) => {
-                          if (!hunterSearchQuery.trim()) return true;
-                          const q = hunterSearchQuery.trim().toLowerCase();
-                          return (
-                            m.inGameName.toLowerCase().includes(q) ||
-                            m.clan.toLowerCase().includes(q) ||
-                            (m.characterClass && m.characterClass.toLowerCase().includes(q))
-                          );
-                        });
-
-                        const selectedInThisClan = cMembers.filter((m) =>
-                          selectedHunterNameSet.has(m.inGameName.trim().toLowerCase())
-                        ).length;
-
-                        return (
-                          <div
-                            key={clanName}
-                            className="rounded-xl border border-slate-800 bg-[#090e1a] p-3 flex flex-col shadow-md hover:border-slate-700/80 transition-colors"
-                          >
-                            {/* Clan Column Header */}
-                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800/80">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <Shield className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                                <span className="text-xs font-bold text-amber-300 truncate">{clanName}</span>
-                                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono shrink-0">
-                                  {selectedInThisClan} / {cMembers.length}
-                                </span>
-                              </div>
-
-                              {/* Quick Clan Action Buttons */}
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    sounds.playClick();
-                                    const targetMembers = visibleMembers.length > 0 ? visibleMembers : cMembers;
-                                    const currentNames = new Set(hunters.map((h) => h.name.trim().toLowerCase()));
-                                    const toAdd: HunterRecord[] = [];
-                                    targetMembers.forEach((m) => {
-                                      const key = m.inGameName.trim().toLowerCase();
-                                      if (!currentNames.has(key)) {
-                                        toAdd.push({ name: m.inGameName.trim(), clan: cleanClanName(m.clan) || cleanClanName(clanName) || 'VoltZ' });
-                                        currentNames.add(key);
-                                      }
-                                    });
-                                    if (toAdd.length > 0) setHunters((prev) => [...prev, ...toAdd]);
-                                  }}
-                                  className="px-2 py-0.5 rounded bg-sky-950/80 hover:bg-sky-900 border border-sky-600/50 text-sky-300 text-[10px] font-semibold transition-all cursor-pointer shadow-sm"
-                                  title={lang === 'th' ? `เลือกสมาชิก ${clanName} ทั้งหมด` : `Select all ${clanName}`}
-                                >
-                                  {t.selectEntireClan}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    sounds.playClick();
-                                    const targetKeys = new Set(
-                                      (visibleMembers.length > 0 ? visibleMembers : cMembers).map((m) =>
-                                        m.inGameName.trim().toLowerCase()
-                                      )
-                                    );
-                                    setHunters((prev) => prev.filter((h) => !targetKeys.has(h.name.trim().toLowerCase())));
-                                  }}
-                                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[10px] font-semibold transition-all cursor-pointer shadow-sm"
-                                  title={lang === 'th' ? `ล้างที่เลือกใน ${clanName}` : `Clear ${clanName}`}
-                                >
-                                  {t.clearEntireClan}
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Compact Member Cards Grid inside this Clan Box */}
-                            <div className="max-h-[360px] overflow-y-auto pr-1 space-y-1.5 custom-scrollbar flex-1">
-                              {visibleMembers.length === 0 ? (
-                                <div className="p-4 rounded-lg bg-[#060a12] border border-slate-800/80 text-center text-[11px] text-slate-500">
-                                  {lang === 'th' ? 'ไม่พบสมาชิกที่ค้นหา' : 'No matching members'}
-                                </div>
-                              ) : (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                                  {visibleMembers.map((member) => {
-                                    const isSelected = selectedHunterNameSet.has(
-                                      member.inGameName.trim().toLowerCase()
-                                    );
-                                    return (
-                                      <div
-                                        key={member.id}
-                                        onClick={() => handleToggleHunterMember(member)}
-                                        className={`px-2 py-1.5 rounded-lg border transition-all cursor-pointer flex items-center gap-1.5 select-none hover:scale-[1.01] active:scale-[0.99] ${
-                                          isSelected
-                                            ? 'bg-[#d4af37]/20 border-[#d4af37] text-amber-200 shadow-[0_0_8px_rgba(212,175,55,0.2)]'
-                                            : 'bg-[#060a12] border-slate-800/80 hover:border-slate-700 text-slate-300 hover:bg-[#0c1220]'
-                                        }`}
-                                      >
-                                        {/* Compact Checkbox */}
-                                        <div
-                                          className={`w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 border transition-all ${
-                                            isSelected
-                                              ? 'bg-[#d4af37] border-[#d4af37] text-slate-950 font-bold'
-                                              : 'border-slate-600 bg-[#141b2b]'
-                                          }`}
-                                        >
-                                          {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                                        </div>
-
-                                        {/* Name and Power in 1 line */}
-                                        <div className="min-w-0 flex-1 flex items-center justify-between gap-1">
-                                          <span className={`text-[11px] font-bold truncate ${isSelected ? 'text-amber-200' : 'text-slate-200'}`}>
-                                            {member.inGameName}
-                                          </span>
-                                          {member.powerLevel ? (
-                                            <span className="text-[9.5px] text-amber-400/90 font-mono shrink-0">
-                                              ⚡{(member.powerLevel / 1000).toFixed(0)}k
-                                            </span>
-                                          ) : member.characterClass ? (
-                                            <span className="text-[9px] text-slate-500 truncate shrink-0">
-                                              {member.characterClass}
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Grid 3: Multiple Backup Hunter Screenshots Upload */}
-            <div className="p-5 rounded-xl bg-[#090d16] border border-slate-800 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-xs sm:text-sm font-bold text-slate-200 flex items-center gap-2">
-                    <ImageIcon className="w-4 h-4 text-purple-400" />
-                    <span>{t.addScreenshotFiles}</span>
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    {t.screenshotAttachedInfo}
-                  </p>
-                </div>
-
-                <label
-                  tabIndex={0}
-                  onPaste={handlePasteBackupScreenshotsZone}
-                  htmlFor="file-multiple-screenshots"
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#1b263b] hover:bg-[#253552] border border-dashed border-[#d4af37]/50 hover:border-[#d4af37] text-xs font-medium text-slate-200 cursor-pointer transition-all shrink-0 outline-none"
-                  title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูปหลักฐาน' : 'Click to choose or Ctrl + V to paste proof'}
-                >
-                  <Upload className="w-3.5 h-3.5 text-[#f5d77f]" />
-                  <span>{lang === 'th' ? 'แนบสกรีนช็อต (หรือ Ctrl+V)' : 'Upload Screenshots (or Ctrl+V)'}</span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-amber-300 border border-slate-700">
-                    Ctrl + V
-                  </span>
-                  <input
-                    id="file-multiple-screenshots"
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleBackupScreenshotsUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-
-              {/* Thumbnails of attached screenshots */}
-              {hunterScreenshots.length > 0 && (
-                <div className="space-y-2.5">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-[#0e1626] border border-sky-500/30">
-                    <div className="flex items-center gap-2 text-xs text-sky-200">
-                      <ImageIcon className="w-4 h-4 text-sky-400 shrink-0" />
-                      <span>
-                        {lang === 'th'
-                          ? `แนบรูปภาพหลักฐานแล้ว ${hunterScreenshots.length} รูป`
-                          : `${hunterScreenshots.length} screenshot(s) attached`}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      id="btn-scan-attached-screenshots"
-                      disabled={isScanningOCR || !canUseOcr}
-                      onClick={scanExistingScreenshots}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-sky-600 to-cyan-600 hover:from-sky-500 hover:to-cyan-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
-                      title={lang === 'th' ? 'สั่งให้ AI OCR สแกนชื่อคนล่าจากภาพที่แนบไว้เหล่านี้ทันที' : 'Scan hunters from these attached images'}
-                    >
-                      <Scan className="w-3.5 h-3.5" />
-                      <span>
-                        {isScanningOCR
-                          ? t.uploadingAndScanning
-                          : lang === 'th'
-                          ? `🔍 สแกนผู้ล่าจากรูปที่แนบอยู่นี้ (${hunterScreenshots.length} รูป)`
-                          : `🔍 Scan Hunters from attached images (${hunterScreenshots.length})`}
-                      </span>
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-3 overflow-x-auto p-2 rounded-lg bg-[#0a0f19] border border-slate-800">
-                    {hunterScreenshots.map((shot, idx) => (
-                      <div key={idx} className="relative group shrink-0 w-24 h-24 rounded-lg overflow-hidden border border-slate-700">
-                        <img
-                          src={shot}
-                          alt={`Screenshot ${idx + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition-opacity">
+                    {/* Quick Copy Formats Strip */}
+                    {hunters.length > 0 && (
+                      <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-800/80 text-[10px]">
+                        <span className="text-slate-500 font-mono hidden sm:inline">{lang === 'th' ? 'คัดลอกแบบ:' : 'Copy:'}</span>
+                        <div className="flex items-center gap-1 flex-wrap">
                           <button
                             type="button"
-                            onClick={() => onViewImageZoom(shot, `Proof #${idx + 1}`, hunterScreenshots, idx)}
-                            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-white"
-                            title="Zoom"
+                            onClick={() => handleCopyAllHunters('by-clan')}
+                            className="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-medium transition cursor-pointer"
                           >
-                            <ZoomIn className="w-3.5 h-3.5" />
+                            {t.formatByClan}
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleRemoveScreenshot(idx)}
-                            className="p-1 rounded bg-red-900 hover:bg-red-800 text-white"
-                            title="Remove"
+                            onClick={() => handleCopyAllHunters('plain')}
+                            className="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-medium transition cursor-pointer"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            {t.formatPlain}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyAllHunters('inline')}
+                            className="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-medium transition cursor-pointer"
+                          >
+                            {t.formatInline}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyAllHunters('comma')}
+                            className="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-medium transition cursor-pointer"
+                          >
+                            {t.formatComma}
                           </button>
                         </div>
                       </div>
-                    ))}
+                    )}
+
                   </div>
+
                 </div>
-              )}
+
+              </div>
+
             </div>
 
-            {/* Form Submit Button */}
-            <div className="flex justify-end pt-2">
+            {/* 3. BOTTOM SUMMARY & SUBMIT BAR (Single compact row) */}
+            <div className="p-3 rounded-xl bg-gradient-to-r from-[#0d1525] via-[#0b101c] to-[#080d17] border border-[#d4af37]/35 shadow-lg flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+              {/* Live Summary Chips */}
+              <div className="flex items-center gap-2 text-xs flex-wrap font-mono">
+                <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-amber-300 font-semibold">
+                  💎 {price === 0 || price === '' ? (price === 0 ? (lang === 'th' ? 'ฟรี' : 'Free') : '0') : price} {t.diamonds}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-emerald-300 font-semibold">
+                  📦 {quantity || 1} {lang === 'th' ? 'ชิ้น' : 'pcs'}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-sky-300 font-semibold">
+                  👥 {hunters.length} {lang === 'th' ? 'ผู้ล่า' : 'hunters'}
+                </span>
+                {itemEntryMode === 'direct_distribute' && directRecipient && (
+                  <span className="px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-600/40 text-emerald-300 font-semibold">
+                    🏆 {directRecipient.inGameName} ({directRecipient.clan})
+                  </span>
+                )}
+              </div>
+
+              {/* Action Button */}
               <button
                 id="btn-submit-create-item"
                 type="submit"
                 disabled={isCreating}
-                className={`px-6 py-3 rounded-xl font-bold text-sm shadow-xl transition-all cursor-pointer disabled:opacity-50 ${
+                className={`px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-xl transition cursor-pointer disabled:opacity-50 shrink-0 ${
                   itemEntryMode === 'direct_distribute'
                     ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:brightness-110 text-slate-950 shadow-emerald-950/40'
                     : 'bg-gradient-to-r from-[#d4af37] via-[#e5be49] to-[#aa841c] hover:brightness-110 text-slate-950 shadow-amber-950/40'
@@ -2764,7 +2553,6 @@ export const VaultView: React.FC<VaultViewProps> = ({
             </div>
 
           </form>
-
         </div>
       )}
 
@@ -3003,24 +2791,206 @@ export const VaultView: React.FC<VaultViewProps> = ({
               {t.noDistributedItems}
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-slate-800 bg-[#0d1422] shadow-xl">
-              <table className="w-full text-left text-xs text-slate-300 min-w-[760px]">
-                <thead className="bg-[#090d16] text-[11px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800">
-                  <tr>
-                    <th className="py-3 px-4">{t.itemImage}</th>
-                    <th className="py-3 px-4">{t.itemName}</th>
-                    <th className="py-3 px-4 text-center">{t.itemQuantityLabel || t.itemQuantity}</th>
-                    <th className="py-3 px-4">{t.itemRarity}</th>
-                    <th className="py-3 px-4">{t.itemPrice}</th>
-                    <th className="py-3 px-4">{t.distributedTo}</th>
-                    <th className="py-3 px-4">{t.distributedDate}</th>
-                    <th className="py-3 px-4 min-w-[170px]">{lang === 'th' ? 'รูปรายชื่อผู้ล่า' : 'Hunter Proofs'}</th>
-                    <th className="py-3 px-4 min-w-[160px]">{t.receiptBills}</th>
-                    <th className="py-3 px-4 text-right">{t.actions}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {distributedItems.map((item) => (
+            <div className="space-y-4">
+              {/* View Mode Switcher: Dual-Box (กล่องคู่) VS Table (ตาราง) */}
+              <div className="flex items-center justify-between flex-wrap gap-2.5 pb-1">
+                <div className="flex items-center p-1 rounded-xl bg-[#090d16] border border-slate-800 shadow-inner">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setDistViewMode('boxes');
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      distViewMode === 'boxes'
+                        ? 'bg-gradient-to-r from-[#d4af37] to-[#aa841c] text-slate-950 shadow'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>{lang === 'th' ? 'มุมมองกล่องคู่ (แยกค้างชำระ)' : 'Dual-Box View (Split Debt)'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setDistViewMode('table');
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      distViewMode === 'table'
+                        ? 'bg-gradient-to-r from-[#d4af37] to-[#aa841c] text-slate-950 shadow'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    <span>{lang === 'th' ? 'มุมมองตาราง' : 'Table View'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {distViewMode === 'boxes' ? (
+                /* Dual-Box Layout (กล่องคู่: แยกค้างชำระ กับ แจกเสร็จสิ้น) */
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
+                  
+                  {/* BOX 1: ค้างชำระ (Pending Payment / Debt) */}
+                  <div className="rounded-2xl bg-gradient-to-b from-[#18131d] via-[#120f18] to-[#0a0710] border border-amber-500/40 p-4 shadow-xl flex flex-col space-y-3">
+                    <div className="flex items-center justify-between pb-2.5 border-b border-amber-500/20">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-inner">
+                          <Clock className="w-4 h-4 animate-pulse" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-amber-200 font-cinzel">
+                            {lang === 'th' ? 'รายการค้างชำระเพชร' : 'Pending Diamond Payments'}
+                          </h3>
+                          <p className="text-[11px] text-amber-400/80">
+                            {lang === 'th' ? 'ไอเทมที่แจกแล้วแต่ยังรอชำระเพชรเข้ากองทุน' : 'Distributed items awaiting diamond payment'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          {incompleteDistributedItems.length} {lang === 'th' ? 'รายการ' : 'items'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {incompleteDistributedItems.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-500 border border-dashed border-slate-800/80 rounded-xl space-y-1 bg-[#090d16]/50">
+                        <CheckCircle className="w-7 h-7 mx-auto text-emerald-400/60" />
+                        <p className="text-emerald-400 font-semibold">{lang === 'th' ? 'ไม่มีรายการค้างชำระ' : 'No pending payments'}</p>
+                        <p className="text-[10px] text-slate-400">{lang === 'th' ? 'สมาชิกทุกคนชำระเพชรครบถ้วนแล้ว' : 'All members have cleared their balances'}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
+                        {incompleteDistributedItems.map((item) => renderDistributedCard(item, true))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* BOX 2: แจกเสร็จสิ้น (Completed Distributions) */}
+                  <div className="rounded-2xl bg-gradient-to-b from-[#101b2b] via-[#0b1320] to-[#070b14] border border-emerald-500/40 p-4 shadow-xl flex flex-col space-y-3">
+                    <div className="flex items-center justify-between pb-2.5 border-b border-emerald-500/20">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-inner">
+                          <CheckCircle className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-emerald-200 font-cinzel">
+                            {lang === 'th' ? 'แจกเสร็จสิ้นแล้ว' : 'Completed Distributions'}
+                          </h3>
+                          <p className="text-[11px] text-emerald-400/80">
+                            {lang === 'th' ? 'ไอเทมที่ชำระแล้วหรือแจกฟรี เรียงล่าสุดบนสุด' : 'Paid and free items, sorted latest first'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                          {completeDistributedItems.length} {lang === 'th' ? 'รายการ' : 'items'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {completeDistributedItems.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-500 border border-dashed border-slate-800/80 rounded-xl space-y-1 bg-[#090d16]/50">
+                        <Gift className="w-7 h-7 mx-auto text-slate-600" />
+                        <p>{lang === 'th' ? 'ยังไม่มีประวัติการแจก' : 'No completed distributions yet'}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
+                        {completeDistributedItems.map((item) => renderDistributedCard(item, false))}
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              ) : (
+                /* Table View */
+                <div className="space-y-3">
+                  {/* Category Filter Pills: All / Incomplete / Complete */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playClick();
+                    setDistFilterStatus('all');
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    distFilterStatus === 'all'
+                      ? 'bg-gradient-to-r from-sky-600 to-blue-600 text-white shadow-md'
+                      : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
+                >
+                  <span>{lang === 'th' ? 'ทั้งหมด' : 'All'}</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
+                    {distributedItems.length}
+                  </span>
+                </button>
+
+                {incompleteDistributedItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setDistFilterStatus('incomplete');
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      distFilterStatus === 'incomplete'
+                        ? 'bg-gradient-to-r from-amber-600 to-yellow-600 text-slate-950 font-black shadow-md'
+                        : 'bg-amber-950/40 hover:bg-amber-950/60 text-amber-300 border border-amber-600/40'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    <span>{t.boxIncompleteDist}</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
+                      {incompleteDistributedItems.length}
+                    </span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playClick();
+                    setDistFilterStatus('complete');
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    distFilterStatus === 'complete'
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                      : 'bg-emerald-950/40 hover:bg-emerald-950/60 text-emerald-300 border border-emerald-600/40'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <span>{t.boxCompleteDist}</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
+                    {completeDistributedItems.length}
+                  </span>
+                </button>
+              </div>
+
+              {displayedDistributedItems.length === 0 ? (
+                <div className="p-8 rounded-xl bg-[#0c121e] border border-slate-800 text-center text-xs text-slate-500">
+                  {lang === 'th' ? 'ไม่มีรายการในหมวดหมู่นี้' : 'No items in this category'}
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-800 bg-[#0d1422] shadow-xl">
+                  <table className="w-full text-left text-xs text-slate-300 min-w-[760px]">
+                    <thead className="bg-[#090d16] text-[11px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                      <tr>
+                        <th className="py-3 px-4">{t.itemImage}</th>
+                        <th className="py-3 px-4">{t.itemName}</th>
+                        <th className="py-3 px-4 text-center">{t.itemQuantityLabel || t.itemQuantity}</th>
+                        <th className="py-3 px-4">{t.itemRarity}</th>
+                        <th className="py-3 px-4">{t.itemPrice}</th>
+                        <th className="py-3 px-4">{t.distributedTo}</th>
+                        <th className="py-3 px-4">{t.distributedDate}</th>
+                        <th className="py-3 px-4 min-w-[170px]">{lang === 'th' ? 'รูปรายชื่อผู้ล่า' : 'Hunter Proofs'}</th>
+                        <th className="py-3 px-4 min-w-[160px]">{t.receiptBills}</th>
+                        <th className="py-3 px-4 text-right">{t.actions}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {displayedDistributedItems.map((item) => (
                     <tr key={item.id} className="hover:bg-[#121a2c]/60 transition-colors">
                       
                       {/* 1. Item Image (Click to Zoom) */}
@@ -3047,7 +3017,14 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
                       {/* 2. Item Name */}
                       <td className={`py-3 px-4 font-bold text-slate-100 ${getRarityTextGlow(item.rarity)}`}>
-                        {item.name}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{item.name}</span>
+                          {item.source === 'item_queue' && (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-cyan-950/80 border border-cyan-500/50 text-cyan-300">
+                              {lang === 'th' ? 'คิวไอเทม' : 'Queue'}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Quantity */}
@@ -3429,6 +3406,10 @@ export const VaultView: React.FC<VaultViewProps> = ({
           )}
         </div>
       )}
+    </div>
+  )}
+</div>
+)}
 
       {/* IN-APP CONFIRM DELETE VAULT ITEM MODAL */}
       {itemToDelete && (
@@ -3798,6 +3779,268 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     ? (lang === 'th' ? 'กำลังล้างข้อมูล...' : 'Purging...')
                     : (lang === 'th' ? 'ยืนยันล้างข้อมูล' : 'Confirm Purge')}
                 </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HUNTER CHECKLIST SELECTION MODAL */}
+      {showHunterChecklistModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-4xl max-h-[90vh] rounded-2xl bg-gradient-to-b from-[#111827] via-[#0d1322] to-[#070b14] border border-[#d4af37]/40 shadow-2xl flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-4 border-b border-slate-800 bg-[#0c1220] flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <UserCheck className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                    <span>{t.hunterChecklistTitle}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">
+                      {hunters.length} / {activeMembersList.length} {t.selectedHuntersCount}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">{t.hunterChecklistDesc}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHunterChecklistModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Toolbar: Search + Filter Tabs + Batch Actions */}
+            <div className="p-3 border-b border-slate-800/80 bg-[#090e1a] space-y-2.5">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+                {/* Search bar */}
+                <div className="relative flex-1">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    value={hunterSearchQuery}
+                    onChange={(e) => setHunterSearchQuery(e.target.value)}
+                    placeholder={t.searchMembersList}
+                    className="w-full pl-8 pr-8 py-1.5 rounded-lg bg-[#141b2d] border border-slate-700/80 hover:border-slate-600 focus:border-[#d4af37] text-xs text-slate-100 placeholder-slate-500 focus:outline-none"
+                  />
+                  {hunterSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setHunterSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-white"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Batch select / deselect */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllFiltered}
+                    className="px-2.5 py-1.5 rounded-lg bg-sky-950/70 hover:bg-sky-900 border border-sky-600/50 hover:border-sky-500 text-sky-300 text-xs font-semibold transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5" />
+                    <span>{t.selectAllMembers}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeselectAllFiltered}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-slate-300 text-xs font-semibold transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <Square className="w-3.5 h-3.5" />
+                    <span>{t.deselectAllMembers}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Clan Filter Tabs */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+                <button
+                  type="button"
+                  onClick={() => setHunterClanFilter('all')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer shrink-0 ${
+                    hunterClanFilter === 'all'
+                      ? 'bg-amber-500 text-slate-950 shadow-sm'
+                      : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {t.allClansFilter} ({activeMembersList.length})
+                </button>
+                {(Object.entries(membersByClan) as [string, User[]][]).map(([clanName, cMembers]) => {
+                  const clanSelectedCount = cMembers.filter((m) =>
+                    selectedHunterNameSet.has(m.inGameName.trim().toLowerCase())
+                  ).length;
+                  return (
+                    <button
+                      key={clanName}
+                      type="button"
+                      onClick={() => setHunterClanFilter(clanName)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer shrink-0 flex items-center gap-1.5 ${
+                        hunterClanFilter === clanName
+                          ? 'bg-sky-600 text-white shadow-sm'
+                          : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <span>{clanName}</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/30 font-mono">
+                        {clanSelectedCount}/{cMembers.length}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Body: 2-Channel Clan Layout */}
+            <div className="p-4 overflow-y-auto flex-1 custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {(Object.entries(membersByClan) as [string, User[]][])
+                  .filter(([cName]) => hunterClanFilter === 'all' || hunterClanFilter.toLowerCase() === cName.toLowerCase())
+                  .map(([clanName, cMembers]) => {
+                    const visibleMembers = cMembers.filter((m) => {
+                      if (!hunterSearchQuery.trim()) return true;
+                      const q = hunterSearchQuery.trim().toLowerCase();
+                      return (
+                        m.inGameName.toLowerCase().includes(q) ||
+                        m.clan.toLowerCase().includes(q) ||
+                        (m.characterClass && m.characterClass.toLowerCase().includes(q))
+                      );
+                    });
+
+                    const selectedInThisClan = cMembers.filter((m) =>
+                      selectedHunterNameSet.has(m.inGameName.trim().toLowerCase())
+                    ).length;
+
+                    return (
+                      <div
+                        key={clanName}
+                        className="rounded-xl border border-slate-800 bg-[#090e1a] p-3 flex flex-col shadow-md hover:border-slate-700/80 transition-colors"
+                      >
+                        {/* Clan Header */}
+                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800/80">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Shield className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span className="text-xs font-bold text-amber-300 truncate">{clanName}</span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono shrink-0">
+                              {selectedInThisClan} / {cMembers.length}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sounds.playClick();
+                                const targetMembers = visibleMembers.length > 0 ? visibleMembers : cMembers;
+                                const currentNames = new Set(hunters.map((h) => h.name.trim().toLowerCase()));
+                                const toAdd: HunterRecord[] = [];
+                                targetMembers.forEach((m) => {
+                                  const key = m.inGameName.trim().toLowerCase();
+                                  if (!currentNames.has(key)) {
+                                    toAdd.push({ name: m.inGameName.trim(), clan: cleanClanName(m.clan) || cleanClanName(clanName) || 'VoltZ' });
+                                    currentNames.add(key);
+                                  }
+                                });
+                                if (toAdd.length > 0) setHunters((prev) => [...prev, ...toAdd]);
+                              }}
+                              className="px-2 py-0.5 rounded bg-sky-950/80 hover:bg-sky-900 border border-sky-600/50 text-sky-300 text-[10px] font-semibold transition cursor-pointer"
+                            >
+                              {t.selectEntireClan}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sounds.playClick();
+                                const targetKeys = new Set(
+                                  (visibleMembers.length > 0 ? visibleMembers : cMembers).map((m) =>
+                                    m.inGameName.trim().toLowerCase()
+                                  )
+                                );
+                                setHunters((prev) => prev.filter((h) => !targetKeys.has(h.name.trim().toLowerCase())));
+                              }}
+                              className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[10px] font-semibold transition cursor-pointer"
+                            >
+                              {t.clearEntireClan}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Members Grid inside clan */}
+                        <div className="max-h-[300px] overflow-y-auto pr-1 space-y-1.5 custom-scrollbar flex-1">
+                          {visibleMembers.length === 0 ? (
+                            <div className="p-4 rounded-lg bg-[#060a12] border border-slate-800/80 text-center text-[11px] text-slate-500">
+                              {lang === 'th' ? 'ไม่พบสมาชิกที่ค้นหา' : 'No matching members'}
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              {visibleMembers.map((member) => {
+                                const isSelected = selectedHunterNameSet.has(
+                                  member.inGameName.trim().toLowerCase()
+                                );
+                                return (
+                                  <div
+                                    key={member.id}
+                                    onClick={() => handleToggleHunterMember(member)}
+                                    className={`px-2 py-1.5 rounded-lg border transition cursor-pointer flex items-center gap-1.5 select-none hover:scale-[1.01] active:scale-[0.99] ${
+                                      isSelected
+                                        ? 'bg-[#d4af37]/20 border-[#d4af37] text-amber-200 shadow-[0_0_8px_rgba(212,175,55,0.2)]'
+                                        : 'bg-[#060a12] border-slate-800/80 hover:border-slate-700 text-slate-300 hover:bg-[#0c1220]'
+                                    }`}
+                                  >
+                                    <div
+                                      className={`w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 border transition ${
+                                        isSelected
+                                          ? 'bg-[#d4af37] border-[#d4af37] text-slate-950 font-bold'
+                                          : 'border-slate-600 bg-[#141b2b]'
+                                      }`}
+                                    >
+                                      {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                                    </div>
+
+                                    <div className="min-w-0 flex-1 flex items-center justify-between gap-1">
+                                      <span className={`text-[11px] font-bold truncate ${isSelected ? 'text-amber-200' : 'text-slate-200'}`}>
+                                        {member.inGameName}
+                                      </span>
+                                      {member.powerLevel ? (
+                                        <span className="text-[9.5px] text-amber-400/90 font-mono shrink-0">
+                                          ⚡{(member.powerLevel / 1000).toFixed(0)}k
+                                        </span>
+                                      ) : member.characterClass ? (
+                                        <span className="text-[9px] text-slate-500 truncate shrink-0">
+                                          {member.characterClass}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 border-t border-slate-800 bg-[#0a0f1d] flex items-center justify-between">
+              <span className="text-xs text-slate-300 font-medium">
+                {lang === 'th' ? `เลือกแล้วทั้งหมด ${hunters.length} คน` : `Total selected: ${hunters.length}`}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playClaim();
+                  setShowHunterChecklistModal(false);
+                }}
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-950 font-bold text-xs shadow-md hover:brightness-110 cursor-pointer"
+              >
+                {lang === 'th' ? `✓ ยืนยันรายชื่อ (${hunters.length} คน)` : `✓ Confirm Hunters (${hunters.length})`}
               </button>
             </div>
           </div>

@@ -185,15 +185,15 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.28-clan-hub-fresh-cutoff';
+const CACHE_SCHEMA_VERSION = '2.10.50-draggable-item-queue-cards';
 export const CACHE_KEYS = {
-  USERS: 'l2m_cached_users_v21028',
-  VAULT_ITEMS: 'l2m_cached_vault_items_v21028',
-  QUEUES: 'l2m_cached_queues_v21028',
-  CLANS: 'l2m_cached_clans_v21028',
-  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21028',
-  QUICK_ITEMS: 'l2m_cached_quick_items_v21028',
-  GENERAL_ITEMS: 'l2m_cached_general_items_v21028'
+  USERS: 'l2m_cached_users_v21032',
+  VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
+  QUEUES: 'l2m_cached_queues_v21032',
+  CLANS: 'l2m_cached_clans_v21032',
+  DIAMOND_TXS: 'l2m_cached_diamond_txs_v21032',
+  QUICK_ITEMS: 'l2m_cached_quick_items_v21032',
+  GENERAL_ITEMS: 'l2m_cached_general_items_v21032'
 };
 
 export function clearAllLocalCaches(): void {
@@ -212,9 +212,7 @@ export function clearAllLocalCaches(): void {
     localStorage.removeItem('k7_announcement_text');
     localStorage.removeItem('l2m_pending_firebase_sync');
     localStorage.removeItem('l2m_pending_firebase_sync_at');
-    localStorage.removeItem('l2m_read_notifications');
-    localStorage.removeItem('l2m_dismissed_notifications');
-    localStorage.removeItem('l2m_notification_history');
+    // Notification read/dismissed state is synchronized via Firestore and should NOT be deleted on cache bump
     localStorage.removeItem('k7_active_session_user');
     localStorage.removeItem('k7_logged_user');
     localStorage.removeItem('k7_user');
@@ -3204,6 +3202,26 @@ export async function deleteGeneralItemDoc(itemId: string) {
   bumpSystemVersion('generalItemsVersion').catch(() => {});
 }
 
+export async function batchUpdateGeneralItemsOrder(itemsWithOrder: { id: string; sortOrder: number; isPinned?: boolean }[]) {
+  if (!itemsWithOrder || itemsWithOrder.length === 0) return;
+  const chunkSize = 400;
+  const now = Date.now();
+  for (let i = 0; i < itemsWithOrder.length; i += chunkSize) {
+    const chunk = itemsWithOrder.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    chunk.forEach(({ id, sortOrder, isPinned }) => {
+      const ref = doc(db, GENERAL_ITEMS_COLLECTION, id);
+      const updateData: any = { sortOrder, updatedAt: now };
+      if (typeof isPinned === 'boolean') {
+        updateData.isPinned = isPinned;
+      }
+      batch.set(ref, sanitizeForFirestore(updateData), { merge: true });
+    });
+    await safeFirestoreWrite(batch.commit(), 2500, 'batchUpdateGeneralItemsOrder');
+  }
+  bumpSystemVersion('generalItemsVersion').catch(() => {});
+}
+
 // 5. Clans Firestore functions
 export function listenToClans(callback: (clans: ClanGroup[]) => void) {
   const initialClans = getCachedClans();
@@ -3863,6 +3881,107 @@ export async function saveFormulaSettingsDoc(settings: FormulaSettings) {
   const ref = doc(db, APP_SETTINGS_COLLECTION, 'power_formula');
   await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveFormulaSettingsDoc');
   bumpSystemVersion('settingsVersion').catch(() => {});
+}
+
+// 15. In-App Notifications Read/Dismissed Sync State (Synchronizes across all devices and browsers)
+export interface NotificationsSyncState {
+  readIds: string[];
+  dismissedIds: string[];
+  updatedAt?: number;
+  updatedBy?: string;
+}
+
+export const DEFAULT_NOTIFICATIONS_STATE: NotificationsSyncState = {
+  readIds: [],
+  dismissedIds: [],
+  updatedAt: 0
+};
+
+export function listenToNotificationsState(
+  callback: (state: NotificationsSyncState) => void
+) {
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'notifications_state');
+  return onSnapshot(
+    ref,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as NotificationsSyncState;
+        const readIds = Array.isArray(data.readIds) ? data.readIds : [];
+        const dismissedIds = Array.isArray(data.dismissedIds) ? data.dismissedIds : [];
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('l2m_read_notifications', JSON.stringify(readIds));
+            localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(dismissedIds));
+          }
+        } catch {}
+        callback({
+          readIds,
+          dismissedIds,
+          updatedAt: data.updatedAt || 0,
+          updatedBy: data.updatedBy || ''
+        });
+      } else {
+        let cachedRead: string[] = [];
+        let cachedDismissed: string[] = [];
+        try {
+          if (typeof localStorage !== 'undefined') {
+            const r = localStorage.getItem('l2m_read_notifications');
+            if (r) cachedRead = JSON.parse(r);
+            const d = localStorage.getItem('l2m_dismissed_notifications');
+            if (d) cachedDismissed = JSON.parse(d);
+          }
+        } catch {}
+        callback({
+          readIds: cachedRead,
+          dismissedIds: cachedDismissed,
+          updatedAt: 0
+        });
+      }
+    },
+    (err) => {
+      console.warn('Firestore notifications sync notice:', err);
+      let cachedRead: string[] = [];
+      let cachedDismissed: string[] = [];
+      try {
+        if (typeof localStorage !== 'undefined') {
+          const r = localStorage.getItem('l2m_read_notifications');
+          if (r) cachedRead = JSON.parse(r);
+          const d = localStorage.getItem('l2m_dismissed_notifications');
+          if (d) cachedDismissed = JSON.parse(d);
+        }
+      } catch {}
+      callback({
+        readIds: cachedRead,
+        dismissedIds: cachedDismissed,
+        updatedAt: 0
+      });
+    }
+  );
+}
+
+export async function saveNotificationsStateDoc(
+  updates: { readIds?: string[]; dismissedIds?: string[]; updatedBy?: string }
+) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (updates.readIds) {
+        localStorage.setItem('l2m_read_notifications', JSON.stringify(updates.readIds));
+      }
+      if (updates.dismissedIds) {
+        localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(updates.dismissedIds));
+      }
+    }
+  } catch {}
+
+  const cleanData = sanitizeForFirestore({
+    ...(updates.readIds ? { readIds: updates.readIds.slice(-500) } : {}),
+    ...(updates.dismissedIds ? { dismissedIds: updates.dismissedIds.slice(-500) } : {}),
+    updatedAt: Date.now(),
+    updatedBy: updates.updatedBy || 'admin'
+  });
+
+  const ref = doc(db, APP_SETTINGS_COLLECTION, 'notifications_state');
+  await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveNotificationsStateDoc');
 }
 
 export async function resetAllUserStatsDoc(): Promise<number> {

@@ -1,4 +1,9 @@
-# Workspace Rules & Guidelines for Lineage2M Clan Hub
+# 🛡️ Workspace Rules & Engineering Guidelines (v2.10.50)
+
+> **Lineage 2M Clan Hub & Boss Item Vault**  
+> เอกสารฉบับนี้กำหนด **กฎเหล็กภาคบังคับ 7 ข้อ** สำหรับนักพัฒนาและ AI Agent ทุกตัวที่เข้ามารับช่วงงานต่อในโปรเจกต์นี้ เพื่อรักษามาตรฐานความเสถียร ความปลอดภัย และป้องกันโค้ดเสียหาย 100%
+
+---
 
 ## 1. กฎเหล็ก: ระบบสองภาษา 100% ทุกการแก้ไข (Mandatory Bilingual TH & EN)
 
@@ -8,7 +13,7 @@
 1. **องค์ประกอบ UI ทุกจุดต้องมี 2 ภาษา:**
    - หัวข้อ (Headers), คำอธิบาย (Subtitles / Descriptions)
    - ป้ายระบุ (Badges / Tags), ตัวเลือก (Options / Dropdowns)
-   - ปุ่มกด (Buttons), ข้อความกำกับ (Tooltips)
+   - ปุ่มกด (Buttons), ข้อความกำกับ (Tooltips `title=...`)
    - กล่องข้อความ (Inputs, Placeholders, Textareas)
    - ข้อความแจ้งเตือน (Toast Notifications, Alerts, Error Messages)
    - เหตุผลสำเร็จรูป (Quick Presets เช่น Rejection reasons, Quick filter tags)
@@ -19,7 +24,7 @@
    // แบบที่ 1: ใช้ translations dictionary
    <span>{t.appTitle}</span>
 
-   // แบบที่ 2: ใช้ conditional ตาม lang prop
+   // แบบที่ 2: ใช้ conditional ตาม lang / th prop
    <span>{lang === 'th' ? 'ข้อความภาษาไทย' : 'English message'}</span>
 
    // แบบที่ 3: อาร์เรย์หรือชุดตัวเลือก (Presets / Reasons)
@@ -38,28 +43,34 @@
 ## 2. กฎการ Deploy และ Git (Local First Rule)
 - ทุกการแก้ไขต้องทำและทดสอบบนเครื่อง Local ก่อนเท่านั้น (`http://localhost:3000`)
 - **ห้าม** รันคำสั่ง `git push` หรือ deploy ขึ้น Vercel (`vercel --prod`) จนกว่าผู้ใช้งานจะพิมพ์สั่งยืนยันให้อัปโหลดอย่างชัดเจน
+- ก่อนส่งต่องานหรือแจ้งผู้ใช้ว่าเสร็จสิ้น ต้องรัน `tsc --noEmit` (0 error) และ `vite build` ให้ผ่านสมบูรณ์ก่อนเสมอ
 
 ---
 
-## 3. สิทธิ์และการอนุมัติค่าพลัง (Security & Permissions)
+## 3. สิทธิ์และการคุ้มครองความปลอดภัย (Security & Permissions)
+- **บัญชี Owner สูงสุด (`eloni`):** ห้ามลดสิทธิ์ และมีระบบคุ้มครอง Immutable Role
 - **Gemini AI OCR Key:** ปุ่มตั้งค่า API Key ต้องมองเห็นและแก้ไขได้เฉพาะ `Owner` เท่านั้น
 - **การอนุมัติสเตตัส (Stat Approvals):** เมื่อสมาชิกส่งการแก้ไขสเตตัส ตัวเลขจะอยู่ในสถานะ `Pending` เท่านั้น ค่าพลังจริง (`Verified Power`) จะอัปเดตต่อเมื่อ Admin หรือ Owner ตรวจสอบเทียบกับภาพสกรีนช็อตและกดยืนยันอนุมัติแล้ว
+- **การจัดการรหัสผ่าน:** สมาชิกเปลี่ยนรหัสตนเองได้, Admin เปลี่ยนรหัส Member/Party Leader ได้, Owner เปลี่ยนรหัสทุกคนได้
 
 ---
 
 ## 4. การเรียก Node บน Windows (ห้ามเกิดป๊อปอัป `Select an app to open 'npm'`)
 
 - ในเครื่องนี้ **ห้ามเรียก `npm` แบบชื่อเปล่า** เช่น `npm run build`, `npm run lint` หรือ `npm audit` เพราะ Windows อาจตีความ `npm` เป็น protocol/file และเปิดหน้าต่างถามเลือกแอป
-- ห้ามเปลี่ยนไปใช้ `pnpm` กับ `node_modules` เดิมโดยตรง เพราะ dependency ชุดนี้ติดตั้งด้วย npm และ pnpm อาจย้ายแพ็กเกจไป `node_modules/.ignored`
-- ให้ตรวจตำแหน่ง runtime จาก Codex Workspace Dependencies ก่อน แล้วเรียก Node ด้วย absolute path
-- สำหรับคำสั่งทดสอบที่มี JavaScript entrypoint ให้ใช้รูปแบบนี้:
+- ห้ามเปลี่ยนไปใช้ `pnpm` กับ `node_modules` เดิมโดยตรง เพราะ dependency ชุดนี้ติดตั้งด้วย npm
+- สำหรับคำสั่งทดสอบและคำสั่งพัฒนา ให้ใช้รูปแบบการเรียก Node ด้วย Absolute Path ดังนี้:
 
   ```powershell
-  & 'C:\Users\tinna\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' 'node_modules\typescript\bin\tsc' --noEmit
-  & 'C:\Users\tinna\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' 'node_modules\vite\bin\vite.js' build
-  ```
+  # รัน TypeScript Typecheck
+  & 'C:\Program Files\nodejs\node.exe' 'node_modules\typescript\bin\tsc' --noEmit
 
-- หากต้องใช้ npm จริง ให้ค้นหาและเรียก `npm.cmd` หรือ `npm-cli.js` ด้วย absolute path ที่ตรวจสอบแล้วเท่านั้น ห้ามเดาพาธและห้ามใช้คำว่า `npm` เดี่ยว ๆ
+  # รัน Vite Production Build
+  & 'C:\Program Files\nodejs\node.exe' 'node_modules\vite\bin\vite.js' build
+
+  # รันเซิร์ฟเวอร์แบบ Full-Stack
+  & 'C:\Program Files\nodejs\node.exe' 'node_modules/tsx/dist/cli.mjs' server.ts
+  ```
 
 ---
 
@@ -89,23 +100,37 @@
 
 ## 6. สถาปัตยกรรม Zero-Downtime และกฎ Firestore Quota (`safeFirestoreWrite`)
 
-**สำคัญมาก:** อ่านรายละเอียดเชิงลึกและไดอะแกรมสถาปัตยกรรม 5 ชั้นที่ [ARCHITECTURE_AND_RESILIENCE.md](file:///d:/Anti%20webapp/ARCHITECTURE_AND_RESILIENCE.md)
+**สำคัญมาก:** อ่านรายละเอียดเชิงลึกและไดอะแกรมสถาปัตยกรรม 5 ชั้นที่ [ARCHITECTURE.md](ARCHITECTURE.md)
 1. **ห้ามเรียก `await setDoc()`, `await updateDoc()` หรือ `await deleteDoc()` โดยไม่มี Timeout Guard เด็ดขาด:**
    - เมื่อโควต้าฟรีรายวันของ Firestore เต็ม (`RESOURCE_EXHAUSTED`) คำสั่ง write จะค้างรอ retry นาน 30–60 วินาที ทำให้ปุ่มกดในแอพ (เช่น ปุ่มบันทึกการตั้งค่า หรือปุ่มเพิ่มไอเทม) ค้างอยู่ที่ `"กำลังบันทึก..."` หรือ `"กำลังโหลด..."`
-   - ต้องครอบด้วย `safeFirestoreWrite(promise, 1200, opName)` เสมอ เพื่อให้คำสั่ง resolve ภายใน 1.2 วินาที
+   - ต้องครอบด้วย `safeFirestoreWrite(promise, 1500, opName)` เสมอ เพื่อให้คำสั่ง resolve ภายใน 1.5 วินาที
 2. **ลำดับการบันทึกข้อมูล (Failover Priority):**
    - ต้องทำ **Optimistic Update** ใน React State (< 1ms)
-   - บันทึกลง LocalStorage (`setCachedVaultItems`, `setCachedUsers`, `setCachedDiscordSettings`) ทันที
+   - บันทึกลง LocalStorage (`setCachedGeneralItems`, `setCachedVaultItems`, `setCachedUsers`) ทันที
    - ยิงบรอดแคสต์ข้ามเครื่องผ่าน Live State Relay Server (`/api/live-state`) ทันที
    - สำรองข้อมูลอัตโนมัติลง Google Sheets / Drive
    - พยายามเขียนลง Firestore ผ่าน `safeFirestoreWrite` โดยไม่ให้ขัดขวางการทำงานของผู้ใช้
 
 ---
 
-## 7. กฎเวอร์ชันสำหรับการส่งต่องาน
+## 7. กฎเวอร์ชันสำหรับการส่งต่องาน (Version Synchronization Rule)
 
-- ทุกครั้งที่แก้ไขโค้ดหรือพฤติกรรมของระบบ ต้องเพิ่มเวอร์ชัน SemVer ใน `package.json` และ `package-lock.json` ก่อนส่งต่องาน
-- ต้องอัปเดตเลขเวอร์ชันที่แสดงในหน้า Login, Navbar และ Sidebar ให้ตรงกัน
-- หากการเปลี่ยนแปลงกระทบโครงสร้างข้อมูลหรือ Cache ต้องเพิ่ม `CACHE_SCHEMA_VERSION` ใน `src/services/firebase.ts` ด้วย เพื่อให้ผู้ใช้ล้างข้อมูลเก่าอัตโนมัติ
-- ผู้รับช่วงงานต้องตรวจว่าเลขเวอร์ชันทุกจุดตรงกันและ Build ผ่านก่อนถือว่างานเสร็จ
+- ทุกครั้งที่มีการแก้ไขโค้ดหรือพฤติกรรมของระบบ **ต้องเพิ่มเวอร์ชัน SemVer ใน 6 ไฟล์สำคัญเสมอ** ก่อนส่งต่องาน:
+  1. `package.json`
+  2. `src/services/firebase.ts` (ปรับ `CACHE_SCHEMA_VERSION` หากกระทบโครงสร้างข้อมูล)
+  3. `src/components/Sidebar.tsx`
+  4. `src/components/Navbar.tsx`
+  5. `src/components/LoginScreen.tsx`
+  6. `src/components/GoogleDriveBackupModal.tsx`
+- ผู้รับช่วงงานต้องตรวจว่าเลขเวอร์ชันทุกจุดตรงกันและ Build ผ่านก่อนถือว่างานเสร็จสิ้น
 
+---
+
+## 📚 เอกสารอ้างอิงหลักในระบบ (Master Documentation Suite)
+
+| เอกสาร | วัตถุประสงค์ |
+| :--- | :--- |
+| 📖 **[README.md](README.md)** | ภาพรวมโครงการ, สแต็กเทคโนโลยี, คำสั่งรันโปรเจกต์, และโครงสร้างไดเรกทอรี |
+| 🏗️ **[ARCHITECTURE.md](ARCHITECTURE.md)** | สถาปัตยกรรมระบบ 5 ชั้น, สคีมาข้อมูล และระบบซิงก์ข้อมูลแบบเรียลไทม์ |
+| 🎮 **[WORKFLOWS_AND_FEATURES.md](WORKFLOWS_AND_FEATURES.md)** | รายละเอียด UI/UX, ระบบคิวและการลากสลับตำแหน่ง (v2.10.50), การแจกของ และ AI OCR |
+| 🚀 **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** | เช็คลิสต์ก่อน Deploy, การตั้งค่า Environment Variables, และ Runbook ฉุกเฉิน |

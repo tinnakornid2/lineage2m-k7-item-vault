@@ -147,7 +147,12 @@ export interface GeneralItem {
   price: number;
   quantity: number;
   minPowerLevel: number;
+  maxRequestQuantity?: number;
+  allowMemberQueue?: boolean;
+  isPinned?: boolean;
+  sortOrder?: number;
   rarity: ItemRarity;
+  receiptPolicy?: 'per_delivery' | 'on_complete' | 'optional';
   queueList: QueueMember[];
   receiptHistory: GeneralItemReceipt[];
   createdAt: number;
@@ -160,12 +165,19 @@ export interface GeneralItemReceipt {
   name: string;
   clan: string;
   quantity: number;
+  requestedQuantity?: number;
   diamondPrice?: number;
   totalDiamonds?: number;
   receiptImages: string[];
+  hunterScreenshots?: string[];
+  billingType?: 'immediate' | 'on_complete';
   note?: string;
   deliveredAt: number;
   deliveredBy: string;
+  itemId?: string;
+  itemName?: string;
+  itemRarity?: ItemRarity;
+  itemImageUrl?: string;
   updatedAt?: number;
 }
 
@@ -192,6 +204,7 @@ export interface DistributedInfo {
   paymentStatus?: 'pending' | 'paid';
   paidAt?: number;
   paidBy?: string;
+  source?: 'vault' | 'item_queue';
 }
 
 export interface DirectDistributionPayload {
@@ -202,7 +215,8 @@ export interface DirectDistributionPayload {
     userId?: string;
   };
   receiptImages?: string[];
-  paymentStatus: 'pending' | 'paid';
+  paymentStatus?: 'pending' | 'paid';
+  skipDiscordNotification?: boolean;
 }
 
 export interface VaultItem {
@@ -222,6 +236,7 @@ export interface VaultItem {
   paymentStatus?: 'pending' | 'paid';
   paidAt?: number;
   paidBy?: string;
+  source?: 'vault' | 'item_queue';
   createdAt: number;
   updatedAt?: number;
 }
@@ -288,7 +303,10 @@ export interface QueueMember {
   name: string;
   clan: string;
   powerLevel?: number;
-  status: 'pending' | 'received';
+  characterClass?: string;
+  requestedQuantity?: number;
+  receivedQuantity?: number;
+  status: 'pending' | 'partially_received' | 'received';
   receivedAt?: number;
   joinedAt?: number;
 }

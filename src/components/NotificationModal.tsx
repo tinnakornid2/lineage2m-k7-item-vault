@@ -3,6 +3,7 @@ import {
   Bell,
   X,
   CheckCheck,
+  Check,
   Sparkles,
   Gift,
   Zap,
@@ -32,6 +33,7 @@ interface NotificationModalProps {
   lang: Language;
   notifications: AppNotification[];
   onMarkAllAsRead: () => void;
+  onMarkAsRead?: (id: string) => void;
   onClearNotifications: () => void;
   onDeleteNotification?: (id: string) => void;
   onOpenDistributeModal?: (item: VaultItem) => void;
@@ -46,6 +48,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   lang,
   notifications,
   onMarkAllAsRead,
+  onMarkAsRead,
   onClearNotifications,
   onDeleteNotification,
   onOpenDistributeModal,
@@ -252,9 +255,15 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               return (
                 <div
                   key={notif.id}
+                  onClick={() => {
+                    if (!notif.read && onMarkAsRead) {
+                      sounds.playClick();
+                      onMarkAsRead(notif.id);
+                    }
+                  }}
                   className={`p-3 rounded-xl border transition-all relative group flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
                     !notif.read
-                      ? 'bg-[#141e33]/90 border-amber-500/40 shadow-md ring-1 ring-amber-500/20'
+                      ? 'bg-[#141e33]/90 border-amber-500/40 shadow-md ring-1 ring-amber-500/20 cursor-pointer hover:border-amber-400'
                       : 'bg-[#0a0f1a]/80 border-slate-800/80 hover:border-slate-700'
                   }`}
                 >
@@ -268,7 +277,8 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     {isClaim && notif.item ? (
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           sounds.playClick();
                           if (notif.item) {
                             onViewImageZoom?.(notif.item.imageUrl, notif.item.name);
@@ -339,8 +349,10 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                       onNavigateTab && (
                         <button
                           type="button"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             sounds.playClick();
+                            onMarkAsRead?.(notif.id);
                             onNavigateTab('queue');
                             onClose();
                           }}
@@ -356,8 +368,10 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                         {onViewClaimants && (
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               sounds.playClick();
+                              onMarkAsRead?.(notif.id);
                               onViewClaimants(notif.item!);
                               onClose();
                             }}
@@ -372,8 +386,10 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                         {onOpenDistributeModal && (
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               sounds.playClick();
+                              onMarkAsRead?.(notif.id);
                               onOpenDistributeModal(notif.item!);
                               onClose();
                             }}
@@ -390,8 +406,10 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     {notif.type === 'member_registration' && onNavigateTab ? (
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           sounds.playClick();
+                          onMarkAsRead?.(notif.id);
                           onNavigateTab('all_members');
                           onClose();
                         }}
@@ -403,8 +421,10 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     ) : !isClaim && onNavigateTab ? (
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           sounds.playClick();
+                          onMarkAsRead?.(notif.id);
                           onNavigateTab('stat_approvals');
                           onClose();
                         }}
@@ -414,6 +434,23 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                         <span>{lang === 'th' ? 'ตรวจสเตตัส' : 'Review Stats'}</span>
                       </button>
                     ) : null}
+
+                    {/* Mark this notification as read button */}
+                    {!notif.read && onMarkAsRead && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          sounds.playClick();
+                          onMarkAsRead(notif.id);
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 border border-transparent hover:border-emerald-500/30 transition-all cursor-pointer"
+                        title={lang === 'th' ? 'ทำเครื่องหมายว่าอ่านแล้ว' : 'Mark as read'}
+                        aria-label={lang === 'th' ? 'ทำเครื่องหมายว่าอ่านแล้ว' : 'Mark as read'}
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                    )}
 
                     {onDeleteNotification && (
                       <button

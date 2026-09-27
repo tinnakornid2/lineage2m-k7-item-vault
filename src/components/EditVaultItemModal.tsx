@@ -575,10 +575,10 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
                     onChange={(e) => setRarity(e.target.value as ItemRarity)}
                     className="w-full px-2 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs focus:border-[#d4af37] focus:outline-none cursor-pointer"
                   >
-                    <option value="RARE">{lang === 'th' ? 'RARE (ฟ้า)' : 'RARE (Blue)'}</option>
-                    <option value="EPIC">{lang === 'th' ? 'EPIC (แดง)' : 'EPIC (Red)'}</option>
-                    <option value="LAGEND">{lang === 'th' ? 'LEGEND (ม่วง)' : 'LEGEND (Purple)'}</option>
-                    <option value="MYTHIC">{lang === 'th' ? 'MYTHIC (ทอง)' : 'MYTHIC (Gold)'}</option>
+                    <option value="RARE">{lang === 'th' ? 'RARE ฟ้า' : 'RARE Blue'}</option>
+                    <option value="EPIC">{lang === 'th' ? 'EPIC แดง' : 'EPIC Red'}</option>
+                    <option value="LAGEND">{lang === 'th' ? 'LEGEND ม่วง' : 'LEGEND Purple'}</option>
+                    <option value="MYTHIC">{lang === 'th' ? 'MYTHIC ทอง' : 'MYTHIC Gold'}</option>
                   </select>
                 </div>
               </div>
@@ -650,9 +650,10 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
                 <option value="">-- {t.selectHunterDropdown} --</option>
                 {allMembers
                   .filter((m) => m.status === 'active' && m.inGameName)
+                  .sort((a, b) => (b.powerLevel || 0) - (a.powerLevel || 0))
                   .map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.inGameName} [{m.clan || 'No Clan'}]
+                      {m.inGameName} [{m.clan || 'No Clan'}] {m.powerLevel ? `(⚡ ${m.powerLevel.toLocaleString()})` : ''}
                     </option>
                   ))}
               </select>

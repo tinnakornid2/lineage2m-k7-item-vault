@@ -57,8 +57,15 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
   showToast,
   onViewImageZoom
 }) => {
-  const [formulaSettings, setFormulaSettings] = useState<FormulaSettings>(getFormulaSettings());
-  const [stats, setStats] = useState<Record<string, number>>({});
+  const initialFormula = getFormulaSettings();
+  const [formulaSettings, setFormulaSettings] = useState<FormulaSettings>(initialFormula);
+  const [stats, setStats] = useState<Record<string, number>>(() => {
+    const init: Record<string, number> = {};
+    initialFormula.stats.forEach((s) => {
+      init[s.id] = 0;
+    });
+    return init;
+  });
   const [spiritEnhancements, setSpiritEnhancements] = useState<Record<string, number>>({});
   const [screenshotUrl, setScreenshotUrl] = useState<string>('');
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
@@ -482,7 +489,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                     type="number"
                     min="0"
                     max="99"
-                    value={charLevel === 0 ? '' : charLevel}
+                    value={charLevel ? charLevel : ''}
                     onFocus={(e) => e.target.select()}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);
@@ -501,7 +508,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                   <input
                     type="number"
                     min="0"
-                    value={charLegendClasses === 0 ? '' : charLegendClasses}
+                    value={charLegendClasses ? charLegendClasses : ''}
                     onFocus={(e) => e.target.select()}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);
@@ -520,7 +527,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                   <input
                     type="number"
                     min="0"
-                    value={charLegendAgathions === 0 ? '' : charLegendAgathions}
+                    value={charLegendAgathions ? charLegendAgathions : ''}
                     onFocus={(e) => e.target.select()}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10);
@@ -553,7 +560,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                       <input
                         type="number"
                         min="0"
-                        value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                        value={stats[stat.id] ? stats[stat.id] : ''}
                         onFocus={(e) => e.target.select()}
                         onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
                         placeholder="0"
@@ -590,7 +597,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                       <input
                         type="number"
                         min="0"
-                        value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                        value={stats[stat.id] ? stats[stat.id] : ''}
                         onFocus={(e) => e.target.select()}
                         onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
                         placeholder="0"
@@ -670,7 +677,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                             type="number"
                             min="0"
                             max="20"
-                            value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                            value={stats[stat.id] ? stats[stat.id] : ''}
                             onFocus={(e) => e.target.select()}
                             onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
                             placeholder="0"
@@ -740,7 +747,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
                       <input
                         type="number"
                         min="0"
-                        value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                        value={stats[stat.id] ? stats[stat.id] : ''}
                         onFocus={(e) => e.target.select()}
                         onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
                         placeholder="0"

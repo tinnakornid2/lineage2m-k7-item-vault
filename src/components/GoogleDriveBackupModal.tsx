@@ -81,7 +81,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
 
       const backupPayload = {
         appName: 'Lineage2M Clan Hub',
-        schemaVersion: '2.10.28',
+        schemaVersion: '2.10.50',
         exportedAt: now.toISOString(),
         exportedTimestamp: now.getTime(),
         exportedBy: isOwner ? 'Owner' : 'Admin',
@@ -289,7 +289,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-bold text-white tracking-wide">
-                  {lang === 'th' ? 'สำรองและกู้คืนฐานข้อมูล (Database Backup)' : 'Database Backup & Restore'}
+                  {lang === 'th' ? 'สำรองและกู้คืนฐานข้อมูล' : 'Database Backup & Restore'}
                 </h2>
                 <span className="px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                   {lang === 'th' ? 'Firebase Cloud' : 'Firebase Cloud'}
@@ -335,7 +335,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
                   </div>
                   <div className="text-xs text-slate-400 mt-0.5">
                     {lang === 'th'
-                      ? 'ระบบศูนย์กลางเดียว (Single Source of Truth) ไร้ปัญหาข้อมูลแย่งกันเขียนทับ'
+                      ? 'ระบบศูนย์กลางเดียว ไร้ปัญหาข้อมูลแย่งกันเขียนทับ'
                       : 'Single Source of Truth with zero sync conflicts or split-brain state'}
                   </div>
                 </div>
@@ -343,7 +343,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
 
               <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-mono font-semibold px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>v2.10.28</span>
+                <span>v2.10.50</span>
               </div>
             </div>
 
@@ -454,7 +454,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
                   className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
-                  <span>{lang === 'th' ? 'กู้คืนข้อมูลทันที (เขียนทับ)' : 'Restore Now (Overwrite)'}</span>
+                  <span>{lang === 'th' ? 'กู้คืนข้อมูลทันที' : 'Restore Now'}</span>
                 </button>
                 <button
                   onClick={handleCancelImport}
@@ -477,7 +477,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
               <FileDown className={`w-5 h-5 text-emerald-200 group-hover:scale-110 transition-transform ${isExporting ? 'animate-bounce' : ''}`} />
               <div className="text-left">
                 <div className="font-bold">
-                  {lang === 'th' ? 'ดาวน์โหลดไฟล์สำรอง (Export JSON)' : 'Download Backup (Export JSON)'}
+                  {lang === 'th' ? 'ดาวน์โหลดไฟล์สำรอง' : 'Download Backup'}
                 </div>
                 <div className="text-[10px] font-normal text-emerald-100/80">
                   {lang === 'th' ? 'บันทึกข้อมูลทั้งหมดเก็บไว้ในเครื่อง' : 'Save full database to local PC'}
@@ -494,7 +494,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
               <FileUp className={`w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform ${isImporting ? 'animate-bounce' : ''}`} />
               <div className="text-left">
                 <div className="font-bold">
-                  {lang === 'th' ? 'กู้คืนจากไฟล์ (Import JSON)' : 'Restore Backup (Import JSON)'}
+                  {lang === 'th' ? 'กู้คืนจากไฟล์' : 'Restore Backup'}
                 </div>
                 <div className="text-[10px] font-normal text-slate-400">
                   {lang === 'th' ? 'เลือกไฟล์ .json เพื่อกู้คืน' : 'Select .json file to restore'}
@@ -508,7 +508,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-t border-white/10 bg-[#0c1424]">
           <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Lineage2M Clan Hub &bull; Owner Database Protection (v2.10.28)</span>
+            <span>Lineage2M Clan Hub &bull; Owner Database Protection (v2.10.50)</span>
           </div>
           <button
             onClick={() => {

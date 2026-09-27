@@ -84,7 +84,8 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     !isAdmin
   );
 
-  const [formulaSettings, setFormulaSettings] = useState<FormulaSettings>(getFormulaSettings());
+  const initialFormulaSettings = getFormulaSettings();
+  const [formulaSettings, setFormulaSettings] = useState<FormulaSettings>(initialFormulaSettings);
 
   useEffect(() => {
     const handleFormulaUpdated = (e: any) => {
@@ -94,7 +95,14 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     window.addEventListener('l2m_formula_settings_updated', handleFormulaUpdated);
     return () => window.removeEventListener('l2m_formula_settings_updated', handleFormulaUpdated);
   }, []);
-  const [stats, setStats] = useState<Record<string, number>>({});
+
+  const [stats, setStats] = useState<Record<string, number>>(() => {
+    const init: Record<string, number> = {};
+    initialFormulaSettings.stats.forEach((s) => {
+      init[s.id] = 0;
+    });
+    return init;
+  });
   const [spiritEnhancements, setSpiritEnhancements] = useState<Record<string, number>>({});
   const [screenshotUrl, setScreenshotUrl] = useState<string>('');
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -768,7 +776,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
                       screenshotUrl ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-zinc-750 text-zinc-400 border border-zinc-700'
                     }`}>
-                      {screenshotUrl ? (lang === 'th' ? '1 รูปแนบอยู่' : '1 Attached') : (lang === 'th' ? '0 รูป (ไม่บังคับ)' : '0 Attached')}
+                      {screenshotUrl ? (lang === 'th' ? '1 รูปแนบอยู่' : '1 Attached') : (lang === 'th' ? '0 รูป ไม่บังคับ' : '0 Attached')}
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
@@ -1059,6 +1067,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
 
               <GrowthTimelineChart
                 user={currentUser}
+                currentUser={currentUser}
                 lang={lang}
                 onSaveHistory={onSaveHistory}
                 showToast={showToast}
@@ -1150,7 +1159,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                       type="number"
                       min="0"
                       max="99"
-                      value={charLevel === 0 ? '' : charLevel}
+                      value={charLevel ? charLevel : ''}
                       onChange={(e) => {
                         markAsEdited();
                         const v = parseInt(e.target.value, 10);
@@ -1170,7 +1179,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                     <input
                       type="number"
                       min="0"
-                      value={charLegendClasses === 0 ? '' : charLegendClasses}
+                      value={charLegendClasses ? charLegendClasses : ''}
                       onChange={(e) => {
                         markAsEdited();
                         const v = parseInt(e.target.value, 10);
@@ -1190,7 +1199,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                     <input
                       type="number"
                       min="0"
-                      value={charLegendAgathions === 0 ? '' : charLegendAgathions}
+                      value={charLegendAgathions ? charLegendAgathions : ''}
                       onChange={(e) => {
                         markAsEdited();
                         const v = parseInt(e.target.value, 10);
@@ -1269,7 +1278,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                         <input
                           type="number"
                           min="0"
-                          value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                          value={stats[stat.id] ? stats[stat.id] : ''}
                           onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
                           placeholder=""
                           className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm font-bold font-mono text-white focus:ring-2 focus:ring-purple-500 outline-none"
@@ -1334,7 +1343,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                           <input
                             type="number"
                             min="0"
-                            value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                            value={stats[stat.id] ? stats[stat.id] : ''}
                             onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
                             placeholder=""
                             className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm font-bold font-mono text-white focus:ring-2 focus:ring-purple-500 outline-none"
@@ -1413,7 +1422,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                               type="number"
                               min="0"
                               max="20"
-                              value={stats[stat.id] === 0 ? '' : stats[stat.id]}
+                              value={stats[stat.id] ? stats[stat.id] : ''}
                               onChange={(e) => handleStatNumberChange(stat.id, e.target.value)}
                               placeholder=""
                               className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-2 py-2 text-center font-bold text-sm text-white focus:ring-2 focus:ring-purple-500 outline-none"

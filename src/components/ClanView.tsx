@@ -27,7 +27,9 @@ import {
   Eye,
   EyeOff,
   Crown,
-  ShieldCheck
+  ShieldCheck,
+  LayoutGrid,
+  Columns
 } from 'lucide-react';
 import { ClanGroup, Language, User, cleanClanName, isNoClan } from '../types';
 import { translations } from '../translations';
@@ -58,10 +60,10 @@ const CLAN_COLOR_FALLBACK: Record<string, string> = {
 };
 
 const COLOR_PRESETS = [
-  { label: 'Emerald (Green)', hex: '#22c55e' },
-  { label: 'Crimson (Red)', hex: '#ef4444' },
-  { label: 'Gold (Yellow)', hex: '#eab308' },
-  { label: 'Sapphire (Blue)', hex: '#3b82f6' },
+  { label: 'Emerald Green', hex: '#22c55e' },
+  { label: 'Crimson Red', hex: '#ef4444' },
+  { label: 'Gold Yellow', hex: '#eab308' },
+  { label: 'Sapphire Blue', hex: '#3b82f6' },
   { label: 'Purple', hex: '#8b5cf6' },
   { label: 'Rose Pink', hex: '#ec4899' },
   { label: 'Cyan', hex: '#06b6d4' },
@@ -99,6 +101,15 @@ export const ClanView: React.FC<ClanViewProps> = ({
   // Search & Help State
   const [searchQuery, setSearchQuery] = useState('');
   const [showHelpGuide, setShowHelpGuide] = useState(false);
+
+  // Layout mode for clan cards: spacious_2col (1-25 Left, 26-50 Right) vs compact_1col
+  const [cardLayoutMode, setCardLayoutMode] = useState<'spacious_2col' | 'compact_1col'>(() => {
+    try {
+      return (localStorage.getItem('k7_clan_view_layout') as any) || 'spacious_2col';
+    } catch {
+      return 'spacious_2col';
+    }
+  });
 
   // Clan Visibility State (Toggles show/hide clans)
   const [showVisibilityModal, setShowVisibilityModal] = useState(false);
@@ -406,6 +417,226 @@ export const ClanView: React.FC<ClanViewProps> = ({
     setShowBatchDeleteModal(false);
   };
 
+  const renderMemberCard = (member: User, mIdx: number, clanName: string) => {
+    const isSelected = selectedUserIds.includes(member.id);
+    const canManage = canManageMember(member);
+    const primaryClass =
+      member.classes && member.classes.length > 0
+        ? member.classes[0]
+        : member.characterClass || '';
+    const isQuickMoveOpen = quickMoveUserId === member.id;
+    const isOwner = member.role === 'owner';
+    const isAdmin = member.role === 'admin';
+
+    return (
+      <div
+        key={member.id}
+        draggable={canManage}
+        onDragStart={() => handleMemberDragStart(member.id)}
+        className={`relative p-2.5 rounded-xl border flex flex-col gap-1.5 transition-all ${
+          isSelected
+            ? 'bg-[#18263d] border-[#38bdf8] text-white shadow'
+            : 'bg-[#0a0f19] border-slate-800 hover:border-slate-700 text-slate-200'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            {/* Batch select checkbox */}
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => handleToggleSelectUser(member.id)}
+                className="text-slate-400 hover:text-[#38bdf8] shrink-0 cursor-pointer"
+              >
+                {isSelected ? (
+                  <CheckSquare className="w-3.5 h-3.5 text-[#38bdf8]" />
+                ) : (
+                  <Square className="w-3.5 h-3.5" />
+                )}
+              </button>
+            )}
+
+            {/* Drag handle */}
+            {canManage && (
+              <GripVertical className="w-3.5 h-3.5 text-slate-600 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0" />
+            )}
+
+            <span className={`text-[10px] font-mono font-bold w-5 shrink-0 ${
+              mIdx < 3 ? 'text-amber-400' : 'text-slate-400'
+            }`}>
+              #{mIdx + 1}
+            </span>
+
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-bold text-slate-100 truncate flex items-center gap-1.5">
+                <span className="truncate">{member.inGameName}</span>
+                {Boolean(member.level && member.level > 0) && (
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono shrink-0">
+                    {member.level}
+                  </span>
+                )}
+                {isOwner && (
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold shrink-0 flex items-center gap-0.5">
+                    <Crown className="w-2.5 h-2.5" />
+                    <span>Owner</span>
+                  </span>
+                )}
+                {isAdmin && (
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold shrink-0 flex items-center gap-0.5">
+                    <ShieldCheck className="w-2.5 h-2.5" />
+                    <span>Admin</span>
+                  </span>
+                )}
+              </div>
+              <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate">
+                {primaryClass && (
+                  <span className="text-purple-300 font-medium truncate">
+                    {primaryClass}
+                  </span>
+                )}
+                {primaryClass && <span>•</span>}
+                <span className="text-amber-400 font-mono font-semibold shrink-0">
+                  ⚡ {(member.powerLevel || 0).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Individual Delete for Admin/Owner */}
+          {canManage && (
+            <button
+              id={`btn-delete-clan-member-${member.id}`}
+              type="button"
+              onClick={() => {
+                sounds.playClick();
+                setMemberToDelete(member);
+              }}
+              className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-all shrink-0 cursor-pointer"
+              title={t.deleteMember}
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        {/* Quick Move Button for Individual Member */}
+        {canManage && (
+          <div className="relative quick-move-popover-container pt-0.5">
+            <button
+              type="button"
+              id={`btn-quick-move-${member.id}`}
+              onClick={() => {
+                sounds.playClick();
+                setQuickMoveUserId(isQuickMoveOpen ? null : member.id);
+              }}
+              className="w-full flex items-center justify-between px-2 py-1 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-[10px] text-slate-300 hover:text-white transition-all cursor-pointer"
+            >
+              <div className="flex items-center gap-1">
+                <ArrowRight className="w-3 h-3 text-slate-400" />
+                <span>
+                  {clanName === 'no-clan'
+                    ? (lang === 'th' ? 'ย้ายเข้าแคลน' : 'Assign to Clan')
+                    : t.quickMoveToClan}
+                </span>
+              </div>
+              <ChevronDown className="w-2.5 h-2.5 text-slate-400" />
+            </button>
+
+            {/* Floating Clan Transfer Popover */}
+            {isQuickMoveOpen && (
+              <div className="absolute left-0 right-0 top-full mt-1 rounded-xl bg-[#0e1626] border border-slate-700 shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-0.5">
+                <div className="px-2 py-1 text-[9px] font-bold text-slate-400 uppercase">
+                  {t.quickMoveTitle}
+                </div>
+                {displayClans
+                  .filter((c) => cleanClanName(c.name).toLowerCase() !== cleanClanName(clanName).toLowerCase())
+                  .map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => handleQuickMove(member.id, c.name)}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-slate-200 hover:text-white hover:bg-slate-800 transition-colors text-left cursor-pointer"
+                    >
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: c.color || '#d4af37' }}
+                      />
+                      <span className="truncate font-medium">{c.name}</span>
+                    </button>
+                  ))}
+
+                {clanName !== 'no-clan' && (
+                  <>
+                    <div className="border-t border-slate-800 my-0.5" />
+                    {/* Unassign option */}
+                    <button
+                      type="button"
+                      onClick={() => handleQuickMove(member.id, 'no-clan')}
+                      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] text-amber-300 hover:text-amber-200 hover:bg-amber-950/40 transition-colors text-left cursor-pointer"
+                    >
+                      <UserX className="w-3 h-3 text-amber-400 shrink-0" />
+                      <span className="truncate">{t.unassignMemberAction}</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderMemberList = (members: User[], clanName: string) => {
+    if (members.length === 0) return null;
+
+    if (cardLayoutMode === 'spacious_2col') {
+      const totalCount = members.length;
+      const midPoint = Math.ceil(totalCount / 2);
+      const leftMembers = members.slice(0, midPoint);
+      const rightMembers = members.slice(midPoint);
+
+      return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 items-start">
+          {/* Left Column: 1 to midPoint */}
+          <div className="space-y-1.5 sm:space-y-2">
+            <div className="flex items-center justify-between px-1.5 pb-1 border-b border-slate-800/60 mb-1">
+              <span className="text-[10px] font-mono font-bold text-slate-300 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_#f59e0b]"></span>
+                <span>{lang === 'th' ? `ลำดับ 1 - ${midPoint}` : `Rank 1 - ${midPoint}`}</span>
+              </span>
+              <span className="text-[9.5px] text-slate-500 font-mono">
+                {leftMembers.length} {lang === 'th' ? 'คน' : 'members'}
+              </span>
+            </div>
+            {leftMembers.map((m, idx) => renderMemberCard(m, idx, clanName))}
+          </div>
+
+          {/* Right Column: midPoint + 1 to totalCount */}
+          <div className="space-y-1.5 sm:space-y-2">
+            <div className="flex items-center justify-between px-1.5 pb-1 border-b border-slate-800/60 mb-1">
+              <span className="text-[10px] font-mono font-bold text-slate-300 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_6px_#38bdf8]"></span>
+                <span>{lang === 'th' ? `ลำดับ ${midPoint + 1} - ${totalCount}` : `Rank ${midPoint + 1} - ${totalCount}`}</span>
+              </span>
+              <span className="text-[9.5px] text-slate-500 font-mono">
+                {rightMembers.length} {lang === 'th' ? 'คน' : 'members'}
+              </span>
+            </div>
+            {rightMembers.map((m, idx) => renderMemberCard(m, midPoint + idx, clanName))}
+          </div>
+        </div>
+      );
+    }
+
+    // Compact 1-column list
+    return (
+      <div className="space-y-2">
+        {members.map((m, idx) => renderMemberCard(m, idx, clanName))}
+      </div>
+    );
+  };
+
   return (
     <div ref={containerRef} className="space-y-6 animate-in fade-in duration-300">
       {/* ─────────────────────────────────────────────────────────────
@@ -486,6 +717,42 @@ export const ClanView: React.FC<ClanViewProps> = ({
               </span>
             </button>
           )}
+
+          {/* Layout Mode Switcher (2-Column Spacious vs 4-Clan Compact) */}
+          <button
+            type="button"
+            id="btn-toggle-clan-layout-mode"
+            onClick={() => {
+              sounds.playClick();
+              const nextMode = cardLayoutMode === 'spacious_2col' ? 'compact_1col' : 'spacious_2col';
+              setCardLayoutMode(nextMode);
+              try {
+                localStorage.setItem('k7_clan_view_layout', nextMode);
+              } catch {}
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold shadow transition-all cursor-pointer shrink-0"
+            title={
+              cardLayoutMode === 'spacious_2col'
+                ? (lang === 'th' ? 'สลับเป็นมุมมอง 4 แคลนแบบกะทัดรัด' : 'Switch to Compact 4-Clan View')
+                : (lang === 'th' ? 'สลับเป็นมุมมองคอลัมน์คู่ (ลำดับ 1-25 / 26-50)' : 'Switch to 2-Column Roster (1-25 / 26-50)')
+            }
+          >
+            {cardLayoutMode === 'spacious_2col' ? (
+              <>
+                <LayoutGrid className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">
+                  {lang === 'th' ? 'คอลัมน์คู่ (1-25 / 26-50)' : '2-Col (1-25 / 26-50)'}
+                </span>
+              </>
+            ) : (
+              <>
+                <Columns className="w-3.5 h-3.5 text-sky-400" />
+                <span className="hidden sm:inline">
+                  {lang === 'th' ? 'มุมมอง 4 แคลน' : '4-Clan View'}
+                </span>
+              </>
+            )}
+          </button>
 
           {/* View Public Clan Page Button */}
           {onNavigateToClans && (
@@ -660,7 +927,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
           3. FLOATING BATCH ACTION BAR (WHEN MEMBERS ARE SELECTED)
          ───────────────────────────────────────────────────────────── */}
       {isAdminOrOwner && selectedUserIds.length > 0 && (
-        <div className="sticky top-4 z-40 p-3 sm:p-4 rounded-2xl bg-gradient-to-r from-[#18263d] via-[#121c2e] to-[#0d1522] border-2 border-[#38bdf8] shadow-[0_10px_30px_rgba(0,0,0,0.8),0_0_20px_rgba(56,189,248,0.25)] flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="sticky top-28 lg:top-16 z-40 p-3 sm:p-4 rounded-2xl bg-gradient-to-r from-[#18263d] via-[#121c2e] to-[#0d1522] border-2 border-[#38bdf8] shadow-[0_10px_30px_rgba(0,0,0,0.8),0_0_20px_rgba(56,189,248,0.25)] flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center gap-2.5">
             <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-[#38bdf8] text-slate-950 font-bold font-mono text-xs">
               {selectedUserIds.length}
@@ -759,7 +1026,11 @@ export const ClanView: React.FC<ClanViewProps> = ({
       {/* ─────────────────────────────────────────────────────────────
           4. CLAN COLUMNS GRID (OFFICIAL CLANS + NO-CLAN BOX)
          ───────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5">
+      <div className={`grid gap-4 sm:gap-5 ${
+        cardLayoutMode === 'spacious_2col'
+          ? 'grid-cols-1 xl:grid-cols-2'
+          : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-4'
+      }`}>
         {clansToRender.map((clan, idx) => {
           const cleanName = cleanClanName(clan.name);
           const clanMembers = activeMembers
@@ -982,7 +1253,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
               </div>
 
               {/* Clan Members Drop Zone & List */}
-              <div className="p-3 flex-1 space-y-2 min-h-[160px] max-h-[620px] overflow-y-auto">
+              <div className="p-3 flex-1 min-h-[160px] max-h-[640px] overflow-y-auto custom-scrollbar">
                 {clanMembers.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center py-8 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
                     <p>
@@ -999,164 +1270,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                     {lang === 'th' ? 'ไม่พบสมาชิกที่ตรงกับการค้นหา' : 'No members match search query'}
                   </div>
                 ) : (
-                  filteredClanMembers.map((member, mIdx) => {
-                    const isSelected = selectedUserIds.includes(member.id);
-                    const canManage = canManageMember(member);
-                    const primaryClass =
-                      member.classes && member.classes.length > 0
-                        ? member.classes[0]
-                        : member.characterClass || '';
-                    const isQuickMoveOpen = quickMoveUserId === member.id;
-
-                    return (
-                      <div
-                        key={member.id}
-                        draggable={canManage}
-                        onDragStart={() => handleMemberDragStart(member.id)}
-                        className={`relative p-2.5 rounded-xl border flex flex-col gap-1.5 transition-all ${
-                          isSelected
-                            ? 'bg-[#18263d] border-[#38bdf8] text-white shadow'
-                            : 'bg-[#0a0f19] border-slate-800 hover:border-slate-700 text-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                            {/* Batch select checkbox */}
-                            {canManage && (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleSelectUser(member.id)}
-                                className="text-slate-400 hover:text-[#38bdf8] shrink-0"
-                              >
-                                {isSelected ? (
-                                  <CheckSquare className="w-3.5 h-3.5 text-[#38bdf8]" />
-                                ) : (
-                                  <Square className="w-3.5 h-3.5" />
-                                )}
-                              </button>
-                            )}
-
-                            {/* Drag handle */}
-                            {canManage && (
-                              <GripVertical className="w-3.5 h-3.5 text-slate-600 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0" />
-                            )}
-
-                            <span className="text-[10px] font-mono font-bold text-slate-500 w-4 shrink-0">
-                              #{mIdx + 1}
-                            </span>
-
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs font-bold text-slate-100 truncate flex items-center gap-1.5">
-                                <span className="truncate">{member.inGameName}</span>
-                                {Boolean(member.level && member.level > 0) && (
-                                  <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono shrink-0">
-                                    {member.level}
-                                  </span>
-                                )}
-                                {member.role === 'owner' && (
-                                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold shrink-0 flex items-center gap-0.5">
-                                    <Crown className="w-2.5 h-2.5" />
-                                    <span>Owner</span>
-                                  </span>
-                                )}
-                                {member.role === 'admin' && (
-                                  <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold shrink-0 flex items-center gap-0.5">
-                                    <ShieldCheck className="w-2.5 h-2.5" />
-                                    <span>Admin</span>
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate">
-                                {primaryClass && (
-                                  <span className="text-purple-300 font-medium truncate">
-                                    {primaryClass}
-                                  </span>
-                                )}
-                                {primaryClass && <span>•</span>}
-                                <span className="text-amber-400 font-mono font-semibold shrink-0">
-                                  ⚡ {(member.powerLevel || 0).toLocaleString()}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Individual Delete for Admin/Owner */}
-                          {canManage && (
-                            <button
-                              id={`btn-delete-clan-member-${member.id}`}
-                              type="button"
-                              onClick={() => {
-                                sounds.playClick();
-                                setMemberToDelete(member);
-                              }}
-                              className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-all shrink-0 cursor-pointer"
-                              title={t.deleteMember}
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Quick Move Button for Individual Member */}
-                        {canManage && (
-                          <div className="relative quick-move-popover-container pt-0.5">
-                            <button
-                              type="button"
-                              id={`btn-quick-move-${member.id}`}
-                              onClick={() => {
-                                sounds.playClick();
-                                setQuickMoveUserId(isQuickMoveOpen ? null : member.id);
-                              }}
-                              className="w-full flex items-center justify-between px-2 py-1 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-[10px] text-slate-300 hover:text-white transition-all cursor-pointer"
-                            >
-                              <div className="flex items-center gap-1">
-                                <ArrowRight className="w-3 h-3 text-slate-400" />
-                                <span>{t.quickMoveToClan}</span>
-                              </div>
-                              <ChevronDown className="w-2.5 h-2.5 text-slate-400" />
-                            </button>
-
-                            {/* Floating Clan Transfer Popover */}
-                            {isQuickMoveOpen && (
-                              <div className="absolute left-0 right-0 top-full mt-1 rounded-xl bg-[#0e1626] border border-slate-700 shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-0.5">
-                                <div className="px-2 py-1 text-[9px] font-bold text-slate-400 uppercase">
-                                  {t.quickMoveTitle}
-                                </div>
-                                {displayClans
-                                  .filter((c) => cleanClanName(c.name).toLowerCase() !== cleanName.toLowerCase())
-                                  .map((c) => (
-                                    <button
-                                      key={c.id}
-                                      type="button"
-                                      onClick={() => handleQuickMove(member.id, c.name)}
-                                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-slate-200 hover:text-white hover:bg-slate-800 transition-colors text-left cursor-pointer"
-                                    >
-                                      <span
-                                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                                        style={{ backgroundColor: c.color || '#d4af37' }}
-                                      />
-                                      <span className="truncate font-medium">{c.name}</span>
-                                    </button>
-                                  ))}
-
-                                <div className="border-t border-slate-800 my-0.5" />
-
-                                {/* Unassign option */}
-                                <button
-                                  type="button"
-                                  onClick={() => handleQuickMove(member.id, 'no-clan')}
-                                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] text-amber-300 hover:text-amber-200 hover:bg-amber-950/40 transition-colors text-left cursor-pointer"
-                                >
-                                  <UserX className="w-3 h-3 text-amber-400 shrink-0" />
-                                  <span className="truncate">{t.unassignMemberAction}</span>
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
+                  renderMemberList(filteredClanMembers, cleanName)
                 )}
               </div>
 
@@ -1276,152 +1390,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
                 {lang === 'th' ? 'ไม่พบสมาชิกที่ตรงกับการค้นหา' : 'No members match search query'}
               </div>
             ) : (
-              filteredUnassignedMembers.map((member, mIdx) => {
-                const isSelected = selectedUserIds.includes(member.id);
-                const canManage = canManageMember(member);
-                const primaryClass =
-                  member.classes && member.classes.length > 0
-                    ? member.classes[0]
-                    : member.characterClass || '';
-                const isQuickMoveOpen = quickMoveUserId === member.id;
-                const isOwner = member.role === 'owner';
-                const isAdmin = member.role === 'admin';
-
-                return (
-                  <div
-                    key={member.id}
-                    draggable={canManage}
-                    onDragStart={() => handleMemberDragStart(member.id)}
-                    className={`relative p-2.5 rounded-xl border flex flex-col gap-1.5 transition-all ${
-                      isSelected
-                        ? 'bg-[#18263d] border-[#38bdf8] text-white shadow'
-                        : 'bg-[#0a0f19] border-slate-800 hover:border-slate-700 text-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        {/* Batch select checkbox */}
-                        {canManage && (
-                          <button
-                            type="button"
-                            onClick={() => handleToggleSelectUser(member.id)}
-                            className="text-slate-400 hover:text-[#38bdf8] shrink-0"
-                          >
-                            {isSelected ? (
-                              <CheckSquare className="w-3.5 h-3.5 text-[#38bdf8]" />
-                            ) : (
-                              <Square className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        )}
-
-                        {/* Drag handle */}
-                        {canManage && (
-                          <GripVertical className="w-3.5 h-3.5 text-slate-600 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0" />
-                        )}
-
-                        <span className="text-[10px] font-mono font-bold text-slate-500 w-4 shrink-0">
-                          #{mIdx + 1}
-                        </span>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-bold text-slate-100 truncate flex items-center gap-1.5">
-                            <span className="truncate">{member.inGameName}</span>
-                            {Boolean(member.level && member.level > 0) && (
-                              <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono shrink-0">
-                                {member.level}
-                              </span>
-                            )}
-                            {isOwner && (
-                              <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold shrink-0 flex items-center gap-0.5">
-                                <Crown className="w-2.5 h-2.5" />
-                                <span>Owner</span>
-                              </span>
-                            )}
-                            {isAdmin && !isOwner && (
-                              <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold shrink-0 flex items-center gap-0.5">
-                                <ShieldCheck className="w-2.5 h-2.5" />
-                                <span>Admin</span>
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate">
-                            {primaryClass && (
-                              <span className="text-purple-300 font-medium truncate">
-                                {primaryClass}
-                              </span>
-                            )}
-                            {primaryClass && <span>•</span>}
-                            <span className="text-amber-400 font-mono font-semibold shrink-0">
-                              ⚡ {(member.powerLevel || 0).toLocaleString()}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Individual Delete for Admin/Owner */}
-                      {canManage && (
-                        <button
-                          id={`btn-delete-unassigned-member-${member.id}`}
-                          type="button"
-                          onClick={() => {
-                            sounds.playClick();
-                            setMemberToDelete(member);
-                          }}
-                          className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-all shrink-0 cursor-pointer"
-                          title={t.deleteMember}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Quick Move Button for Individual Member */}
-                    {canManage && (
-                      <div className="relative quick-move-popover-container pt-0.5">
-                        <button
-                          type="button"
-                          id={`btn-quick-move-unassigned-${member.id}`}
-                          onClick={() => {
-                            sounds.playClick();
-                            setQuickMoveUserId(isQuickMoveOpen ? null : member.id);
-                          }}
-                          className="w-full flex items-center justify-between px-2 py-1 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-700/50 text-[10px] text-emerald-300 hover:text-white transition-all cursor-pointer shadow-sm"
-                        >
-                          <div className="flex items-center gap-1">
-                            <ArrowRight className="w-3 h-3 text-emerald-400" />
-                            <span>{lang === 'th' ? 'ย้ายเข้าแคลน' : 'Assign to Clan'}</span>
-                          </div>
-                          <ChevronDown className="w-2.5 h-2.5 text-emerald-400" />
-                        </button>
-
-                        {/* Floating Clan Transfer Popover */}
-                        {isQuickMoveOpen && (
-                          <div className="absolute left-0 right-0 top-full mt-1 rounded-xl bg-[#0e1626] border border-slate-700 shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-0.5">
-                            <div className="px-2 py-1 text-[9px] font-bold text-slate-400 uppercase">
-                              {t.quickMoveTitle}
-                            </div>
-                            {displayClans.map((c) => (
-                              <button
-                                key={c.id}
-                                type="button"
-                                onClick={() => handleQuickMove(member.id, c.name)}
-                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-slate-200 hover:text-white hover:bg-slate-800 transition-colors text-left cursor-pointer"
-                              >
-                                <span
-                                  className="w-2.5 h-2.5 rounded-full shrink-0"
-                                  style={{ backgroundColor: c.color || '#d4af37' }}
-                                />
-                                <span className="truncate font-medium">{c.name}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
+              renderMemberList(filteredUnassignedMembers, 'no-clan')
             )}
           </div>
 

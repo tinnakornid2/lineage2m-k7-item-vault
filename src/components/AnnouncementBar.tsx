@@ -122,10 +122,10 @@ export const AnnouncementBar: React.FC<AnnouncementBarProps> = ({
 
   return (
     <>
-      {/* 1. RUNNING MARQUEE BAR (High Visibility & Glow) */}
+      {/* 1. RUNNING MARQUEE BAR (High Visibility & Glow - Sticky Top Always) */}
       <div
         id="guild-marquee-announcement-bar"
-        className={`w-full backdrop-blur-xl transition-all z-20 ${theme.barBg} ${
+        className={`sticky top-14 lg:top-0 z-30 w-full backdrop-blur-xl transition-all shadow-lg ${theme.barBg} ${
           !activeAnnouncement.enabled ? 'opacity-60 border-dashed border-slate-700' : ''
         }`}
       >
@@ -256,7 +256,7 @@ export const AnnouncementBar: React.FC<AnnouncementBarProps> = ({
                     }`}
                   >
                     <Bell className="w-3.5 h-3.5 text-sky-400" />
-                    <span>{lang === 'th' ? 'ทั่วไป (ฟ้า)' : 'Info (Blue)'}</span>
+                    <span>{lang === 'th' ? 'ทั่วไป ฟ้า' : 'Info Blue'}</span>
                   </button>
                   <button
                     type="button"
@@ -268,7 +268,7 @@ export const AnnouncementBar: React.FC<AnnouncementBarProps> = ({
                     }`}
                   >
                     <Calendar className="w-3.5 h-3.5 text-amber-400" />
-                    <span>{lang === 'th' ? 'กิจกรรม (ทอง)' : 'Event (Gold)'}</span>
+                    <span>{lang === 'th' ? 'กิจกรรม ทอง' : 'Event Gold'}</span>
                   </button>
                   <button
                     type="button"
@@ -280,7 +280,7 @@ export const AnnouncementBar: React.FC<AnnouncementBarProps> = ({
                     }`}
                   >
                     <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-                    <span>{lang === 'th' ? 'ด่วนพิเศษ (แดง)' : 'Urgent (Red)'}</span>
+                    <span>{lang === 'th' ? 'ด่วนพิเศษ แดง' : 'Urgent Red'}</span>
                   </button>
                 </div>
               </div>

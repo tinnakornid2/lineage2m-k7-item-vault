@@ -74,6 +74,7 @@ import {
   deleteQuickItemDoc,
   addGeneralItemDoc,
   updateGeneralItemDoc,
+  batchUpdateGeneralItemsOrder,
   deleteGeneralItemDoc,
   addClanDoc,
   updateClanDoc,
@@ -144,7 +145,9 @@ import {
   markClaimAsCancelled,
   unmarkClaimAsCancelled,
   ensureFirebaseAuthSession,
-  logoutAuthenticatedUser
+  logoutAuthenticatedUser,
+  listenToNotificationsState,
+  saveNotificationsStateDoc
 } from './services/firebase';
 import { calculateDiamondNetChange, computeTotalVaultBalance } from './utils/diamondHelper';
 import { setInMemoryFormulaSettings, getFormulaSettings, saveFormulaSettings } from './services/powerFormulaService';
@@ -1004,31 +1007,65 @@ export const App: React.FC = () => {
     previousDiamondKeysRef.current = currentKeys;
   }, [diamondLogs, currentUser, lang]);
 
-  const handleMarkAllNotificationsAsRead = () => {
-    const allIds = notifications.map((n) => n.id);
-    setReadNotificationIds(allIds);
-    try {
-      localStorage.setItem('l2m_read_notifications', JSON.stringify(allIds));
-    } catch {}
-  };
-
-  const handleClearNotifications = () => {
-    sounds.playClick();
-    const allIds = notifications.map((n) => n.id);
-    setDismissedNotificationIds((prev) => {
-      const next = Array.from(new Set([...prev, ...allIds]));
+  const handleMarkNotificationAsRead = (id: string) => {
+    setReadNotificationIds((prev) => {
+      if (prev.includes(id)) return prev;
+      const next = Array.from(new Set([...prev, id]));
       try {
-        localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(next));
+        localStorage.setItem('l2m_read_notifications', JSON.stringify(next));
       } catch {}
+      saveNotificationsStateDoc({
+        readIds: next,
+        updatedBy: currentUser?.inGameName || currentUser?.username || 'admin'
+      }).catch((err) => console.warn('Failed to sync read notification to cloud:', err));
       return next;
     });
+  };
+
+  const handleMarkAllNotificationsAsRead = () => {
+    sounds.playClick();
+    const allIds = notifications.map((n) => n.id);
     setReadNotificationIds((prev) => {
       const next = Array.from(new Set([...prev, ...allIds]));
       try {
         localStorage.setItem('l2m_read_notifications', JSON.stringify(next));
       } catch {}
+      saveNotificationsStateDoc({
+        readIds: next,
+        updatedBy: currentUser?.inGameName || currentUser?.username || 'admin'
+      }).catch((err) => console.warn('Failed to sync all read notifications to cloud:', err));
       return next;
     });
+  };
+
+  const handleClearNotifications = () => {
+    sounds.playClick();
+    const allIds = notifications.map((n) => n.id);
+    let nextDismissed: string[] = [];
+    let nextRead: string[] = [];
+
+    setDismissedNotificationIds((prev) => {
+      nextDismissed = Array.from(new Set([...prev, ...allIds]));
+      try {
+        localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(nextDismissed));
+      } catch {}
+      return nextDismissed;
+    });
+
+    setReadNotificationIds((prev) => {
+      nextRead = Array.from(new Set([...prev, ...allIds]));
+      try {
+        localStorage.setItem('l2m_read_notifications', JSON.stringify(nextRead));
+      } catch {}
+      return nextRead;
+    });
+
+    saveNotificationsStateDoc({
+      dismissedIds: nextDismissed,
+      readIds: nextRead,
+      updatedBy: currentUser?.inGameName || currentUser?.username || 'admin'
+    }).catch((err) => console.warn('Failed to sync cleared notifications to cloud:', err));
+
     showToast(
       lang === 'th' ? 'ล้างการแจ้งเตือนทั้งหมดเรียบร้อยแล้ว' : 'All notifications cleared',
       'info'
@@ -1042,6 +1079,10 @@ export const App: React.FC = () => {
       try {
         localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(next));
       } catch {}
+      saveNotificationsStateDoc({
+        dismissedIds: next,
+        updatedBy: currentUser?.inGameName || currentUser?.username || 'admin'
+      }).catch((err) => console.warn('Failed to sync deleted notification to cloud:', err));
       return next;
     });
   };
@@ -1111,6 +1152,7 @@ export const App: React.FC = () => {
     let unsubDiscord = () => {};
     let unsubFormula = () => {};
     let unsubStatUpdates = () => {};
+    let unsubNotifications = () => {};
     let unsubVersionHub = () => {};
 
     const startSubscriptions = async () => {
@@ -1253,6 +1295,26 @@ export const App: React.FC = () => {
       unsubStatUpdates = listenToStatUpdateSettings((settings) => {
         if (settings) setStatUpdateSettings(settings);
       });
+      unsubNotifications = listenToNotificationsState((notifState) => {
+        if (Array.isArray(notifState.readIds) && notifState.readIds.length > 0) {
+          setReadNotificationIds((prev) => {
+            const merged = Array.from(new Set([...prev, ...notifState.readIds]));
+            try {
+              localStorage.setItem('l2m_read_notifications', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+        if (Array.isArray(notifState.dismissedIds) && notifState.dismissedIds.length > 0) {
+          setDismissedNotificationIds((prev) => {
+            const merged = Array.from(new Set([...prev, ...notifState.dismissedIds]));
+            try {
+              localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+      });
 
       // Ultra-fast cross-device heartbeat: reacts immediately (< 50ms) whenever any user touches vault items, general items, or queues
       unsubVersionHub = listenToSystemVersionHub((hub) => {
@@ -1339,6 +1401,7 @@ export const App: React.FC = () => {
       unsubDiscord();
       unsubFormula();
       unsubStatUpdates();
+      unsubNotifications();
       unsubVersionHub();
     };
   }, [currentUser?.id, isQuotaExceeded]);
@@ -2307,7 +2370,8 @@ export const App: React.FC = () => {
 
       if (isDirectDistribute) {
         // Direct Distribution: send notification strictly to Distribution channel (event: 'distribute')
-        const isDistDiscordActive = Boolean(activeDiscord?.enabled || effectiveDistWebhookUrl);
+        const skipDiscord = directDistribution?.skipDiscordNotification === true;
+        const isDistDiscordActive = !skipDiscord && Boolean(activeDiscord?.enabled || effectiveDistWebhookUrl);
         if (isDistDiscordActive && (activeDiscord?.notifyOnDistribute ?? true)) {
           const payloadSettings: DiscordSettings = {
             ...DEFAULT_DISCORD_SETTINGS,
@@ -2755,6 +2819,10 @@ export const App: React.FC = () => {
         try {
           localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(next));
         } catch {}
+        saveNotificationsStateDoc({
+          dismissedIds: next,
+          updatedBy: currentUser?.inGameName || currentUser?.username || 'admin'
+        }).catch(() => {});
         return next;
       });
 
@@ -3052,6 +3120,45 @@ export const App: React.FC = () => {
       await updateGeneralItemDoc(itemId, fullUpdates);
     } catch (err) {
       console.warn('General item updated locally/relay/sheets; firestore update deferred:', err);
+    }
+  };
+
+  const handleReorderGeneralItems = async (reorderedItems: GeneralItem[]) => {
+    const now = Date.now();
+    const itemsWithTime = reorderedItems.map((item) => ({
+      ...item,
+      updatedAt: now
+    }));
+
+    // 1. Instant Optimistic React State update (<1ms)
+    setGeneralItems(itemsWithTime);
+
+    // 2. Instant LocalStorage caching
+    setCachedGeneralItems(itemsWithTime);
+
+    // 3. Instant Live State Relay Broadcast to peers
+    broadcastLiveState(
+      getFullBackupPayload({ generalItems: itemsWithTime }),
+      currentUser?.inGameName || 'Admin'
+    );
+
+    // 4. Debounced auto backup to Google Sheets & Drive
+    triggerDebouncedAutoBackup(
+      getFullBackupPayload({ generalItems: itemsWithTime }),
+      currentUser?.inGameName || 'Admin',
+      true
+    );
+
+    // 5. Safe Firestore persistence in batch
+    try {
+      const itemsWithOrder = itemsWithTime.map((item) => ({
+        id: item.id,
+        sortOrder: item.sortOrder ?? 0,
+        isPinned: !!item.isPinned
+      }));
+      await batchUpdateGeneralItemsOrder(itemsWithOrder);
+    } catch (err) {
+      console.warn('General items reordered locally/relay/sheets; firestore batch write deferred:', err);
     }
   };
 
@@ -4207,9 +4314,11 @@ export const App: React.FC = () => {
   return (
     <div className="relative min-h-screen bg-[#04070d] text-slate-100 flex flex-col font-prompt selection:bg-[#d4af37]/30 selection:text-[#f5d77f]">
       
-      {/* 0. IMMERSIVE FANTASY CASTLE BACKGROUND (PERSISTENT - ZERO FLICKER) */}
+      {/* 0. IMMERSIVE FANTASY CASTLE BACKGROUND (PERSISTENT - ZERO FLICKER - FLUSH WITH MENU EDGE) */}
       <div
-        className="fixed inset-0 pointer-events-none z-0 bg-cover bg-center bg-no-repeat will-change-transform"
+        className={`fixed top-0 bottom-0 right-0 pointer-events-none z-0 bg-cover bg-center bg-no-repeat will-change-transform transition-all duration-300 ${
+          currentUser ? 'left-0 lg:left-64 xl:left-72' : 'left-0'
+        }`}
         style={{
           backgroundImage: `url('${bgConfig.imageUrl || '/fantasy-original.png'}')`,
           filter: `brightness(${bgConfig.brightness}%) blur(${bgConfig.blur}px)`
@@ -4217,12 +4326,16 @@ export const App: React.FC = () => {
       />
       {/* Atmospheric Contrast Vignette */}
       <div
-        className="fixed inset-0 pointer-events-none z-0"
+        className={`fixed top-0 bottom-0 right-0 pointer-events-none z-0 transition-all duration-300 ${
+          currentUser ? 'left-0 lg:left-64 xl:left-72' : 'left-0'
+        }`}
         style={{
           background: `radial-gradient(ellipse at 50% 25%, rgba(6, 11, 23, ${bgConfig.vignetteOpacity * 0.35}) 0%, rgba(4, 7, 16, ${bgConfig.vignetteOpacity * 0.8}) 65%, rgba(2, 4, 10, ${bgConfig.vignetteOpacity}) 100%)`
         }}
       />
-      <div className="fixed inset-0 pointer-events-none z-0 bg-gradient-to-b from-transparent via-[#0284c7]/5 to-[#02050b]/85" />
+      <div className={`fixed top-0 bottom-0 right-0 pointer-events-none z-0 bg-gradient-to-b from-transparent via-[#0284c7]/5 to-[#02050b]/85 transition-all duration-300 ${
+        currentUser ? 'left-0 lg:left-64 xl:left-72' : 'left-0'
+      }`} />
 
       {!currentUser ? (
         <div className="relative z-10 w-full min-h-screen flex items-center justify-center">
@@ -4320,8 +4433,10 @@ export const App: React.FC = () => {
             generalItems={generalItems}
             onAddGeneralItem={handleAddGeneralItem}
             onUpdateGeneralItem={handleUpdateGeneralItem}
+            onReorderGeneralItem={handleReorderGeneralItems}
             onDeleteGeneralItem={handleDeleteGeneralItem}
             onRecordDiamondLog={handleRecordDiamondLog}
+            onAddDistributedVaultItem={handleCreateVaultItem}
             onClaimItem={handleClaimItem}
             onUnclaimItem={handleUnclaimItem}
             onViewClaimants={(item) => setClaimantsTargetItem(item)}
@@ -4381,8 +4496,10 @@ export const App: React.FC = () => {
             onSaveQueueAnnouncement={handleSaveQueueAnnouncement}
             onAddGeneralItem={handleAddGeneralItem}
             onUpdateGeneralItem={handleUpdateGeneralItem}
+            onReorderGeneralItem={handleReorderGeneralItems}
             onDeleteGeneralItem={handleDeleteGeneralItem}
             onRecordDiamondLog={handleRecordDiamondLog}
+            onAddDistributedVaultItem={handleCreateVaultItem}
             onOpenQuickItemsModal={() => setShowQuickItemsModal(true)}
             onCreateQueueItem={handleCreateQueueItem}
             onDeleteQueueItem={handleDeleteQueueItem}
@@ -4619,6 +4736,7 @@ export const App: React.FC = () => {
           lang={lang}
           notifications={notifications}
           onMarkAllAsRead={handleMarkAllNotificationsAsRead}
+          onMarkAsRead={handleMarkNotificationAsRead}
           onClearNotifications={handleClearNotifications}
           onDeleteNotification={handleDeleteNotification}
           onOpenDistributeModal={(item) => {
