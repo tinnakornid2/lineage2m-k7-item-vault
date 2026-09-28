@@ -182,23 +182,21 @@ service cloud.firestore {
     }
 
     function validGeneralItem(data) {
-      return data.keys().hasOnly([
-          'id', 'name', 'imageUrl', 'price', 'quantity', 'minPowerLevel',
-          'rarity', 'queueList', 'receiptHistory', 'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasAll([
-          'id', 'name', 'imageUrl', 'price', 'quantity', 'minPowerLevel',
-          'rarity', 'queueList', 'receiptHistory', 'createdAt'
-        ])
-        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128
         && data.name is string && data.name.size() > 0 && data.name.size() <= 120
-        && data.imageUrl is string && data.imageUrl.size() <= 1000000
+        && (!('imageUrl' in data) || data.imageUrl is string)
         && data.price is number && data.price >= 0 && data.price <= 1000000000
-        && data.quantity is number && data.quantity >= 1 && data.quantity <= 1000000
+        && data.quantity is number && data.quantity >= 0 && data.quantity <= 1000000
         && data.minPowerLevel is number && data.minPowerLevel >= 0 && data.minPowerLevel <= 1000000000
         && data.rarity in ['RARE', 'EPIC', 'LAGEND', 'MYTHIC', 'LEGEND']
-        && data.queueList is list && data.queueList.size() <= 500
-        && data.receiptHistory is list && data.receiptHistory.size() <= 1000
+        && (!('queueList' in data) || data.queueList is list)
+        && (!('receiptHistory' in data) || data.receiptHistory is list)
+        && (!('maxRequestQuantity' in data) || (data.maxRequestQuantity is number && data.maxRequestQuantity >= 0))
+        && (!('isCraftGoal' in data) || data.isCraftGoal is bool)
+        && (!('allowMemberQueue' in data) || data.allowMemberQueue is bool)
+        && (!('receiptPolicy' in data) || (data.receiptPolicy is string && data.receiptPolicy in ['optional', 'mandatory', 'none']))
+        && (!('isPinned' in data) || data.isPinned is bool)
+        && (!('sortOrder' in data) || data.sortOrder is number)
         && data.createdAt is number && data.createdAt > 0;
     }
 

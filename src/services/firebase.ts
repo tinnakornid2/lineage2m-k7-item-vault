@@ -185,7 +185,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.50-draggable-item-queue-cards';
+const CACHE_SCHEMA_VERSION = '2.10.54-persistence-and-layout-fix';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -228,7 +228,7 @@ export function clearAllLocalCaches(): void {
 if (typeof localStorage !== 'undefined') {
   try {
     if (localStorage.getItem(CACHE_SCHEMA_KEY) !== CACHE_SCHEMA_VERSION) {
-      clearAllLocalCaches();
+      // NOTE: Do NOT call clearAllLocalCaches() here so current cached items and session are safely preserved
       const LEGACY_KEYS = [
         'l2m_cached_users',
         'l2m_cached_vault_items',
@@ -710,8 +710,11 @@ export async function fetchQuickItemsOnce(): Promise<QuickItem[]> {
     const snap = await getDocs(collection(db, QUICK_ITEMS_COLLECTION));
     const items: QuickItem[] = [];
     snap.forEach((d) => items.push({ ...d.data(), id: d.id } as QuickItem));
-    setCachedQuickItems(items);
-    return items;
+    const cached = getCachedQuickItems();
+    const cleanIncoming = items.filter((it) => it && it.id && !isQuickItemDeleted(it.id));
+    const merged = mergeQuickItems(cached, cleanIncoming);
+    setCachedQuickItems(merged);
+    return merged;
   } catch (err) {
     return getCachedQuickItems();
   }
@@ -722,8 +725,11 @@ export async function fetchGeneralItemsOnce(): Promise<GeneralItem[]> {
     const snap = await getDocs(collection(db, GENERAL_ITEMS_COLLECTION));
     const items: GeneralItem[] = [];
     snap.forEach((d) => items.push({ ...d.data(), id: d.id } as GeneralItem));
-    setCachedGeneralItems(items);
-    return items;
+    const cached = getCachedGeneralItems();
+    const cleanIncoming = items.filter((it) => it && it.id && !isGeneralItemDeleted(it.id));
+    const merged = mergeGeneralItems(cached, cleanIncoming);
+    setCachedGeneralItems(merged);
+    return merged;
   } catch (err) {
     return getCachedGeneralItems();
   }
@@ -1306,6 +1312,27 @@ export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: Ge
 
   result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return result;
+}
+
+export function mergeQuickItems(currentItems: QuickItem[], incomingItems: QuickItem[]): QuickItem[] {
+  const deletedMap = getDeletedIdsMap(DELETED_QUICK_ITEMS_KEY);
+  const map = new Map<string, QuickItem>();
+  for (const it of currentItems || []) {
+    if (it && it.id && !deletedMap[it.id]) map.set(it.id, it);
+  }
+  for (const it of incomingItems || []) {
+    if (it && it.id && !deletedMap[it.id]) {
+      const existing = map.get(it.id);
+      if (!existing) {
+        map.set(it.id, it);
+      } else {
+        const existingRev = Number(existing.updatedAt || existing.createdAt || 0);
+        const incomingRev = Number(it.updatedAt || it.createdAt || 0);
+        map.set(it.id, incomingRev >= existingRev ? { ...existing, ...it } : { ...it, ...existing });
+      }
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }
 
 export function getDeletedVaultItemIds(): Set<string> {
@@ -3128,7 +3155,7 @@ export function listenToGeneralItems(callback: (items: GeneralItem[]) => void) {
         name: data.name || 'Unknown Item',
         imageUrl: data.imageUrl || '',
         price: Math.max(0, data.price || 0),
-        quantity: Math.max(1, data.quantity || 1),
+        quantity: typeof data.quantity === 'number' ? Math.max(0, data.quantity) : 0,
         minPowerLevel: Math.max(0, data.minPowerLevel || 0),
         rarity: data.rarity || 'RARE',
         queueList: Array.isArray(data.queueList) ? data.queueList : [],
@@ -3160,7 +3187,7 @@ export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdA
     id,
     name: item.name.trim(),
     price: Math.max(0, item.price || 0),
-    quantity: Math.max(1, item.quantity || 1),
+    quantity: typeof item.quantity === 'number' ? Math.max(0, item.quantity) : 0,
     minPowerLevel: Math.max(0, item.minPowerLevel || 0),
     rarity: item.rarity || 'RARE',
     queueList: Array.isArray(item.queueList) ? item.queueList : [],

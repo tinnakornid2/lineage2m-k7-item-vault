@@ -116,6 +116,7 @@ import {
   mergeVaultItems,
   mergeQueueItems,
   mergeGeneralItems,
+  mergeQuickItems,
   mergeUsers,
   isVaultItemDeleted,
   isGeneralItemDeleted,
@@ -523,6 +524,20 @@ export const App: React.FC = () => {
               setUsers((prev) => {
                 const merged = mergeUsers(prev, cloudRes.data.users);
                 setCachedUsers(merged);
+                return merged;
+              });
+            }
+            if (cloudRes.data.generalItems?.length) {
+              setGeneralItems((prev) => {
+                const merged = mergeGeneralItems(prev, cloudRes.data.generalItems);
+                setCachedGeneralItems(merged);
+                return merged;
+              });
+            }
+            if (cloudRes.data.quickItems?.length) {
+              setQuickItems((prev) => {
+                const merged = mergeQuickItems(prev, cloudRes.data.quickItems);
+                setCachedQuickItems(merged);
                 return merged;
               });
             }
@@ -2287,7 +2302,8 @@ export const App: React.FC = () => {
   ) => {
     try {
       const isDirectDistribute = Boolean(directDistribution && directDistribution.recipient);
-      const initialPaymentStatus = directDistribution?.paymentStatus || 'pending';
+      const isFree = !itemData.price || itemData.price === 0;
+      const initialPaymentStatus = isFree ? 'paid' : (directDistribution?.paymentStatus || 'pending');
       const recName = directDistribution?.recipient?.name || directDistribution?.recipient?.inGameName || 'Member';
 
       const distributedPayload: any = isDirectDistribute
@@ -2299,10 +2315,10 @@ export const App: React.FC = () => {
             distributedBy: currentUser?.inGameName || currentUser?.username || 'Admin',
             price: itemData.price || 0,
             userId: directDistribution!.recipient.userId,
-            receiptImages: directDistribution!.receiptImages || [],
+            receiptImages: isFree ? [] : (directDistribution!.receiptImages || []),
             paymentStatus: initialPaymentStatus,
             slipUrl:
-              directDistribution!.receiptImages && directDistribution!.receiptImages.length > 0
+              !isFree && directDistribution!.receiptImages && directDistribution!.receiptImages.length > 0
                 ? directDistribution!.receiptImages[0]
                 : undefined
           }
@@ -2315,7 +2331,7 @@ export const App: React.FC = () => {
         ...(isDirectDistribute
           ? {
               distributedTo: distributedPayload,
-              receiptImages: directDistribution!.receiptImages || [],
+              receiptImages: isFree ? [] : (directDistribution!.receiptImages || []),
               paymentStatus: initialPaymentStatus
             }
           : {})
@@ -3045,7 +3061,7 @@ export const App: React.FC = () => {
       id: newId,
       name: item.name.trim(),
       price: Math.max(0, item.price || 0),
-      quantity: Math.max(1, item.quantity || 1),
+      quantity: typeof item.quantity === 'number' ? Math.max(0, item.quantity) : 1,
       minPowerLevel: Math.max(0, item.minPowerLevel || 0),
       rarity: item.rarity || 'RARE',
       queueList: Array.isArray(item.queueList) ? item.queueList : [],

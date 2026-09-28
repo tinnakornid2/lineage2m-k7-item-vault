@@ -843,75 +843,86 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
             </div>
           )}
 
-          {/* Optional Receipt Attachment (แนบรูปบิล/ใบเสร็จ) */}
-          <div className="mt-3 p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-                <Receipt className="w-3.5 h-3.5 text-emerald-400" />
-                <span>{t.receiptBills}</span>
-                <span className="text-[10px] text-slate-500 font-normal">({lang === 'th' ? 'ไม่บังคับ' : 'Optional'})</span>
+          {/* Optional Receipt Attachment (Only for items with price > 0; free items do not require bill) */}
+          {item.price > 0 ? (
+            <div className="mt-3 p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
+                  <Receipt className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{t.receiptBills}</span>
+                  <span className="text-[10px] text-slate-500 font-normal">({lang === 'th' ? 'ไม่บังคับ' : 'Optional'})</span>
+                </div>
+                <label
+                  htmlFor="distribute-file-receipt"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-600/40 text-emerald-300 text-[11px] font-semibold cursor-pointer transition shadow-sm"
+                >
+                  <Upload className="w-3 h-3 text-emerald-400" />
+                  <span>+ {t.attachReceipt}</span>
+                </label>
+                <input
+                  id="distribute-file-receipt"
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const files = e.target.files;
+                    if (!files || files.length === 0) return;
+                    try {
+                      sounds.playClick();
+                      const compressedList = await Promise.all(
+                        (Array.from(files) as File[]).map((f) =>
+                          compressImageFile(f, { maxWidth: 1600, maxHeight: 1600, quality: 0.8 })
+                        )
+                      );
+                      setReceiptImages((prev) => [...prev, ...compressedList]);
+                    } catch (err) {
+                      console.error('Error compressing receipt image:', err);
+                    } finally {
+                      e.target.value = '';
+                    }
+                  }}
+                  className="hidden"
+                />
               </div>
-              <label
-                htmlFor="distribute-file-receipt"
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-600/40 text-emerald-300 text-[11px] font-semibold cursor-pointer transition shadow-sm"
-              >
-                <Upload className="w-3 h-3 text-emerald-400" />
-                <span>+ {t.attachReceipt}</span>
-              </label>
-              <input
-                id="distribute-file-receipt"
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={async (e) => {
-                  const files = e.target.files;
-                  if (!files || files.length === 0) return;
-                  try {
-                    sounds.playClick();
-                    const compressedList = await Promise.all(
-                      (Array.from(files) as File[]).map((f) =>
-                        compressImageFile(f, { maxWidth: 1600, maxHeight: 1600, quality: 0.8 })
-                      )
-                    );
-                    setReceiptImages((prev) => [...prev, ...compressedList]);
-                  } catch (err) {
-                    console.error('Error compressing receipt image:', err);
-                  } finally {
-                    e.target.value = '';
-                  }
-                }}
-                className="hidden"
-              />
-            </div>
 
-            {receiptImages.length > 0 ? (
-              <div className="flex items-center gap-2 flex-wrap pt-1">
-                {receiptImages.map((receiptUrl, idx) => (
-                  <div key={idx} className="relative group/distreceipt w-12 h-12 rounded-lg overflow-hidden border border-emerald-500/40 bg-slate-900 shadow-sm shrink-0">
-                    <img src={receiptUrl} alt={`Receipt ${idx + 1}`} className="w-full h-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sounds.playClick();
-                        setReceiptImages((prev) => prev.filter((_, i) => i !== idx));
-                      }}
-                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center text-[9px] shadow cursor-pointer"
-                      title={lang === 'th' ? 'ลบรูปบิล' : 'Remove bill'}
-                    >
-                      ×
-                    </button>
-                    <span className="absolute bottom-0 right-0 px-1 py-0.2 bg-black/80 text-[8px] font-mono text-emerald-300 font-bold">
-                      #{idx + 1}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-slate-500">
-                {t.receiptBillsDesc}
-              </p>
-            )}
-          </div>
+              {receiptImages.length > 0 ? (
+                <div className="flex items-center gap-2 flex-wrap pt-1">
+                  {receiptImages.map((receiptUrl, idx) => (
+                    <div key={idx} className="relative group/distreceipt w-12 h-12 rounded-lg overflow-hidden border border-emerald-500/40 bg-slate-900 shadow-sm shrink-0">
+                      <img src={receiptUrl} alt={`Receipt ${idx + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setReceiptImages((prev) => prev.filter((_, i) => i !== idx));
+                        }}
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center text-[9px] shadow cursor-pointer"
+                        title={lang === 'th' ? 'ลบรูปบิล' : 'Remove bill'}
+                      >
+                        ×
+                      </button>
+                      <span className="absolute bottom-0 right-0 px-1 py-0.2 bg-black/80 text-[8px] font-mono text-emerald-300 font-bold">
+                        #{idx + 1}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-500">
+                  {t.receiptBillsDesc}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="mt-3 p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 flex items-center gap-2 text-xs text-emerald-300">
+              <Gift className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                {lang === 'th'
+                  ? '🎁 ไอเทมนี้แจกฟรี ไม่ต้องแนบรูปบิล และไม่ต้องยืนยันชำระ'
+                  : '🎁 Free item: No bill attachment and no payment confirmation needed.'}
+              </span>
+            </div>
+          )}
 
           {/* Dialog Action Buttons */}
           <div className="flex justify-end gap-2.5 pt-3 mt-3 border-t border-slate-800">

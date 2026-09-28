@@ -1143,6 +1143,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
       // Ensure strict deduplication before creating item
       const { unique: deduplicatedFinalHunters } = deduplicateHunterList(hunters);
 
+      const isFreeItem = (Number(price) || 0) === 0;
       const directPayload: DirectDistributionPayload | undefined =
         itemEntryMode === 'direct_distribute' && directRecipient
           ? {
@@ -1151,8 +1152,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 clan: directRecipient.clan || 'No Clan',
                 userId: directRecipient.id
               },
-              receiptImages: directReceiptImages,
-              paymentStatus: directPaymentStatus
+              receiptImages: isFreeItem ? [] : directReceiptImages,
+              paymentStatus: isFreeItem ? 'paid' : directPaymentStatus
             }
           : undefined;
 
@@ -1368,17 +1369,35 @@ export const VaultView: React.FC<VaultViewProps> = ({
             {item.hunterScreenshots && item.hunterScreenshots.length > 0 ? (
               <div className="flex items-center gap-1">
                 {item.hunterScreenshots.slice(0, 3).map((shot, sIdx) => (
-                  <button
-                    key={sIdx}
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      onViewImageZoom(shot, `${item.name} - Hunter Proof #${sIdx + 1}`, item.hunterScreenshots, sIdx);
-                    }}
-                    className="w-7 h-7 rounded-lg overflow-hidden border border-slate-700 hover:border-sky-400 bg-slate-900 shrink-0 shadow-sm cursor-pointer"
-                  >
-                    <img src={shot} alt="Proof" className="w-full h-full object-cover" />
-                  </button>
+                  <div key={sIdx} className="relative group/hshot shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        onViewImageZoom(shot, `${item.name} - Hunter Proof #${sIdx + 1}`, item.hunterScreenshots, sIdx);
+                      }}
+                      className="w-7 h-7 rounded-lg overflow-hidden border border-slate-700 hover:border-sky-400 bg-slate-900 shrink-0 shadow-sm cursor-pointer block"
+                    >
+                      <img src={shot} alt="Proof" className="w-full h-full object-cover" />
+                    </button>
+                    {isAdminOrOwner && (
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (window.confirm(t.deleteHunterProofConfirm || (lang === 'th' ? 'ต้องการลบรูปผู้ล่านี้ใช่หรือไม่?' : 'Delete this hunter proof?'))) {
+                            sounds.playClick();
+                            const updatedHunters = (item.hunterScreenshots || []).filter((_, i) => i !== sIdx);
+                            await updateVaultItemDoc(item.id, { hunterScreenshots: updatedHunters });
+                          }
+                        }}
+                        className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow text-[8px] opacity-0 group-hover/hshot:opacity-100 transition-opacity cursor-pointer z-10"
+                        title={lang === 'th' ? 'ลบรูปผู้ล่านี้' : 'Delete hunter proof'}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
                 ))}
                 {item.hunterScreenshots.length > 3 && (
                   <span className="text-[9px] font-mono text-sky-400">+{item.hunterScreenshots.length - 3}</span>
@@ -1403,27 +1422,81 @@ export const VaultView: React.FC<VaultViewProps> = ({
               </button>
             )}
 
+            {/* Attach Hunter Proof for Admin/Owner */}
+            {isAdminOrOwner && (
+              <label
+                htmlFor={`card-file-hunter-${item.id}`}
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-sky-950/40 hover:bg-sky-900/60 border border-sky-600/30 text-sky-300 text-[10px] font-medium cursor-pointer"
+                title={t.attachHunterProof || (lang === 'th' ? 'แนบรูปรายชื่อผู้ล่า' : 'Attach Hunter Proof')}
+              >
+                <Upload className="w-2.5 h-2.5 text-sky-400" />
+                <span>+{t.attachHunterProof || (lang === 'th' ? 'รูปผู้ล่า' : 'Hunter Proof')}</span>
+                <input
+                  id={`card-file-hunter-${item.id}`}
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const files = e.target.files;
+                    if (!files || files.length === 0) return;
+                    try {
+                      sounds.playClick();
+                      const compressedList = await Promise.all(
+                        (Array.from(files) as File[]).map((f) => compressImageFile(f, { maxWidth: 1600, maxHeight: 1600, quality: 0.8 }))
+                      );
+                      const existing = item.hunterScreenshots || [];
+                      await updateVaultItemDoc(item.id, { hunterScreenshots: [...existing, ...compressedList] });
+                      sounds.playSuccess();
+                    } catch (err) {
+                      console.error('Error uploading hunter proof:', err);
+                    } finally {
+                      e.target.value = '';
+                    }
+                  }}
+                  className="hidden"
+                />
+              </label>
+            )}
+
             {/* Receipts */}
             {item.receiptImages && item.receiptImages.length > 0 && (
               <div className="flex items-center gap-1">
                 {item.receiptImages.slice(0, 2).map((rImg, rIdx) => (
-                  <button
-                    key={rIdx}
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      onViewImageZoom(rImg, `${item.name} - Receipt #${rIdx + 1}`, item.receiptImages, rIdx);
-                    }}
-                    className="w-7 h-7 rounded-lg overflow-hidden border border-emerald-500/40 hover:border-emerald-400 bg-slate-900 shrink-0 shadow-sm cursor-pointer"
-                  >
-                    <img src={rImg} alt="Receipt" className="w-full h-full object-cover" />
-                  </button>
+                  <div key={rIdx} className="relative group/rshot shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        onViewImageZoom(rImg, `${item.name} - Receipt #${rIdx + 1}`, item.receiptImages, rIdx);
+                      }}
+                      className="w-7 h-7 rounded-lg overflow-hidden border border-emerald-500/40 hover:border-emerald-400 bg-slate-900 shrink-0 shadow-sm cursor-pointer block"
+                    >
+                      <img src={rImg} alt="Receipt" className="w-full h-full object-cover" />
+                    </button>
+                    {isAdminOrOwner && (
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (window.confirm(t.deleteReceiptConfirm)) {
+                            sounds.playClick();
+                            const updatedReceipts = (item.receiptImages || []).filter((_, i) => i !== rIdx);
+                            await updateVaultItemDoc(item.id, { receiptImages: updatedReceipts });
+                          }
+                        }}
+                        className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow text-[8px] opacity-0 group-hover/rshot:opacity-100 transition-opacity cursor-pointer z-10"
+                        title={lang === 'th' ? 'ลบรูปบิลนี้' : 'Delete receipt'}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
 
-            {/* Attach Receipt for Admin */}
-            {isAdminOrOwner && (
+            {/* Attach Receipt for Admin (Only if item has price > 0) */}
+            {isAdminOrOwner && item.price > 0 && (
               <label
                 htmlFor={`card-file-receipt-${item.id}`}
                 className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-600/30 text-emerald-300 text-[10px] font-medium cursor-pointer"
@@ -2081,70 +2154,81 @@ export const VaultView: React.FC<VaultViewProps> = ({
                       </select>
                     </div>
 
-                    {/* Payment Status & Receipts in 1 row */}
-                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-emerald-500/20">
-                      {/* Payment toggle */}
-                      <div>
-                        <label className="block text-[10px] font-semibold text-slate-300 mb-1">
-                          {t.paymentStatusChoice}
-                        </label>
-                        <div className="grid grid-cols-2 gap-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              sounds.playClick();
-                              setDirectPaymentStatus('pending');
-                            }}
-                            className={`py-1 rounded text-[10px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
-                              directPaymentStatus === 'pending'
-                                ? 'bg-amber-950/80 border border-amber-500 text-amber-300'
-                                : 'bg-[#090d16] border border-slate-800 text-slate-400'
-                            }`}
-                          >
-                            <Clock className="w-3 h-3 text-amber-400" />
-                            <span>{t.paymentStatusPending}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              sounds.playClick();
-                              setDirectPaymentStatus('paid');
-                            }}
-                            className={`py-1 rounded text-[10px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
-                              directPaymentStatus === 'paid'
-                                ? 'bg-emerald-950/80 border border-emerald-500 text-emerald-300'
-                                : 'bg-[#090d16] border border-slate-800 text-slate-400'
-                            }`}
-                          >
-                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                            <span>{t.paymentStatusPaid}</span>
-                          </button>
-                        </div>
+                    {/* Payment Status & Receipts: Free notice when price is 0, or payment controls when price > 0 */}
+                    {(price === '' || Number(price) === 0) ? (
+                      <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 flex items-center gap-2 text-xs text-emerald-300">
+                        <Gift className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>
+                          {lang === 'th'
+                            ? '🎁 ไอเทมแจกฟรี ไม่ต้องแนบรูปบิล และไม่ต้องยืนยันชำระ (บันทึกเป็นแจกฟรีทันที)'
+                            : '🎁 Free item: No bill attachment and no payment confirmation needed.'}
+                        </span>
                       </div>
-
-                      {/* Receipt slip attach */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[10px] font-semibold text-slate-300">
-                            {t.attachReceiptBills}
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 pt-1 border-t border-emerald-500/20">
+                        {/* Payment toggle */}
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-300 mb-1">
+                            {t.paymentStatusChoice}
                           </label>
-                          {directReceiptImages.length > 0 && (
-                            <span className="text-[9px] text-teal-400 font-mono">{directReceiptImages.length} {lang === 'th' ? 'รูป' : 'files'}</span>
-                          )}
+                          <div className="grid grid-cols-2 gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sounds.playClick();
+                                setDirectPaymentStatus('pending');
+                              }}
+                              className={`py-1 rounded text-[10px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+                                directPaymentStatus === 'pending'
+                                  ? 'bg-amber-950/80 border border-amber-500 text-amber-300'
+                                  : 'bg-[#090d16] border border-slate-800 text-slate-400'
+                              }`}
+                            >
+                              <Clock className="w-3 h-3 text-amber-400" />
+                              <span>{t.paymentStatusPending}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sounds.playClick();
+                                setDirectPaymentStatus('paid');
+                              }}
+                              className={`py-1 rounded text-[10px] font-bold transition cursor-pointer flex items-center justify-center gap-1 ${
+                                directPaymentStatus === 'paid'
+                                  ? 'bg-emerald-950/80 border border-emerald-500 text-emerald-300'
+                                  : 'bg-[#090d16] border border-slate-800 text-slate-400'
+                              }`}
+                            >
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span>{t.paymentStatusPaid}</span>
+                            </button>
+                          </div>
                         </div>
-                        <label
-                          tabIndex={0}
-                          onPaste={handlePasteDirectReceiptZone}
-                          htmlFor="file-direct-receipts"
-                          className="w-full py-1 px-2 rounded bg-teal-950/40 hover:bg-teal-900/60 border border-dashed border-teal-500/50 text-[10px] font-medium text-teal-200 cursor-pointer transition flex items-center justify-center gap-1.5 outline-none"
-                          title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูปบิล' : 'Click to choose or Ctrl + V to paste bill'}
-                        >
-                          <Upload className="w-3 h-3 text-teal-300" />
-                          <span>{lang === 'th' ? 'แนบบิล (Ctrl+V)' : 'Upload Bill'}</span>
-                          <input id="file-direct-receipts" type="file" accept="image/*" multiple onChange={handleDirectReceiptUpload} className="hidden" />
-                        </label>
+
+                        {/* Receipt slip attach */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-[10px] font-semibold text-slate-300">
+                              {t.attachReceiptBills}
+                            </label>
+                            {directReceiptImages.length > 0 && (
+                              <span className="text-[9px] text-teal-400 font-mono">{directReceiptImages.length} {lang === 'th' ? 'รูป' : 'files'}</span>
+                            )}
+                          </div>
+                          <label
+                            tabIndex={0}
+                            onPaste={handlePasteDirectReceiptZone}
+                            htmlFor="file-direct-receipts"
+                            className="w-full py-1 px-2 rounded bg-teal-950/40 hover:bg-teal-900/60 border border-dashed border-teal-500/50 text-[10px] font-medium text-teal-200 cursor-pointer transition flex items-center justify-center gap-1.5 outline-none"
+                            title={lang === 'th' ? 'คลิกเลือกไฟล์ หรือกด Ctrl + V เพื่อวางรูปบิล' : 'Click to choose or Ctrl + V to paste bill'}
+                          >
+                            <Upload className="w-3 h-3 text-teal-300" />
+                            <span>{lang === 'th' ? 'แนบบิล (Ctrl+V)' : 'Upload Bill'}</span>
+                            <input id="file-direct-receipts" type="file" accept="image/*" multiple onChange={handleDirectReceiptUpload} className="hidden" />
+                          </label>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* Receipt Slips Thumbnails Preview */}
                     {directReceiptImages.length > 0 && (
@@ -3121,90 +3205,153 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
                       {/* 7. Hunter Proofs (รูปรายชื่อผู้ล่า - ดูได้ทุกรูป) */}
                       <td className="py-3 px-4">
-                        {item.hunterScreenshots && item.hunterScreenshots.length > 0 ? (
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {item.hunterScreenshots.map((shot, idx) => (
-                                <button
-                                  key={idx}
-                                  type="button"
-                                  onClick={() => {
-                                    sounds.playClick();
-                                    onViewImageZoom(
-                                      shot,
-                                      `${item.name} - ${lang === 'th' ? `รูปรายชื่อผู้ล่า #${idx + 1}` : `Hunter Proof #${idx + 1}`}`,
-                                      item.hunterScreenshots,
-                                      idx
-                                    );
-                                  }}
-                                  className="relative group/shot w-11 h-11 rounded-lg overflow-hidden border border-slate-700 hover:border-sky-400 bg-slate-900 transition-all hover:scale-110 shadow-md cursor-pointer shrink-0"
-                                  title={
-                                    lang === 'th'
-                                      ? `คลิกดูรูปรายชื่อผู้ล่าใบที่ ${idx + 1} จากทั้งหมด ${item.hunterScreenshots.length} รูป (ใช้สกอลล์เม้าส์ซูมเข้า-ออกได้)`
-                                      : `Click to view hunter proof #${idx + 1} of ${item.hunterScreenshots.length} (scroll wheel to zoom)`
-                                  }
-                                >
-                                  <img
-                                    src={shot}
-                                    alt={`Hunter Proof ${idx + 1}`}
-                                    className="w-full h-full object-cover"
-                                  />
-                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/shot:opacity-100 flex items-center justify-center transition-opacity">
-                                    <ZoomIn className="w-3.5 h-3.5 text-sky-300 drop-shadow" />
+                        <div className="space-y-1.5">
+                          {item.hunterScreenshots && item.hunterScreenshots.length > 0 ? (
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {item.hunterScreenshots.map((shot, idx) => (
+                                  <div key={idx} className="relative group/hshot shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        sounds.playClick();
+                                        onViewImageZoom(
+                                          shot,
+                                          `${item.name} - ${lang === 'th' ? `รูปรายชื่อผู้ล่า #${idx + 1}` : `Hunter Proof #${idx + 1}`}`,
+                                          item.hunterScreenshots,
+                                          idx
+                                        );
+                                      }}
+                                      className="relative group/shot w-11 h-11 rounded-lg overflow-hidden border border-slate-700 hover:border-sky-400 bg-slate-900 transition-all hover:scale-110 shadow-md cursor-pointer block"
+                                      title={
+                                        lang === 'th'
+                                          ? `คลิกดูรูปรายชื่อผู้ล่าใบที่ ${idx + 1} จากทั้งหมด ${item.hunterScreenshots.length} รูป (ใช้สกอลล์เม้าส์ซูมเข้า-ออกได้)`
+                                          : `Click to view hunter proof #${idx + 1} of ${item.hunterScreenshots.length} (scroll wheel to zoom)`
+                                      }
+                                    >
+                                      <img
+                                        src={shot}
+                                        alt={`Hunter Proof ${idx + 1}`}
+                                        className="w-full h-full object-cover"
+                                      />
+                                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/shot:opacity-100 flex items-center justify-center transition-opacity">
+                                        <ZoomIn className="w-3.5 h-3.5 text-sky-300 drop-shadow" />
+                                      </div>
+                                      <span className="absolute bottom-0 right-0 px-1 py-0.2 bg-black/80 text-[8.5px] font-mono text-sky-300 font-bold rounded-tl border-t border-l border-slate-700/60">
+                                        #{idx + 1}
+                                      </span>
+                                    </button>
+                                    {isAdminOrOwner && (
+                                      <button
+                                        type="button"
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          if (window.confirm(t.deleteHunterProofConfirm || (lang === 'th' ? 'ต้องการลบรูปผู้ล่านี้ใช่หรือไม่?' : 'Delete this hunter proof?'))) {
+                                            sounds.playClick();
+                                            const updatedHunters = (item.hunterScreenshots || []).filter((_, i) => i !== idx);
+                                            await updateVaultItemDoc(item.id, { hunterScreenshots: updatedHunters });
+                                          }
+                                        }}
+                                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow text-[9px] opacity-0 group-hover/hshot:opacity-100 transition-opacity cursor-pointer z-10"
+                                        title={lang === 'th' ? 'ลบรูปผู้ล่านี้' : 'Delete hunter proof'}
+                                      >
+                                        ×
+                                      </button>
+                                    )}
                                   </div>
-                                  <span className="absolute bottom-0 right-0 px-1 py-0.2 bg-black/80 text-[8.5px] font-mono text-sky-300 font-bold rounded-tl border-t border-l border-slate-700/60">
-                                    #{idx + 1}
-                                  </span>
-                                </button>
-                              ))}
+                                ))}
+                              </div>
+                              <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                                <span className="text-sky-400 font-mono font-semibold">
+                                  {item.hunterScreenshots.length} {lang === 'th' ? 'รูป' : 'imgs'}
+                                </span>
+                                {item.hunters && item.hunters.length > 0 && (
+                                  <>
+                                    <span>•</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        sounds.playClick();
+                                        setViewingDistributedHuntersItem(item);
+                                        setDistHuntersViewMode('cards');
+                                        setDistHuntersTextFormat('by-clan');
+                                        setDistHuntersClanFilter('all');
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold hover:text-amber-200 cursor-pointer transition-all shadow-sm"
+                                      title={lang === 'th' ? 'คลิกเพื่อดูรายชื่อผู้ล่า (เลือกดูแบบ Card หรือ Text ได้)' : 'View hunter names (Card or Text)'}
+                                    >
+                                      <Users className="w-2.5 h-2.5 text-amber-400" />
+                                      <span>{item.hunters.length} {lang === 'th' ? 'ผู้ล่า (ดูชื่อ)' : 'Hunters (View)'}</span>
+                                    </button>
+                                  </>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-                              <span className="text-sky-400 font-mono font-semibold">
-                                {item.hunterScreenshots.length} {lang === 'th' ? 'รูป' : 'imgs'}
-                              </span>
-                              {item.hunters && item.hunters.length > 0 && (
-                                <>
-                                  <span>•</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      sounds.playClick();
-                                      setViewingDistributedHuntersItem(item);
-                                      setDistHuntersViewMode('cards');
-                                      setDistHuntersTextFormat('by-clan');
-                                      setDistHuntersClanFilter('all');
-                                    }}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold hover:text-amber-200 cursor-pointer transition-all shadow-sm"
-                                    title={lang === 'th' ? 'คลิกเพื่อดูรายชื่อผู้ล่า (เลือกดูแบบ Card หรือ Text ได้)' : 'View hunter names (Card or Text)'}
-                                  >
-                                    <Users className="w-2.5 h-2.5 text-amber-400" />
-                                    <span>{item.hunters.length} {lang === 'th' ? 'ผู้ล่า (ดูชื่อ)' : 'Hunters (View)'}</span>
-                                  </button>
-                                </>
-                              )}
+                          ) : item.hunters && item.hunters.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sounds.playClick();
+                                setViewingDistributedHuntersItem(item);
+                                setDistHuntersViewMode('cards');
+                                setDistHuntersTextFormat('by-clan');
+                                setDistHuntersClanFilter('all');
+                              }}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 text-amber-300 text-xs font-bold transition-all cursor-pointer shadow-sm"
+                              title={lang === 'th' ? 'คลิกเพื่อดูรายชื่อผู้ล่า (เลือกดูแบบ Card หรือ Text ได้)' : 'View hunter names (Card or Text)'}
+                            >
+                              <Users className="w-3.5 h-3.5 text-amber-400" />
+                              <span>{item.hunters.length} {lang === 'th' ? 'ผู้ล่า (ดูรายชื่อ)' : 'Hunters (View)'}</span>
+                            </button>
+                          ) : item.source === 'item_queue' ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                              <span>-</span>
+                              <span className="text-[10px] text-cyan-400/80 font-medium">({lang === 'th' ? 'คิวไอเทม ไม่มีผู้ล่า' : 'Item Queue'})</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-600 text-[11px] italic">
+                              {lang === 'th' ? 'ไม่มีรูปผู้ล่า' : 'No proof attached'}
+                            </span>
+                          )}
+
+                          {/* Attach Hunter Proof button for Admin/Owner */}
+                          {isAdminOrOwner && (
+                            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                              <label
+                                htmlFor={`table-file-hunter-${item.id}`}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-950/50 hover:bg-sky-900/60 border border-sky-600/40 text-sky-300 text-[11px] font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
+                                title={t.hunterProofDesc || (lang === 'th' ? 'แนบรูปภาพสกรีนช็อตรายชื่อผู้ล่า' : 'Attach hunter screenshots')}
+                              >
+                                <Upload className="w-3 h-3 text-sky-400" />
+                                <span>+ {t.attachHunterProof || (lang === 'th' ? 'แนบรูปผู้ล่า' : 'Hunter Proof')}</span>
+                              </label>
+                              <input
+                                id={`table-file-hunter-${item.id}`}
+                                type="file"
+                                multiple
+                                accept="image/*"
+                                onChange={async (e) => {
+                                  const files = e.target.files;
+                                  if (!files || files.length === 0) return;
+                                  try {
+                                    sounds.playClick();
+                                    const compressedList = await Promise.all(
+                                      (Array.from(files) as File[]).map((f) => compressImageFile(f, { maxWidth: 1600, maxHeight: 1600, quality: 0.8 }))
+                                    );
+                                    const existing = item.hunterScreenshots || [];
+                                    await updateVaultItemDoc(item.id, { hunterScreenshots: [...existing, ...compressedList] });
+                                    sounds.playSuccess();
+                                  } catch (err) {
+                                    console.error('Error uploading hunter screenshots:', err);
+                                  } finally {
+                                    e.target.value = '';
+                                  }
+                                }}
+                                className="hidden"
+                              />
                             </div>
-                          </div>
-                        ) : item.hunters && item.hunters.length > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              sounds.playClick();
-                              setViewingDistributedHuntersItem(item);
-                              setDistHuntersViewMode('cards');
-                              setDistHuntersTextFormat('by-clan');
-                              setDistHuntersClanFilter('all');
-                            }}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/60 text-amber-300 text-xs font-bold transition-all cursor-pointer shadow-sm"
-                            title={lang === 'th' ? 'คลิกเพื่อดูรายชื่อผู้ล่า (เลือกดูแบบ Card หรือ Text ได้)' : 'View hunter names (Card or Text)'}
-                          >
-                            <Users className="w-3.5 h-3.5 text-amber-400" />
-                            <span>{item.hunters.length} {lang === 'th' ? 'ผู้ล่า (ดูรายชื่อ)' : 'Hunters (View)'}</span>
-                          </button>
-                        ) : (
-                          <span className="text-slate-600 text-[11px] italic">
-                            {lang === 'th' ? 'ไม่มีรูปผู้ล่า' : 'No proof attached'}
-                          </span>
-                        )}
+                          )}
+                        </div>
                       </td>
 
                       {/* 7.5. Receipt Bills (รูปบิล / ใบเสร็จ - แนบได้หลายใบ) */}
@@ -3263,8 +3410,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
                             </div>
                           ) : null}
 
-                          {/* Attach receipt button for Admin/Owner */}
-                          {isAdminOrOwner && (
+                          {/* Attach receipt button for Admin/Owner (Only for items with price > 0; free items do not require bill) */}
+                          {isAdminOrOwner && item.price > 0 && (
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <label
                                 htmlFor={`file-receipt-${item.id}`}
@@ -3309,7 +3456,13 @@ export const VaultView: React.FC<VaultViewProps> = ({
                             </div>
                           )}
 
-                          {(!item.receiptImages || item.receiptImages.length === 0) && !isAdminOrOwner && (
+                          {item.price <= 0 && (!item.receiptImages || item.receiptImages.length === 0) && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-950/40 text-emerald-400/80 border border-emerald-500/20">
+                              🎁 {lang === 'th' ? 'แจกฟรี (ไม่ต้องแนบบิล)' : 'Free (No bill needed)'}
+                            </span>
+                          )}
+
+                          {item.price > 0 && (!item.receiptImages || item.receiptImages.length === 0) && !isAdminOrOwner && (
                             <span className="text-slate-600 text-[11px] italic">
                               {t.noReceipts}
                             </span>

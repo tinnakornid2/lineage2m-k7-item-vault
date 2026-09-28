@@ -138,6 +138,7 @@ export interface QuickItem {
   imageUrl: string;
   quantity?: number;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface GeneralItem {
@@ -148,6 +149,7 @@ export interface GeneralItem {
   quantity: number;
   minPowerLevel: number;
   maxRequestQuantity?: number;
+  isCraftGoal?: boolean;
   allowMemberQueue?: boolean;
   isPinned?: boolean;
   sortOrder?: number;

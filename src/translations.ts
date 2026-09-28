@@ -336,6 +336,9 @@ export const translations = {
     noReceipts: 'ยังไม่มีรูปบิล',
     receiptCount: 'บิล',
     deleteReceiptConfirm: 'ต้องการลบรูปบิลนี้ใช่หรือไม่?',
+    attachHunterProof: 'แนบรูปผู้ล่า',
+    hunterProofDesc: 'แนบรูปภาพสกรีนช็อตรายชื่อผู้ล่า',
+    deleteHunterProofConfirm: 'ต้องการลบรูปผู้ล่านี้ใช่หรือไม่?',
     receiptAttachedSuccess: 'แนบรูปบิลเรียบร้อยแล้ว',
     receiptDeletedSuccess: 'ลบรูปบิลเรียบร้อยแล้ว',
 
@@ -951,6 +954,9 @@ export const translations = {
     noReceipts: 'No receipts attached',
     receiptCount: 'bills',
     deleteReceiptConfirm: 'Are you sure you want to remove this receipt?',
+    attachHunterProof: 'Attach Hunter Proof',
+    hunterProofDesc: 'Attach hunter party screenshots',
+    deleteHunterProofConfirm: 'Are you sure you want to remove this hunter proof?',
     receiptAttachedSuccess: 'Receipt attached successfully',
     receiptDeletedSuccess: 'Receipt deleted successfully',
 

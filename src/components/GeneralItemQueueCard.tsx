@@ -80,6 +80,7 @@ type Draft = {
   price: number | '';
   minPowerLevel: number | '';
   maxRequestQuantity: number | '';
+  isCraftGoal: boolean;
   receiptPolicy: 'per_delivery' | 'on_complete' | 'optional';
   allowMemberQueue: boolean;
   isPinned: boolean;
@@ -91,6 +92,7 @@ const emptyDraft: Draft = {
   price: 0,
   minPowerLevel: 0,
   maxRequestQuantity: 1,
+  isCraftGoal: false,
   receiptPolicy: 'optional',
   allowMemberQueue: true,
   isPinned: false,
@@ -175,9 +177,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     note: string;
     receiptFile: File | null;
     receiptPreview: string;
-    hunterFile: File | null;
-    hunterPreview: string;
     recordToDiamondVaultLog: boolean;
+    keepInQueue: boolean;
   } | null>(null);
   const [isDelivering, setIsDelivering] = useState(false);
 
@@ -272,12 +273,16 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
 
   const openEditForm = (item: GeneralItem) => {
     setEditingId(item.id);
+    const isCraft = item.isCraftGoal === true || item.maxRequestQuantity === 0;
     setDraft({
       name: item.name,
       imageUrl: item.imageUrl || '',
       price: item.price || 0,
       minPowerLevel: item.minPowerLevel || 0,
-      maxRequestQuantity: item.maxRequestQuantity || item.quantity || 1,
+      maxRequestQuantity: typeof item.maxRequestQuantity === 'number'
+        ? item.maxRequestQuantity
+        : (typeof item.quantity === 'number' ? item.quantity : 1),
+      isCraftGoal: isCraft,
       receiptPolicy: item.receiptPolicy || 'optional',
       allowMemberQueue: item.allowMemberQueue !== false,
       isPinned: !!item.isPinned,
@@ -341,7 +346,12 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
         finalImageUrl = await uploadOrEmbed(imageFile, 'general-item');
       }
 
-      const finalMaxRequest = typeof draft.maxRequestQuantity === 'number' ? Math.max(1, draft.maxRequestQuantity) : (parseInt(String(draft.maxRequestQuantity), 10) || 1);
+      const isCraft = !!draft.isCraftGoal || draft.maxRequestQuantity === 0;
+      const finalMaxRequest = isCraft
+        ? 0
+        : (typeof draft.maxRequestQuantity === 'number'
+            ? Math.max(0, draft.maxRequestQuantity)
+            : (draft.maxRequestQuantity === '' ? 1 : (parseInt(String(draft.maxRequestQuantity), 10) || 0)));
       const payload = {
         name: draft.name.trim(),
         imageUrl: finalImageUrl,
@@ -349,6 +359,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
         quantity: finalMaxRequest,
         minPowerLevel: typeof draft.minPowerLevel === 'number' ? Math.max(0, draft.minPowerLevel) : (parseInt(String(draft.minPowerLevel), 10) || 0),
         maxRequestQuantity: finalMaxRequest,
+        isCraftGoal: isCraft,
         receiptPolicy: draft.receiptPolicy || 'optional',
         allowMemberQueue: draft.allowMemberQueue !== false,
         isPinned: !!draft.isPinned,
@@ -418,7 +429,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
             )
         );
       } else {
-        const targetQty = Math.max(1, requestedQty || 1);
+        const isCraftGoal = item.isCraftGoal === true || item.maxRequestQuantity === 0 || requestedQty === 0;
+        const targetQty = isCraftGoal ? 0 : Math.max(1, requestedQty || 1);
         // Add user to queue
         const newMember: QueueMember = {
           id: `gqm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -496,7 +508,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     e.preventDefault();
     if (!requestModalData || !currentUser) return;
     const { item, quantity } = requestModalData;
-    const reqQty = Math.max(1, typeof quantity === 'number' ? quantity : (parseInt(String(quantity), 10) || 1));
+    const isCraftGoal = item.isCraftGoal === true || item.maxRequestQuantity === 0;
+    const reqQty = isCraftGoal ? 0 : Math.max(1, typeof quantity === 'number' ? quantity : (parseInt(String(quantity), 10) || 1));
     setIsSubmittingRequest(true);
     try {
       await handleToggleQueue(item, reqQty);
@@ -680,7 +693,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     sounds.playClick();
     setBusyItemId(itemId);
     try {
-      const finalReq = Math.max(1, manualMemberQuantity || 1);
+      const isCraftGoal = item.isCraftGoal === true || item.maxRequestQuantity === 0;
+      const finalReq = isCraftGoal ? 0 : Math.max(1, manualMemberQuantity || 1);
       const newMember: QueueMember = {
         id: `gqm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         userId: mem.id,
@@ -698,7 +712,18 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
       setActiveQueueIdForAdd(null);
       setSelectedMemberIdForQueue('');
       setManualMemberQuantity(1);
-      if (showToast) showToast(th ? `เพิ่ม ${mem.inGameName} ลงคิวสำเร็จ (x${finalReq} ชิ้น)` : `Added ${mem.inGameName} to queue (x${finalReq} pcs)`, 'success');
+      if (showToast) {
+        showToast(
+          th
+            ? (isCraftGoal
+                ? `เพิ่ม ${mem.inGameName} ลงคิวสำเร็จ (🎯 จนกว่าจะคราฟสำเร็จ)`
+                : `เพิ่ม ${mem.inGameName} ลงคิวสำเร็จ (x${finalReq} ชิ้น)`)
+            : (isCraftGoal
+                ? `Added ${mem.inGameName} to queue (🎯 Until crafted)`
+                : `Added ${mem.inGameName} to queue (x${finalReq} pcs)`),
+          'success'
+        );
+      }
     } catch (err: any) {
       if (showToast) showToast(err?.message || (th ? 'เพิ่มไม่สำเร็จ' : 'Failed to add member'), 'error');
     } finally {
@@ -711,9 +736,12 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     e.preventDefault();
     if (!editingQueueMember) return;
     const { item, member, requestedQuantity, receivedQuantity } = editingQueueMember;
-    const finalReq = Math.max(1, requestedQuantity || 1);
+    const finalReq = typeof requestedQuantity === 'number'
+      ? Math.max(0, requestedQuantity)
+      : (requestedQuantity === '' ? 0 : (parseInt(String(requestedQuantity), 10) || 0));
     const finalRec = Math.max(0, receivedQuantity || 0);
-    const isCompleted = finalRec >= finalReq;
+    const isCraftGoal = item.isCraftGoal === true || item.maxRequestQuantity === 0 || finalReq === 0;
+    const isCompleted = isCraftGoal ? false : finalRec >= finalReq;
     const status = isCompleted ? 'received' : finalRec > 0 ? 'partially_received' : 'pending';
 
     setIsUpdatingQueueMember(true);
@@ -775,9 +803,12 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
       };
     }
 
-    const remainingNeeded = Math.max(1, (targetMember.requestedQuantity || 1) - (targetMember.receivedQuantity || 0));
-    const deliverQty = Math.min(item.quantity, remainingNeeded);
-    const willComplete = deliverQty >= remainingNeeded;
+    const isCraftGoal = item.isCraftGoal || item.maxRequestQuantity === 0 || targetMember.requestedQuantity === 0;
+    const remainingNeeded = isCraftGoal
+      ? 1
+      : Math.max(1, (targetMember.requestedQuantity || 1) - (targetMember.receivedQuantity || 0));
+    const deliverQty = item.quantity > 0 ? Math.min(item.quantity, remainingNeeded) : remainingNeeded;
+    const willComplete = isCraftGoal ? false : deliverQty >= remainingNeeded;
     setDeliveryModalData({
       item,
       member: targetMember,
@@ -788,9 +819,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
       note: '',
       receiptFile: null,
       receiptPreview: '',
-      hunterFile: null,
-      hunterPreview: '',
-      recordToDiamondVaultLog: false
+      recordToDiamondVaultLog: false,
+      keepInQueue: isCraftGoal
     });
   };
 
@@ -798,7 +828,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
   const handleConfirmDelivery = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deliveryModalData) return;
-    const { item, member, quantity, price, billingType, sendDiscordNotification, note, receiptFile, hunterFile } = deliveryModalData;
+    const { item, member, quantity, price, billingType, sendDiscordNotification, note, receiptFile, keepInQueue } = deliveryModalData;
     if (!member.name) {
       if (showToast) showToast(th ? 'กรุณาระบุหรือเลือกผู้รับไอเทม' : 'Please select a recipient', 'warning');
       return;
@@ -806,31 +836,32 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
 
     setIsDelivering(true);
     try {
+      const deliveredQty = Math.max(1, typeof quantity === 'number' ? quantity : (parseInt(String(quantity), 10) || 1));
+      const finalDeliveryPrice = typeof price === 'number' ? Math.max(0, price) : (parseInt(String(price), 10) || 0);
+      const isFree = finalDeliveryPrice === 0;
+      const totalDiamonds = finalDeliveryPrice * deliveredQty;
+
+      // Free items do not require receipt attachment ("ถ้าเป็นไอเทมฟรี ไม่ต้องแนบ")
       let receiptImages: string[] = [];
-      if (receiptFile) {
+      if (!isFree && receiptFile) {
         const uploaded = await uploadOrEmbed(receiptFile, 'general-item-receipt');
         receiptImages = [uploaded];
       }
 
-      let hunterImages: string[] = [];
-      if (hunterFile) {
-        const uploadedHunter = await uploadOrEmbed(hunterFile, 'hunter-proof');
-        hunterImages = [uploadedHunter];
-      }
-
-      const deliveredQty = Math.max(1, typeof quantity === 'number' ? quantity : (parseInt(String(quantity), 10) || 1));
-      const finalDeliveryPrice = typeof price === 'number' ? Math.max(0, price) : (parseInt(String(price), 10) || 0);
-      const totalDiamonds = finalDeliveryPrice * deliveredQty;
-
       const prevReceived = Number(member.receivedQuantity || 0);
       const newReceived = prevReceived + deliveredQty;
-      const targetReq = Math.max(1, Number(member.requestedQuantity || 1));
-      const isCompleted = newReceived >= targetReq;
+      const isCraftGoal = item.isCraftGoal || item.maxRequestQuantity === 0 || member.requestedQuantity === 0;
+      const targetReq = isCraftGoal ? 0 : Math.max(1, Number(member.requestedQuantity || 1));
+      
+      // If keepInQueue is true, member remains in queue for crafting!
+      // If keepInQueue is false, it completes the delivery / craft!
+      const isCompleted = !keepInQueue || (!isCraftGoal && newReceived >= targetReq);
 
       const queueList = (item.queueList || []).map((m) => {
         if (m.id === member.id || (member.userId && m.userId === member.userId)) {
           return {
             ...m,
+            requestedQuantity: isCraftGoal ? 0 : (m.requestedQuantity || targetReq),
             receivedQuantity: newReceived,
             status: (isCompleted ? 'received' : 'partially_received') as 'received' | 'partially_received',
             receivedAt: isCompleted ? Date.now() : m.receivedAt
@@ -845,12 +876,12 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
         name: member.name,
         clan: member.clan,
         quantity: deliveredQty,
-        requestedQuantity: member.requestedQuantity || 1,
+        requestedQuantity: isCraftGoal ? 0 : (member.requestedQuantity || 1),
         diamondPrice: finalDeliveryPrice,
         totalDiamonds,
-        receiptImages,
-        hunterScreenshots: hunterImages,
-        billingType: billingType || 'immediate',
+        receiptImages: isFree ? [] : receiptImages,
+        hunterScreenshots: [], // Item Queue items have no hunters
+        billingType: isFree ? 'immediate' : (billingType || 'immediate'),
         note: note.trim(),
         deliveredAt: Date.now(),
         deliveredBy: currentUser?.inGameName || currentUser?.username || 'Admin',
@@ -864,6 +895,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
       await onUpdate(item.id, { queueList, receiptHistory });
 
       // Unify with "ไอเทมที่แจกแล้ว" (Centralized Distributed Archive)
+      // Free items are immediately marked as 'paid' with zero receipt required ("ถ้าเป็นไอเทมฟรี ไม่ต้องแนบและไม่ต้องยืนยันชำระ แจกฟรี")
       if (onAddDistributedVaultItem) {
         try {
           await onAddDistributedVaultItem(
@@ -875,7 +907,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
               rarity: item.rarity,
               quantity: deliveredQty,
               hunters: [],
-              hunterScreenshots: hunterImages,
+              hunterScreenshots: [],
               source: 'item_queue'
             },
             {
@@ -885,8 +917,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                 clan: member.clan,
                 userId: member.userId
               },
-              receiptImages: receiptImages,
-              paymentStatus: finalDeliveryPrice > 0 ? 'pending' : 'paid',
+              receiptImages: isFree ? [] : receiptImages,
+              paymentStatus: isFree ? 'paid' : 'pending',
               skipDiscordNotification: !sendDiscordNotification
             }
           );
@@ -901,12 +933,16 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
       if (showToast) {
         showToast(
           th
-            ? (isCompleted
-                ? `แจกไอเทม ${item.name} ให้ ${member.name} (x${deliveredQty} ชิ้น) ครบถ้วนแล้ว!`
-                : `แจกไอเทม ${item.name} ให้ ${member.name} (x${deliveredQty} ชิ้น) เรียบร้อย! (ยังคงอยู่ในคิว ${newReceived}/${targetReq} ชิ้น)`)
-            : (isCompleted
-                ? `Delivered ${item.name} to ${member.name} (x${deliveredQty} pcs) fully completed!`
-                : `Delivered ${item.name} to ${member.name} (x${deliveredQty} pcs)! (Still in queue ${newReceived}/${targetReq} pcs)`),
+            ? (keepInQueue
+                ? `แจกไอเทม ${item.name} ให้ ${member.name} (x${deliveredQty} ชิ้น) เรียบร้อย! (ยังคงอยู่ในคิวเพื่อคราฟต่อ: รับไปแล้วรวม ${newReceived} ชิ้น)`
+                : isCompleted
+                  ? `แจกไอเทม ${item.name} ให้ ${member.name} (x${deliveredQty} ชิ้น) ครบถ้วน/คราฟสำเร็จแล้ว!`
+                  : `แจกไอเทม ${item.name} ให้ ${member.name} (x${deliveredQty} ชิ้น) เรียบร้อย! (ยังคงอยู่ในคิว ${newReceived}/${targetReq} ชิ้น)`)
+            : (keepInQueue
+                ? `Delivered ${item.name} to ${member.name} (x${deliveredQty} pcs)! (Kept in queue for crafting: ${newReceived} pcs total received)`
+                : isCompleted
+                  ? `Delivered ${item.name} to ${member.name} (x${deliveredQty} pcs) fully completed!`
+                  : `Delivered ${item.name} to ${member.name} (x${deliveredQty} pcs)! (Still in queue ${newReceived}/${targetReq} pcs)`),
           'success'
         );
       }
@@ -1016,20 +1052,20 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
         }`}
       >
         {/* Item Top Bar: Pinned Badge + Admin Pin / Order Controls */}
-        <div className="flex items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
-          <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center justify-between gap-1.5 border-b border-slate-800/60 pb-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
             {item.isPinned && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/50 flex items-center gap-1 shadow-sm">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/50 flex items-center gap-1 shadow-sm shrink-0">
                 <Pin className="w-3 h-3 fill-amber-400 text-amber-400" />
                 <span>{th ? 'ปักหมุด' : 'Pinned'}</span>
               </span>
             )}
             {item.allowMemberQueue === false ? (
-              <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1">
+              <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1 shrink-0">
                 🔒 {th ? 'แอดมินแจก' : 'Admin Pick'}
               </span>
             ) : (
-              <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded bg-emerald-950/40 text-emerald-400 border border-emerald-800/40 flex items-center gap-1">
+              <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded bg-emerald-950/40 text-emerald-400 border border-emerald-800/40 flex items-center gap-1 shrink-0">
                 👥 {th ? 'กดรับเอง' : 'Open'}
               </span>
             )}
@@ -1052,7 +1088,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
 
           {/* Admin Controls: Pin & Reorder Item */}
           {isAdminOrOwner && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0 ml-auto">
               <div
                 className="p-1 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-slate-800/80 cursor-grab active:cursor-grabbing transition-colors"
                 title={th ? 'ลากเพื่อปรับตำแหน่งกล่องไอเทม' : 'Drag to reorder item card'}
@@ -1136,12 +1172,16 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
               }`}>
                 {item.minPowerLevel > 0 ? `⚡ ${item.minPowerLevel.toLocaleString()}+ PL` : (th ? 'ไม่จำกัด' : 'None')}
               </span>
-              {/* Max Request Qty: Only show when > 1 */}
-              {(item.maxRequestQuantity || 1) > 1 && (
+              {/* Max Request Qty: Craft Goal (0) or > 1 */}
+              {item.isCraftGoal || item.maxRequestQuantity === 0 ? (
+                <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono font-bold text-[11px] shrink-0" title={th ? 'แจกจนกว่าจะคราฟสำเร็จ' : 'Distribute until craft succeeds'}>
+                  {th ? '🎯 จนกว่าจะคราฟสำเร็จ' : '🎯 Until crafted'}
+                </span>
+              ) : (item.maxRequestQuantity || 1) > 1 ? (
                 <span className="px-2 py-0.5 rounded bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono font-bold text-[11px] shrink-0" title={th ? `ขอรับได้สูงสุดคนละ ${item.maxRequestQuantity} ชิ้น` : `Max ${item.maxRequestQuantity} pcs per member`}>
                   {th ? `สูงสุด ${item.maxRequestQuantity} ชิ้น/คน` : `Max ${item.maxRequestQuantity} pcs/p`}
                 </span>
-              )}
+              ) : null}
               {/* Receipts count */}
               <span className="text-[10px] text-slate-500 shrink-0">
                 {(item.receiptHistory || []).length} {th ? 'บิลส่งมอบ' : 'receipts'}
@@ -1150,9 +1190,9 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Row 2: Action Toolbar (All in single row, compact buttons) */}
-        <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-800/60 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0 flex-nowrap">
+        {/* Row 2: Action Toolbar (Flexible, responsive wrapping) */}
+        <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-800/60 min-w-0 flex-wrap">
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             {/* Admin/Owner Prominent Distribute Item Button */}
             {isAdminOrOwner && (
               <button
@@ -1206,7 +1246,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
 
           {/* Admin Management Icons */}
           {isAdminOrOwner && (
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-1 shrink-0 ml-auto">
               <button
                 type="button"
                 onClick={() => {
@@ -1328,11 +1368,11 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                   {isAdminOrOwner && <span className="w-3 shrink-0" />}
                   <span className="w-4 text-center shrink-0">#</span>
                   <span className="truncate min-w-0 flex-1">{th ? 'ชื่อตัวละคร' : 'Character'}</span>
-                  <span className="w-[70px] sm:w-[76px] text-right shrink-0">{th ? 'ค่าพลัง' : 'Power'}</span>
-                  <span className="w-9 sm:w-10 text-center shrink-0">{th ? 'รับ/ขอ' : 'Qty'}</span>
+                  <span className="w-[64px] sm:w-[72px] text-right shrink-0">{th ? 'ค่าพลัง' : 'Power'}</span>
+                  <span className="w-10 text-center shrink-0">{th ? 'รับ/ขอ' : 'Qty'}</span>
                 </div>
                 {isAdminOrOwner && (
-                  <span className="w-[86px] text-center shrink-0 ml-1">{th ? 'จัดการ' : 'Action'}</span>
+                  <span className="w-[76px] text-center shrink-0 ml-1">{th ? 'จัดการ' : 'Action'}</span>
                 )}
               </div>
 
@@ -1384,35 +1424,50 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                         {m.name}
                       </span>
                       <span
-                        className="w-[70px] sm:w-[76px] text-right font-mono text-[10px] text-sky-400 tabular-nums shrink-0"
+                        className="w-[64px] sm:w-[72px] text-right font-mono text-[10px] text-sky-400 tabular-nums shrink-0"
                         title={m.powerLevel ? (th ? `⚡ ค่าพลัง: ${m.powerLevel.toLocaleString()}` : `⚡ Power: ${m.powerLevel.toLocaleString()}`) : (th ? 'ไม่ระบุค่าพลัง' : 'No power level')}
                       >
                         {m.powerLevel ? `⚡${m.powerLevel.toLocaleString()}` : <span className="text-slate-600">-</span>}
                       </span>
-                      <span
-                        className={`w-9 sm:w-10 text-center text-[9.5px] py-0.5 rounded font-mono font-bold shrink-0 border ${
-                          (m.receivedQuantity || 0) >= (m.requestedQuantity || 1)
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                            : (m.receivedQuantity || 0) > 0
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                            : 'bg-slate-800 text-slate-300 border-slate-700'
-                        }`}
-                        title={th ? `ได้รับแล้ว ${m.receivedQuantity || 0} จาก ${m.requestedQuantity || 1} ชิ้น` : `Received ${m.receivedQuantity || 0} of ${m.requestedQuantity || 1}`}
-                      >
-                        {`${m.receivedQuantity || 0}/${m.requestedQuantity || 1}`}
-                      </span>
+                      {item.isCraftGoal || item.maxRequestQuantity === 0 || m.requestedQuantity === 0 ? (
+                        <span
+                          className={`w-auto px-1.5 text-center text-[9px] py-0.5 rounded font-mono font-bold shrink-0 border whitespace-nowrap ${
+                            (m.receivedQuantity || 0) > 0
+                              ? 'bg-purple-500/20 text-purple-300 border-purple-500/50'
+                              : 'bg-slate-800 text-purple-300 border-purple-500/30'
+                          }`}
+                          title={th ? `แจกจนกว่าจะสำเร็จ (รับแล้ว ${m.receivedQuantity || 0} ชิ้น)` : `Until successful (${m.receivedQuantity || 0} pcs received)`}
+                        >
+                          {(m.receivedQuantity || 0) > 0
+                            ? `🔨${m.receivedQuantity} • ${th ? 'จนสำเร็จ' : 'Until'}`
+                            : (th ? 'จนสำเร็จ' : 'Until')}
+                        </span>
+                      ) : (
+                        <span
+                          className={`w-9 sm:w-10 text-center text-[9.5px] py-0.5 rounded font-mono font-bold shrink-0 border ${
+                            (m.receivedQuantity || 0) >= (m.requestedQuantity || 1)
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                              : (m.receivedQuantity || 0) > 0
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                              : 'bg-slate-800 text-slate-300 border-slate-700'
+                          }`}
+                          title={th ? `ได้รับแล้ว ${m.receivedQuantity || 0} จาก ${m.requestedQuantity || 1} ชิ้น` : `Received ${m.receivedQuantity || 0} of ${m.requestedQuantity || 1}`}
+                        >
+                          {`${m.receivedQuantity || 0}/${m.requestedQuantity || 1}`}
+                        </span>
+                      )}
                     </div>
 
                     {/* Member Controls: Edit Quantity, Delete, & Reorder */}
                     {isAdminOrOwner && (
-                      <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                      <div className="flex items-center gap-0.5 shrink-0 ml-1 w-[76px] justify-center">
                         <button
                           type="button"
                           onClick={() =>
                             setEditingQueueMember({
                               item,
                               member: m,
-                              requestedQuantity: m.requestedQuantity || 1,
+                              requestedQuantity: typeof m.requestedQuantity === 'number' ? m.requestedQuantity : 1,
                               receivedQuantity: m.receivedQuantity || 0
                             })
                           }
@@ -1635,7 +1690,11 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
 
         {/* Max Request Quantity Badge */}
         <td className="py-3 px-3">
-          {(item.maxRequestQuantity || 1) > 1 ? (
+          {item.isCraftGoal || item.maxRequestQuantity === 0 ? (
+            <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono font-bold text-xs inline-block" title={th ? 'แจกจนกว่าจะคราฟสำเร็จ' : 'Distribute until craft succeeds'}>
+              {th ? '🎯 จนกว่าจะคราฟสำเร็จ' : '🎯 Until crafted'}
+            </span>
+          ) : (item.maxRequestQuantity || 1) > 1 ? (
             <span className="px-2 py-0.5 rounded bg-purple-500/15 border border-purple-500/30 text-purple-300 font-mono font-bold text-xs inline-block">
               {th ? `สูงสุด ${item.maxRequestQuantity} ชิ้น/คน` : `Max ${item.maxRequestQuantity} pcs/p`}
             </span>
@@ -1826,7 +1885,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
               title={th ? 'แสดงแบบการ์ด' : 'Grid View'}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
-              <span>{th ? 'แถวละ 4 ไอเทม' : '4 Items / Row'}</span>
+              <span>{th ? 'แสดงแบบการ์ด' : 'Card View'}</span>
             </button>
             <button
               type="button"
@@ -2055,18 +2114,67 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
                     <span>{th ? 'ขอรับสูงสุดต่อคน' : 'Max / Member'}</span>
-                    <span className="text-[10px] text-purple-400 font-mono">{th ? 'ชิ้น' : 'pcs'}</span>
+                    <span className="text-[10px] text-purple-400 font-mono">
+                      {draft.maxRequestQuantity === 0 ? (th ? 'ไม่จำกัด (คราฟ)' : 'Unlimited (Craft)') : (th ? 'ชิ้น' : 'pcs')}
+                    </span>
                   </label>
                   <input
                     type="number"
-                    min={1}
+                    min={0}
+                    placeholder={th ? 'ใส่ 0 = ไม่จำกัด/คราฟ' : '0 = Unlimited/Craft'}
                     value={draft.maxRequestQuantity}
                     onFocus={(e) => e.target.select()}
-                    onChange={(e) => setDraft({ ...draft, maxRequestQuantity: e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                    onChange={(e) => setDraft({ ...draft, maxRequestQuantity: e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0) })}
                     className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 focus:border-[#d4af37] text-purple-300 text-xs font-mono font-bold focus:outline-none"
                   />
+                  <div className="flex items-center justify-between mt-1 text-[10px]">
+                    <span className="text-slate-400">
+                      {draft.maxRequestQuantity === 0
+                        ? (th ? '🎯 ไม่จำกัด (แจกจนกว่าจะคราฟสำเร็จ)' : '🎯 Unlimited: until craft succeeds')
+                        : (th ? '0 = แจกจนกว่าจะคราฟสำเร็จ' : '0 = Until craft succeeds')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setDraft({ ...draft, maxRequestQuantity: draft.maxRequestQuantity === 0 ? 1 : 0 })}
+                      className="text-amber-400 hover:text-amber-300 font-semibold underline cursor-pointer"
+                    >
+                      {draft.maxRequestQuantity === 0 ? (th ? 'กำหนดจำนวน' : 'Set limit') : (th ? 'ไม่จำกัด (คราฟ)' : 'Unlimited (Craft)')}
+                    </button>
+                  </div>
                 </div>
               </div>
+
+              {/* Craft Goal Mode (Until successful) */}
+              <label className="flex items-center gap-2.5 p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 cursor-pointer hover:border-purple-500/50 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={draft.isCraftGoal || draft.maxRequestQuantity === 0}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setDraft({
+                      ...draft,
+                      isCraftGoal: checked,
+                      maxRequestQuantity: checked ? 0 : (draft.maxRequestQuantity === 0 ? 1 : draft.maxRequestQuantity)
+                    });
+                  }}
+                  className="w-4 h-4 rounded text-purple-500 bg-slate-950 border-purple-600 focus:ring-purple-400 cursor-pointer"
+                />
+                <div className="min-w-0 text-xs">
+                  <span className="font-bold text-slate-200 block flex items-center gap-1.5">
+                    <span>{th ? '🎯 ไอเทมแจกจนกว่าจะคราฟสำเร็จ (Until successful)' : '🎯 Distribute until craft succeeds (Until successful)'}</span>
+                    {(draft.isCraftGoal || draft.maxRequestQuantity === 0) && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/25 text-purple-300 font-mono font-bold">
+                        ACTIVE
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[10.5px] text-slate-400 block mt-0.5">
+                    {th
+                      ? 'สำหรับไอเทมที่ต้องแจกเรื่อยๆ จนกว่าจะคราฟติด ในรายชื่อจะแสดง "Until successful" แทน 0/X'
+                      : 'Distribute repeatedly until crafting succeeds. Queue list will display "Until successful" instead of 0/X.'}
+                  </span>
+                </div>
+              </label>
 
               {/* Receipt / Hunters Policy Selector */}
               <div>
@@ -2168,7 +2276,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
           )}
         </div>
       ) : viewMode === 'grid' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4">
           {sortedItems.map((item, idx) => renderItemCard(item, idx, sortedItems.length, sortedItems))}
         </div>
       ) : (
@@ -2326,18 +2434,33 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                                 <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold">
                                   ⏳ {th ? 'รอส่งมอบ' : 'Waiting'}
                                 </span>
-                                <span
-                                  className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold border ${
-                                    (member.receivedQuantity || 0) >= (member.requestedQuantity || 1)
-                                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                                      : (member.receivedQuantity || 0) > 0
-                                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                                      : 'bg-slate-800 text-slate-300 border-slate-700'
-                                  }`}
-                                  title={th ? `ได้รับแล้ว ${member.receivedQuantity || 0} จาก ${member.requestedQuantity || 1} ชิ้น` : `Received ${member.receivedQuantity || 0} of ${member.requestedQuantity || 1}`}
-                                >
-                                  {`${member.receivedQuantity || 0}/${member.requestedQuantity || 1}`}
-                                </span>
+                                {activeRequestersItem.isCraftGoal || activeRequestersItem.maxRequestQuantity === 0 || member.requestedQuantity === 0 ? (
+                                  <span
+                                    className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold border ${
+                                      (member.receivedQuantity || 0) > 0
+                                        ? 'bg-purple-500/20 text-purple-300 border-purple-500/50'
+                                        : 'bg-slate-800 text-purple-300 border-purple-500/30'
+                                    }`}
+                                    title={th ? `เป้าหมายคราฟ: ได้รับแล้ว ${member.receivedQuantity || 0} ชิ้น (แจกจนกว่าจะสำเร็จ)` : `Craft Goal: ${member.receivedQuantity || 0} pcs received (until success)`}
+                                  >
+                                    {(member.receivedQuantity || 0) > 0
+                                      ? `🔨 ${member.receivedQuantity} • Until successful`
+                                      : 'Until successful'}
+                                  </span>
+                                ) : (
+                                  <span
+                                    className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold border ${
+                                      (member.receivedQuantity || 0) >= (member.requestedQuantity || 1)
+                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                                        : (member.receivedQuantity || 0) > 0
+                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                                        : 'bg-slate-800 text-slate-300 border-slate-700'
+                                    }`}
+                                    title={th ? `ได้รับแล้ว ${member.receivedQuantity || 0} จาก ${member.requestedQuantity || 1} ชิ้น` : `Received ${member.receivedQuantity || 0} of ${member.requestedQuantity || 1}`}
+                                  >
+                                    {`${member.receivedQuantity || 0}/${member.requestedQuantity || 1}`}
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400 mt-1 flex-wrap">
                                 {member.powerLevel ? (
@@ -2396,7 +2519,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                                     setEditingQueueMember({
                                       item: activeRequestersItem,
                                       member,
-                                      requestedQuantity: member.requestedQuantity || 1,
+                                      requestedQuantity: typeof member.requestedQuantity === 'number' ? member.requestedQuantity : 1,
                                       receivedQuantity: member.receivedQuantity || 0
                                     })
                                   }
@@ -2525,21 +2648,43 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
                   <span>{th ? 'จำนวนที่ขอรับ (เป้าหมาย)' : 'Requested Quantity'}</span>
-                  <span className="text-[10px] text-purple-400 font-mono">{th ? 'ชิ้น' : 'pcs'}</span>
+                  <span className="text-[10px] text-purple-400 font-mono">
+                    {editingQueueMember.requestedQuantity === 0 ? (th ? 'ไม่จำกัด (คราฟ)' : 'Unlimited (Craft)') : (th ? 'ชิ้น' : 'pcs')}
+                  </span>
                 </label>
                 <input
                   type="number"
-                  min={1}
+                  min={0}
+                  placeholder={th ? 'ใส่ 0 = จนกว่าจะคราฟสำเร็จ' : '0 = Until craft succeeds'}
                   value={editingQueueMember.requestedQuantity}
                   onFocus={(e) => e.target.select()}
                   onChange={(e) =>
                     setEditingQueueMember({
                       ...editingQueueMember,
-                      requestedQuantity: e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value, 10) || 1)
+                      requestedQuantity: e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value, 10) || 0)
                     })
                   }
                   className="w-full px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 focus:border-amber-400 text-white font-mono font-bold text-xs focus:outline-none"
                 />
+                <div className="flex items-center justify-between mt-1 text-[10px]">
+                  <span className="text-slate-400">
+                    {editingQueueMember.requestedQuantity === 0
+                      ? (th ? '🎯 ไม่จำกัดจำนวน (แจกจนกว่าจะคราฟสำเร็จ)' : '🎯 Unlimited: until craft succeeds')
+                      : (th ? 'ใส่ 0 = จนกว่าจะคราฟสำเร็จ' : '0 = Until craft succeeds')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditingQueueMember({
+                        ...editingQueueMember,
+                        requestedQuantity: editingQueueMember.requestedQuantity === 0 ? 1 : 0
+                      })
+                    }
+                    className="text-amber-400 hover:text-amber-300 font-semibold underline cursor-pointer"
+                  >
+                    {editingQueueMember.requestedQuantity === 0 ? (th ? 'กำหนดจำนวน' : 'Set limit') : (th ? 'ไม่จำกัด (คราฟ)' : 'Unlimited (Craft)')}
+                  </button>
+                </div>
               </div>
 
               {/* Received Quantity */}
@@ -2736,102 +2881,56 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                 </span>
               </div>
 
-              {/* Billing Method Selector */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  {th ? 'รูปแบบการส่งบิลเรียกเก็บเพชร' : 'Billing Method'}
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setDeliveryModalData({ ...deliveryModalData, billingType: 'immediate' })}
-                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
-                      deliveryModalData.billingType === 'immediate'
-                        ? 'bg-amber-500/20 border-amber-500/60 text-amber-200 shadow-sm'
-                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
-                    }`}
-                  >
-                    <span className="font-bold block">{th ? '🧾 ส่งบิลรอบนี้ทันที' : '🧾 Bill Immediately'}</span>
-                    <span className="text-[10px] opacity-75 block">{th ? 'บันทึกบิลเพชรรอบนี้' : 'Record bill for this delivery'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDeliveryModalData({ ...deliveryModalData, billingType: 'on_complete' })}
-                    className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
-                      deliveryModalData.billingType === 'on_complete'
-                        ? 'bg-amber-500/20 border-amber-500/60 text-amber-200 shadow-sm'
-                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
-                    }`}
-                  >
-                    <span className="font-bold block">{th ? '⏳ รอรวมบิลเมื่อแจกครบ' : '⏳ Bill on Complete'}</span>
-                    <span className="text-[10px] opacity-75 block">{th ? 'รอรวมยอดส่งทีเดียว' : 'Wait until all pcs delivered'}</span>
-                  </button>
+              {/* Billing Method Selector (or Free Notice if price is 0) */}
+              {((typeof deliveryModalData.price === 'number' ? deliveryModalData.price : (parseInt(String(deliveryModalData.price), 10) || 0)) === 0) ? (
+                <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 flex items-center gap-2.5 text-xs text-emerald-300">
+                  <Gift className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <div className="min-w-0">
+                    <span className="font-bold block text-xs sm:text-sm">
+                      {th ? '🎁 ไอเทมแจกฟรี (0 เพชร)' : '🎁 Free Item (0 Diamonds)'}
+                    </span>
+                    <span className="text-[11px] text-emerald-400/80 block mt-0.5">
+                      {th
+                        ? 'ไอเทมนี้แจกฟรี ไม่ต้องแนบรูปบิล และไม่ต้องยืนยันชำระ (บันทึกเป็นแจกฟรีอัตโนมัติ)'
+                        : 'Free item: No bill attachment and no payment confirmation needed (Auto-recorded as free).'}
+                    </span>
+                  </div>
                 </div>
-              </div>
-
-              {/* Hunters Proof Screenshot Upload & Paste */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
-                  <span>{th ? 'รูปรายชื่อผู้ล่า / สกรีนช็อตตี้บอส' : 'Hunters Proof Screenshot'}</span>
-                  <span className="text-[10px] text-amber-400">{th ? 'เก็บหลักฐานรายชื่อไว้หารเพชร' : 'Proof for diamond distribution'}</span>
-                </label>
-                <div
-                  tabIndex={0}
-                  onPaste={(e) => {
-                    const file = e.clipboardData?.items?.[0]?.getAsFile();
-                    if (file && file.type.startsWith('image/')) {
-                      compressImageFile(file, { maxWidth: 1000, maxHeight: 1000, quality: 0.76 }).then((preview) => {
-                        setDeliveryModalData({
-                          ...deliveryModalData,
-                          hunterFile: file,
-                          hunterPreview: preview
-                        });
-                      });
-                    }
-                  }}
-                  className="p-3 rounded-xl border border-dashed border-slate-700 bg-slate-900/60 flex items-center justify-between gap-3 cursor-pointer hover:border-amber-400 outline-none"
-                >
-                  <label htmlFor="file-delivery-hunter" className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer flex-1 min-w-0">
-                    <ImagePlus className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span className="truncate">{th ? 'เลือกรูปรายชื่อผู้ล่า หรือกด Ctrl + V เพื่อวาง' : 'Select hunter proof or Ctrl + V to paste'}</span>
-                    <input
-                      id="file-delivery-hunter"
-                      type="file"
-                      accept="image/*"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const preview = await compressImageFile(file, { maxWidth: 1000, maxHeight: 1000, quality: 0.76 });
-                          setDeliveryModalData({
-                            ...deliveryModalData,
-                            hunterFile: file,
-                            hunterPreview: preview
-                          });
-                        }
-                        e.currentTarget.value = '';
-                      }}
-                      className="hidden"
-                    />
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    {th ? 'รูปแบบการส่งบิลเรียกเก็บเพชร' : 'Billing Method'}
                   </label>
-                  {deliveryModalData.hunterPreview && (
-                    <div className="relative shrink-0">
-                      <img
-                        src={deliveryModalData.hunterPreview}
-                        alt="hunter proof preview"
-                        className="w-10 h-10 rounded object-cover border border-amber-400"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setDeliveryModalData({ ...deliveryModalData, hunterFile: null, hunterPreview: '' })}
-                        className="absolute -top-1 -right-1 p-0.5 bg-red-600 rounded-full text-white cursor-pointer"
-                        title={th ? 'ลบรูป' : 'Remove image'}
-                      >
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </div>
-                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDeliveryModalData({ ...deliveryModalData, billingType: 'immediate' })}
+                      className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                        deliveryModalData.billingType === 'immediate'
+                          ? 'bg-amber-500/20 border-amber-500/60 text-amber-200 shadow-sm'
+                          : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <span className="font-bold block">{th ? '🧾 ส่งบิลรอบนี้ทันที' : '🧾 Bill Immediately'}</span>
+                      <span className="text-[10px] opacity-75 block">{th ? 'บันทึกบิลเพชรรอบนี้' : 'Record bill for this delivery'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeliveryModalData({ ...deliveryModalData, billingType: 'on_complete' })}
+                      className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                        deliveryModalData.billingType === 'on_complete'
+                          ? 'bg-amber-500/20 border-amber-500/60 text-amber-200 shadow-sm'
+                          : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <span className="font-bold block">{th ? '⏳ รอรวมบิลเมื่อแจกครบ' : '⏳ Bill on Complete'}</span>
+                      <span className="text-[10px] opacity-75 block">{th ? 'รอรวมยอดส่งทีเดียว' : 'Wait until all pcs delivered'}</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
+
+
 
               {/* Note / Bill Number */}
               <div>
@@ -2847,11 +2946,13 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                 />
               </div>
 
-              {/* Receipt Image Upload & Paste */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {th ? 'รูปถ่ายใบเสร็จ / บิลส่งมอบ' : 'Receipt image'}
-                </label>
+              {/* Receipt Image Upload & Paste (Only needed when price > 0) */}
+              {((typeof deliveryModalData.price === 'number' ? deliveryModalData.price : (parseInt(String(deliveryModalData.price), 10) || 0)) > 0) && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
+                    <span>{th ? 'รูปถ่ายใบเสร็จ / บิลส่งมอบ' : 'Receipt / Bill image'}</span>
+                    <span className="text-[10px] text-slate-400">{th ? '(แนบรูปบิล/สลิป)' : '(Attach bill/slip)'}</span>
+                  </label>
                 <div
                   tabIndex={0}
                   onPaste={(e) => {
@@ -2908,6 +3009,40 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                   )}
                 </div>
               </div>
+              )}
+
+              {/* Keep in Queue / Craft in Progress Checkbox */}
+              <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-purple-950/30 border border-purple-500/40 cursor-pointer hover:border-purple-400 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={deliveryModalData.keepInQueue}
+                  onChange={(e) => setDeliveryModalData({ ...deliveryModalData, keepInQueue: e.target.checked })}
+                  className="w-4 h-4 rounded text-purple-500 bg-slate-950 border-purple-600 focus:ring-purple-400 cursor-pointer"
+                />
+                <div className="min-w-0 text-xs">
+                  <span className="font-bold text-slate-200 block flex items-center gap-1.5">
+                    <span>{th ? '🔨 คงคิวไว้ต่อไป (ยังคราฟไม่สำเร็จ)' : '🔨 Keep in queue (Craft in progress / not finished)'}</span>
+                    {deliveryModalData.keepInQueue ? (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono font-bold">
+                        {th ? 'ยังอยู่ในคิว' : 'IN QUEUE'}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
+                        {th ? 'คราฟสำเร็จ / จบคิว' : 'COMPLETED'}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[10.5px] text-slate-400 block mt-0.5">
+                    {deliveryModalData.keepInQueue
+                      ? (th
+                          ? 'แจกของและบันทึกประวัติบิลตามปกติ แต่สมาชิกจะยังคงอยู่อันดับเดิมในคิว เพื่อรอรับรอบต่อไปจนกว่าจะคราฟสำเร็จ'
+                          : 'Deliver & record receipt normally, but keep member in current queue spot until craft succeeds.')
+                      : (th
+                          ? 'ปรับสถานะเป็นรับครบถ้วน/คราฟสำเร็จ เพื่อส่งต่อคิวให้สมาชิกคนถัดไป'
+                          : 'Mark as completed/succeeded to advance queue to the next member.')}
+                  </span>
+                </div>
+              </label>
 
               {/* Discord Notification Toggle Checkbox */}
               <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 cursor-pointer hover:border-slate-700 transition-colors">
@@ -3086,7 +3221,9 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                     {th ? 'ขอรับไอเทม' : 'Request Item'}
                   </h3>
                   <p className="text-xs text-slate-400">
-                    {th ? 'ระบุจำนวนที่ต้องการ' : 'Specify quantity'}
+                    {requestModalData.item.isCraftGoal || requestModalData.item.maxRequestQuantity === 0
+                      ? (th ? 'ขอรับไอเทมสำหรับคราฟ (แจกจนกว่าจะสำเร็จ)' : 'Request item for crafting (until success)')
+                      : (th ? 'ระบุจำนวนที่ต้องการ' : 'Specify quantity')}
                   </p>
                 </div>
               </div>
@@ -3137,14 +3274,33 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                 </div>
               </div>
 
+              {/* Craft Goal Notice */}
+              {(requestModalData.item.isCraftGoal || requestModalData.item.maxRequestQuantity === 0) && (
+                <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-500/40 flex items-start gap-2.5 text-xs text-purple-200">
+                  <Sparkles className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <span className="font-bold text-purple-300 block">
+                      {th ? '🔨 สิทธิ์การแจกจนกว่าจะคราฟสำเร็จ' : '🔨 Craft Until Success Queue'}
+                    </span>
+                    <span className="text-[11px] text-purple-300/80 block">
+                      {th
+                        ? 'คุณจะได้รับไอเทมเพื่อลองคราฟ และคงอยู่ในคิวอันดับเดิมต่อไปเรื่อยๆ จนกว่าจะคราฟสำเร็จ'
+                        : 'You will receive items per attempt and remain in your queue position until crafting succeeds.'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Quantity Stepper Input */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-bold text-slate-300">
                     {th ? 'จำนวนที่ต้องการขอรับ:' : 'Requested Quantity:'}
                   </label>
-                  <span className="text-[11px] text-amber-400 font-mono font-semibold">
-                    {th ? `สูงสุด ${requestModalData.item.maxRequestQuantity || 1} ชิ้น` : `Max ${requestModalData.item.maxRequestQuantity || 1} pcs`}
+                  <span className={`text-[11px] font-mono font-semibold ${(requestModalData.item.isCraftGoal || requestModalData.item.maxRequestQuantity === 0) ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {(requestModalData.item.isCraftGoal || requestModalData.item.maxRequestQuantity === 0)
+                      ? (th ? '🎯 ไม่จำกัด (จนกว่าจะคราฟสำเร็จ)' : '🎯 Until craft succeeds')
+                      : (th ? `สูงสุด ${requestModalData.item.maxRequestQuantity || 1} ชิ้น` : `Max ${requestModalData.item.maxRequestQuantity || 1} pcs`)}
                   </span>
                 </div>
 
@@ -3163,10 +3319,10 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                   <input
                     type="number"
                     min={1}
-                    max={requestModalData.item.maxRequestQuantity || 1}
+                    max={(requestModalData.item.isCraftGoal || requestModalData.item.maxRequestQuantity === 0) ? 99 : (requestModalData.item.maxRequestQuantity || 1)}
                     value={requestModalData.quantity}
                     onChange={(e) => {
-                      const max = requestModalData.item.maxRequestQuantity || 1;
+                      const max = (requestModalData.item.isCraftGoal || requestModalData.item.maxRequestQuantity === 0) ? 99 : (requestModalData.item.maxRequestQuantity || 1);
                       const val = e.target.value === '' ? '' : Math.max(1, Math.min(max, parseInt(e.target.value, 10) || 1));
                       setRequestModalData((prev) => (prev ? { ...prev, quantity: val as any } : null));
                     }}
@@ -3175,7 +3331,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      const max = requestModalData.item.maxRequestQuantity || 1;
+                      const max = requestModalData.item.maxRequestQuantity === 0 ? 99 : (requestModalData.item.maxRequestQuantity || 1);
                       setRequestModalData((prev) =>
                         prev ? { ...prev, quantity: Math.min(max, (Number(prev.quantity) || 1) + 1) } : null
                       );
@@ -3184,7 +3340,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                   >
                     +
                   </button>
-                  {(requestModalData.item.maxRequestQuantity || 1) > 1 && (
+                  {(requestModalData.item.maxRequestQuantity || 0) > 1 && (
                     <button
                       type="button"
                       onClick={() => {
