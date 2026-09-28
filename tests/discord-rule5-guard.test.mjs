@@ -1,7 +1,11 @@
 import assert from 'node:assert';
 import { createApp } from '../api/_server.ts';
 
-const app = await createApp({ serveFrontend: false });
+const app = await createApp({
+  serveFrontend: false,
+  isolatedTest: true,
+  testActor: { uid: 'test-owner', role: 'owner' }
+});
 const server = app.listen(0, '127.0.0.1');
 await new Promise((resolve) => server.once('listening', resolve));
 const address = server.address();
@@ -27,11 +31,10 @@ try {
       }
     })
   });
-  assert.strictEqual(res1.status, 200, 'Stat payload should return 200 dropped');
+  assert.strictEqual(res1.status, 400, 'Payload without an allowed item event must be rejected');
   const data1 = await res1.json();
-  assert.strictEqual(data1.success, true);
-  assert.strictEqual(data1.dropped, true);
-  console.log('✓ Test Case 1 passed: Legacy stat request title was dropped.');
+  assert.strictEqual(data1.error, 'DISCORD_EVENT_NOT_ALLOWED');
+  console.log('✓ Test Case 1 passed: Payload without an item event was rejected.');
 
   // Test Case 2: Explicit event === 'stat_request'
   const res2 = await fetch(`${baseUrl}/api/discord-webhook`, {
@@ -44,11 +47,10 @@ try {
       }
     })
   });
-  assert.strictEqual(res2.status, 200);
+  assert.strictEqual(res2.status, 400);
   const data2 = await res2.json();
-  assert.strictEqual(data2.success, true);
-  assert.strictEqual(data2.dropped, true);
-  console.log('✓ Test Case 2 passed: event=stat_request was dropped.');
+  assert.strictEqual(data2.error, 'DISCORD_EVENT_NOT_ALLOWED');
+  console.log('✓ Test Case 2 passed: event=stat_request was rejected.');
 
   // Test Case 3: Explicit event === 'stat_approval'
   const res3 = await fetch(`${baseUrl}/api/discord-webhook`, {
@@ -61,11 +63,10 @@ try {
       }
     })
   });
-  assert.strictEqual(res3.status, 200);
+  assert.strictEqual(res3.status, 400);
   const data3 = await res3.json();
-  assert.strictEqual(data3.success, true);
-  assert.strictEqual(data3.dropped, true);
-  console.log('✓ Test Case 3 passed: event=stat_approval was dropped.');
+  assert.strictEqual(data3.error, 'DISCORD_EVENT_NOT_ALLOWED');
+  console.log('✓ Test Case 3 passed: event=stat_approval was rejected.');
 
   // Test Case 4: Footer containing 'Stat Verification'
   const res4 = await fetch(`${baseUrl}/api/discord-webhook`, {
@@ -80,11 +81,10 @@ try {
       }
     })
   });
-  assert.strictEqual(res4.status, 200);
+  assert.strictEqual(res4.status, 400);
   const data4 = await res4.json();
-  assert.strictEqual(data4.success, true);
-  assert.strictEqual(data4.dropped, true);
-  console.log('✓ Test Case 4 passed: Footer containing Stat Verification was dropped.');
+  assert.strictEqual(data4.error, 'DISCORD_EVENT_NOT_ALLOWED');
+  console.log('✓ Test Case 4 passed: Non-item footer payload was rejected.');
 
   // Test Case 5: Power Level Update Request in description
   const res5 = await fetch(`${baseUrl}/api/discord-webhook`, {
@@ -99,11 +99,10 @@ try {
       }
     })
   });
-  assert.strictEqual(res5.status, 200);
+  assert.strictEqual(res5.status, 400);
   const data5 = await res5.json();
-  assert.strictEqual(data5.success, true);
-  assert.strictEqual(data5.dropped, true);
-  console.log('✓ Test Case 5 passed: Description with power level calculation was dropped.');
+  assert.strictEqual(data5.error, 'DISCORD_EVENT_NOT_ALLOWED');
+  console.log('✓ Test Case 5 passed: Power-level payload was rejected.');
 
   console.log('\nAll 5 Rule 5 Discord Hard Guard tests PASSED successfully! 🛡️');
 } finally {

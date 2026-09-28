@@ -21,8 +21,7 @@ var sanitizeAndDeduplicateUsers = (users, deletedUsers) => {
       }
     }
     if (deletedUsers && deletedUsers[u.id]) {
-      const uRev = Number(u.updatedAt || u.createdAt || 0);
-      if (uRev <= deletedUsers[u.id]) continue;
+      continue;
     }
     if (isEloni) {
       if (!canonicalEloni) {
@@ -153,11 +152,11 @@ function mergeRelayData(previousData, incoming) {
     const records = /* @__PURE__ */ new Map();
     for (const record of [...previous || [], ...incoming2 || []]) {
       if (!record?.id) continue;
-      const recordRevision = Number(record.updatedAt || record.createdAt || 0);
       const deletedAt = deleted ? deleted[record.id] || 0 : 0;
-      if (deletedAt && recordRevision <= deletedAt) {
+      if (deletedAt) {
         continue;
       }
+      const recordRevision = Number(record.updatedAt || record.createdAt || 0);
       const existing = records.get(record.id);
       const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
       if (!existing) {
@@ -937,20 +936,15 @@ async function changeManagedUserPassword(actor, targetUid, newPassword) {
   }
   try {
     if (target.exists) {
-      await targetRef.set({
-        password: newPassword,
-        updatedAt: Date.now()
-      }, { merge: true });
+      const { FieldValue } = await import("firebase-admin/firestore");
+      await targetRef.update({ password: FieldValue.delete(), updatedAt: Date.now() });
     }
   } catch (dbErr) {
-    console.warn("Firestore set password notice:", dbErr);
+    console.warn("Firestore password cleanup notice:", dbErr);
   }
   if (targetUid === "user_owner_eloni" || target.data()?.username?.toLowerCase() === "eloni") {
     try {
-      await sdk.db.collection("app_settings").doc("owner_auth").set({
-        password: newPassword,
-        updatedAt: Date.now()
-      }, { merge: true });
+      await sdk.db.collection("app_settings").doc("owner_auth").delete();
     } catch (e) {
     }
   }
@@ -1302,7 +1296,10 @@ async function createApp(options = {}) {
       const key = clientKey || await getGeminiApiKey();
       const isConfigured = Boolean(key && key.length > 10);
       const maskedKey = isConfigured ? `${key.slice(0, 6)}...${key.slice(-4)}` : null;
-      res.json({ configured: isConfigured, maskedKey });
+      res.json({
+        configured: isConfigured,
+        maskedKey: res.locals.actor?.role === "owner" ? maskedKey : null
+      });
     } catch (error) {
       console.error("Failed to read Gemini configuration:", error);
       res.status(503).json({
@@ -1464,21 +1461,6 @@ async function createApp(options = {}) {
   });
   app.post("/api/admin/purge-auth-users", requireRoles(["owner"]), async (req, res) => {
     try {
-      const authHeader = req.headers.authorization;
-      const adminPass = req.headers["x-admin-pass"] || req.body?.adminPass;
-      const isOwnerPass = adminPass === "0386231334";
-      let isOwnerToken = false;
-      if (authHeader) {
-        const actor = await verifyRoleToken(authHeader, ["owner"]);
-        if (actor) isOwnerToken = true;
-      }
-      if (!isOwnerPass && !isOwnerToken) {
-        return res.status(403).json({
-          success: false,
-          error: "FORBIDDEN",
-          message: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E40\u0E02\u0E49\u0E32\u0E16\u0E36\u0E07 / Unauthorized: Owner credentials required."
-        });
-      }
       const result = await purgeOrphanAuthUsers();
       return res.json({
         success: true,
@@ -1761,7 +1743,7 @@ async function createApp(options = {}) {
       }
       const clientApiKey = typeof req.body.apiKey === "string" ? req.body.apiKey.trim() : "";
       const apiKey = clientApiKey || await getGeminiApiKey();
-      if (clientApiKey && !process.env.GEMINI_API_KEY) {
+      if (clientApiKey && res.locals.actor?.role === "owner" && !process.env.GEMINI_API_KEY) {
         process.env.GEMINI_API_KEY = clientApiKey;
       }
       if (!apiKey) {
@@ -2065,6 +2047,13 @@ Do not include markdown or explanations. Return pure JSON only.`;
   app.post("/api/discord-webhook", requireRoles(["owner", "admin", "party_leader", "member"]), async (req, res) => {
     try {
       const { payload } = req.body;
+      const event = typeof req.body.event === "string" ? req.body.event : "";
+      if (!["new_item", "distribute", "test"].includes(event)) {
+        return res.status(400).json({
+          error: "DISCORD_EVENT_NOT_ALLOWED",
+          message: "\u0E2D\u0E19\u0E38\u0E0D\u0E32\u0E15\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19\u0E44\u0E2D\u0E40\u0E17\u0E21 / Only new_item, distribute, and test notifications are allowed."
+        });
+      }
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         return res.status(400).json({
           error: "INVALID_DISCORD_PAYLOAD",
@@ -2096,6 +2085,12 @@ Do not include markdown or explanations. Return pure JSON only.`;
         });
       }
       const clientWebhookUrl = typeof req.body.webhookUrl === "string" ? req.body.webhookUrl.trim() : "";
+      if (clientWebhookUrl && !["owner", "admin"].includes(res.locals.actor?.role)) {
+        return res.status(403).json({
+          error: "CLIENT_WEBHOOK_FORBIDDEN",
+          message: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Owner \u0E2B\u0E23\u0E37\u0E2D Admin \u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19\u0E17\u0E35\u0E48\u0E23\u0E30\u0E1A\u0E38 Webhook URL \u0E44\u0E14\u0E49 / Only Owner or Admin may provide a webhook URL."
+        });
+      }
       const hasValidClientUrl = clientWebhookUrl.startsWith("https://discord.com/api/webhooks/") || clientWebhookUrl.startsWith("https://discordapp.com/api/webhooks/");
       const isDistribute = req.body.event === "distribute" || req.body.targetChannel === "distribute";
       const { mainUrl, distUrl } = await getDiscordWebhookUrls();

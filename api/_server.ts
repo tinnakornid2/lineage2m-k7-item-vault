@@ -346,7 +346,10 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
       const key = clientKey || await getGeminiApiKey();
       const isConfigured = Boolean(key && key.length > 10);
       const maskedKey = isConfigured ? `${key.slice(0, 6)}...${key.slice(-4)}` : null;
-      res.json({ configured: isConfigured, maskedKey });
+      res.json({
+        configured: isConfigured,
+        maskedKey: res.locals.actor?.role === 'owner' ? maskedKey : null
+      });
     } catch (error) {
       console.error('Failed to read Gemini configuration:', error);
       res.status(503).json({
@@ -526,24 +529,6 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
   // Admin / Owner Purge of all Orphan Auth Users
   app.post("/api/admin/purge-auth-users", requireRoles(['owner']), async (req, res) => {
     try {
-      const authHeader = req.headers.authorization;
-      const adminPass = req.headers['x-admin-pass'] || req.body?.adminPass;
-      const isOwnerPass = adminPass === '0386231334';
-      let isOwnerToken = false;
-
-      if (authHeader) {
-        const actor = await verifyRoleToken(authHeader, ['owner']);
-        if (actor) isOwnerToken = true;
-      }
-
-      if (!isOwnerPass && !isOwnerToken) {
-        return res.status(403).json({
-          success: false,
-          error: 'FORBIDDEN',
-          message: 'ไม่มีสิทธิ์เข้าถึง / Unauthorized: Owner credentials required.'
-        });
-      }
-
       const result = await purgeOrphanAuthUsers();
       return res.json({
         success: true,
@@ -842,7 +827,7 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
       const clientApiKey = typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '';
       const apiKey = clientApiKey || await getGeminiApiKey();
 
-      if (clientApiKey && !process.env.GEMINI_API_KEY) {
+      if (clientApiKey && res.locals.actor?.role === 'owner' && !process.env.GEMINI_API_KEY) {
         process.env.GEMINI_API_KEY = clientApiKey;
       }
 
@@ -1186,6 +1171,13 @@ Do not include markdown or explanations. Return pure JSON only.`;
   app.post("/api/discord-webhook", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
     try {
       const { payload } = req.body;
+      const event = typeof req.body.event === 'string' ? req.body.event : '';
+      if (!['new_item', 'distribute', 'test'].includes(event)) {
+        return res.status(400).json({
+          error: 'DISCORD_EVENT_NOT_ALLOWED',
+          message: 'อนุญาตเฉพาะการแจ้งเตือนไอเทม / Only new_item, distribute, and test notifications are allowed.'
+        });
+      }
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         return res.status(400).json({
           error: "INVALID_DISCORD_PAYLOAD",
@@ -1232,6 +1224,12 @@ Do not include markdown or explanations. Return pure JSON only.`;
       }
 
       const clientWebhookUrl = typeof req.body.webhookUrl === 'string' ? req.body.webhookUrl.trim() : '';
+      if (clientWebhookUrl && !['owner', 'admin'].includes(res.locals.actor?.role)) {
+        return res.status(403).json({
+          error: 'CLIENT_WEBHOOK_FORBIDDEN',
+          message: 'เฉพาะ Owner หรือ Admin เท่านั้นที่ระบุ Webhook URL ได้ / Only Owner or Admin may provide a webhook URL.'
+        });
+      }
       const hasValidClientUrl = clientWebhookUrl.startsWith("https://discord.com/api/webhooks/") || clientWebhookUrl.startsWith("https://discordapp.com/api/webhooks/");
       const isDistribute = req.body.event === 'distribute' || req.body.targetChannel === 'distribute';
 

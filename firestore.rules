@@ -86,7 +86,8 @@ service cloud.firestore {
     }
 
     function validNewMember(userId) {
-      return (request.auth != null ? request.auth.uid == userId : true)
+      return signedIn()
+        && request.auth.uid == userId
         && request.resource.data.id == userId
         && request.resource.data.role == 'member'
         && request.resource.data.status == 'pending_approval'
@@ -129,10 +130,12 @@ service cloud.firestore {
       allow update: if validUser(request.resource.data)
         && signedIn()
         && (
-          isOwner()
+          (isOwner() && (
+            (resource.data.role == 'owner' && request.auth.uid == userId && request.resource.data.role == 'owner')
+            || (resource.data.role != 'owner' && request.resource.data.role in ['admin', 'party_leader', 'member'])
+          ))
           || validPrivilegedUserUpdate()
           || (request.auth.uid == userId && validSelfUpdate())
-          || (request.resource.data.id == resource.data.id && validSelfUpdate())
         );
       allow delete: if signedIn()
         && request.auth.uid != userId
@@ -142,9 +145,8 @@ service cloud.firestore {
     match /items/{itemId} {
       allow read: if true;
       allow create, delete: if isAdminOrOwner();
-      allow update: if isAdminOrOwner()
-        || ((!('status' in resource.data) || resource.data.status == 'available')
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimants', 'updatedAt']));
+      // Member claims are written to item_claims and mirrored by the authenticated API.
+      allow update: if isAdminOrOwner();
     }
 
     match /item_claims/{claimId} {
@@ -157,6 +159,9 @@ service cloud.firestore {
           'itemId', 'userId', 'inGameName', 'clan', 'powerLevel', 'claimedAt'
         ])
         && request.resource.data.userId == request.auth.uid
+        && request.resource.data.inGameName == currentProfile().data.inGameName
+        && request.resource.data.clan == currentProfile().data.clan
+        && request.resource.data.powerLevel == currentProfile().data.powerLevel
         && claimId == request.resource.data.itemId + '__' + request.auth.uid
         && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
         && (!('status' in get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data)
@@ -172,8 +177,8 @@ service cloud.firestore {
     match /item_queues/{queueId} {
       allow read: if true;
       allow create, delete: if isAdminOrOwner();
-      allow update: if isAdminOrOwner()
-        || (isActiveUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt']));
+      // Member queue changes are scoped and persisted by the authenticated relay API.
+      allow update: if isAdminOrOwner();
     }
 
     match /quick_items/{itemId} {
@@ -209,9 +214,7 @@ service cloud.firestore {
       allow delete: if isAdminOrOwner();
       allow update: if validGeneralItem(request.resource.data)
         && request.resource.data.id == resource.data.id
-        && (isAdminOrOwner()
-        || (isActiveUser()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt'])));
+        && isAdminOrOwner();
     }
 
     match /clans/{clanId} {
@@ -225,9 +228,9 @@ service cloud.firestore {
     }
 
     match /app_settings/{settingId} {
-      allow read: if settingId != 'gemini_ai' || isAdminOrOwner();
+      allow read: if settingId != 'gemini_ai' || isOwner();
       allow create, update: if (settingId == 'background' && isOwner())
-        || (settingId == 'gemini_ai' && isAdminOrOwner())
+        || (settingId == 'gemini_ai' && isOwner())
         || (settingId != 'background' && isAdminOrOwner());
       allow delete: if isOwner();
     }

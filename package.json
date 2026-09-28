@@ -1,7 +1,7 @@
 {
   "name": "lineage2m-k7-item-vault",
   "private": true,
-  "version": "2.10.57",
+  "version": "2.10.58",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -9,13 +9,14 @@
     "dev:emulator": "node scripts/dev-emulator.mjs",
     "emulators": "firebase emulators:start --only auth,firestore",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore.rules.test.mjs\"",
+    "test": "tsx --test tests/discord-rule5-guard.test.mjs tests/queue-user-resurrection.test.mjs",
     "migrate:auth:dry-run": "node scripts/migrate-firebase-auth.mjs",
     "backup:firestore": "node scripts/backup-firestore-encrypted.mjs",
     "restore:firestore": "node scripts/restore-firestore-encrypted.mjs",
     "build": "vite build && esbuild api/_entry.ts --bundle --platform=node --format=esm --packages=external --outfile=api/index.js && esbuild server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/server.js",
-    "start": "node server.ts",
+    "start": "tsx server.ts",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.cjs",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true});require('node:fs').rmSync('server.cjs',{force:true})\"",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

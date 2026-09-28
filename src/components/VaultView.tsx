@@ -62,7 +62,6 @@ import { DistributionStatsModal } from './DistributionStatsModal';
 import { GeminiKeyModal } from './GeminiKeyModal';
 import {
   getCurrentUserIdToken,
-  listenToGeminiAiSettings,
   updateVaultItemDoc,
   clearDistributedVaultItemsDoc
 } from '../services/firebase';
@@ -206,7 +205,6 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [showGeminiModal, setShowGeminiModal] = useState(false);
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(true);
   const [geminiMaskedKey, setGeminiMaskedKey] = useState<string | null>(null);
-  const geminiApiKeyRef = useRef<string>('');
   const [isCreating, setIsCreating] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
@@ -273,20 +271,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [copiedDistHunters, setCopiedDistHunters] = useState<boolean>(false);
   const [distFilterStatus, setDistFilterStatus] = useState<'all' | 'incomplete' | 'complete'>('all');
 
-  // Check Gemini API status and sync from Firestore in real-time
+  // Check server-side Gemini availability without exposing the API key to this screen.
   useEffect(() => {
-    // 1. Sync from Firestore app_settings/gemini_ai (so all admins share the key and it persists on refresh)
-    const unsubscribe = listenToGeminiAiSettings((settings) => {
-      if (settings?.apiKey && settings.apiKey.trim().length > 10) {
-        geminiApiKeyRef.current = settings.apiKey.trim();
-        setGeminiConfigured(true);
-        setGeminiMaskedKey(`${settings.apiKey.slice(0, 6)}...${settings.apiKey.slice(-4)}`);
-      } else {
-        geminiApiKeyRef.current = '';
-      }
-    });
-
-    // 2. Also check local backend /api/gemini-status if available
     const checkServerStatus = async () => {
       try {
         const token = await getCurrentUserIdToken();
@@ -297,7 +283,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
         if (text && !text.trim().startsWith('<')) {
           const data = JSON.parse(text);
           if (typeof data?.configured === 'boolean') {
-            setGeminiConfigured(data.configured || Boolean(geminiApiKeyRef.current));
+            setGeminiConfigured(data.configured);
             if (data.maskedKey) {
               setGeminiMaskedKey(data.maskedKey);
             }
@@ -310,9 +296,6 @@ export const VaultView: React.FC<VaultViewProps> = ({
     };
     checkServerStatus();
 
-    return () => {
-      unsubscribe();
-    };
   }, [isOwner, currentUser]);
 
   // Group active members by Clan for hunter dropdown selection, sorted by powerLevel descending
@@ -755,7 +738,6 @@ export const VaultView: React.FC<VaultViewProps> = ({
               imagesBase64: base64Images,
               imageBase64: base64Images[0],
               knownMembers: knownMemberList,
-              apiKey: geminiApiKeyRef.current || undefined,
               lang
             })
           });

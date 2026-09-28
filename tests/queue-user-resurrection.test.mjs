@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { createApp } from '../dist/server.js';
+import { createApp } from '../api/_server.ts';
 import http from 'node:http';
 
 async function runQueueUserResurrectionTests() {
@@ -9,7 +9,11 @@ async function runQueueUserResurrectionTests() {
   console.log('======================================================================\n');
 
   // Start internal test server on ephemeral port
-  const app = await createApp({ serveFrontend: false });
+  const app = await createApp({
+    serveFrontend: false,
+    isolatedTest: true,
+    testActor: { uid: 'test-owner', role: 'owner' }
+  });
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, resolve));
   const port = server.address().port;

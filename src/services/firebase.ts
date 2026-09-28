@@ -189,7 +189,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.57-payment-status-sync';
+const CACHE_SCHEMA_VERSION = '2.10.58-security-release';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -1917,9 +1917,13 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
 
   // 2. Serverless fallback: notify /api/update-user-stats in background (Admin SDK persistence & live relay)
   try {
+    const token = await getCurrentUserIdToken();
     fetch('/api/update-user-stats', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
       body: JSON.stringify({ userId, updates: cleanUpdates })
     }).catch(() => {});
   } catch {}
@@ -1988,24 +1992,6 @@ export async function changeUserPassword(targetUserId: string, newPassword: stri
   }
 
   const local = getLocalSessionUser();
-  const isOwnerTarget = targetUserId === 'user_owner_eloni' || local?.username?.toLowerCase() === 'eloni';
-
-  // 2. Special owner custom pass backup in localStorage & Firestore app_settings/owner_auth
-  if (isOwnerTarget) {
-    try {
-      localStorage.setItem('k7_owner_custom_pass', newPassword);
-      await safeFirestoreWrite(
-        setDoc(doc(db, 'app_settings', 'owner_auth'), {
-          password: newPassword,
-          updatedAt: Date.now()
-        }, { merge: true }),
-        1200,
-        'owner_auth_setDoc'
-      );
-    } catch (e) {
-      console.warn('Owner auth settings sync notice:', e);
-    }
-  }
 
   // 3. Call backend server API
   let backendSuccess = false;
@@ -2032,23 +2018,24 @@ export async function changeUserPassword(targetUserId: string, newPassword: stri
   }
 
   // If backend call failed, but client auth or owner custom pass already succeeded, do not throw
-  if (!backendSuccess && !clientAuthUpdated && !isOwnerTarget) {
+  if (!backendSuccess && !clientAuthUpdated) {
     throw new Error(backendError || 'Change password failed');
   }
 
-  // 4. Keep local fallback / session in sync
+  // Keep local profiles in sync without ever persisting credentials.
   if (local && local.id === targetUserId) {
-    saveLocalSessionUser({ ...local, password: newPassword });
+    const { password: _legacyPassword, ...safeLocal } = local as User & { password?: string };
+    saveLocalSessionUser(safeLocal as User);
   }
 
-  // 5. Also update cached users list so next offline/local login uses the new password
+  // Remove legacy plaintext credentials from every cached profile.
   try {
-    const cached = getCachedUsers();
-    const idx = cached.findIndex(u => u.id === targetUserId);
-    if (idx !== -1) {
-      cached[idx] = { ...cached[idx], password: newPassword } as any;
-      setCachedData(CACHE_KEYS.USERS, cached);
-    }
+    const cached = getCachedUsers().map((user) => {
+      const { password: _legacyPassword, ...safeUser } = user as User & { password?: string };
+      return safeUser as User;
+    });
+    setCachedUsers(cached);
+    localStorage.removeItem('k7_owner_custom_pass');
   } catch {}
   bumpSystemVersion('usersVersion', targetUserId).catch(() => {});
 }
@@ -2058,7 +2045,8 @@ const LEGACY_LOGGED_KEY = 'clanhub_logged_user_v21028';
 
 export function saveLocalSessionUser(user: User) {
   try {
-    const raw = JSON.stringify(user);
+    const { password: _legacyPassword, ...safeUser } = user as User & { password?: string };
+    const raw = JSON.stringify(safeUser);
     localStorage.setItem(SESSION_KEY, raw);
     localStorage.setItem(LEGACY_LOGGED_KEY, raw);
     // Explicitly destroy old legacy keys
@@ -4196,4 +4184,3 @@ export async function testFirestoreHealth(): Promise<boolean> {
     return true;
   }
 }
-

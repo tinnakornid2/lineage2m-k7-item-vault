@@ -378,25 +378,20 @@ export async function changeManagedUserPassword(
     }
   }
 
-  // Update in Firestore users collection
+  // Firebase Auth is the only password store. Remove any legacy plaintext copies.
   try {
     if (target.exists) {
-      await targetRef.set({
-        password: newPassword,
-        updatedAt: Date.now()
-      }, { merge: true });
+      const { FieldValue } = await import('firebase-admin/firestore');
+      await targetRef.update({ password: FieldValue.delete(), updatedAt: Date.now() });
     }
   } catch (dbErr) {
-    console.warn('Firestore set password notice:', dbErr);
+    console.warn('Firestore password cleanup notice:', dbErr);
   }
 
-  // If this is eloni (owner), also save to app_settings/owner_auth
+  // Remove the obsolete owner_auth document if it exists.
   if (targetUid === 'user_owner_eloni' || target.data()?.username?.toLowerCase() === 'eloni') {
     try {
-      await sdk.db.collection('app_settings').doc('owner_auth').set({
-        password: newPassword,
-        updatedAt: Date.now()
-      }, { merge: true });
+      await sdk.db.collection('app_settings').doc('owner_auth').delete();
     } catch (e) {}
   }
 
@@ -508,4 +503,3 @@ export async function claimOrphanAuthUser(username: string, newPassword: string)
     return { allowed: false, reason: updateErr?.code || 'AUTH_UPDATE_FAILED' };
   }
 }
-

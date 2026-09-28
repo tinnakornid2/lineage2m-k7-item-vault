@@ -23,8 +23,8 @@ export const sanitizeAndDeduplicateUsers = (users: any[], deletedUsers?: Record<
       }
 
       if (deletedUsers && deletedUsers[u.id]) {
-        const uRev = Number(u.updatedAt || u.createdAt || 0);
-        if (uRev <= deletedUsers[u.id]) continue;
+        // A retained tombstone always wins. Client clocks are untrusted and may be ahead.
+        continue;
       }
 
       if (isEloni) {
@@ -163,11 +163,11 @@ export function mergeRelayData(previousData: any, incoming: any): any {
           const records = new Map<string, any>();
           for (const record of [...(previous || []), ...(incoming || [])]) {
             if (!record?.id) continue;
-            const recordRevision = Number(record.updatedAt || record.createdAt || 0);
             const deletedAt = deleted ? (deleted[record.id] || 0) : 0;
-            if (deletedAt && recordRevision <= deletedAt) {
+            if (deletedAt) {
               continue;
             }
+            const recordRevision = Number(record.updatedAt || record.createdAt || 0);
             const existing = records.get(record.id);
             const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
             if (!existing) {
@@ -429,4 +429,3 @@ export function mergeRelayData(previousData: any, incoming: any): any {
 
   return { ...previousData, ...data };
 }
-
