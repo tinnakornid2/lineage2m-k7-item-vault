@@ -21,3 +21,4 @@ firebase-service-account*.json
 
 .vercel
 .clasp.json
+.env.local
