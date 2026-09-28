@@ -56,6 +56,7 @@ import {
   DEFAULT_CLAN,
   isItemDistributed,
   normalizeDistributedItem,
+  isDistributedItemPaymentPending,
   isNoClan
 } from '../types';
 // Production data comes primarily from Firebase Firestore with Google Sheets & Live Relay dual-write resilience (v2.10.1)
@@ -188,7 +189,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.56-user-notifications-and-approval';
+const CACHE_SCHEMA_VERSION = '2.10.57-payment-status-sync';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -1523,7 +1524,32 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
           } catch {}
         }
       }
-      const paymentStatus = newest.paymentStatus || older.paymentStatus || (distributedTo && typeof distributedTo === 'object' ? (distributedTo as any).paymentStatus : undefined);
+      const isFree = (Number(newest.price || older.price) || 0) === 0;
+      let paymentStatus: 'pending' | 'paid' | undefined = undefined;
+      if (isFree) {
+        paymentStatus = 'paid';
+      } else if (newest.paymentStatus) {
+        paymentStatus = newest.paymentStatus;
+      } else if (older.paymentStatus) {
+        paymentStatus = older.paymentStatus;
+      } else if (distributedTo && typeof distributedTo === 'object' && (distributedTo as any).paymentStatus) {
+        paymentStatus = (distributedTo as any).paymentStatus;
+      } else if (isDistributed) {
+        paymentStatus = 'pending';
+      }
+
+      if (distributedTo && typeof distributedTo === 'object') {
+        distributedTo = {
+          ...distributedTo,
+          ...(paymentStatus ? { paymentStatus } : {}),
+          ...(newest.paidAt ? { paidAt: newest.paidAt } : (older.paidAt ? { paidAt: older.paidAt } : {})),
+          ...(newest.paidBy ? { paidBy: newest.paidBy } : (older.paidBy ? { paidBy: older.paidBy } : {}))
+        };
+        if (paymentStatus === 'pending') {
+          delete distributedTo.paidAt;
+          delete distributedTo.paidBy;
+        }
+      }
 
       // Bulletproof merge of claimants: union all claims from both local and incoming,
       // deduplicate by userId/inGameName, and filter out any cancelled claims
@@ -1558,7 +1584,7 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
 
       const updatedAt = Math.max(local.updatedAt || 0, incoming.updatedAt || 0) || undefined;
 
-      result.push({
+      const mergedItem = normalizeDistributedItem({
         ...older,
         ...newest,
         status,
@@ -1569,6 +1595,8 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
         hunterScreenshots,
         receiptImages
       });
+
+      result.push(mergedItem);
     }
   }
 
@@ -2325,7 +2353,7 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
       }
       const items: VaultItem[] = [];
       snapshot.forEach((docSnap) => {
-        const item = { ...docSnap.data(), id: docSnap.id } as VaultItem;
+        const item = normalizeDistributedItem({ ...docSnap.data(), id: docSnap.id } as VaultItem);
         if (item.hunters) {
           item.hunters = item.hunters.map((h) => ({ ...h, clan: cleanClanName(h.clan) }));
         }
@@ -2514,6 +2542,13 @@ export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>)
 
 export async function updateVaultItemDoc(itemId: string, updates: Partial<VaultItem>) {
   try {
+    // Optimistically update local cache so any subsequent reads from getCachedVaultItems() immediately reflect updates
+    const currentCached = getCachedVaultItems();
+    if (currentCached.some((i) => i.id === itemId)) {
+      setCachedVaultItems(
+        currentCached.map((it) => (it.id === itemId ? normalizeDistributedItem({ ...it, ...updates }) : it))
+      );
+    }
     const ref = doc(db, ITEMS_COLLECTION, itemId);
     const cleanUpdates = sanitizeForFirestore(updates);
     const updateRes = await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateVaultItemDoc_updateDoc');
@@ -2535,13 +2570,53 @@ export async function confirmVaultItemPayment(
 ) {
   const isPaid = status === 'paid';
   const now = Date.now();
+  const currentCached = getCachedVaultItems();
+  const currentItem = currentCached.find((i) => i.id === itemId);
+
+  let updatedDistributedTo = currentItem?.distributedTo ? { ...currentItem.distributedTo } : undefined;
+
+  if (!updatedDistributedTo) {
+    try {
+      const snap = await safeFirestoreWrite(getDoc(doc(db, ITEMS_COLLECTION, itemId)), 1200, 'confirmVaultItemPayment_getDoc');
+      if (snap && snap.exists()) {
+        const data = snap.data();
+        if (data.distributedTo) {
+          updatedDistributedTo = typeof data.distributedTo === 'string'
+            ? JSON.parse(data.distributedTo)
+            : { ...data.distributedTo };
+        }
+      }
+    } catch {}
+  }
+
+  if (updatedDistributedTo) {
+    updatedDistributedTo.paymentStatus = status;
+    if (isPaid) {
+      updatedDistributedTo.paidAt = now;
+      updatedDistributedTo.paidBy = actorName;
+    } else {
+      delete updatedDistributedTo.paidAt;
+      delete updatedDistributedTo.paidBy;
+    }
+  }
+
   const updates: Partial<VaultItem> = {
     paymentStatus: status,
     updatedAt: now,
     ...(isPaid
       ? { paidAt: now, paidBy: actorName }
-      : { paidAt: undefined, paidBy: undefined })
+      : { paidAt: null as any, paidBy: null as any }),
+    ...(updatedDistributedTo ? { distributedTo: updatedDistributedTo } : {})
   };
+
+  // Optimistically update local cache immediately
+  if (currentItem) {
+    const nextCached = currentCached.map((it) =>
+      it.id === itemId ? normalizeDistributedItem({ ...it, ...updates, distributedTo: updatedDistributedTo }) : it
+    );
+    setCachedVaultItems(nextCached);
+  }
+
   await updateVaultItemDoc(itemId, updates);
   bumpSystemVersion('vaultVersion').catch(() => {});
 }

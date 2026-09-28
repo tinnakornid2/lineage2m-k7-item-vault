@@ -2903,6 +2903,12 @@ export const App: React.FC = () => {
       actorName
     );
 
+    triggerDebouncedAutoBackup(
+      getFullBackupPayload({ vaultItems: nextVaultItems }),
+      actorName,
+      false
+    );
+
     try {
       await confirmVaultItemPayment(item.id, actorName, targetStatus);
       showToast(

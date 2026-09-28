@@ -58,7 +58,8 @@ import {
   cleanClanName,
   hasUserUpdatedStats,
   isUserStatsPending,
-  isItemDistributed
+  isItemDistributed,
+  isDistributedItemPaymentPending
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
@@ -1240,7 +1241,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           {/* Payment Status for non-free distributed item (Status only, no button on dashboard) */}
                           {item.price > 0 && (
                             <div className="flex items-center gap-1 my-0.5 justify-end">
-                              {item.paymentStatus === 'paid' ? (
+                              {!isDistributedItemPaymentPending(item) ? (
                                 <span
                                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm"
                                   title={

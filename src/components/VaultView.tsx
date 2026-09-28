@@ -51,7 +51,8 @@ import {
   DirectDistributionPayload,
   cleanClanName,
   DEFAULT_CLAN,
-  isItemDistributed
+  isItemDistributed,
+  isDistributedItemPaymentPending
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
@@ -1273,15 +1274,11 @@ export const VaultView: React.FC<VaultViewProps> = ({
   }, [vaultItems]);
 
   const incompleteDistributedItems = useMemo(() => {
-    return distributedItems.filter(
-      (i) => i.price > 0 && (i.paymentStatus === 'pending' || i.distributedTo?.paymentStatus === 'pending')
-    );
+    return distributedItems.filter(isDistributedItemPaymentPending);
   }, [distributedItems]);
 
   const completeDistributedItems = useMemo(() => {
-    return distributedItems.filter(
-      (i) => !(i.price > 0 && (i.paymentStatus === 'pending' || i.distributedTo?.paymentStatus === 'pending'))
-    );
+    return distributedItems.filter((i) => !isDistributedItemPaymentPending(i));
   }, [distributedItems]);
 
   const displayedDistributedItems = useMemo(() => {
@@ -1290,7 +1287,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
     return distributedItems;
   }, [distFilterStatus, incompleteDistributedItems, completeDistributedItems, distributedItems]);
 
-  const renderDistributedCard = (item: VaultItem, isPending: boolean) => {
+  const renderDistributedCard = (item: VaultItem, forcePending?: boolean) => {
+    const isPending = forcePending !== undefined ? forcePending : isDistributedItemPaymentPending(item);
     return (
       <div
         key={item.id}
@@ -3132,7 +3130,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                             <span className="text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.3)] block text-xs">
                               {item.price.toLocaleString()} {t.diamonds}
                             </span>
-                            {item.paymentStatus === 'paid' ? (
+                            {!isDistributedItemPaymentPending(item) ? (
                               <button
                                 type="button"
                                 onClick={() => {

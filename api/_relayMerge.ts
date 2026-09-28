@@ -81,6 +81,58 @@ export const sanitizeAndDeduplicateUsers = (users: any[], deletedUsers?: Record<
   };
 
 
+function normalizeRelayVaultItem(item: any): any {
+  if (!item || (!item.distributedTo && item.status !== 'distributed')) return item;
+  let dist = item.distributedTo;
+  if (typeof dist === 'string') {
+    const trimmed = dist.trim();
+    if (trimmed.startsWith('{')) {
+      try { dist = JSON.parse(trimmed); } catch {}
+    }
+  }
+  const isFree = (Number(item.price) || 0) === 0;
+  let effectivePaymentStatus: 'pending' | 'paid' = 'pending';
+  if (isFree) {
+    effectivePaymentStatus = 'paid';
+  } else if (item.paymentStatus === 'paid' || item.paymentStatus === 'pending') {
+    effectivePaymentStatus = item.paymentStatus;
+  } else if (dist && typeof dist === 'object' && (dist.paymentStatus === 'paid' || dist.paymentStatus === 'pending')) {
+    effectivePaymentStatus = dist.paymentStatus;
+  }
+
+  const paidAt = item.paidAt ?? (dist && typeof dist === 'object' ? dist.paidAt : undefined);
+  const paidBy = item.paidBy ?? (dist && typeof dist === 'object' ? dist.paidBy : undefined);
+
+  if (dist && typeof dist === 'object') {
+    dist = {
+      ...dist,
+      paymentStatus: effectivePaymentStatus,
+      ...(effectivePaymentStatus === 'paid' ? {
+        ...(paidAt ? { paidAt } : {}),
+        ...(paidBy ? { paidBy } : {})
+      } : {})
+    };
+    if (effectivePaymentStatus === 'pending') {
+      delete dist.paidAt;
+      delete dist.paidBy;
+    }
+  }
+
+  return {
+    ...item,
+    status: 'distributed',
+    paymentStatus: effectivePaymentStatus,
+    ...(effectivePaymentStatus === 'paid' ? {
+      ...(paidAt ? { paidAt } : {}),
+      ...(paidBy ? { paidBy } : {})
+    } : {
+      paidAt: undefined,
+      paidBy: undefined
+    }),
+    distributedTo: dist
+  };
+}
+
 export function mergeRelayData(previousData: any, incoming: any): any {
   const data = structuredClone(incoming);
 
@@ -119,7 +171,7 @@ export function mergeRelayData(previousData: any, incoming: any): any {
             const existing = records.get(record.id);
             const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
             if (!existing) {
-              records.set(record.id, record);
+              records.set(record.id, mergeClaims ? normalizeRelayVaultItem(record) : record);
               continue;
             }
             let newest = recordRevision >= existingRevision ? { ...existing, ...record } : { ...record, ...existing };
@@ -160,7 +212,7 @@ export function mergeRelayData(previousData: any, incoming: any): any {
                 const key = claimant.userId || String(claimant.inGameName || '').trim().toLowerCase();
                 if (key) claimantMap.set(key, claimant);
               }
-              newest = { ...newest, claimants: Array.from(claimantMap.values()) };
+              newest = normalizeRelayVaultItem({ ...newest, claimants: Array.from(claimantMap.values()) });
             }
 
             if (mergeQueue) {

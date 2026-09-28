@@ -267,8 +267,27 @@ export function isItemDistributed(item?: Partial<VaultItem> | null): boolean {
 }
 
 /**
- * Ensures an item identified as distributed has its status strictly set to 'distributed'
- * and parses its distributedTo payload if it was serialized as JSON string.
+ * Canonical helper to check if a distributed item is pending diamond payment.
+ * Returns false if item is free (price <= 0) or already marked as paid.
+ * Returns true only if item has price > 0 and payment is pending.
+ */
+export function isDistributedItemPaymentPending<T extends Partial<VaultItem>>(item: T | null | undefined): boolean {
+  if (!item) return false;
+  const price = Number(item.price) || 0;
+  if (price <= 0) return false;
+
+  let distStatus: 'pending' | 'paid' | undefined;
+  if (item.distributedTo && typeof item.distributedTo === 'object') {
+    distStatus = (item.distributedTo as any).paymentStatus;
+  }
+  const effectiveStatus = item.paymentStatus || distStatus || 'pending';
+  return effectiveStatus === 'pending';
+}
+
+/**
+ * Ensures an item identified as distributed has its status strictly set to 'distributed',
+ * parses its distributedTo payload if it was serialized as JSON string,
+ * and synchronizes paymentStatus across both top-level and distributedTo object.
  */
 export function normalizeDistributedItem<T extends Partial<VaultItem>>(item: T): T {
   if (!item) return item;
@@ -290,9 +309,50 @@ export function normalizeDistributedItem<T extends Partial<VaultItem>>(item: T):
         };
       }
     }
+
+    const price = Number(item.price) || 0;
+    const isFree = price <= 0;
+    let effectivePaymentStatus: 'pending' | 'paid' = 'pending';
+
+    if (isFree) {
+      effectivePaymentStatus = 'paid';
+    } else if (item.paymentStatus === 'paid' || item.paymentStatus === 'pending') {
+      effectivePaymentStatus = item.paymentStatus;
+    } else if (dist && typeof dist === 'object' && (dist.paymentStatus === 'paid' || dist.paymentStatus === 'pending')) {
+      effectivePaymentStatus = dist.paymentStatus;
+    } else {
+      effectivePaymentStatus = 'pending';
+    }
+
+    const paidAt = item.paidAt ?? (dist && typeof dist === 'object' ? dist.paidAt : undefined);
+    const paidBy = item.paidBy ?? (dist && typeof dist === 'object' ? dist.paidBy : undefined);
+
+    if (dist && typeof dist === 'object') {
+      dist = {
+        ...dist,
+        paymentStatus: effectivePaymentStatus,
+        ...(effectivePaymentStatus === 'paid' ? {
+          ...(paidAt ? { paidAt } : {}),
+          ...(paidBy ? { paidBy } : {})
+        } : {})
+      };
+      if (effectivePaymentStatus === 'pending') {
+        delete dist.paidAt;
+        delete dist.paidBy;
+      }
+    }
+
     return {
       ...item,
       status: 'distributed' as const,
+      paymentStatus: effectivePaymentStatus,
+      ...(effectivePaymentStatus === 'paid' ? {
+        ...(paidAt ? { paidAt } : {}),
+        ...(paidBy ? { paidBy } : {})
+      } : {
+        paidAt: undefined,
+        paidBy: undefined
+      }),
       distributedTo: dist
     };
   }
