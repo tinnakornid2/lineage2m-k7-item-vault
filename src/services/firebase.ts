@@ -1,4 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { centralApi } from './centralApi';
 import {
   createUserWithEmailAndPassword,
   connectAuthEmulator,
@@ -32,6 +33,7 @@ import {
 } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
 import { validateRegistration } from '../utils/registration';
+import { loadNotificationIds, saveNotificationIds } from '../utils/notificationStorage';
 import {
   User,
   VaultItem,
@@ -146,6 +148,7 @@ export const GENERAL_ITEMS_COLLECTION = 'general_items';
 export const QUEUES_COLLECTION = 'item_queues';
 export const VAULT_COLLECTION = 'diamond_vault';
 export const CLANS_COLLECTION = 'clans';
+export const USER_NOTIFICATIONS_COLLECTION = 'user_notifications';
 
 // Default seeded owner account & sample data (Synced with latest verified profile)
 export const DEFAULT_OWNER: User = {
@@ -185,7 +188,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.54-persistence-and-layout-fix';
+const CACHE_SCHEMA_VERSION = '2.10.56-user-notifications-and-approval';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -2068,339 +2071,107 @@ export function clearLocalSessionUser() {
   } catch {}
 }
 
+let registrationInProgress = false;
 export async function registerUserDoc(data: {
-  username: string;
-  password: string;
-  inGameName: string;
+  username: string; password: string; inGameName: string;
 }): Promise<User> {
   const username = data.username.trim();
   const inGameName = data.inGameName.trim();
   const invalidField = validateRegistration(username, data.password, inGameName);
-  if (invalidField) {
-    throw new Error(`invalid-registration-${invalidField}`);
-  }
-
-  const fallbackId = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-  let resolvedId = fallbackId;
-
-  // 1. Try Firebase Authentication (generous timeout so mobile devices don't abort)
+  if (invalidField) throw new Error(`invalid-registration-${invalidField}`);
+  registrationInProgress = true;
   try {
-    const authPromise = createUserWithEmailAndPassword(
-      auth,
-      usernameToAuthEmail(username),
-      data.password
-    );
-    const cred = await Promise.race([
-      authPromise,
-      new Promise<any>((_, reject) => setTimeout(() => reject(new Error('auth-timeout')), 8000))
-    ]);
-    if (cred && cred.user && cred.user.uid) {
-      resolvedId = cred.user.uid;
+    let credential;
+    try {
+      credential = await createUserWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
+    } catch (error: any) {
+      if (error?.code !== 'auth/email-already-in-use') throw error;
+      // Recover an interrupted registration only by proving the same password.
+      credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
     }
-  } catch (authErr: any) {
-    console.warn('Firebase Auth registration notice (using direct vault identity):', authErr?.code || authErr?.message);
-    if (authErr?.code === 'auth/email-already-in-use') {
-      let recovered = false;
-      try {
-        const resolveRes = await fetch('/api/auth/resolve-orphan-registration', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username,
-            password: data.password,
-            inGameName
-          })
-        }).then((r) => r.json());
+    const token = await credential.user.getIdToken();
+    const newUser: User = {
+      id: credential.user.uid, username, inGameName, clan: 'no-clan', characterClass: '',
+      role: 'member', status: 'pending_approval', powerLevel: 0,
+      pendingPowerLevel: null, pendingPowerLevelRequestedAt: null, createdAt: Date.now(), updatedAt: Date.now()
+    };
 
-        if (resolveRes && resolveRes.allowed && resolveRes.uid) {
-          resolvedId = resolveRes.uid;
-          recovered = true;
-          try {
-            await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
-          } catch {}
-        } else if (resolveRes && (resolveRes.error === 'USERNAME_IN_USE' || resolveRes.error === 'OWNER_RESERVED')) {
-          throw new Error('auth/username-already-in-use');
-        }
-      } catch (err: any) {
-        if (err?.message === 'auth/username-already-in-use') throw err;
-      }
-
-      if (!recovered) {
-        // Fallback: try signing in directly if the orphan account was created with the same password
-        try {
-          const cred = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
-          if (cred && cred.user && cred.user.uid) {
-            resolvedId = cred.user.uid;
-            recovered = true;
-          }
-        } catch {}
-      }
-
-      if (!recovered) {
-        throw new Error('auth/username-already-in-use');
-      }
-    }
-  }
-
-  const newUser: User = {
-    id: resolvedId,
-    username,
-    inGameName,
-    clan: 'no-clan',
-    characterClass: '',
-    powerLevel: 0,
-    pendingPowerLevel: null,
-    pendingPowerLevelRequestedAt: null,
-    role: 'member',
-    status: 'pending_approval',
-    createdAt: Date.now(),
-    password: data.password
-  };
-
-  // 2. Try Firestore setDoc with timeout & quota safeguard
-  // Conform strictly to firestore.rules: exclude plaintext password and ensure request.auth.uid == userId
-  try {
-    const { password: _password, ...firestoreUser } = newUser;
-    const cleanUser = sanitizeForFirestore(firestoreUser);
+    // 1. Write user document directly to Firestore Cloud under active auth credentials
+    const userDocRef = doc(db, USERS_COLLECTION, newUser.id);
     await safeFirestoreWrite(
-      setDoc(doc(db, USERS_COLLECTION, resolvedId), cleanUser),
-      4000,
-      'addUserDoc'
+      setDoc(userDocRef, sanitizeForFirestore(newUser)),
+      2000,
+      'registerUserDoc_firestore'
     );
-  } catch (error: any) {
-    console.warn('Direct Firestore registration save notice (operating in resilient offline/live mode):', error?.code || error?.message);
-    notifyQuotaExceeded(error);
+
+    // 2. Broadcast to Central Live Relay
+    await centralApi('/api/live-state', {
+      method: 'POST', body: JSON.stringify({ data: { users: [newUser] }, performedBy: inGameName })
+    }, token);
+
+    unmarkUserAsDeleted(newUser.id);
+    return newUser;
+  } finally {
+    registrationInProgress = false;
+    // New accounts require Central Admin/Owner approval before they can log in: immediately end temp registration session
+    await signOut(auth).catch(() => {});
+    clearLocalSessionUser();
   }
-
-  // Clear any tombstone if this ID was previously marked deleted
-  unmarkUserAsDeleted(resolvedId);
-
-  // Notify Admin/Owner via Version Hub heartbeat
-  bumpSystemVersion('usersVersion', resolvedId).catch(() => {});
-
-  // Always return the valid newUser object so App state, cache, and live relay can immediately accept it!
-  return newUser;
 }
 
-export async function loginUserQuery(
-  username: string,
-  pass: string,
-  availableUsers?: User[]
-): Promise<User | null> {
-  const cleanUsername = username.trim();
-  const cleanPass = pass.trim();
-  const lowerUser = cleanUsername.toLowerCase();
-
-  // 1. Aggregate candidate users from memory, local cache, and backup members
-  const cached = getCachedUsers();
-  const candidateUsersMap = new Map<string, User>();
-
-  if (Array.isArray(REAL_BACKUP_MEMBERS)) {
-    for (const u of REAL_BACKUP_MEMBERS) {
-      if (u && u.id) candidateUsersMap.set(u.id, u);
-    }
-  }
-  if (Array.isArray(cached)) {
-    for (const u of cached) {
-      if (u && u.id) candidateUsersMap.set(u.id, u);
-    }
-  }
+export async function loginUserQuery(username: string, pass: string, availableUsers?: User[]): Promise<User | null> {
+  const clean = username.trim();
+  const known = (availableUsers || getCachedUsers()).find(u =>
+    u.username?.toLowerCase() === clean.toLowerCase() || u.inGameName?.toLowerCase() === clean.toLowerCase());
   try {
-    const googleCache = localStorage.getItem('l2m_google_backup_cache');
-    if (googleCache) {
-      const parsed = JSON.parse(googleCache);
-      if (parsed?.data?.users && Array.isArray(parsed.data.users)) {
-        for (const u of parsed.data.users) {
-          if (u && u.id && !candidateUsersMap.has(u.id)) candidateUsersMap.set(u.id, u);
-        }
-      }
-    }
-  } catch {}
-  if (Array.isArray(availableUsers)) {
-    for (const u of availableUsers) {
-      if (u && u.id) candidateUsersMap.set(u.id, u);
-    }
-  }
+    const credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(known?.username || (clean.toLowerCase() === 'owner' ? 'eloni' : clean)), pass);
+    const isOwner = credential.user.email === usernameToAuthEmail('eloni');
 
-  const candidateUsers = Array.from(candidateUsersMap.values());
-
-  // 2. Check Owner account (Eloni / owner / custom or default 0386231334)
-  const isEloniAttempt =
-    lowerUser === 'eloni' ||
-    lowerUser === 'owner' ||
-    candidateUsers.some(
-      (u) =>
-        (u.id === 'user_owner_eloni' || u.role === 'owner') &&
-        (u.username?.toLowerCase() === lowerUser || u.inGameName?.toLowerCase() === lowerUser)
-    );
-
-  if (isEloniAttempt) {
-    let ownerPass = '0386231334';
+    let profile: User | undefined;
     try {
-      const localOwnerPass = localStorage.getItem('k7_owner_custom_pass');
-      if (localOwnerPass) ownerPass = localOwnerPass;
-
-      const existingOwner = candidateUsers.find(
-        (u) => u.id === 'user_owner_eloni' || u.role === 'owner' || u.username?.toLowerCase() === 'eloni'
-      );
-      if (existingOwner && (existingOwner as any).password) {
-        ownerPass = (existingOwner as any).password;
+      const response = await fetch('/api/live-state?v=0', { cache: 'no-store', signal: AbortSignal.timeout(6000) });
+      if (response.ok) {
+        const snapshot = await response.json();
+        profile = (snapshot.data?.users || []).find((u: User) =>
+          u.id === credential.user.uid || (isOwner && u.id === 'user_owner_eloni'));
       }
-    } catch {}
+    } catch (e) {
+      console.warn('Central live relay read deferred during login:', e);
+    }
 
-    if (pass === ownerPass || pass === '0386231334' || cleanPass === ownerPass || cleanPass === '0386231334') {
-      const existingOwner = candidateUsers.find(
-        (u) => u.id === 'user_owner_eloni' || u.role === 'owner' || u.username?.toLowerCase() === 'eloni'
-      );
-      const activeOwner: User = existingOwner
-        ? { ...DEFAULT_OWNER, ...existingOwner, id: 'user_owner_eloni', role: 'owner', status: 'active' }
-        : DEFAULT_OWNER;
-      saveLocalSessionUser(activeOwner);
+    // Direct Firestore Cloud fallback if not in relay snapshot yet
+    if (!profile) {
       try {
-        signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334')
-          .catch(async (authErr) => {
-            if (authErr?.code === 'auth/user-not-found' || authErr?.code === 'auth/invalid-credential') {
-              try {
-                await createUserWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334');
-              } catch {}
-            }
-          });
-      } catch {}
-      return activeOwner;
-    }
-  }
-
-  // 3. Fast In-Memory Credential Match: check by username OR inGameName
-  const matchedUser = candidateUsers.find((u) => {
-    const uUser = (u.username || '').trim().toLowerCase();
-    const uIgn = (u.inGameName || '').trim().toLowerCase();
-    return uUser === lowerUser || uIgn === lowerUser;
-  });
-
-  if (matchedUser) {
-    const userPass = (matchedUser as any).password;
-    if (userPass && (userPass === pass || userPass === cleanPass)) {
-      saveLocalSessionUser(matchedUser);
-      signInWithEmailAndPassword(auth, usernameToAuthEmail(matchedUser.username || cleanUsername), userPass)
-        .catch(() => {});
-      return matchedUser;
-    }
-  }
-
-  // 4. Query live-state relay with 1.5s timeout and keep liveUsers for profile resolution
-  let liveUsers: User[] = [];
-  if (typeof window !== 'undefined') {
-    try {
-      const liveRes = await Promise.race([
-        fetch(`/api/live-state?v=0&_t=${Date.now()}`).then((r) => r.json()),
-        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('live-state-timeout')), 1500))
-      ]);
-      if (liveRes && liveRes.data && Array.isArray(liveRes.data.users)) {
-        liveUsers = liveRes.data.users as User[];
-        const foundInLive = liveUsers.find((u) => {
-          const uUser = (u.username || '').trim().toLowerCase();
-          const uIgn = (u.inGameName || '').trim().toLowerCase();
-          return uUser === lowerUser || uIgn === lowerUser;
-        });
-        if (foundInLive) {
-          const userPass = (foundInLive as any).password;
-          if (userPass && (userPass === pass || userPass === cleanPass)) {
-            saveLocalSessionUser(foundInLive);
-            signInWithEmailAndPassword(auth, usernameToAuthEmail(foundInLive.username || cleanUsername), userPass)
-              .catch(() => {});
-            return foundInLive;
-          }
+        const userDoc = await getDoc(doc(db, USERS_COLLECTION, credential.user.uid));
+        if (userDoc.exists()) {
+          profile = { ...userDoc.data(), id: userDoc.id } as User;
         }
+      } catch (err) {
+        console.warn('Firestore user fetch notice during login:', err);
       }
-    } catch {}
-  }
-
-  // 5. Try Firebase Authentication (generous 8s timeout for real network)
-  try {
-    const authPromise = signInWithEmailAndPassword(
-      auth,
-      usernameToAuthEmail(cleanUsername),
-      pass
-    );
-    const credential = await Promise.race([
-      authPromise,
-      new Promise<any>((_, reject) => setTimeout(() => reject(new Error('auth-timeout')), 8000))
-    ]);
-    if (credential && credential.user) {
-      // Authenticated via Firebase Auth! Locate or reconstruct full user profile:
-      const searchPool = [...liveUsers, ...candidateUsers, ...getCachedUsers()];
-      let matched = searchPool.find(
-        (u) =>
-          u.id === credential.user.uid ||
-          (u.username && u.username.trim().toLowerCase() === lowerUser) ||
-          (u.inGameName && u.inGameName.trim().toLowerCase() === lowerUser)
-      );
-
-      // If not in pool, try fetching directly from Firestore by UID
-      if (!matched) {
-        try {
-          const directDoc = await Promise.race([
-            getDoc(doc(db, USERS_COLLECTION, credential.user.uid)),
-            new Promise<any>((_, reject) => setTimeout(() => reject(new Error('directDoc timeout')), 6000))
-          ]);
-          if (directDoc && directDoc.exists()) {
-            matched = { ...directDoc.data(), id: directDoc.id } as User;
-          }
-        } catch {}
-      }
-
-      // If still not matched, construct a valid User profile
-      if (!matched) {
-        matched = {
-          id: credential.user.uid,
-          username: cleanUsername,
-          inGameName: cleanUsername,
-          role: 'member',
-          clan: DEFAULT_CLAN,
-          powerLevel: 0,
-          status: 'pending_approval',
-          verified: false,
-          createdAt: Date.now()
-        };
-      }
-
-      saveLocalSessionUser(matched);
-      return matched;
     }
-  } catch (authErr: any) {
-    // Expected if email/password auth is disabled or user not in Firebase Auth
-  }
 
-  // 6. Final Fallback: Query Firestore users collection with a strict 2-second timeout
-  try {
-    const firestorePromise = getDocs(collection(db, USERS_COLLECTION));
-    const snap = await Promise.race([
-      firestorePromise,
-      new Promise<any>((_, reject) => setTimeout(() => reject(new Error('firestore-timeout')), 2000))
-    ]);
-
-    let matchedFromDb: User | null = null;
-    snap.forEach((docSnap: any) => {
-      const data = docSnap.data() as User;
-      const dbUser = (data.username || '').trim().toLowerCase();
-      const dbIgn = (data.inGameName || '').trim().toLowerCase();
-      const dbPass = (data as any).password;
-      if ((dbUser === lowerUser || dbIgn === lowerUser) && dbPass && (dbPass === pass || dbPass === cleanPass)) {
-        matchedFromDb = { ...data, id: docSnap.id };
-      }
-    });
-
-    if (matchedFromDb) {
-      saveLocalSessionUser(matchedFromDb);
-      return matchedFromDb;
+    // Fallback to known local cache profile if matching
+    if (!profile && known && (known.id === credential.user.uid || (isOwner && known.id === 'user_owner_eloni'))) {
+      profile = known;
     }
-  } catch (dbErr: any) {
-    notifyQuotaExceeded(dbErr);
-  }
 
-  await signOut(auth).catch(() => undefined);
-  clearLocalSessionUser();
-  return null;
+    if (!profile) throw new Error('PROFILE_NOT_FOUND');
+
+    // Strict Central Confirmation Check: If member is pending approval, reject login!
+    if (!isOwner && profile.status !== 'active') {
+      await signOut(auth).catch(() => {});
+      clearLocalSessionUser();
+      return profile; // Return profile with pending_approval so caller alerts user
+    }
+
+    saveLocalSessionUser(profile);
+    return profile;
+  } catch (error) {
+    await signOut(auth).catch(() => {});
+    clearLocalSessionUser();
+    return null;
+  }
 }
 
 export function usernameToAuthEmail(username: string): string {
@@ -2414,58 +2185,10 @@ export function usernameToAuthEmail(username: string): string {
 let authSessionPromise: Promise<boolean> | null = null;
 
 export async function ensureFirebaseAuthSession(currentUser: User | null): Promise<boolean> {
-  if (auth.currentUser) return true;
-  if (authSessionPromise) {
-    try {
-      const res = await authSessionPromise;
-      if (res) return true;
-    } catch {}
-  }
-
-  const isEloni =
-    !currentUser ||
-    currentUser.id === 'user_owner_eloni' ||
-    currentUser.username?.toLowerCase() === 'eloni' ||
-    currentUser.inGameName?.toLowerCase() === 'eloni';
-
-  authSessionPromise = (async () => {
-    try {
-      if (isEloni) {
-        const ownerPass = (typeof window !== 'undefined' ? localStorage.getItem('k7_owner_custom_pass') : null) || '0386231334';
-        try {
-          await signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), ownerPass);
-        } catch (authErr: any) {
-          if (authErr?.code === 'auth/user-not-found' || authErr?.code === 'auth/invalid-credential') {
-            try {
-              await createUserWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334');
-            } catch {}
-          }
-        }
-      } else {
-        const uPass = (currentUser as any)?.password;
-        if (currentUser?.username && uPass) {
-          try {
-            await signInWithEmailAndPassword(auth, usernameToAuthEmail(currentUser.username), uPass);
-          } catch {
-            // Fallback to shared reader session so member still receives Firestore snapshots
-            try {
-              await signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334');
-            } catch {}
-          }
-        } else {
-          // Guest or session member without stored password: sign into shared read session
-          try {
-            await signInWithEmailAndPassword(auth, usernameToAuthEmail('eloni'), '0386231334');
-          } catch {}
-        }
-      }
-      return Boolean(auth.currentUser);
-    } finally {
-      authSessionPromise = null;
-    }
-  })();
-
-  return await authSessionPromise;
+  await auth.authStateReady();
+  if (!currentUser || !auth.currentUser) return false;
+  return auth.currentUser.uid === currentUser.id ||
+    (currentUser.id === 'user_owner_eloni' && auth.currentUser.email === usernameToAuthEmail('eloni'));
 }
 
 export function listenToAuthenticatedUser(callback: (profile: User | null) => void) {
@@ -2474,15 +2197,18 @@ export function listenToAuthenticatedUser(callback: (profile: User | null) => vo
   if (initialLocal) {
     if (initialLocal.id === 'user_owner_eloni' || initialLocal.username?.toLowerCase() === 'eloni') {
       callback(initialLocal);
+      ensureFirebaseAuthSession(initialLocal).catch(() => {});
     }
   }
 
   return onAuthStateChanged(auth, async (firebaseUser) => {
+    if (registrationInProgress) return;
     if (!firebaseUser) {
       const currentLocal = getLocalSessionUser();
       if (currentLocal) {
         if (currentLocal.id === 'user_owner_eloni' || currentLocal.username?.toLowerCase() === 'eloni') {
           callback(currentLocal);
+          ensureFirebaseAuthSession(currentLocal).catch(() => {});
           return;
         }
         try {
@@ -2492,6 +2218,7 @@ export function listenToAuthenticatedUser(callback: (profile: User | null) => vo
             if (userProfile.status === 'active') {
               saveLocalSessionUser(userProfile);
               callback(userProfile);
+              ensureFirebaseAuthSession(userProfile).catch(() => {});
               return;
             }
           }
@@ -2542,16 +2269,12 @@ export async function logoutAuthenticatedUser() {
 }
 
 export async function getCurrentUserIdToken() {
-  if (auth.currentUser) {
-    try {
-      return await auth.currentUser.getIdToken();
-    } catch {}
-  }
+  await auth.authStateReady();
+  if (!auth.currentUser) return null;
   const local = getLocalSessionUser();
-  if (local) {
-    return `local-dev-${local.id}-${local.role}`;
-  }
-  return null;
+  if (local && auth.currentUser.uid !== local.id &&
+      !(local.id === 'user_owner_eloni' && auth.currentUser.email === usernameToAuthEmail('eloni'))) return null;
+  return auth.currentUser.getIdToken();
 }
 
 // 2. Vault Items Firestore functions
@@ -3078,8 +2801,10 @@ export function listenToQuickItems(callback: (items: QuickItem[]) => void) {
         items.push({ ...docSnap.data(), id: docSnap.id } as QuickItem);
       });
       const clean = items.filter((it) => it && it.id && !isQuickItemDeleted(it.id));
-      setCachedQuickItems(clean);
-      callback(clean);
+      const cached = getCachedQuickItems();
+      const merged = mergeQuickItems(cached, clean);
+      setCachedQuickItems(merged);
+      callback(merged);
     },
     (err) => {
       console.warn('Firestore quick items fallback:', err);
@@ -3103,6 +2828,12 @@ export async function addQuickItemDoc(item: Omit<QuickItem, 'id' | 'createdAt'>)
     quantity: Math.max(1, item.quantity || 1),
     createdAt: Date.now()
   };
+
+  const currentCached = getCachedQuickItems();
+  setCachedQuickItems([fullItem, ...currentCached.filter((i) => i.id !== newId)]);
+
+  await ensureFirebaseAuthSession(getLocalSessionUser()).catch(() => {});
+
   await safeFirestoreWrite(
     setDoc(doc(db, QUICK_ITEMS_COLLECTION, newId), fullItem, { merge: true }),
     1500,
@@ -3114,6 +2845,11 @@ export async function addQuickItemDoc(item: Omit<QuickItem, 'id' | 'createdAt'>)
 
 export async function deleteQuickItemDoc(itemId: string) {
   markQuickItemAsDeleted(itemId);
+  const currentCached = getCachedQuickItems();
+  setCachedQuickItems(currentCached.filter((i) => i.id !== itemId));
+
+  await ensureFirebaseAuthSession(getLocalSessionUser()).catch(() => {});
+
   const ref = doc(db, QUICK_ITEMS_COLLECTION, itemId);
   await safeFirestoreWrite(
     deleteDoc(ref),
@@ -3124,6 +2860,11 @@ export async function deleteQuickItemDoc(itemId: string) {
 }
 
 export async function updateQuickItemDoc(itemId: string, updates: Partial<Omit<QuickItem, 'id' | 'createdAt'>>) {
+  const currentCached = getCachedQuickItems();
+  setCachedQuickItems(currentCached.map((i) => (i.id === itemId ? { ...i, ...updates } : i)));
+
+  await ensureFirebaseAuthSession(getLocalSessionUser()).catch(() => {});
+
   const ref = doc(db, QUICK_ITEMS_COLLECTION, itemId);
   const cleanUpdates: any = sanitizeForFirestore(updates);
   if (updates.name !== undefined) cleanUpdates.name = updates.name.trim();
@@ -3178,7 +2919,7 @@ export function listenToGeneralItems(callback: (items: GeneralItem[]) => void) {
   });
 }
 
-export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdAt'> & { id?: string }) {
+export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdAt'> & { id?: string; createdAt?: number }) {
   const id = item.id || ('gi_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
   unmarkGeneralItemAsDeleted(id);
   const now = Date.now();
@@ -3192,9 +2933,17 @@ export async function addGeneralItemDoc(item: Omit<GeneralItem, 'id' | 'createdA
     rarity: item.rarity || 'RARE',
     queueList: Array.isArray(item.queueList) ? item.queueList : [],
     receiptHistory: Array.isArray(item.receiptHistory) ? item.receiptHistory : [],
-    createdAt: now,
-    updatedAt: now
+    createdAt: item.createdAt || now,
+    updatedAt: item.updatedAt || now
   };
+
+  // Optimistically store in local cache so listeners and merge helpers keep it safe immediately
+  const currentCached = getCachedGeneralItems();
+  setCachedGeneralItems([fullItem, ...currentCached.filter((g) => g.id !== id)]);
+
+  // Ensure Firebase Auth session is active before writing to Firestore Cloud
+  await ensureFirebaseAuthSession(getLocalSessionUser()).catch(() => {});
+
   await safeFirestoreWrite(
     setDoc(doc(db, GENERAL_ITEMS_COLLECTION, id), sanitizeForFirestore(fullItem), { merge: true }),
     1500,
@@ -3209,6 +2958,14 @@ export async function updateGeneralItemDoc(itemId: string, updates: Partial<Omit
     ...updates,
     updatedAt: (updates as any).updatedAt || Date.now()
   };
+
+  // Optimistically update local cache immediately
+  const currentCached = getCachedGeneralItems();
+  setCachedGeneralItems(currentCached.map((item) => (item.id === itemId ? { ...item, ...updatesWithTime } : item)));
+
+  // Ensure Firebase Auth session is active before writing to Firestore Cloud
+  await ensureFirebaseAuthSession(getLocalSessionUser()).catch(() => {});
+
   const cleanUpdates = sanitizeForFirestore(updatesWithTime);
   const ref = doc(db, GENERAL_ITEMS_COLLECTION, itemId);
   try {
@@ -3221,6 +2978,14 @@ export async function updateGeneralItemDoc(itemId: string, updates: Partial<Omit
 
 export async function deleteGeneralItemDoc(itemId: string) {
   markGeneralItemAsDeleted(itemId);
+
+  // Optimistically update local cache immediately
+  const currentCached = getCachedGeneralItems();
+  setCachedGeneralItems(currentCached.filter((item) => item.id !== itemId));
+
+  // Ensure Firebase Auth session is active before writing to Firestore Cloud
+  await ensureFirebaseAuthSession(getLocalSessionUser()).catch(() => {});
+
   await safeFirestoreWrite(
     deleteDoc(doc(db, GENERAL_ITEMS_COLLECTION, itemId)),
     1500,
@@ -3231,6 +2996,23 @@ export async function deleteGeneralItemDoc(itemId: string) {
 
 export async function batchUpdateGeneralItemsOrder(itemsWithOrder: { id: string; sortOrder: number; isPinned?: boolean }[]) {
   if (!itemsWithOrder || itemsWithOrder.length === 0) return;
+
+  const currentCached = getCachedGeneralItems();
+  const orderMap = new Map(itemsWithOrder.map((o) => [o.id, o]));
+  const updatedList = currentCached.map((item) => {
+    const patch = orderMap.get(item.id);
+    if (!patch) return item;
+    return {
+      ...item,
+      sortOrder: patch.sortOrder,
+      ...(typeof patch.isPinned === 'boolean' ? { isPinned: patch.isPinned } : {}),
+      updatedAt: Date.now()
+    };
+  });
+  setCachedGeneralItems(updatedList);
+
+  await ensureFirebaseAuthSession(getLocalSessionUser()).catch(() => {});
+
   const chunkSize = 400;
   const now = Date.now();
   for (let i = 0; i < itemsWithOrder.length; i += chunkSize) {
@@ -4009,6 +3791,90 @@ export async function saveNotificationsStateDoc(
 
   const ref = doc(db, APP_SETTINGS_COLLECTION, 'notifications_state');
   await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveNotificationsStateDoc');
+}
+
+export function listenToUserNotificationsState(
+  userId: string,
+  callback: (state: NotificationsSyncState) => void
+) {
+  if (!userId) {
+    callback({
+      readIds: loadNotificationIds('read', 'guest'),
+      dismissedIds: loadNotificationIds('dismissed', 'guest'),
+      updatedAt: 0
+    });
+    return () => {};
+  }
+
+  // 1. Instantly return local cached state for this user (< 1ms)
+  callback({
+    readIds: loadNotificationIds('read', userId),
+    dismissedIds: loadNotificationIds('dismissed', userId),
+    updatedAt: 0
+  });
+
+  // 2. Subscribe to user's private cloud document
+  const ref = doc(db, USER_NOTIFICATIONS_COLLECTION, userId);
+  return onSnapshot(
+    ref,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as NotificationsSyncState;
+        const readIds = Array.isArray(data.readIds) ? data.readIds : [];
+        const dismissedIds = Array.isArray(data.dismissedIds) ? data.dismissedIds : [];
+        saveNotificationIds('read', readIds, userId);
+        saveNotificationIds('dismissed', dismissedIds, userId);
+        callback({
+          readIds,
+          dismissedIds,
+          updatedAt: data.updatedAt || 0,
+          updatedBy: data.updatedBy || ''
+        });
+      } else {
+        const localRead = loadNotificationIds('read', userId);
+        const localDismissed = loadNotificationIds('dismissed', userId);
+        callback({
+          readIds: localRead,
+          dismissedIds: localDismissed,
+          updatedAt: 0
+        });
+      }
+    },
+    (err) => {
+      console.warn('Firestore user notifications sync notice:', err);
+      callback({
+        readIds: loadNotificationIds('read', userId),
+        dismissedIds: loadNotificationIds('dismissed', userId),
+        updatedAt: 0
+      });
+    }
+  );
+}
+
+export async function saveUserNotificationsStateDoc(
+  userId: string,
+  updates: { readIds?: string[]; dismissedIds?: string[]; updatedBy?: string }
+) {
+  if (!userId) return;
+
+  // 1. Save to account-scoped LocalStorage immediately
+  if (updates.readIds) {
+    saveNotificationIds('read', updates.readIds, userId);
+  }
+  if (updates.dismissedIds) {
+    saveNotificationIds('dismissed', updates.dismissedIds, userId);
+  }
+
+  // 2. Persist to account-scoped Cloud Document
+  const cleanData = sanitizeForFirestore({
+    ...(updates.readIds ? { readIds: updates.readIds.slice(-500) } : {}),
+    ...(updates.dismissedIds ? { dismissedIds: updates.dismissedIds.slice(-500) } : {}),
+    updatedAt: Date.now(),
+    updatedBy: updates.updatedBy || userId
+  });
+
+  const ref = doc(db, USER_NOTIFICATIONS_COLLECTION, userId);
+  await safeFirestoreWrite(setDoc(ref, cleanData, { merge: true }), 1200, 'saveUserNotificationsStateDoc');
 }
 
 export async function resetAllUserStatsDoc(): Promise<number> {

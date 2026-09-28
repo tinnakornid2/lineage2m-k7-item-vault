@@ -37,7 +37,7 @@ export const translations = {
     managerBadge: 'Manager',
     memberBadge: 'Member',
     invalidCredentials: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
-    registrationSuccess: 'ส่งคำขอแล้ว รออนุมัติ',
+    registrationSuccess: 'ลงทะเบียนสำเร็จ! บัญชีของคุณอยู่ระหว่างรอคำยืนยันและการอนุมัติจากส่วนกลาง (Admin/Owner)',
     
     // Nav Tabs
     tabDashboard: 'แดชบอร์ด',
@@ -655,7 +655,7 @@ export const translations = {
     managerBadge: 'Manager',
     memberBadge: 'Member',
     invalidCredentials: 'Invalid username or password',
-    registrationSuccess: 'Registration submitted! Awaiting Admin approval',
+    registrationSuccess: 'Registration submitted successfully! Your account is pending confirmation and approval from Central Admin/Owner.',
 
     // Nav Tabs
     tabDashboard: 'Main Dashboard',

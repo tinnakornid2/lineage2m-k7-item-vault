@@ -16,7 +16,7 @@ service cloud.firestore {
     function isOwner() {
       return signedIn() && (
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && currentRole() == 'owner')
-        || request.auth.uid == 'APsCZzEI4tYdx5UfHuY5Sw10L8B3'
+        || request.auth.uid in ['APsCZzEI4tYdx5UfHuY5Sw10L8B3', 'rbgWddfwUeQiCr5CE3eRD8ZPdZB2']
         || (request.auth.token.email != null && request.auth.token.email in ['656c6f6e69@auth.k7-clan.local', 'tinnakornid2@gmail.com'])
       );
     }
@@ -194,9 +194,10 @@ service cloud.firestore {
         && (!('maxRequestQuantity' in data) || (data.maxRequestQuantity is number && data.maxRequestQuantity >= 0))
         && (!('isCraftGoal' in data) || data.isCraftGoal is bool)
         && (!('allowMemberQueue' in data) || data.allowMemberQueue is bool)
-        && (!('receiptPolicy' in data) || (data.receiptPolicy is string && data.receiptPolicy in ['optional', 'mandatory', 'none']))
+        && (!('receiptPolicy' in data) || (data.receiptPolicy is string && data.receiptPolicy.size() <= 40))
         && (!('isPinned' in data) || data.isPinned is bool)
         && (!('sortOrder' in data) || data.sortOrder is number)
+        && (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt >= 0))
         && data.createdAt is number && data.createdAt > 0;
     }
 
@@ -239,6 +240,11 @@ service cloud.firestore {
             'generalItemsVersion', 'clansVersion', 'diamondsVersion', 'settingsVersion',
             'lastUpdatedAt', 'lastUpdatedBy', 'lastChangeType'
           ]));
+    }
+
+    match /user_notifications/{userId} {
+      allow read: if true;
+      allow create, update, delete: if signedIn() && (request.auth.uid == userId || isAdminOrOwner());
     }
 
     match /{document=**} {

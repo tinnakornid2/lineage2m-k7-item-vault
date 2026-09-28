@@ -148,8 +148,11 @@ import {
   ensureFirebaseAuthSession,
   logoutAuthenticatedUser,
   listenToNotificationsState,
-  saveNotificationsStateDoc
+  saveNotificationsStateDoc,
+  listenToUserNotificationsState,
+  saveUserNotificationsStateDoc
 } from './services/firebase';
+import { loadNotificationIds, saveNotificationIds } from './utils/notificationStorage';
 import { calculateDiamondNetChange, computeTotalVaultBalance } from './utils/diamondHelper';
 import { setInMemoryFormulaSettings, getFormulaSettings, saveFormulaSettings } from './services/powerFormulaService';
 
@@ -306,7 +309,7 @@ export const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>(() => getCachedUsers());
   const [vaultItems, setVaultItems] = useState<VaultItem[]>(() => getCachedVaultItems());
   const [queueItems, setQueueItems] = useState<QueueItem[]>(() => getCachedQueues());
-  const [quickItems, setQuickItems] = useState<QuickItem[]>(INITIAL_QUICK_ITEMS);
+  const [quickItems, setQuickItems] = useState<QuickItem[]>(() => getCachedQuickItems());
   const [generalItems, setGeneralItems] = useState<GeneralItem[]>(() => getCachedGeneralItems());
   const [clans, setClans] = useState<ClanGroup[]>(() => getCachedClans());
   const [diamondLogs, setDiamondLogs] = useState<DiamondVaultRecord[]>(() => getCachedDiamondTransactions());
@@ -355,25 +358,44 @@ export const App: React.FC = () => {
   // 5c. Kain7 Power Formula State
   const [selectedClanScope, setSelectedClanScope] = useState<string>('all');
 
-  // 5d. In-App Notification Center State (Admin & Owner)
+  // 5d. In-App Notification Center State (Account-Scoped: isolated per user)
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [passwordTargetUser, setPasswordTargetUser] = useState<User | null>(null);
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('l2m_read_notifications');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    const u = getLocalSessionUser();
+    return loadNotificationIds('read', u?.id);
   });
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('l2m_dismissed_notifications');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    const u = getLocalSessionUser();
+    return loadNotificationIds('dismissed', u?.id);
   });
+
+  // Switch local notification read/dismissed state when active account changes
+  useEffect(() => {
+    const uid = currentUser?.id;
+    setReadNotificationIds(loadNotificationIds('read', uid));
+    setDismissedNotificationIds(loadNotificationIds('dismissed', uid));
+  }, [currentUser?.id]);
+
+  // Subscribe to account-scoped notifications state on Firestore Cloud
+  useEffect(() => {
+    if (isQuotaExceeded) return;
+    const uid = currentUser?.id;
+    if (!uid) return;
+
+    const unsubUserNotifs = listenToUserNotificationsState(uid, (notifState) => {
+      if (Array.isArray(notifState.readIds)) {
+        setReadNotificationIds(notifState.readIds);
+      }
+      if (Array.isArray(notifState.dismissedIds)) {
+        setDismissedNotificationIds(notifState.dismissedIds);
+      }
+    });
+
+    return () => {
+      unsubUserNotifs();
+    };
+  }, [currentUser?.id, isQuotaExceeded]);
 
   // 5b. In-App Toast Feedback State
   const [toast, setToast] = useState<{
@@ -1023,63 +1045,64 @@ export const App: React.FC = () => {
   }, [diamondLogs, currentUser, lang]);
 
   const handleMarkNotificationAsRead = (id: string) => {
+    const userId = currentUser?.id;
     setReadNotificationIds((prev) => {
       if (prev.includes(id)) return prev;
       const next = Array.from(new Set([...prev, id]));
-      try {
-        localStorage.setItem('l2m_read_notifications', JSON.stringify(next));
-      } catch {}
-      saveNotificationsStateDoc({
-        readIds: next,
-        updatedBy: currentUser?.inGameName || currentUser?.username || 'admin'
-      }).catch((err) => console.warn('Failed to sync read notification to cloud:', err));
+      saveNotificationIds('read', next, userId);
+      if (userId) {
+        saveUserNotificationsStateDoc(userId, {
+          readIds: next,
+          updatedBy: currentUser?.inGameName || currentUser?.username || userId
+        }).catch((err) => console.warn('Failed to sync read notification to cloud:', err));
+      }
       return next;
     });
   };
 
   const handleMarkAllNotificationsAsRead = () => {
     sounds.playClick();
+    const userId = currentUser?.id;
     const allIds = notifications.map((n) => n.id);
     setReadNotificationIds((prev) => {
       const next = Array.from(new Set([...prev, ...allIds]));
-      try {
-        localStorage.setItem('l2m_read_notifications', JSON.stringify(next));
-      } catch {}
-      saveNotificationsStateDoc({
-        readIds: next,
-        updatedBy: currentUser?.inGameName || currentUser?.username || 'admin'
-      }).catch((err) => console.warn('Failed to sync all read notifications to cloud:', err));
+      saveNotificationIds('read', next, userId);
+      if (userId) {
+        saveUserNotificationsStateDoc(userId, {
+          readIds: next,
+          updatedBy: currentUser?.inGameName || currentUser?.username || userId
+        }).catch((err) => console.warn('Failed to sync all read notifications to cloud:', err));
+      }
       return next;
     });
   };
 
   const handleClearNotifications = () => {
     sounds.playClick();
+    const userId = currentUser?.id;
     const allIds = notifications.map((n) => n.id);
     let nextDismissed: string[] = [];
     let nextRead: string[] = [];
 
     setDismissedNotificationIds((prev) => {
       nextDismissed = Array.from(new Set([...prev, ...allIds]));
-      try {
-        localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(nextDismissed));
-      } catch {}
+      saveNotificationIds('dismissed', nextDismissed, userId);
       return nextDismissed;
     });
 
     setReadNotificationIds((prev) => {
       nextRead = Array.from(new Set([...prev, ...allIds]));
-      try {
-        localStorage.setItem('l2m_read_notifications', JSON.stringify(nextRead));
-      } catch {}
+      saveNotificationIds('read', nextRead, userId);
       return nextRead;
     });
 
-    saveNotificationsStateDoc({
-      dismissedIds: nextDismissed,
-      readIds: nextRead,
-      updatedBy: currentUser?.inGameName || currentUser?.username || 'admin'
-    }).catch((err) => console.warn('Failed to sync cleared notifications to cloud:', err));
+    if (userId) {
+      saveUserNotificationsStateDoc(userId, {
+        dismissedIds: nextDismissed,
+        readIds: nextRead,
+        updatedBy: currentUser?.inGameName || currentUser?.username || userId
+      }).catch((err) => console.warn('Failed to sync cleared notifications to cloud:', err));
+    }
 
     showToast(
       lang === 'th' ? 'ล้างการแจ้งเตือนทั้งหมดเรียบร้อยแล้ว' : 'All notifications cleared',
@@ -1089,15 +1112,16 @@ export const App: React.FC = () => {
 
   const handleDeleteNotification = (id: string) => {
     sounds.playClick();
+    const userId = currentUser?.id;
     setDismissedNotificationIds((prev) => {
       const next = Array.from(new Set([...prev, id]));
-      try {
-        localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(next));
-      } catch {}
-      saveNotificationsStateDoc({
-        dismissedIds: next,
-        updatedBy: currentUser?.inGameName || currentUser?.username || 'admin'
-      }).catch((err) => console.warn('Failed to sync deleted notification to cloud:', err));
+      saveNotificationIds('dismissed', next, userId);
+      if (userId) {
+        saveUserNotificationsStateDoc(userId, {
+          dismissedIds: next,
+          updatedBy: currentUser?.inGameName || currentUser?.username || userId
+        }).catch((err) => console.warn('Failed to sync deleted notification to cloud:', err));
+      }
       return next;
     });
   };
@@ -1310,26 +1334,7 @@ export const App: React.FC = () => {
       unsubStatUpdates = listenToStatUpdateSettings((settings) => {
         if (settings) setStatUpdateSettings(settings);
       });
-      unsubNotifications = listenToNotificationsState((notifState) => {
-        if (Array.isArray(notifState.readIds) && notifState.readIds.length > 0) {
-          setReadNotificationIds((prev) => {
-            const merged = Array.from(new Set([...prev, ...notifState.readIds]));
-            try {
-              localStorage.setItem('l2m_read_notifications', JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
-        }
-        if (Array.isArray(notifState.dismissedIds) && notifState.dismissedIds.length > 0) {
-          setDismissedNotificationIds((prev) => {
-            const merged = Array.from(new Set([...prev, ...notifState.dismissedIds]));
-            try {
-              localStorage.setItem('l2m_dismissed_notifications', JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
-        }
-      });
+      // Account-scoped notifications are subscribed in dedicated user effect
 
       // Ultra-fast cross-device heartbeat: reacts immediately (< 50ms) whenever any user touches vault items, general items, or queues
       unsubVersionHub = listenToSystemVersionHub((hub) => {
@@ -1818,20 +1823,23 @@ export const App: React.FC = () => {
         message: lang === 'th' ? 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' : 'Invalid username or password'
       };
     }
-    if (user.status === 'pending_approval') {
-      return {
-        success: false,
-        message:
-          lang === 'th'
-            ? 'บัญชีของคุณอยู่ระหว่างรอโอเนอร์หรือแอดมินอนุมัติ'
-            : 'Account is awaiting Admin/Owner manual approval'
-      };
-    }
 
     const isEloni =
       user.id === 'user_owner_eloni' ||
       user.username?.toLowerCase() === 'eloni' ||
       user.inGameName?.toLowerCase() === 'eloni';
+
+    // Strict Central Confirmation Check: unapproved accounts cannot log in
+    if (user.status !== 'active' && !isEloni) {
+      await logoutAuthenticatedUser().catch(() => {});
+      return {
+        success: false,
+        message:
+          lang === 'th'
+            ? 'บัญชีของคุณอยู่ระหว่างรอคำยืนยันและการอนุมัติจากส่วนกลาง (Admin/Owner) ก่อนจึงจะสามารถเข้าใช้งานได้'
+            : 'Your account is pending confirmation and manual approval from Central Admin/Owner before you can log in.'
+      };
+    }
 
     const matchedInUsers = isEloni
       ? users.find((u) => u.id === 'user_owner_eloni') ||
@@ -1900,7 +1908,7 @@ export const App: React.FC = () => {
       unmarkUserAsDeleted(registered.id);
 
       // Update local state and cached users immediately
-      const updatedUsers = [...users, registered];
+      const updatedUsers = [...users.filter((u) => u.id !== registered.id), registered];
       setUsers(updatedUsers);
       setCachedUsers(updatedUsers);
 
@@ -1927,8 +1935,8 @@ export const App: React.FC = () => {
         success: true,
         message:
           lang === 'th'
-            ? 'ลงทะเบียนสำเร็จ! กรุณารอแอดมินหรือโอเนอร์อนุมัติบัญชีของคุณ'
-            : 'Registration submitted! Please wait for Admin/Owner approval.'
+            ? 'ลงทะเบียนสำเร็จ! บัญชีของคุณอยู่ระหว่างรอคำยืนยันและการอนุมัติจากส่วนกลาง (Admin/Owner) จึงจะสามารถเข้าสู่ระบบได้'
+            : 'Registration submitted successfully! Your account is pending confirmation and approval from Central Admin/Owner before you can log in.'
       };
     } catch (err: any) {
       console.error('Registration failed:', err);
@@ -3012,18 +3020,32 @@ export const App: React.FC = () => {
       createdAt: Date.now()
     };
     // 1. Optimistic update
-    setQuickItems((prev) => [optimisticItem, ...prev]);
+    const nextItems = [optimisticItem, ...quickItems];
+    setQuickItems(nextItems);
+    setCachedQuickItems(nextItems);
+    broadcastLiveState(
+      getFullBackupPayload({ quickItems: nextItems }),
+      currentUser?.inGameName || 'Admin'
+    );
 
     // 2. Persist in Firestore
     try {
       const saved = await addQuickItemDoc(item);
-      setQuickItems((prev) => prev.map((q) => (q.id === tempId ? saved : q)));
+      setQuickItems((prev) => {
+        const updated = prev.map((q) => (q.id === tempId ? saved : q));
+        setCachedQuickItems(updated);
+        return updated;
+      });
     } catch (err) {
       console.error('Failed to add quick item to Firestore:', err);
       const fallbackItems = [optimisticItem, ...quickItems];
       const googleResult = await saveFailoverSnapshot(fallbackItems, generalItems, 'Quick Item Failover');
       if (!googleResult.success) {
-        setQuickItems((prev) => prev.filter((q) => q.id !== tempId));
+        setQuickItems((prev) => {
+          const reverted = prev.filter((q) => q.id !== tempId);
+          setCachedQuickItems(reverted);
+          return reverted;
+        });
         throw err;
       }
     }
@@ -3032,6 +3054,11 @@ export const App: React.FC = () => {
   const handleUpdateQuickItem = async (itemId: string, updates: Partial<Omit<QuickItem, 'id' | 'createdAt'>>) => {
     const nextItems = quickItems.map((q) => (q.id === itemId ? { ...q, ...updates } : q));
     setQuickItems(nextItems);
+    setCachedQuickItems(nextItems);
+    broadcastLiveState(
+      getFullBackupPayload({ quickItems: nextItems }),
+      currentUser?.inGameName || 'Admin'
+    );
     try {
       await updateQuickItemDoc(itemId, updates);
     } catch (err) {
@@ -3044,6 +3071,11 @@ export const App: React.FC = () => {
   const handleDeleteQuickItem = async (itemId: string) => {
     const nextItems = quickItems.filter((q) => q.id !== itemId);
     setQuickItems(nextItems);
+    setCachedQuickItems(nextItems);
+    broadcastLiveState(
+      getFullBackupPayload({ quickItems: nextItems }),
+      currentUser?.inGameName || 'Admin'
+    );
     try {
       await deleteQuickItemDoc(itemId);
     } catch (err) {

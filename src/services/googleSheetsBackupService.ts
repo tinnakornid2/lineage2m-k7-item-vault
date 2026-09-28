@@ -1,3 +1,5 @@
+import { centralApi } from './centralApi';
+import { getLocalSessionUser } from './firebase';
 import {
   User,
   VaultItem,
@@ -435,125 +437,94 @@ export function setLastBroadcastPayload(payload: BackupDataPayload) {
  * Broadcast local Clan Hub state changes instantly to server live relay (< 20ms)
  * to propagate to all other active clan members
  */
+const OUTBOX_PREFIX = 'k7_relay_outbox_';
+let sendChain: Promise<any> = Promise.resolve();
+let syncGeneration = 0;
+let retrying = false;
+
+function outboxKey(): string | null {
+  const session = getLocalSessionUser();
+  return session?.id ? OUTBOX_PREFIX + session.id : null;
+}
+
 export async function broadcastLiveState(
   payload: BackupDataPayload,
   performedBy: string = 'User'
 ): Promise<{ success: boolean; version?: number }> {
-  if (!liveRelayEnabled) {
-    return { success: true, version: currentLocalVersion };
+  if (!liveRelayEnabled) return { success: false };
+  const clean = sanitizePayloadForGoogle(withLocalSyncMeta(payload));
+  const body = JSON.stringify({ data: clean, performedBy });
+  const key = outboxKey();
+  if (key) {
+    try { localStorage.setItem(key, body); } catch {}
   }
-  try {
-    payload = withLocalSyncMeta(payload);
-    if (Array.isArray(payload.users)) {
-      payload = {
-        ...payload,
-        users: payload.users.map((u: any) => {
-          if (!u || typeof u !== 'object') return u;
-          const { password: _pw, ...cleanUser } = u;
-          return cleanUser;
-        })
-      };
+  const send = async () => {
+    try {
+      // A write acknowledgement does NOT advance the read cursor: its merged snapshot
+      // may contain another member's change that this browser has not read yet.
+      const res = await centralApi('/api/live-state', { method: 'POST', body });
+      const result = await res.json();
+      lastBroadcastString = JSON.stringify(clean);
+      if (key && localStorage.getItem(key) === body) localStorage.removeItem(key);
+      return { success: true, version: result.version };
+    } catch (error) {
+      console.warn('Central sync pending:', error);
+      return { success: false };
     }
-    const payloadStr = JSON.stringify(payload);
-    if (payloadStr === lastBroadcastString) {
-      // Data is identical to what was already broadcasted or received from remote. Skip!
-      return { success: true, version: currentLocalVersion };
-    }
-
-    const res = await fetch('/api/live-state', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        data: payload,
-        performedBy
-      })
-    });
-    if (res.ok) {
-      const json = await res.json();
-      lastBroadcastString = payloadStr;
-      if (typeof json.version === 'number') {
-        currentLocalVersion = Math.max(currentLocalVersion, json.version);
-      }
-      return { success: true, version: json.version };
-    }
-  } catch (err) {
-    console.warn('broadcastLiveState error:', err);
-  }
-  return { success: false };
+  };
+  const result = sendChain.then(send, send);
+  sendChain = result;
+  return result;
 }
 
-let fastPollTimer: any = null;
+async function retryOutbox() {
+  const key = outboxKey();
+  if (!key || retrying) return;
+  const body = localStorage.getItem(key);
+  if (!body) return;
+  retrying = true;
+  try {
+    await sendChain;
+    if (localStorage.getItem(key) !== body) return;
+    await centralApi('/api/live-state', { method: 'POST', body });
+    if (localStorage.getItem(key) === body) localStorage.removeItem(key);
+  } catch {} finally { retrying = false; }
+}
 
-/**
- * Start real-time live synchronization across all clan members:
- * - Ultra-fast push notifications via long-polling server relay (< 50ms latency)
- * - 3.5-second fast-poll heartbeat fallback ensuring immediate multi-container lambda synchronization
- */
-export function startGoogleRealtimeSync(
-  onDataChanged: (data: BackupDataPayload) => void
-) {
+export function startGoogleRealtimeSync(onDataChanged: (data: BackupDataPayload) => void) {
   if (!liveRelayEnabled || realtimeActive) return;
   realtimeActive = true;
-
+  const generation = ++syncGeneration;
   const pollLoop = async () => {
-    while (realtimeActive) {
+    while (realtimeActive && generation === syncGeneration) {
       try {
+        await retryOutbox();
         abortController = new AbortController();
-        const url = `/api/live-state?v=${currentLocalVersion}&wait=true&_t=${Date.now()}`;
-        const res = await fetch(url, {
-          signal: abortController.signal
-        });
-
-        if (res.ok) {
+        const timer = setTimeout(() => abortController?.abort(), 8000);
+        try {
+          const res = await fetch(`/api/live-state?v=${currentLocalVersion}&_t=${Date.now()}`, {
+            signal: abortController.signal, cache: 'no-store'
+          });
+          if (!res.ok) throw new Error('CENTRAL_READ_FAILED');
           const json = await res.json();
-          if (json.modified && json.data) {
+          if (json.modified && json.data && generation === syncGeneration) {
+            // Reject delayed responses, but allow a server restart with a new snapshot.
             currentLocalVersion = json.version;
-            try {
-              lastBroadcastString = JSON.stringify(json.data);
-            } catch {}
+            lastBroadcastString = JSON.stringify(json.data);
             isApplyingRemoteUpdate = true;
             applyIncomingSyncMeta(json.data);
             onDataChanged(json.data);
-            setTimeout(() => {
-              isApplyingRemoteUpdate = false;
-            }, 500);
+            setTimeout(() => { isApplyingRemoteUpdate = false; }, 500);
           }
-        }
-      } catch (err: any) {
-        if (err?.name === 'AbortError') {
-          break; // User stopped sync
-        }
-        // Small delay on network error before reconnecting
-        await new Promise((r) => setTimeout(r, 2000));
+        } finally { clearTimeout(timer); }
+      } catch (error) {
+        if (!realtimeActive || generation !== syncGeneration) break;
+        console.warn('Central read will retry:', error);
       }
+      await new Promise(resolve => setTimeout(resolve, 2500));
     }
   };
-
-  pollLoop();
-
-  // Fast-poll heartbeat (every 3.5s) to guarantee zero-miss sync even when Vercel serverless isolates lambdas
-  if (fastPollTimer) clearInterval(fastPollTimer);
-  fastPollTimer = setInterval(async () => {
-    if (!realtimeActive) return;
-    try {
-      const res = await fetch(`/api/live-state?v=${currentLocalVersion}&_t=${Date.now()}`);
-      if (res.ok) {
-        const json = await res.json();
-        if (json.modified && json.data && json.version > currentLocalVersion) {
-          currentLocalVersion = json.version;
-          try {
-            lastBroadcastString = JSON.stringify(json.data);
-          } catch {}
-          isApplyingRemoteUpdate = true;
-          applyIncomingSyncMeta(json.data);
-          onDataChanged(json.data);
-          setTimeout(() => {
-            isApplyingRemoteUpdate = false;
-          }, 500);
-        }
-      }
-    } catch {}
-  }, 3500);
+  void pollLoop();
 }
 
 /**
@@ -561,14 +532,10 @@ export function startGoogleRealtimeSync(
  */
 export function stopGoogleRealtimeSync() {
   realtimeActive = false;
-  if (fastPollTimer) {
-    clearInterval(fastPollTimer);
-    fastPollTimer = null;
-  }
+  syncGeneration++;
   if (abortController) {
     abortController.abort();
     abortController = null;
   }
 }
-
 

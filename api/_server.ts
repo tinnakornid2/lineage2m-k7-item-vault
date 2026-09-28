@@ -1,4 +1,7 @@
 import express from "express";
+import { FirestoreRelayStore, publicRelayData, withRelayTimeout } from "./_relayStore.ts";
+import { mergeRelayData, sanitizeAndDeduplicateUsers } from "./_relayMerge.ts";
+import { scopeRelayInput, type RelayActor } from "./_relayAccess.ts";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -78,7 +81,7 @@ async function generateWithModelFallback(ai: GoogleGenAI, request: { contents: a
   throw lastError;
 }
 
-export async function createApp(options: { serveFrontend?: boolean } = {}) {
+export async function createApp(options: { serveFrontend?: boolean; dataDir?: string; relayStore?: FirestoreRelayStore; isolatedTest?: boolean; testActor?: RelayActor } = {}) {
   const app = express();
 
   const getGeminiApiKey = async () => {
@@ -93,13 +96,13 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   let sharedGoogleSheetUrl = '';
 
   // Disk persistence helpers for live relay and backup config
-  const DATA_DIR = process.env.VERCEL
+  const DATA_DIR = options.dataDir || (process.env.VERCEL
     ? path.join(os.tmpdir(), 'l2m-data')
     : (fs.existsSync(path.join(process.cwd(), 'data'))
         ? path.join(process.cwd(), 'data')
         : (fs.existsSync(path.join(currentDirname, 'data'))
             ? path.join(currentDirname, 'data')
-            : path.join(currentDirname, '..', 'data')));
+            : path.join(currentDirname, '..', 'data'))));
   if (!fs.existsSync(DATA_DIR)) {
     try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
   }
@@ -135,87 +138,6 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     version: 0
   };
 
-  const sanitizeAndDeduplicateUsers = (users: any[], deletedUsers?: Record<string, number>): any[] => {
-    const seen = new Set<string>();
-    const cleanUsers: any[] = [];
-    let canonicalEloni: any = null;
-
-    for (const rawU of users || []) {
-      if (!rawU || !rawU.id) continue;
-      let u = { ...rawU };
-      if (u.id === 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' || u.isAuthShadow) continue;
-      if (u.status === 'shadow' || u.status === 'deleted') continue;
-
-      const isEloni =
-        u.id === 'user_owner_eloni' ||
-        u.username?.trim().toLowerCase() === 'eloni' ||
-        u.inGameName?.trim().toLowerCase() === 'eloni';
-
-      // Sever and drop any ghost accounts from old legacy database (e.g. PlakZ with user_1789...)
-      if (!isEloni) {
-        if (!u.username || u.username === 'undefined' || u.id === 'user_1789510684345_w0x45' || u.id.startsWith('user_1789')) {
-          continue;
-        }
-      }
-
-      if (deletedUsers && deletedUsers[u.id]) {
-        const uRev = Number(u.updatedAt || u.createdAt || 0);
-        if (uRev <= deletedUsers[u.id]) continue;
-      }
-
-      if (isEloni) {
-        if (!canonicalEloni) {
-          canonicalEloni = {
-            ...u,
-            id: 'user_owner_eloni',
-            username: 'Eloni',
-            inGameName: 'Eloni',
-            role: 'owner',
-            status: 'active'
-          };
-        } else {
-          const curRev = Number(canonicalEloni.updatedAt || canonicalEloni.createdAt || 0);
-          const uRev = Number(u.updatedAt || u.createdAt || 0);
-          if (uRev > curRev) {
-            canonicalEloni = {
-              ...canonicalEloni,
-              ...u,
-              id: 'user_owner_eloni',
-              username: 'Eloni',
-              inGameName: 'Eloni',
-              role: 'owner',
-              status: 'active'
-            };
-          }
-        }
-      } else {
-        if (!seen.has(u.id)) {
-          seen.add(u.id);
-          // If member has no verified statApprovalAt timestamp in the new CLAN-HUB system, ensure stats are fresh/zeroed
-          if (!u.statApprovalAt && u.powerLevel && u.powerLevel > 0) {
-            u = {
-              ...u,
-              powerLevel: 0,
-              stats: {},
-              statHistory: [],
-              statApprovalAt: null,
-              statRejectionAt: null,
-              pendingPowerLevel: null,
-              pendingPowerLevelRequestedAt: null,
-              pendingStats: null
-            };
-          }
-          cleanUsers.push(u);
-        }
-      }
-    }
-
-    if (canonicalEloni) {
-      cleanUsers.unshift(canonicalEloni);
-    }
-    return cleanUsers;
-  };
-
   // Restore live hub state from disk or bundled seed if available
   try {
     const SEED_FILE = path.join(process.cwd(), 'src', 'data', 'seed-live-state.json');
@@ -224,7 +146,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
       if (parsedLive && typeof parsedLive.version === 'number' && parsedLive.data) {
         liveHubState = parsedLive;
       }
-    } else if (fs.existsSync(SEED_FILE)) {
+    } else if (!process.env.VERCEL && !options.isolatedTest && fs.existsSync(SEED_FILE)) {
       const parsedSeed = JSON.parse(fs.readFileSync(SEED_FILE, 'utf-8'));
       if (parsedSeed && parsedSeed.data) {
         liveHubState = {
@@ -254,65 +176,39 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     return obj;
   }
 
-  async function hydrateLiveStateFromAdminSdk(): Promise<void> {
-    try {
-      const sdk = await getAdminSdk();
-      if (!sdk || !sdk.db) return;
-
-      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.users) && liveHubState.data.users.length > 0) {
-        return;
-      }
-
-      const [usersSnap, itemsSnap, queuesSnap, generalSnap, quickSnap, clansSnap] = await Promise.all([
-        sdk.db.collection('users').limit(500).get().catch(() => null),
-        sdk.db.collection('items').limit(500).get().catch(() => null),
-        sdk.db.collection('item_queues').limit(100).get().catch(() => null),
-        sdk.db.collection('general_items').limit(100).get().catch(() => null),
-        sdk.db.collection('quick_items').limit(100).get().catch(() => null),
-        sdk.db.collection('clans').limit(50).get().catch(() => null)
-      ]);
-
-      const users: any[] = [];
-      usersSnap?.forEach((d: any) => users.push({ ...d.data(), id: d.id }));
-
-      const vaultItems: any[] = [];
-      itemsSnap?.forEach((d: any) => vaultItems.push({ ...d.data(), id: d.id }));
-
-      const queueItems: any[] = [];
-      queuesSnap?.forEach((d: any) => queueItems.push({ ...d.data(), id: d.id }));
-
-      const generalItems: any[] = [];
-      generalSnap?.forEach((d: any) => generalItems.push({ ...d.data(), id: d.id }));
-
-      const quickItems: any[] = [];
-      quickSnap?.forEach((d: any) => quickItems.push({ ...d.data(), id: d.id }));
-
-      const clans: any[] = [];
-      clansSnap?.forEach((d: any) => clans.push({ ...d.data(), id: d.id }));
-
-      if (users.length > 0 || vaultItems.length > 0) {
-        liveHubState = {
-          data: {
-            ...(liveHubState.data || {}),
-            users: sanitizeAndDeduplicateUsers(users),
-            vaultItems,
-            queueItems,
-            generalItems,
-            quickItems,
-            clans
-          },
-          version: Math.max(liveHubState.version || 1, 1),
-          updatedAt: Date.now()
-        };
-        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
-      }
-    } catch (err) {
-      console.warn('Hydrate from Admin SDK notice:', err);
+  let storePromise: Promise<FirestoreRelayStore | null> | null = null;
+  const getRelayStore = () => {
+    if (!storePromise) storePromise = options.relayStore
+      ? Promise.resolve(options.relayStore)
+      : options.isolatedTest ? Promise.resolve(null)
+      : getAdminSdk().then(sdk => sdk?.db ? new FirestoreRelayStore(sdk.db) : null);
+    return storePromise;
+  };
+  const acceptSnapshot = (snapshot: typeof liveHubState) => {
+    liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
+    // The disk copy is an extra cache, never the production source of truth.
+    if (!process.env.VERCEL) fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8');
+    liveStateEmitter.emit('update');
+  };
+  let localCommit: Promise<any> = Promise.resolve();
+  const commitRelay = async (incoming: any, mutate?: (current: any) => any) => {
+    const store = await getRelayStore();
+    if (store) {
+      const snapshot = await withRelayTimeout(store.commit(incoming, mutate));
+      if (snapshot.version >= liveHubState.version) acceptSnapshot(snapshot);
+      return snapshot;
     }
-  }
-
-  // Trigger non-blocking initial hydration in background
-  hydrateLiveStateFromAdminSdk().catch(() => {});
+    if (process.env.VERCEL || process.env.NODE_ENV === 'production') throw new Error('CENTRAL_STORE_UNAVAILABLE');
+    const next = localCommit.catch(() => {}).then(() => {
+      const data = publicRelayData(mutate ? mutate(structuredClone(liveHubState.data || {}))
+        : mergeRelayData(liveHubState.data || {}, incoming));
+      const snapshot = { data, version: Math.max(liveHubState.version + 1, Date.now()), updatedAt: Date.now() };
+      acceptSnapshot(snapshot);
+      return snapshot;
+    });
+    localCommit = next;
+    return next;
+  };
 
   async function deployFirestoreSecurityRules(): Promise<{ success: boolean; message: string }> {
     try {
@@ -382,7 +278,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   }
 
   // Auto-deploy Firestore rules in background on server initialization
-  deployFirestoreSecurityRules().catch(() => {});
+  // Rules deployment is an explicit owner operation, never a server startup side effect.
 
   const consumeRateLimit = (
     limits: Map<string, { count: number; resetAt: number }>,
@@ -401,7 +297,8 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
 
   const requireRoles = (roles: string[]): express.RequestHandler => async (req, res, next) => {
     try {
-      const actor = await verifyRoleToken(req.headers.authorization, roles);
+      const actor = options.isolatedTest && options.testActor && roles.includes(options.testActor.role)
+        ? options.testActor : await verifyRoleToken(req.headers.authorization, roles);
       if (!actor) {
         return res.status(403).json({
           success: false,
@@ -627,7 +524,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
   });
 
   // Admin / Owner Purge of all Orphan Auth Users
-  app.post("/api/admin/purge-auth-users", async (req, res) => {
+  app.post("/api/admin/purge-auth-users", requireRoles(['owner']), async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
       const adminPass = req.headers['x-admin-pass'] || req.body?.adminPass;
@@ -720,7 +617,7 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     });
   });
 
-  app.post("/api/google-backup-config", async (req, res) => {
+  app.post("/api/google-backup-config", requireRoles(['owner']), async (req, res) => {
     try {
       const { webAppUrl, sheetUrl } = req.body;
       let hasChanged = false;
@@ -746,577 +643,42 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     }
   });
 
-  let lastFirestoreLiveCheck = 0;
-  async function syncLiveStateFromFirestore(): Promise<boolean> {
-    const now = Date.now();
-    if (now - lastFirestoreLiveCheck < 1500) return false;
-    lastFirestoreLiveCheck = now;
-    try {
-      const sdk = await getAdminSdk();
-      if (!sdk || !sdk.db) return false;
-      const docSnap = await sdk.db.collection('system_meta').doc('live_state').get().catch(() => null);
-      if (docSnap && docSnap.exists) {
-        const remote = docSnap.data();
-        if (remote && typeof remote.version === 'number' && remote.version > liveHubState.version) {
-          liveHubState = {
-            data: remote.data || liveHubState.data,
-            updatedAt: remote.updatedAt || Date.now(),
-            version: remote.version
-          };
-          liveStateEmitter.emit('update');
-          return true;
-        }
-      }
-    } catch {}
-    return false;
-  }
-
   app.get("/api/live-state", async (req, res) => {
-    const clientVersion = Number(req.query.v) || 0;
-    const shouldWait = req.query.wait === 'true' || req.query.wait === '1';
-
-    // If client claims to be equal or newer, check if another container updated Firestore
-    if (clientVersion >= liveHubState.version && liveHubState.version > 0) {
-      await syncLiveStateFromFirestore();
-    }
-
-    // If client is behind or server has newer data, return immediately
-    if (clientVersion !== liveHubState.version || liveHubState.version === 0) {
-      return res.json({
-        modified: liveHubState.version > 0,
-        version: liveHubState.version,
-        updatedAt: liveHubState.updatedAt,
-        data: liveHubState.data
-      });
-    }
-
-    // Client is up to date and does not want to wait: return modified: false
-    if (!shouldWait) {
-      return res.json({ modified: false, version: liveHubState.version });
-    }
-
-    // Long-polling: hold connection for up to 6 seconds or until new live update is broadcast
-    let handled = false;
-    const onLiveUpdate = () => {
-      if (handled) return;
-      handled = true;
-      clearTimeout(waitTimeout);
-      res.json({
-        modified: true,
-        version: liveHubState.version,
-        updatedAt: liveHubState.updatedAt,
-        data: liveHubState.data
-      });
-    };
-
-    liveStateEmitter.once('update', onLiveUpdate);
-
-    const waitTimeout = setTimeout(async () => {
-      if (handled) return;
-      handled = true;
-      liveStateEmitter.off('update', onLiveUpdate);
-      const updated = await syncLiveStateFromFirestore();
-      if (updated && liveHubState.version > clientVersion) {
-        return res.json({
-          modified: true,
-          version: liveHubState.version,
-          updatedAt: liveHubState.updatedAt,
-          data: liveHubState.data
-        });
-      }
-      res.json({ modified: false, version: liveHubState.version });
-    }, 6000);
-
-    req.on('close', () => {
-      if (!handled) {
-        handled = true;
-        clearTimeout(waitTimeout);
-        liveStateEmitter.off('update', onLiveUpdate);
-      }
-    });
-  });
-
-  app.post("/api/live-state", (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     try {
-      const { data } = req.body;
-      if (data && typeof data === 'object') {
-        const previousData = liveHubState.data || {};
-        const mergeTimestampMaps = (left: any, right: any) => {
-          const merged: Record<string, number> = { ...(left || {}) };
-          const now = Date.now();
-          const maxAge = 14 * 24 * 60 * 60 * 1000;
-          for (const [key, value] of Object.entries(right || {})) {
-            if (typeof value === 'number' && value > (merged[key] || 0) && (now - value < maxAge)) {
-              merged[key] = value;
-            }
-          }
-          for (const [k, v] of Object.entries(merged)) {
-            if (typeof v !== 'number' || now - v >= maxAge) delete merged[k];
-          }
-          return merged;
-        };
-        const syncMeta = {
-          deletedVaultItems: mergeTimestampMaps(previousData.syncMeta?.deletedVaultItems, data.syncMeta?.deletedVaultItems),
-          deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
-          deletedGeneralItems: mergeTimestampMaps(previousData.syncMeta?.deletedGeneralItems, data.syncMeta?.deletedGeneralItems),
-          deletedUsers: mergeTimestampMaps(previousData.syncMeta?.deletedUsers, data.syncMeta?.deletedUsers),
-          cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims),
-          removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers)
-        };
-
-        const mergeVersionedRecords = (previous: any[], incoming: any[], deleted: Record<string, number>, mergeClaims = false, mergeQueue = false) => {
-          const records = new Map<string, any>();
-          for (const record of [...(previous || []), ...(incoming || [])]) {
-            if (!record?.id) continue;
-            const recordRevision = Number(record.updatedAt || record.createdAt || 0);
-            const deletedAt = deleted ? (deleted[record.id] || 0) : 0;
-            if (deletedAt && recordRevision <= deletedAt) {
-              continue;
-            }
-            const existing = records.get(record.id);
-            const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
-            if (!existing) {
-              records.set(record.id, record);
-              continue;
-            }
-            let newest = recordRevision >= existingRevision ? { ...existing, ...record } : { ...record, ...existing };
-            const older = recordRevision >= existingRevision ? existing : record;
-
-            // Smart user pending stat preservation
-            if (newest.pendingPowerLevel !== undefined || older.pendingPowerLevel !== undefined) {
-              const newestPendingTime = Number(newest.pendingPowerLevelRequestedAt || newest.updatedAt || 0);
-              const olderPendingTime = Number(older.pendingPowerLevelRequestedAt || older.updatedAt || 0);
-              const newestResTime = Math.max(Number(newest.statApprovalAt || 0), Number(newest.statRejectionAt || 0));
-              const olderResTime = Math.max(Number(older.statApprovalAt || 0), Number(older.statRejectionAt || 0));
-              const latestRes = Math.max(newestResTime, olderResTime);
-
-              const olderHasPending = Boolean((typeof older.pendingPowerLevel === 'number' || older.pendingPowerLevelRequestedAt || older.pendingStatScreenshotUrl) && olderPendingTime > latestRes);
-              const newestHasPending = Boolean((typeof newest.pendingPowerLevel === 'number' || newest.pendingPowerLevelRequestedAt || newest.pendingStatScreenshotUrl) && newestPendingTime > latestRes);
-
-              if (olderHasPending && (!newestHasPending || olderPendingTime > newestPendingTime)) {
-                newest = {
-                  ...newest,
-                  pendingPowerLevel: older.pendingPowerLevel,
-                  pendingPowerLevelRequestedAt: older.pendingPowerLevelRequestedAt,
-                  pendingStats: older.pendingStats || newest.pendingStats,
-                  pendingSpiritEnhancements: older.pendingSpiritEnhancements || newest.pendingSpiritEnhancements,
-                  pendingStatScreenshotUrl: older.pendingStatScreenshotUrl || newest.pendingStatScreenshotUrl,
-                  pendingClasses: older.pendingClasses ?? newest.pendingClasses,
-                  pendingLevel: older.pendingLevel ?? newest.pendingLevel,
-                  pendingLegendClasses: older.pendingLegendClasses ?? newest.pendingLegendClasses,
-                  pendingLegendAgathions: older.pendingLegendAgathions ?? newest.pendingLegendAgathions,
-                  statRejectionReason: null,
-                  statRejectionAt: null
-                };
-              }
-            }
-
-            if (mergeClaims) {
-              const claimantMap = new Map<string, any>();
-              for (const claimant of [...(older.claimants || []), ...(newest.claimants || [])]) {
-                const key = claimant.userId || String(claimant.inGameName || '').trim().toLowerCase();
-                if (key) claimantMap.set(key, claimant);
-              }
-              newest = { ...newest, claimants: Array.from(claimantMap.values()) };
-            }
-
-            if (mergeQueue) {
-              const queueMap = new Map<string, any>();
-              const removedMap = syncMeta.removedQueueMembers || {};
-              const isMemberRemoved = (m: any) => {
-                if (!m) return true;
-                const joinedAt = Number(m.joinedAt || 0);
-                const directId = m.id ? `${record.id}:::${m.id}` : null;
-                const legacyDirectId = m.id ? `${record.id}_${m.id}` : null;
-                const userKey = m.userId ? `${record.id}:::${String(m.userId).trim().toLowerCase()}` : null;
-                const legacyUserKey = m.userId ? `${record.id}_user_${m.userId}` : null;
-                const nameKey = m.name ? `${record.id}:::${String(m.name).trim().toLowerCase()}` : null;
-                const legacyNameKey = m.name ? `${record.id}_name_${String(m.name).trim().toLowerCase()}` : null;
-
-                const removedAt = Math.max(
-                  directId ? (removedMap[directId] || 0) : 0,
-                  legacyDirectId ? (removedMap[legacyDirectId] || 0) : 0,
-                  userKey ? (removedMap[userKey] || 0) : 0,
-                  legacyUserKey ? (removedMap[legacyUserKey] || 0) : 0,
-                  nameKey ? (removedMap[nameKey] || 0) : 0,
-                  legacyNameKey ? (removedMap[legacyNameKey] || 0) : 0
-                );
-
-                if (!removedAt) return false;
-                if (joinedAt && joinedAt > removedAt) return false;
-                return true;
-              };
-
-              const newestMembers = Array.isArray(newest.queueList) ? newest.queueList : [];
-              const olderMembers = Array.isArray(older.queueList) ? older.queueList : [];
-
-              for (const m of newestMembers) {
-                if (!m || isMemberRemoved(m)) continue;
-                const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
-                if (key) queueMap.set(key, m);
-              }
-
-              // Only include members from older if they were concurrently added very recently (within 10s) and not removed
-              const timeWindow = 10000;
-              for (const m of olderMembers) {
-                if (!m || isMemberRemoved(m)) continue;
-                const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
-                if (!key || queueMap.has(key)) continue;
-                const joinedAt = Number(m.joinedAt || 0);
-                if (joinedAt && (Date.now() - joinedAt) <= timeWindow) {
-                  queueMap.set(key, m);
-                }
-              }
-
-              const receiptMap = new Map<string, any>();
-              for (const r of [...(older.receiptHistory || []), ...(newest.receiptHistory || [])]) {
-                if (r && r.id) receiptMap.set(r.id, r);
-              }
-              newest = {
-                ...newest,
-                queueList: Array.from(queueMap.values()),
-                receiptHistory: Array.from(receiptMap.values())
-              };
-            }
-
-            records.set(record.id, newest);
-          }
-          return Array.from(records.values());
-        };
-
-        data.syncMeta = syncMeta;
-
-        if (req.body.isReset || data.isReset) {
-          data.vaultItems = Array.isArray(data.vaultItems) ? data.vaultItems : [];
-          data.queueItems = Array.isArray(data.queueItems) ? data.queueItems : [];
-          data.generalItems = Array.isArray(data.generalItems) ? data.generalItems : [];
-          data.quickItems = Array.isArray(data.quickItems) ? data.quickItems : [];
-          data.diamondLogs = Array.isArray(data.diamondLogs) ? data.diamondLogs : [];
-          data.vaultBalance = 0;
-          data.users = sanitizeAndDeduplicateUsers(Array.isArray(data.users) && data.users.length > 0 ? data.users : []);
-        } else {
-          if (Array.isArray(data.vaultItems) && data.vaultItems.length > 0) {
-            data.vaultItems = mergeVersionedRecords(previousData.vaultItems, data.vaultItems, syncMeta.deletedVaultItems, true);
-          } else {
-            data.vaultItems = previousData.vaultItems || [];
-          }
-
-          if (Array.isArray(data.queueItems) && data.queueItems.length > 0) {
-            data.queueItems = mergeVersionedRecords(previousData.queueItems, data.queueItems, syncMeta.deletedQueueItems, false, true);
-          } else {
-            data.queueItems = previousData.queueItems || [];
-          }
-
-          if (Array.isArray(data.generalItems) && data.generalItems.length > 0) {
-            data.generalItems = mergeVersionedRecords(previousData.generalItems, data.generalItems, syncMeta.deletedGeneralItems || {}, false, true);
-          } else {
-            data.generalItems = previousData.generalItems || [];
-          }
-
-          if (Array.isArray(data.users) && data.users.length > 0) {
-            data.users = mergeVersionedRecords(previousData.users, data.users, syncMeta.deletedUsers);
-          } else {
-            data.users = previousData.users || [];
-          }
-        }
-
-        if (Array.isArray(data.diamondLogs)) {
-          if (data.diamondLogs.length === 0 && (req.body.isReset || data.isReset)) {
-            data.diamondLogs = [];
-            data.vaultBalance = 0;
-          } else if (data.diamondLogs.length > 0) {
-            const dlogMap = new Map<string, any>();
-            for (const log of data.diamondLogs) {
-              if (log && log.id) dlogMap.set(log.id, log);
-            }
-            data.diamondLogs = Array.from(dlogMap.values());
-          } else {
-            data.diamondLogs = previousData.diamondLogs || [];
-          }
-        } else if (previousData.diamondLogs) {
-          data.diamondLogs = previousData.diamondLogs;
-          if (data.vaultBalance === undefined) {
-            data.vaultBalance = previousData.vaultBalance || 0;
-          }
-        }
-
-        // Strict tombstone filtering after merge (only drop if record revision <= tombstone timestamp)
-        if (Array.isArray(data.vaultItems)) {
-          data.vaultItems = data.vaultItems.filter((it: any) => {
-            if (!it || !it.id) return false;
-            const delAt = syncMeta.deletedVaultItems?.[it.id];
-            if (!delAt) return true;
-            const rev = Number(it.updatedAt || it.createdAt || 0);
-            return rev > delAt;
-          });
-        }
-        if (Array.isArray(data.queueItems)) {
-          data.queueItems = data.queueItems.filter((it: any) => {
-            if (!it || !it.id) return false;
-            const delAt = syncMeta.deletedQueueItems?.[it.id];
-            if (!delAt) return true;
-            const rev = Number(it.updatedAt || it.createdAt || 0);
-            return rev > delAt;
-          });
-        }
-        if (Array.isArray(data.generalItems)) {
-          data.generalItems = data.generalItems.filter((it: any) => {
-            if (!it || !it.id) return false;
-            const delAt = syncMeta.deletedGeneralItems?.[it.id];
-            if (!delAt) return true;
-            const rev = Number(it.updatedAt || it.createdAt || 0);
-            return rev > delAt;
-          });
-        }
-        if (Array.isArray(data.users)) {
-          data.users = sanitizeAndDeduplicateUsers(data.users, syncMeta.deletedUsers);
-        }
-
-        // Scrub removed members from all queueLists
-        const filterQueueList = (item: any) => {
-          if (!item || !Array.isArray(item.queueList)) return item;
-          const removedMap = syncMeta.removedQueueMembers || {};
-          const filteredQueue = item.queueList.filter((m: any) => {
-            if (!m) return false;
-            const joinedAt = Number(m.joinedAt || 0);
-            const directId = m.id ? `${item.id}:::${m.id}` : null;
-            const legacyDirectId = m.id ? `${item.id}_${m.id}` : null;
-            const userKey = m.userId ? `${item.id}:::${String(m.userId).trim().toLowerCase()}` : null;
-            const legacyUserKey = m.userId ? `${item.id}_user_${m.userId}` : null;
-            const nameKey = m.name ? `${item.id}:::${String(m.name).trim().toLowerCase()}` : null;
-            const legacyNameKey = m.name ? `${item.id}_name_${String(m.name).trim().toLowerCase()}` : null;
-
-            const removedAt = Math.max(
-              directId ? (removedMap[directId] || 0) : 0,
-              legacyDirectId ? (removedMap[legacyDirectId] || 0) : 0,
-              userKey ? (removedMap[userKey] || 0) : 0,
-              legacyUserKey ? (removedMap[legacyUserKey] || 0) : 0,
-              nameKey ? (removedMap[nameKey] || 0) : 0,
-              legacyNameKey ? (removedMap[legacyNameKey] || 0) : 0
-            );
-
-            if (!removedAt) return true;
-            return joinedAt > removedAt;
-          });
-          return { ...item, queueList: filteredQueue };
-        };
-        if (Array.isArray(data.queueItems)) {
-          data.queueItems = data.queueItems.map(filterQueueList);
-        }
-        if (Array.isArray(data.generalItems)) {
-          data.generalItems = data.generalItems.map(filterQueueList);
-        }
-
-        if (Array.isArray(data.users)) {
-          data.users = data.users.map((u: any) => {
-            if (!u || typeof u !== 'object') return u;
-            const { password: _pw, ...cleanUser } = u;
-            return cleanUser;
-          });
-        }
-        if (Array.isArray(data.vaultItems)) {
-          data.vaultItems = data.vaultItems.map((item: any) => {
-            const claimants = (item.claimants || []).filter((claimant: any) => {
-              const claimedAt = Number(claimant.claimedAt || 0);
-              const userKey = claimant.userId ? `${item.id}:::${String(claimant.userId).trim().toLowerCase()}` : '';
-              const nameKey = claimant.inGameName ? `${item.id}:::${String(claimant.inGameName).trim().toLowerCase()}` : '';
-              return !(
-                (userKey && claimedAt <= (syncMeta.cancelledClaims[userKey] || 0)) ||
-                (nameKey && claimedAt <= (syncMeta.cancelledClaims[nameKey] || 0))
-              );
-            });
-            if (item && item.distributedTo && (item.distributedTo.name || item.distributedTo.userId)) {
-              return { ...item, claimants, status: 'distributed' };
-            }
-            return { ...item, claimants };
-          });
-        }
-        liveHubState = {
-          data,
-          updatedAt: Date.now(),
-          version: liveHubState.version + 1
-        };
-        // Persist to disk asynchronously
-        try {
-          fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8');
-        } catch {}
-        // Instantly notify all connected clan members!
-        liveStateEmitter.emit('update');
-
-        // Asynchronously persist all state entities to Firestore using Admin SDK if available (Tier 5 Unified)
-        (async () => {
-          try {
-            const sdk = await getAdminSdk();
-            if (sdk && sdk.db) {
-              if (req.body.isReset || data.isReset) {
-                // Complete clean slate: wipe items, queues, general items, quick items, diamond logs
-                const wipeCollections = ['items', 'item_queues', 'general_items', 'quick_items', 'diamond_vault', 'item_claims'];
-                for (const col of wipeCollections) {
-                  const snap = await sdk.db.collection(col).limit(500).get().catch(() => null);
-                  if (snap) {
-                    for (const doc of snap.docs) {
-                      await doc.ref.delete().catch(() => {});
-                    }
-                  }
-                }
-                // Wipe all non-owner users
-                const usersSnap = await sdk.db.collection('users').limit(500).get().catch(() => null);
-                if (usersSnap) {
-                  for (const doc of usersSnap.docs) {
-                    if (doc.id !== 'user_owner_eloni' && doc.id !== 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' && doc.data()?.role !== 'owner') {
-                      await doc.ref.delete().catch(() => {});
-                    }
-                  }
-                }
-                // Persist Owner user profile
-                if (Array.isArray(data.users)) {
-                  for (const u of data.users) {
-                    if (u && u.id) {
-                      const { password: _p, ...safeUser } = u;
-                      await sdk.db.collection('users').doc(u.id).set(cleanForAdminFirestore(safeUser), { merge: true }).catch(() => {});
-                    }
-                  }
-                }
-                // Persist Clans if provided
-                if (Array.isArray(data.clans)) {
-                  for (const clan of data.clans) {
-                    if (clan && clan.id) {
-                      await sdk.db.collection('clans').doc(clan.id).set(cleanForAdminFirestore(clan), { merge: true }).catch(() => {});
-                    }
-                  }
-                }
-              } else {
-                // 1. Vault Items: Full item persistence & deletions
-                if (Array.isArray(data.vaultItems)) {
-                  for (const item of data.vaultItems) {
-                    if (item && item.id) {
-                      await sdk.db.collection('items').doc(item.id).set(cleanForAdminFirestore(item), { merge: true }).catch(() => {});
-                    }
-                  }
-                }
-                if (syncMeta.deletedVaultItems) {
-                  for (const deletedId of Object.keys(syncMeta.deletedVaultItems)) {
-                    await sdk.db.collection('items').doc(deletedId).delete().catch(() => {});
-                  }
-                }
-
-                // 2. Queue Items (item_queues): Full persistence & deletions
-                if (Array.isArray(data.queueItems)) {
-                  for (const queue of data.queueItems) {
-                    if (queue && queue.id) {
-                      await sdk.db.collection('item_queues').doc(queue.id).set(cleanForAdminFirestore(queue), { merge: true }).catch(() => {});
-                    }
-                  }
-                }
-                if (syncMeta.deletedQueueItems) {
-                  for (const deletedId of Object.keys(syncMeta.deletedQueueItems)) {
-                    await sdk.db.collection('item_queues').doc(deletedId).delete().catch(() => {});
-                  }
-                }
-
-                // 3. General Items (general_items): Full persistence & deletions
-                if (Array.isArray(data.generalItems)) {
-                  for (const gi of data.generalItems) {
-                    if (gi && gi.id) {
-                      await sdk.db.collection('general_items').doc(gi.id).set(cleanForAdminFirestore(gi), { merge: true }).catch(() => {});
-                    }
-                  }
-                }
-                if (syncMeta.deletedGeneralItems) {
-                  for (const deletedId of Object.keys(syncMeta.deletedGeneralItems)) {
-                    await sdk.db.collection('general_items').doc(deletedId).delete().catch(() => {});
-                  }
-                }
-
-                // 4. Quick Items (quick_items): Full persistence
-                if (Array.isArray(data.quickItems)) {
-                  for (const qi of data.quickItems) {
-                    if (qi && qi.id) {
-                      await sdk.db.collection('quick_items').doc(qi.id).set(cleanForAdminFirestore(qi), { merge: true }).catch(() => {});
-                    }
-                  }
-                }
-
-                // 5. Clans (clans): Full persistence
-                if (Array.isArray(data.clans)) {
-                  for (const clan of data.clans) {
-                    if (clan && clan.id) {
-                      await sdk.db.collection('clans').doc(clan.id).set(cleanForAdminFirestore(clan), { merge: true }).catch(() => {});
-                    }
-                  }
-                }
-
-                // 6. Users: Full persistence & deletions (excluding password)
-                if (Array.isArray(data.users)) {
-                  for (const u of data.users) {
-                    if (u && u.id) {
-                      const { password: _p, ...safeUser } = u;
-                      await sdk.db.collection('users').doc(u.id).set(cleanForAdminFirestore(safeUser), { merge: true }).catch(() => {});
-                    }
-                  }
-                }
-                if (syncMeta.deletedUsers) {
-                  for (const deletedId of Object.keys(syncMeta.deletedUsers)) {
-                    await sdk.db.collection('users').doc(deletedId).delete().catch(() => {});
-                  }
-                }
-
-                // 7. Diamond Logs (diamond_vault)
-                if (Array.isArray(data.diamondLogs)) {
-                  for (const dlog of data.diamondLogs) {
-                    if (dlog && dlog.id) {
-                      await sdk.db.collection('diamond_vault').doc(dlog.id).set(cleanForAdminFirestore(dlog), { merge: true }).catch(() => {});
-                    }
-                  }
-                }
-              }
-
-              // 8. Global Settings (app_settings)
-              if (data.formulaSettings) {
-                await sdk.db.collection('app_settings').doc('power_formula').set(cleanForAdminFirestore(data.formulaSettings), { merge: true }).catch(() => {});
-              }
-              if (data.announcementSettings) {
-                await sdk.db.collection('app_settings').doc('announcement').set(cleanForAdminFirestore(data.announcementSettings), { merge: true }).catch(() => {});
-              }
-              if (data.backgroundSettings && (data.isBackgroundSettingUpdate || (data.backgroundSettings as any)?.isExplicitUpdate)) {
-                await sdk.db.collection('app_settings').doc('background').set(cleanForAdminFirestore(data.backgroundSettings), { merge: true }).catch(() => {});
-              }
-              if (data.discordSettings) {
-                await sdk.db.collection('app_settings').doc('discord').set(cleanForAdminFirestore(data.discordSettings), { merge: true }).catch(() => {});
-              }
-
-              // 9. Persist live_state & bump version_hub in Firestore for instant multi-container reactivity
-              await sdk.db.collection('system_meta').doc('live_state').set({
-                version: liveHubState.version,
-                updatedAt: liveHubState.updatedAt,
-                data: cleanForAdminFirestore(data)
-              }, { merge: true }).catch(() => {});
-
-              await sdk.db.collection('system_meta').doc('version_hub').set({
-                vaultVersion: liveHubState.version,
-                generalItemsVersion: liveHubState.version,
-                queuesVersion: liveHubState.version,
-                usersVersion: liveHubState.version,
-                quickItemsVersion: liveHubState.version,
-                diamondsVersion: liveHubState.version,
-                settingsVersion: liveHubState.version,
-                lastUpdatedAt: Date.now(),
-                lastUpdatedBy: req.body.performedBy || 'Admin',
-                lastChangeType: 'liveState'
-              }, { merge: true }).catch(() => {});
-            }
-          } catch (dbErr) {
-            console.warn('Notice: Unified Firestore Admin background sync notice:', dbErr);
-          }
-        })().catch(() => {});
+      const store = await getRelayStore();
+      if (store) {
+        const snapshot = await withRelayTimeout(store.read());
+        if (snapshot) liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
+      } else if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+        throw new Error('CENTRAL_STORE_UNAVAILABLE');
       }
-      res.json({ success: true, version: liveHubState.version, updatedAt: liveHubState.updatedAt });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message });
+      const clientVersion = Number(req.query.v) || 0;
+      const modified = clientVersion !== liveHubState.version || clientVersion === 0;
+      return res.json({
+        modified, version: liveHubState.version, updatedAt: liveHubState.updatedAt,
+        ...(modified ? { data: publicRelayData(liveHubState.data) } : {})
+      });
+    } catch (error: any) {
+      return res.status(503).json({ success: false, error: error?.message || 'CENTRAL_READ_FAILED' });
     }
   });
 
-  app.post("/api/admin/deploy-rules", async (req, res) => {
+  app.post("/api/live-state", requireRoles(['owner', 'admin', 'manager', 'party_leader', 'member']), async (req, res) => {
+    const { data } = req.body;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return res.status(400).json({ success: false, error: 'INVALID_STATE' });
+    }
+    try {
+      const snapshot = await commitRelay(null, current => mergeRelayData(current,
+        scopeRelayInput(current, { ...data, isReset: Boolean(req.body.isReset || data.isReset) }, res.locals.actor)));
+      return res.json({ success: true, persisted: true, version: snapshot.version, updatedAt: snapshot.updatedAt });
+    } catch (error: any) {
+      return res.status(503).json({ success: false, persisted: false, error: error?.message || 'CENTRAL_WRITE_FAILED' });
+    }
+  });
+
+  app.post("/api/admin/deploy-rules", requireRoles(['owner']), async (req, res) => {
     try {
       const result = await deployFirestoreSecurityRules();
       res.json(result);
@@ -1325,288 +687,104 @@ export async function createApp(options: { serveFrontend?: boolean } = {}) {
     }
   });
 
-  // Dedicated Vault Item Claim endpoint (Ensures serverless-resilient claim persistence)
-  app.post("/api/claim-vault-item", async (req, res) => {
+  const writeRoles = ['owner', 'admin', 'manager', 'party_leader', 'member'];
+  const failWrite = (res: express.Response, error: any) => res.status(
+    /FORBIDDEN|NOT_ACTIVE|POWER_REQUIRED/.test(error?.message || '') ? 403 :
+    /NOT_FOUND|DISTRIBUTED|INVALID/.test(error?.message || '') ? 400 : 503
+  ).json({ success: false, persisted: false, error: error?.message || 'CENTRAL_WRITE_FAILED' });
+
+  app.post("/api/claim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
       const { itemId, claimant } = req.body;
-      if (!itemId || !claimant || (!claimant.userId && !claimant.inGameName)) {
-        return res.status(400).json({ success: false, error: 'INVALID_CLAIM_PAYLOAD' });
-      }
-
-      const now = Date.now();
-      const safeClaimant = {
-        userId: claimant.userId || '',
-        inGameName: claimant.inGameName || '',
-        clan: claimant.clan || 'VoltZ',
-        powerLevel: Number(claimant.powerLevel || 0),
-        claimedAt: Number(claimant.claimedAt || now)
-      };
-
-      // 1. Update in-memory liveHubState if available
-      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
-        liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item: any) => {
-          if (item.id === itemId) {
-            const existing = (item.claimants || []).filter((c: any) => {
-              const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
-              const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
-              return !(matchesUser || matchesName);
-            });
-            return {
-              ...item,
-              claimants: [...existing, safeClaimant],
-              updatedAt: now
-            };
-          }
-          return item;
-        });
-        liveHubState.updatedAt = now;
-        liveHubState.version = (liveHubState.version || 0) + 1;
-        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
-        liveStateEmitter.emit('update');
-      }
-
-      // 2. Persist to Firestore via Admin SDK
-      try {
-        const sdk = await getAdminSdk();
-        if (sdk && sdk.db) {
-          const docRef = sdk.db.collection('items').doc(itemId);
-          const docSnap = await docRef.get();
-          if (docSnap.exists) {
-            const currentClaimants = (docSnap.data()?.claimants || []).filter((c: any) => {
-              const matchesUser = safeClaimant.userId && c.userId === safeClaimant.userId;
-              const matchesName = safeClaimant.inGameName && c.inGameName && c.inGameName.trim().toLowerCase() === safeClaimant.inGameName.trim().toLowerCase();
-              return !(matchesUser || matchesName);
-            });
-            await docRef.set({
-              claimants: [...currentClaimants, safeClaimant],
-              updatedAt: now
-            }, { merge: true });
-          }
-          // Also persist individual claim document in item_claims
-          if (safeClaimant.userId) {
-            const claimDocRef = sdk.db.collection('item_claims').doc(`${itemId}__${safeClaimant.userId}`);
-            await claimDocRef.set({ ...safeClaimant, itemId }, { merge: true });
-          }
-        }
-      } catch (dbErr: any) {
-        console.warn('Notice: Firestore admin claim write skipped:', dbErr?.message || dbErr);
-      }
-
-      res.json({ success: true, itemId, claimant: safeClaimant });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_CLAIM' });
-    }
+      if (!itemId || !claimant?.userId) throw new Error('INVALID_CLAIM_PAYLOAD');
+      const actor: RelayActor = res.locals.actor;
+      if (!['owner', 'admin'].includes(actor.role) && claimant.userId !== actor.uid) throw new Error('FORBIDDEN');
+      const snapshot = await commitRelay(null, current => {
+        const member = (current.users || []).find((u: any) => u.id === claimant.userId);
+        if (!member || member.status !== 'active') throw new Error('NOT_ACTIVE');
+        const item = (current.vaultItems || []).find((i: any) => i.id === itemId);
+        if (!item) throw new Error('ITEM_NOT_FOUND');
+        if (item.status === 'distributed' || item.distributedTo) throw new Error('ITEM_DISTRIBUTED');
+        if (!['owner', 'admin'].includes(actor.role) && Number(member.powerLevel || 0) < Number(item.minPowerLevel || 0)) throw new Error('POWER_REQUIRED');
+        const previous = (item.claimants || []).find((c: any) => c.userId === member.id);
+        if (previous) return current;
+        item.claimants = [...(item.claimants || []), {
+          userId: member.id, inGameName: member.inGameName, clan: member.clan,
+          powerLevel: member.powerLevel || 0, claimedAt: Date.now()
+        }];
+        item.updatedAt = Date.now();
+        current.syncMeta ||= {};
+        current.syncMeta.cancelledClaims ||= {};
+        delete current.syncMeta.cancelledClaims[itemId + ':::' + member.id.toLowerCase()];
+        delete current.syncMeta.cancelledClaims[itemId + ':::' + member.inGameName.toLowerCase()];
+        return current;
+      });
+      res.json({ success: true, persisted: true, version: snapshot.version, itemId });
+    } catch (error) { failWrite(res, error); }
   });
 
-  // Dedicated Vault Item Unclaim endpoint
-  app.post("/api/unclaim-vault-item", async (req, res) => {
+  app.post("/api/unclaim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
       const { itemId, userId, inGameName } = req.body;
-      if (!itemId || (!userId && !inGameName)) {
-        return res.status(400).json({ success: false, error: 'INVALID_UNCLAIM_PAYLOAD' });
-      }
+      if (!itemId || (!userId && !inGameName)) throw new Error('INVALID_UNCLAIM_PAYLOAD');
+      const actor: RelayActor = res.locals.actor;
+      if (!['owner', 'admin'].includes(actor.role) && userId !== actor.uid) throw new Error('FORBIDDEN');
+      const snapshot = await commitRelay(null, current => {
+        const item = (current.vaultItems || []).find((i: any) => i.id === itemId);
+        if (!item) throw new Error('ITEM_NOT_FOUND');
+        const now = Date.now();
+        const removed = (item.claimants || []).filter((c: any) => userId ? c.userId === userId : c.inGameName === inGameName);
+        item.claimants = (item.claimants || []).filter((c: any) => !removed.includes(c));
+        item.updatedAt = now;
+        current.syncMeta ||= {};
+        current.syncMeta.cancelledClaims ||= {};
+        for (const c of removed) for (const identity of [c.userId, c.inGameName]) {
+          if (identity) current.syncMeta.cancelledClaims[itemId + ':::' + identity.toLowerCase()] = now;
+        }
+        return current;
+      });
+      res.json({ success: true, persisted: true, version: snapshot.version, itemId });
+    } catch (error) { failWrite(res, error); }
+  });
 
-      const now = Date.now();
-      const targetUserId = userId ? String(userId).trim().toLowerCase() : '';
-      const targetName = inGameName ? String(inGameName).trim().toLowerCase() : '';
-
-      // 1. Update in-memory liveHubState
-      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.vaultItems)) {
-        liveHubState.data.vaultItems = liveHubState.data.vaultItems.map((item: any) => {
-          if (item.id === itemId) {
-            const remaining = (item.claimants || []).filter((c: any) => {
-              const userMatch = targetUserId && c.userId && String(c.userId).trim().toLowerCase() === targetUserId;
-              const nameMatch = targetName && c.inGameName && String(c.inGameName).trim().toLowerCase() === targetName;
-              return !(userMatch || nameMatch);
-            });
-            return {
-              ...item,
-              claimants: remaining,
-              updatedAt: now
-            };
-          }
-          return item;
+  for (const [route, field, idField] of [
+    ['/api/update-general-item-queue', 'generalItems', 'itemId'],
+    ['/api/update-boss-queue', 'queueItems', 'queueId']
+  ]) {
+    app.post(route, requireRoles(writeRoles), async (req, res) => {
+      try {
+        const id = req.body[idField];
+        if (!id || !Array.isArray(req.body.queueList)) throw new Error('INVALID_PAYLOAD');
+        const snapshot = await commitRelay(null, current => {
+          const item = (current[field] || []).find((i: any) => i.id === id);
+          if (!item) throw new Error('ITEM_NOT_FOUND');
+          return mergeRelayData(current, scopeRelayInput(current, {
+            [field]: [{ ...item, queueList: req.body.queueList, updatedAt: Date.now() }]
+          }, res.locals.actor));
         });
-        liveHubState.updatedAt = now;
-        liveHubState.version = (liveHubState.version || 0) + 1;
-        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
-        liveStateEmitter.emit('update');
-      }
+        res.json({ success: true, persisted: true, version: snapshot.version });
+      } catch (error) { failWrite(res, error); }
+    });
+  }
 
-      // 2. Persist to Firestore via Admin SDK
+  for (const route of ['/api/request-stat-update', '/api/update-user-stats']) {
+    app.post(route, requireRoles(writeRoles), async (req, res) => {
       try {
-        const sdk = await getAdminSdk();
-        if (sdk && sdk.db) {
-          const docRef = sdk.db.collection('items').doc(itemId);
-          const docSnap = await docRef.get();
-          if (docSnap.exists) {
-            const currentClaimants = (docSnap.data()?.claimants || []).filter((c: any) => {
-              const userMatch = targetUserId && c.userId && String(c.userId).trim().toLowerCase() === targetUserId;
-              const nameMatch = targetName && c.inGameName && String(c.inGameName).trim().toLowerCase() === targetName;
-              return !(userMatch || nameMatch);
-            });
-            await docRef.set({
-              claimants: currentClaimants,
-              updatedAt: now
-            }, { merge: true });
-          }
-          // Also remove individual claim document from item_claims
-          if (userId) {
-            const claimDocRef = sdk.db.collection('item_claims').doc(`${itemId}__${userId}`);
-            await claimDocRef.delete().catch(() => {});
-          }
-        }
-      } catch (dbErr: any) {
-        console.warn('Notice: Firestore admin unclaim write skipped:', dbErr?.message || dbErr);
-      }
-
-      res.json({ success: true, itemId });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_UNCLAIM' });
-    }
-  });
-
-  // Dedicated Queue persistence endpoint for General Items
-  app.post("/api/update-general-item-queue", async (req, res) => {
-    try {
-      const { itemId, queueList } = req.body;
-      if (!itemId || !Array.isArray(queueList)) {
-        return res.status(400).json({ success: false, error: 'INVALID_PAYLOAD' });
-      }
-      const now = Date.now();
-      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.generalItems)) {
-        liveHubState.data.generalItems = liveHubState.data.generalItems.map((item: any) =>
-          item.id === itemId ? { ...item, queueList, updatedAt: now } : item
-        );
-        liveHubState.updatedAt = now;
-        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
-        liveStateEmitter.emit('update');
-      }
-      try {
-        const sdk = await getAdminSdk();
-        if (sdk && sdk.db) {
-          await sdk.db.collection('general_items').doc(itemId).set({ queueList, updatedAt: now }, { merge: true });
-        }
-      } catch (dbErr: any) {
-        console.warn('Notice: Firestore admin general item queue write skipped:', dbErr?.message || dbErr);
-      }
-      res.json({ success: true, itemId });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_UPDATE_QUEUE' });
-    }
-  });
-
-  // Dedicated Queue persistence endpoint for Boss Item Queues
-  app.post("/api/update-boss-queue", async (req, res) => {
-    try {
-      const { queueId, queueList } = req.body;
-      if (!queueId || !Array.isArray(queueList)) {
-        return res.status(400).json({ success: false, error: 'INVALID_PAYLOAD' });
-      }
-      const now = Date.now();
-      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.queueItems)) {
-        liveHubState.data.queueItems = liveHubState.data.queueItems.map((item: any) =>
-          item.id === queueId ? { ...item, queueList, updatedAt: now } : item
-        );
-        liveHubState.updatedAt = now;
-        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
-        liveStateEmitter.emit('update');
-      }
-      try {
-        const sdk = await getAdminSdk();
-        if (sdk && sdk.db) {
-          await sdk.db.collection('item_queues').doc(queueId).set({ queueList, updatedAt: now }, { merge: true });
-        }
-      } catch (dbErr: any) {
-        console.warn('Notice: Firestore admin boss queue write skipped:', dbErr?.message || dbErr);
-      }
-      res.json({ success: true, queueId });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_UPDATE_QUEUE' });
-    }
-  });
-
-  // Dedicated Member Stat Update Request persistence endpoint
-  app.post("/api/request-stat-update", async (req, res) => {
-    try {
-      const { userId, updates } = req.body;
-      if (!userId || !updates || typeof updates !== 'object') {
-        return res.status(400).json({ success: false, error: 'INVALID_PAYLOAD' });
-      }
-      const now = Date.now();
-      const safeUpdates: any = {
-        ...updates,
-        updatedAt: now
-      };
-
-      // 1. Update in-memory liveHubState
-      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.users)) {
-        liveHubState.data.users = liveHubState.data.users.map((u: any) =>
-          u.id === userId ? { ...u, ...safeUpdates } : u
-        );
-        liveHubState.updatedAt = now;
-        liveHubState.version = (liveHubState.version || 0) + 1;
-        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
-        liveStateEmitter.emit('update');
-      }
-
-      // 2. Persist to Firestore via Admin SDK
-      try {
-        const sdk = await getAdminSdk();
-        if (sdk && sdk.db) {
-          await sdk.db.collection('users').doc(userId).set(safeUpdates, { merge: true });
-        }
-      } catch (dbErr: any) {
-        console.warn('Notice: Firestore admin stat update write skipped:', dbErr?.message || dbErr);
-      }
-
-      res.json({ success: true, userId });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_REQUEST_STAT_UPDATE' });
-    }
-  });
-
-  // Dedicated Admin/Owner User Stats update persistence endpoint (approvals, rejections, edits)
-  app.post("/api/update-user-stats", async (req, res) => {
-    try {
-      const { userId, updates } = req.body;
-      if (!userId || !updates || typeof updates !== 'object') {
-        return res.status(400).json({ success: false, error: 'INVALID_PAYLOAD' });
-      }
-      const now = Date.now();
-      const safeUpdates: any = {
-        ...updates,
-        updatedAt: now
-      };
-
-      // 1. Update in-memory liveHubState
-      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.users)) {
-        liveHubState.data.users = liveHubState.data.users.map((u: any) =>
-          u.id === userId ? { ...u, ...safeUpdates } : u
-        );
-        liveHubState.updatedAt = now;
-        liveHubState.version = (liveHubState.version || 0) + 1;
-        try { fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8'); } catch {}
-        liveStateEmitter.emit('update');
-      }
-
-      // 2. Persist to Firestore via Admin SDK
-      try {
-        const sdk = await getAdminSdk();
-        if (sdk && sdk.db) {
-          await sdk.db.collection('users').doc(userId).set(safeUpdates, { merge: true });
-        }
-      } catch (dbErr: any) {
-        console.warn('Notice: Firestore admin user update write skipped:', dbErr?.message || dbErr);
-      }
-
-      res.json({ success: true, userId });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || 'FAILED_TO_UPDATE_USER_STATS' });
-    }
-  });
-
-  // OCR Hunter scanner endpoint using Gemini 2.5 Flash with Multi-Image & Deduplication support
+        const { userId, updates } = req.body;
+        const actor: RelayActor = res.locals.actor;
+        if (!userId || !updates || typeof updates !== 'object') throw new Error('INVALID_PAYLOAD');
+        if (!['owner', 'admin'].includes(actor.role) && userId !== actor.uid) throw new Error('FORBIDDEN');
+        const snapshot = await commitRelay(null, current => {
+          const user = (current.users || []).find((u: any) => u.id === userId);
+          if (!user) throw new Error('USER_NOT_FOUND');
+          return mergeRelayData(current, scopeRelayInput(current, {
+            users: [{ ...user, ...updates, id: user.id, updatedAt: Date.now() }]
+          }, actor));
+        });
+        res.json({ success: true, persisted: true, version: snapshot.version, userId });
+      } catch (error) { failWrite(res, error); }
+    });
+  }
   app.post("/api/scan-hunters", requireRoles(['owner', 'admin', 'manager']), async (req, res) => {
     try {
       const { imageBase64, imagesBase64 } = req.body;
@@ -2280,4 +1458,3 @@ process.on("uncaughtException", (err) => {
 });
 
 export { startServer };
-
