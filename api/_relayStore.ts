@@ -45,7 +45,10 @@ export function decodeSnapshot(parts: string[]): any {
 }
 
 export class FirestoreRelayStore {
-  constructor(private db: any) {}
+  private db: any;
+  constructor(db: any) {
+    this.db = db;
+  }
 
   private async readTransaction(tx: any): Promise<RelaySnapshot | null> {
     const ref = this.db.collection('system_meta').doc('live_state');
