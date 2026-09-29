@@ -29,6 +29,22 @@ function submissionError(existing, submitted, settings) {
   if (!needsRound && existing.statApprovalAt && statSignature(existing) === statSignature(submitted, true)) return "UNCHANGED_STATS";
   return null;
 }
+function statMessage(code, lang) {
+  const messages = {
+    DUPLICATE_PENDING: ["\u0E21\u0E35\u0E04\u0E33\u0E02\u0E2D\u0E2A\u0E40\u0E15\u0E15\u0E31\u0E2A\u0E0A\u0E38\u0E14\u0E19\u0E35\u0E49\u0E23\u0E2D\u0E15\u0E23\u0E27\u0E08\u0E2D\u0E22\u0E39\u0E48\u0E41\u0E25\u0E49\u0E27", "These stats are already awaiting review."],
+    UNCHANGED_STATS: ["\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E44\u0E21\u0E48\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E41\u0E1B\u0E25\u0E07\u0E08\u0E32\u0E01\u0E2A\u0E40\u0E15\u0E15\u0E31\u0E2A\u0E17\u0E35\u0E48\u0E2D\u0E19\u0E38\u0E21\u0E31\u0E15\u0E34\u0E25\u0E48\u0E32\u0E2A\u0E38\u0E14", "Stats have not changed since the last approval."],
+    ROUND_SCREENSHOT_REQUIRED: ["\u0E01\u0E23\u0E38\u0E13\u0E32\u0E41\u0E19\u0E1A\u0E20\u0E32\u0E1E\u0E2B\u0E25\u0E31\u0E01\u0E10\u0E32\u0E19\u0E43\u0E2B\u0E21\u0E48\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E23\u0E2D\u0E1A\u0E19\u0E35\u0E49", "Please attach a new screenshot for this round."],
+    STAT_ROUND_REQUIRED: ["\u0E15\u0E49\u0E2D\u0E07\u0E44\u0E14\u0E49\u0E23\u0E31\u0E1A\u0E2D\u0E19\u0E38\u0E21\u0E31\u0E15\u0E34\u0E2A\u0E40\u0E15\u0E15\u0E31\u0E2A\u0E02\u0E2D\u0E07\u0E23\u0E2D\u0E1A\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19\u0E01\u0E48\u0E2D\u0E19\u0E02\u0E2D\u0E23\u0E31\u0E1A\u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E31\u0E1A\u0E44\u0E2D\u0E40\u0E17\u0E21", "Current-round stat approval is required before requesting or receiving items."],
+    ACCOUNT_PENDING_APPROVAL: ["\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E2D\u0E22\u0E39\u0E48\u0E23\u0E30\u0E2B\u0E27\u0E48\u0E32\u0E07\u0E23\u0E2D\u0E01\u0E32\u0E23\u0E2D\u0E19\u0E38\u0E21\u0E31\u0E15\u0E34\u0E08\u0E32\u0E01\u0E1C\u0E39\u0E49\u0E14\u0E39\u0E41\u0E25\u0E23\u0E30\u0E1A\u0E1A", "Your account is pending approval by an administrator."],
+    ACCOUNT_SUSPENDED: ["\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E16\u0E39\u0E01\u0E23\u0E30\u0E07\u0E31\u0E1A\u0E01\u0E32\u0E23\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19", "This account has been suspended."],
+    ACCOUNT_NOT_ACTIVE: ["\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E44\u0E21\u0E48\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E40\u0E1B\u0E34\u0E14\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19", "Account is not active."],
+    USER_NOT_FOUND: ["\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A", "User account not found."],
+    INSUFFICIENT_POWER_LEVEL: ["\u0E04\u0E48\u0E32\u0E1E\u0E25\u0E31\u0E07\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E16\u0E36\u0E07\u0E40\u0E01\u0E13\u0E11\u0E4C\u0E02\u0E31\u0E49\u0E19\u0E15\u0E48\u0E33\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E44\u0E2D\u0E40\u0E17\u0E21\u0E19\u0E35\u0E49", "Your power level does not meet the minimum requirement for this item."],
+    QUEUE_CLOSED: ["\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E19\u0E35\u0E49\u0E1B\u0E34\u0E14\u0E23\u0E31\u0E1A\u0E01\u0E32\u0E23\u0E25\u0E07\u0E04\u0E34\u0E27\u0E41\u0E25\u0E49\u0E27", "This item queue is currently closed."],
+    FORBIDDEN: ["\u0E04\u0E38\u0E13\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E19\u0E35\u0E49", "You do not have permission to perform this action."]
+  };
+  return messages[code]?.[lang === "th" ? 0 : 1] || (lang === "th" ? "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48" : "Save failed. Please try again.");
+}
 
 // api/_relayStore.ts
 import { gzipSync, gunzipSync } from "node:zlib";
@@ -258,13 +274,10 @@ function mergeRelayData(previousData, incoming) {
           const key = m.id || m.userId || String(m.name || "").trim().toLowerCase();
           if (key) queueMap.set(key, m);
         }
-        const timeWindow = 1e4;
         for (const m of olderMembers) {
           if (!m || isMemberRemoved(m)) continue;
           const key = m.id || m.userId || String(m.name || "").trim().toLowerCase();
-          if (!key || queueMap.has(key)) continue;
-          const joinedAt = Number(m.joinedAt || 0);
-          if (joinedAt && Date.now() - joinedAt <= timeWindow) {
+          if (key && !queueMap.has(key)) {
             queueMap.set(key, m);
           }
         }
@@ -651,7 +664,11 @@ function scopeRelayInput(base, incoming, actor, statSubmission = false) {
       updatedAt: Date.now()
     }] };
   }
-  if (existing.status !== "active") return { users: [existing] };
+  if (existing.status !== "active") {
+    if (existing.status === "pending_approval") throw new Error("ACCOUNT_PENDING_APPROVAL");
+    if (existing.status === "suspended") throw new Error("ACCOUNT_SUSPENDED");
+    throw new Error("ACCOUNT_NOT_ACTIVE");
+  }
   const data = { users: [existing] };
   if (submitted) {
     const pending = {};
@@ -664,12 +681,17 @@ function scopeRelayInput(base, incoming, actor, statSubmission = false) {
     const old = (base.vaultItems || []).find((v) => v.id === item.id);
     if (!old || old.status === "distributed" || old.distributedTo) return [];
     const previous = (old.claimants || []).find((c) => c.userId === actor.uid || existing.inGameName && c.inGameName?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase());
-    if (!previous && Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
+    const isNewClaim = (item.claimants || []).some(
+      (c) => (c.userId === actor.uid || existing.inGameName && c.inGameName?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase()) && !previous
+    );
+    if (isNewClaim && Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) {
+      throw new Error("INSUFFICIENT_POWER_LEVEL");
+    }
     const own = (item.claimants || []).filter((c) => c.userId === actor.uid || existing.inGameName && c.inGameName?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase()).map((c) => ({
       userId: actor.uid,
       inGameName: existing.inGameName || c.inGameName,
       clan: existing.clan || c.clan,
-      powerLevel: Math.max(Number(c.powerLevel || 0), Number(existing.powerLevel || 0)),
+      powerLevel: Number(existing.powerLevel || 0),
       claimedAt: c.claimedAt || previous?.claimedAt || Date.now()
     }));
     return [{
@@ -684,9 +706,17 @@ function scopeRelayInput(base, incoming, actor, statSubmission = false) {
   for (const key of ["generalItems", "queueItems"]) {
     data[key] = (incoming[key] || []).flatMap((item) => {
       const old = (base[key] || []).find((v) => v.id === item.id);
-      if (!old || old.allowMemberQueue === false) return [];
+      if (!old) return [];
       const previous = (old.queueList || []).find((q) => q.userId === actor.uid || existing.inGameName && q.name?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase());
-      if (!previous && Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
+      const isNewQueueAddition = (item.queueList || []).some(
+        (m) => (m.userId === actor.uid || existing.inGameName && m.name?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase()) && !previous
+      );
+      if (isNewQueueAddition) {
+        if (old.allowMemberQueue === false || old.status === "closed" || old.closed === true) throw new Error("QUEUE_CLOSED");
+        if (Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) {
+          throw new Error("INSUFFICIENT_POWER_LEVEL");
+        }
+      }
       const own = (item.queueList || []).filter((m) => m.userId === actor.uid || existing.inGameName && m.name?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase()).map((m) => {
         if (previous) {
           return {
@@ -694,7 +724,7 @@ function scopeRelayInput(base, incoming, actor, statSubmission = false) {
             userId: actor.uid,
             name: existing.inGameName || previous.name,
             clan: existing.clan || previous.clan,
-            powerLevel: Math.max(Number(previous.powerLevel || 0), Number(existing.powerLevel || 0))
+            powerLevel: Number(existing.powerLevel ?? previous.powerLevel ?? 0)
           };
         }
         return {
@@ -702,7 +732,7 @@ function scopeRelayInput(base, incoming, actor, statSubmission = false) {
           userId: actor.uid,
           name: existing.inGameName || m.name,
           clan: existing.clan || m.clan,
-          powerLevel: Math.max(Number(m.powerLevel || 0), Number(existing.powerLevel || 0)),
+          powerLevel: Number(existing.powerLevel || 0),
           status: "pending",
           receivedQuantity: 0
         };
@@ -719,7 +749,7 @@ function scopeRelayInput(base, incoming, actor, statSubmission = false) {
   }
   data.syncMeta = {};
   for (const field of ["cancelledClaims", "removedQueueMembers"]) {
-    data.syncMeta[field] = Object.fromEntries(Object.entries(incoming.syncMeta?.[field] || {}).filter(([key]) => key.endsWith(":::" + actor.uid.toLowerCase()) || key.endsWith(":::" + existing.inGameName.toLowerCase())));
+    data.syncMeta[field] = Object.fromEntries(Object.entries(incoming.syncMeta?.[field] || {}).filter(([key]) => key.endsWith(":::" + actor.uid.toLowerCase()) || existing.inGameName && key.endsWith(":::" + existing.inGameName.toLowerCase())));
   }
   return data;
 }
@@ -976,48 +1006,65 @@ async function verifyRoleToken(authorization, allowedRoles) {
   }
   return null;
 }
-async function deleteManagedUser(actor, targetUid, targetUsername) {
+async function deleteManagedUser(actor, targetUid) {
   if (!targetUid || actor.uid === targetUid) return { allowed: false, reason: "SELF_DELETE_DENIED" };
   const sdk = await getAdminSdk();
   if (!sdk) {
-    console.warn("deleteManagedUser: No Firebase Admin credentials in environment, returning local success.");
-    return { allowed: true };
+    return { allowed: false, reason: "AUTH_SERVICE_UNAVAILABLE" };
   }
   const targetRef = sdk.db.collection("users").doc(targetUid);
   const target = await targetRef.get();
-  let username = targetUsername;
+  let username = "";
+  let targetRole = "member";
   if (target.exists) {
     const data = target.data();
-    const targetRole = String(data?.role || "member");
-    if (!username && data?.username) username = data.username;
-    const allowed = actor.role === "owner" && targetRole !== "owner" || actor.role === "admin" && ["party_leader", "member"].includes(targetRole);
-    if (!allowed) return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
+    username = data?.username || "";
+    targetRole = String(data?.role || "member");
   } else {
-    if (!["owner", "admin"].includes(actor.role)) return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
-  }
-  try {
-    await sdk.auth.deleteUser(targetUid);
-  } catch (error) {
-    if (error?.code !== "auth/user-not-found") {
-      console.warn("deleteManagedUser: auth.deleteUser(targetUid) notice:", error?.message);
-    }
-  }
-  if (username) {
     try {
-      const email = usernameToAuthEmail(username);
-      const authUser = await sdk.auth.getUserByEmail(email);
-      if (authUser && authUser.uid) {
-        await sdk.auth.deleteUser(authUser.uid);
+      const authUser = await sdk.auth.getUser(targetUid);
+      if (authUser?.email) {
+        if (authUser.email === "656c6f6e69@auth.k7-clan.local" || targetUid === "APsCZzEI4tYdx5UfHuY5Sw10L8B3") {
+          targetRole = "owner";
+        }
       }
-    } catch (authErr) {
-      if (authErr?.code !== "auth/user-not-found") {
-        console.warn("deleteManagedUser: auth.deleteUser(byEmail) notice:", authErr?.message);
+    } catch (e) {
+      if (e?.code === "auth/user-not-found") {
+        return { allowed: false, reason: "USER_NOT_FOUND" };
       }
+      throw e;
     }
+  }
+  if (targetRole === "owner" || targetUid === "user_owner_eloni" || username.toLowerCase() === "eloni") {
+    return { allowed: false, reason: "OWNER_IMMUTABLE" };
+  }
+  if (actor.role === "admin") {
+    if (targetRole === "owner" || targetRole === "admin") {
+      return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
+    }
+  } else if (actor.role !== "owner") {
+    return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
+  }
+  let authUidToDelete = null;
+  try {
+    const directUser = await sdk.auth.getUser(targetUid);
+    if (directUser) authUidToDelete = directUser.uid;
+  } catch (err) {
+    if (err?.code !== "auth/user-not-found") throw err;
+  }
+  if (!authUidToDelete && username) {
+    try {
+      const emailUser = await sdk.auth.getUserByEmail(usernameToAuthEmail(username));
+      if (emailUser) authUidToDelete = emailUser.uid;
+    } catch (err) {
+      if (err?.code !== "auth/user-not-found") throw err;
+    }
+  }
+  if (authUidToDelete) {
+    await sdk.auth.deleteUser(authUidToDelete);
   }
   if (target.exists) {
-    await targetRef.delete().catch(() => {
-    });
+    await targetRef.delete();
   }
   return { allowed: true };
 }
@@ -1033,66 +1080,64 @@ async function changeManagedUserPassword(actor, targetUid, newPassword) {
   }
   const sdk = await getAdminSdk();
   if (!sdk) {
-    console.warn("changeManagedUserPassword: No Firebase Admin credentials in environment, returning local success.");
-    return { allowed: true };
+    return { allowed: false, reason: "AUTH_SERVICE_UNAVAILABLE" };
   }
   const targetRef = sdk.db.collection("users").doc(targetUid);
   const target = await targetRef.get();
   let username = "";
-  let inGameName = "";
+  let targetRole = "member";
   if (target.exists) {
     const data = target.data();
     username = data?.username || "";
-    inGameName = data?.inGameName || "";
-    const targetRole = String(data?.role || "member");
-    if (isAdmin && !isSelf) {
-      if (targetRole === "owner" || targetRole === "admin") {
-        return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
+    targetRole = String(data?.role || "member");
+  } else {
+    try {
+      const authUser2 = await sdk.auth.getUser(targetUid);
+      if (authUser2?.email === "656c6f6e69@auth.k7-clan.local" || targetUid === "APsCZzEI4tYdx5UfHuY5Sw10L8B3") {
+        targetRole = "owner";
       }
+    } catch (err) {
+      if (err?.code === "auth/user-not-found") {
+        return { allowed: false, reason: "USER_NOT_FOUND" };
+      }
+      throw err;
     }
   }
-  const isOwnerUser = targetUid === "user_owner_eloni" || username.toLowerCase() === "eloni";
+  if (isAdmin && !isSelf) {
+    if (targetRole === "owner" || targetRole === "admin") {
+      return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
+    }
+  }
+  const isOwnerUser = targetUid === "user_owner_eloni" || username.toLowerCase() === "eloni" || targetRole === "owner";
   const ownerAuthUid = "APsCZzEI4tYdx5UfHuY5Sw10L8B3";
-  let authUpdated = false;
-  try {
-    await sdk.auth.updateUser(targetUid, { password: newPassword });
-    authUpdated = true;
-  } catch (error) {
-    if (error?.code !== "auth/user-not-found") {
-      console.warn("Firebase Auth updateUser notice:", error?.message || error);
-    }
-  }
+  let authUser = null;
   if (isOwnerUser) {
     try {
-      await sdk.auth.updateUser(ownerAuthUid, { password: newPassword });
-      authUpdated = true;
+      authUser = await sdk.auth.getUser(ownerAuthUid);
     } catch {
     }
   }
-  const effectiveUsername = username || (isOwnerUser ? "eloni" : "");
-  if (!authUpdated && effectiveUsername) {
-    const email = usernameToAuthEmail(effectiveUsername);
+  if (!authUser) {
     try {
-      const authUser = await sdk.auth.getUserByEmail(email);
-      if (authUser) {
-        await sdk.auth.updateUser(authUser.uid, { password: newPassword });
-        authUpdated = true;
-      }
-    } catch (findErr) {
-      if (findErr?.code === "auth/user-not-found") {
-        try {
-          await sdk.auth.createUser({
-            uid: targetUid,
-            email,
-            password: newPassword,
-            displayName: inGameName || effectiveUsername
-          });
-          authUpdated = true;
-        } catch (createErr) {
-          console.warn("Firebase Auth createUser fallback notice:", createErr?.message);
-        }
-      }
+      authUser = await sdk.auth.getUser(targetUid);
+    } catch (err) {
+      if (err?.code !== "auth/user-not-found") throw err;
     }
+  }
+  if (!authUser && username) {
+    try {
+      authUser = await sdk.auth.getUserByEmail(usernameToAuthEmail(username));
+    } catch (err) {
+      if (err?.code !== "auth/user-not-found") throw err;
+    }
+  }
+  if (!authUser) {
+    return { allowed: false, reason: "AUTH_USER_NOT_FOUND" };
+  }
+  try {
+    await sdk.auth.updateUser(authUser.uid, { password: newPassword });
+  } catch (err) {
+    return { allowed: false, reason: err?.code || "AUTH_UPDATE_FAILED" };
   }
   try {
     if (target.exists) {
@@ -1105,7 +1150,7 @@ async function changeManagedUserPassword(actor, targetUid, newPassword) {
   if (isOwnerUser) {
     try {
       await sdk.db.collection("app_settings").doc("owner_auth").delete();
-    } catch (e) {
+    } catch {
     }
   }
   return { allowed: true };
@@ -1135,14 +1180,11 @@ async function purgeOrphanAuthUsers(preserveUids = ["APsCZzEI4tYdx5UfHuY5Sw10L8B
   }
   return { deletedCount: uidsToDelete.length, deletedUids: uidsToDelete };
 }
-async function claimOrphanAuthUser(username, newPassword) {
+async function claimOrphanAuthUser(username) {
   const cleanUsername = username.trim();
   const lowerUser = cleanUsername.toLowerCase();
   if (!cleanUsername || cleanUsername.length < 3 || cleanUsername.length > 40) {
     return { allowed: false, reason: "INVALID_USERNAME" };
-  }
-  if (!newPassword || newPassword.length < 6 || newPassword.length > 128) {
-    return { allowed: false, reason: "INVALID_PASSWORD" };
   }
   if (lowerUser === "eloni" || lowerUser === "owner") {
     return { allowed: false, reason: "OWNER_RESERVED" };
@@ -1153,18 +1195,12 @@ async function claimOrphanAuthUser(username, newPassword) {
   }
   const existingDoc = await sdk.db.collection("users").where("username", "==", cleanUsername).limit(1).get();
   if (!existingDoc.empty) {
-    const data = existingDoc.docs[0].data();
-    if (data && data.status !== "suspended") {
-      return { allowed: false, reason: "USERNAME_IN_USE" };
-    }
+    return { allowed: false, reason: "USERNAME_IN_USE" };
   }
   const allUsersSnap = await sdk.db.collection("users").limit(500).get();
   for (const uDoc of allUsersSnap.docs) {
     const data = uDoc.data();
     if (data && typeof data.username === "string" && data.username.toLowerCase() === lowerUser) {
-      if (uDoc.id === "user_owner_eloni" || uDoc.id === "APsCZzEI4tYdx5UfHuY5Sw10L8B3" || data.role === "owner") {
-        return { allowed: false, reason: "OWNER_RESERVED" };
-      }
       return { allowed: false, reason: "USERNAME_IN_USE" };
     }
   }
@@ -1176,22 +1212,13 @@ async function claimOrphanAuthUser(username, newPassword) {
     if (err?.code !== "auth/user-not-found") throw err;
   }
   if (!authUser) {
-    try {
-      authUser = await sdk.auth.createUser({
-        email,
-        password: newPassword,
-        displayName: cleanUsername
-      });
-      return { allowed: true, uid: authUser.uid };
-    } catch (createErr) {
-      return { allowed: false, reason: createErr?.code || "AUTH_CREATE_FAILED" };
-    }
+    return { allowed: false, reason: "AUTH_USER_NOT_FOUND" };
   }
   try {
-    await sdk.auth.updateUser(authUser.uid, { password: newPassword });
-    return { allowed: true, uid: authUser.uid };
-  } catch (updateErr) {
-    return { allowed: false, reason: updateErr?.code || "AUTH_UPDATE_FAILED" };
+    await sdk.auth.deleteUser(authUser.uid);
+    return { allowed: true, orphanDeleted: true };
+  } catch (deleteErr) {
+    return { allowed: false, reason: deleteErr?.code || "AUTH_DELETE_FAILED" };
   }
 }
 
@@ -1472,14 +1499,14 @@ async function createApp(options = {}) {
   app.delete("/api/users/:userId", requireRoles(["owner", "admin"]), async (req, res) => {
     try {
       const targetUserId = req.params.userId;
-      const targetUsername = typeof req.query.username === "string" ? req.query.username : req.body?.username;
-      const result = await deleteManagedUser(res.locals.actor, targetUserId, targetUsername);
+      const result = await deleteManagedUser(res.locals.actor, targetUserId);
       if (!result.allowed) {
         const notFound = result.reason === "USER_NOT_FOUND";
-        return res.status(notFound ? 404 : 403).json({
+        const isUnavailable = result.reason === "AUTH_SERVICE_UNAVAILABLE";
+        return res.status(notFound ? 404 : isUnavailable ? 503 : 403).json({
           success: false,
           error: result.reason,
-          message: notFound ? "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49 / User account not found." : "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E25\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49 / You do not have permission to delete this account."
+          message: notFound ? "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49 / User account not found." : isUnavailable ? "\u0E23\u0E30\u0E1A\u0E1A\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E15\u0E31\u0E27\u0E15\u0E19\u0E44\u0E21\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19 / Authentication service unavailable." : result.reason === "OWNER_IMMUTABLE" ? "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E25\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35 Owner \u0E2A\u0E39\u0E07\u0E2A\u0E38\u0E14\u0E44\u0E14\u0E49 / Cannot delete primary owner account." : "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E25\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49 / You do not have permission to delete this account."
         });
       }
       if (liveHubState && liveHubState.data) {
@@ -1496,6 +1523,19 @@ async function createApp(options = {}) {
         } catch {
         }
         liveStateEmitter.emit("update");
+      }
+      try {
+        await commitRelay(null, (current) => {
+          current.syncMeta = current.syncMeta || {};
+          current.syncMeta.deletedUsers = current.syncMeta.deletedUsers || {};
+          current.syncMeta.deletedUsers[targetUserId] = Date.now();
+          if (Array.isArray(current.users)) {
+            current.users = current.users.filter((u) => u && u.id !== targetUserId);
+          }
+          return current;
+        });
+      } catch (commitErr) {
+        console.warn("Notice: commitRelay on delete user deferred:", commitErr);
       }
       return res.json({ success: true });
     } catch (error) {
@@ -1520,10 +1560,11 @@ async function createApp(options = {}) {
       const result = await changeManagedUserPassword(res.locals.actor, req.params.userId, newPassword);
       if (!result.allowed) {
         const notFound = result.reason === "USER_NOT_FOUND";
-        return res.status(notFound ? 404 : 403).json({
+        const isUnavailable = result.reason === "AUTH_SERVICE_UNAVAILABLE";
+        return res.status(notFound ? 404 : isUnavailable ? 503 : 403).json({
           success: false,
           error: result.reason,
-          message: notFound ? "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49 / User account not found." : "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49 / You do not have permission to change password for this account."
+          message: notFound ? "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49 / User account not found." : isUnavailable ? "\u0E23\u0E30\u0E1A\u0E1A\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E15\u0E31\u0E27\u0E15\u0E19\u0E44\u0E21\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19 / Authentication service unavailable." : "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49 / You do not have permission to change password for this account."
         });
       }
       return res.json({
@@ -1588,28 +1629,28 @@ async function createApp(options = {}) {
   });
   app.post("/api/auth/resolve-orphan-registration", async (req, res) => {
     try {
-      const { username, password } = req.body || {};
-      if (!username || !password) {
+      const { username } = req.body || {};
+      if (!username || typeof username !== "string") {
         return res.status(400).json({
           allowed: false,
           error: "MISSING_FIELDS",
-          message: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E44\u0E21\u0E48\u0E04\u0E23\u0E1A\u0E16\u0E49\u0E27\u0E19 / Missing username or password."
+          message: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E44\u0E21\u0E48\u0E04\u0E23\u0E1A\u0E16\u0E49\u0E27\u0E19 / Missing username."
         });
       }
-      const result = await claimOrphanAuthUser(String(username), String(password));
+      const result = await claimOrphanAuthUser(String(username));
       if (!result.allowed) {
         const isTaken = result.reason === "USERNAME_IN_USE" || result.reason === "OWNER_RESERVED";
-        return res.status(isTaken ? 409 : 400).json({
+        const isUnavailable = result.reason === "NO_ADMIN_SDK";
+        return res.status(isTaken ? 409 : isUnavailable ? 503 : 400).json({
           allowed: false,
           error: result.reason,
-          message: isTaken ? "\u0E0A\u0E37\u0E48\u0E2D\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E19\u0E35\u0E49\u0E21\u0E35\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E41\u0E25\u0E49\u0E27 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E43\u0E0A\u0E49\u0E0A\u0E37\u0E48\u0E2D\u0E2D\u0E37\u0E48\u0E19 / Username is already taken." : "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E01\u0E39\u0E49\u0E04\u0E37\u0E19\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E44\u0E14\u0E49 / Cannot claim account."
+          message: isTaken ? "\u0E0A\u0E37\u0E48\u0E2D\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E19\u0E35\u0E49\u0E21\u0E35\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E41\u0E25\u0E49\u0E27 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E43\u0E0A\u0E49\u0E0A\u0E37\u0E48\u0E2D\u0E2D\u0E37\u0E48\u0E19 / Username is already taken." : isUnavailable ? "\u0E23\u0E30\u0E1A\u0E1A\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E15\u0E31\u0E27\u0E15\u0E19\u0E44\u0E21\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19 / Authentication service unavailable." : "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E25\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E15\u0E01\u0E04\u0E49\u0E32\u0E07\u0E44\u0E14\u0E49 / Cannot clear orphan auth account."
         });
       }
       return res.json({
         allowed: true,
-        uid: result.uid,
-        recovered: true,
-        message: "\u0E01\u0E39\u0E49\u0E04\u0E37\u0E19\u0E41\u0E25\u0E30\u0E23\u0E35\u0E40\u0E0B\u0E47\u0E15\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 / Orphan account claimed and password updated."
+        orphanDeleted: true,
+        message: "\u0E25\u0E49\u0E32\u0E07\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E15\u0E01\u0E04\u0E49\u0E32\u0E07\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E15\u0E31\u0E27\u0E15\u0E19\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08\u0E41\u0E25\u0E49\u0E27 \u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E25\u0E07\u0E17\u0E30\u0E40\u0E1A\u0E35\u0E22\u0E19\u0E43\u0E2B\u0E21\u0E48\u0E44\u0E14\u0E49\u0E17\u0E31\u0E19\u0E17\u0E35 / Orphan auth account cleared successfully. You can now complete registration."
       });
     } catch (err) {
       console.error("Failed to resolve orphan registration:", err);
@@ -1790,9 +1831,16 @@ async function createApp(options = {}) {
       res.status(503).json({ success: false, error: "ROUND_SAVE_FAILED" });
     }
   });
-  const failWrite = (res, error) => res.status(
-    /FORBIDDEN|NOT_ACTIVE|POWER_REQUIRED|STAT_ROUND_REQUIRED/.test(error?.message || "") ? 403 : /NOT_FOUND|DISTRIBUTED|INVALID|DUPLICATE|UNCHANGED|SCREENSHOT_REQUIRED/.test(error?.message || "") ? 400 : 503
-  ).json({ success: false, persisted: false, error: error?.message || "CENTRAL_WRITE_FAILED" });
+  const failWrite = (res, error) => {
+    const errCode = error?.message || "";
+    const status = /FORBIDDEN|NOT_ACTIVE|ACCOUNT_PENDING_APPROVAL|ACCOUNT_SUSPENDED|ACCOUNT_NOT_ACTIVE|POWER_REQUIRED|INSUFFICIENT_POWER_LEVEL|QUEUE_CLOSED|STAT_ROUND_REQUIRED/.test(errCode) ? 403 : /NOT_FOUND|DISTRIBUTED|INVALID|DUPLICATE|UNCHANGED|SCREENSHOT_REQUIRED/.test(errCode) ? 400 : 503;
+    return res.status(status).json({
+      success: false,
+      persisted: false,
+      error: errCode || "CENTRAL_WRITE_FAILED",
+      message: `${statMessage(errCode, "th")} / ${statMessage(errCode, "en")}`
+    });
+  };
   app.post("/api/claim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
       const { itemId, claimant } = req.body;
@@ -1888,8 +1936,26 @@ async function createApp(options = {}) {
         const actor = res.locals.actor;
         if (!userId || !updates || typeof updates !== "object") throw new Error("INVALID_PAYLOAD");
         if (!["owner", "admin"].includes(actor.role) && userId !== actor.uid) throw new Error("FORBIDDEN");
+        let fallbackUser = null;
+        try {
+          const sdk = await getAdminSdk();
+          if (sdk?.db) {
+            const docSnap = await sdk.db.collection("users").doc(userId).get();
+            if (docSnap.exists) {
+              fallbackUser = { ...docSnap.data(), id: userId };
+            }
+          }
+        } catch {
+        }
         const snapshot = await commitRelay(null, (current) => {
-          const user = (current.users || []).find((u) => u.id === userId);
+          let user = (current.users || []).find((u) => u.id === userId);
+          if (!user && fallbackUser) {
+            user = fallbackUser;
+            current.users = [...current.users || [], fallbackUser];
+          } else if (user && fallbackUser && fallbackUser.status === "active" && user.status !== "active") {
+            user.status = "active";
+            if (fallbackUser.powerLevel !== void 0) user.powerLevel = fallbackUser.powerLevel;
+          }
           if (!user) throw new Error("USER_NOT_FOUND");
           if (route === "/api/request-stat-update") {
             if (current.statUpdateSettings?.allowMemberUpdates === false && !["owner", "admin"].includes(actor.role)) throw new Error("FORBIDDEN");

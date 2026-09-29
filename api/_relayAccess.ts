@@ -41,7 +41,11 @@ export function scopeRelayInput(base: any, incoming: any, actor: RelayActor, sta
     return { users: [{ id: actor.uid, username, inGameName: name, clan: 'no-clan', characterClass: '',
       role: 'member', status: 'pending_approval', powerLevel: 0, createdAt: Date.now(), updatedAt: Date.now() }] };
   }
-  if (existing.status !== 'active') return { users: [existing] };
+  if (existing.status !== 'active') {
+    if (existing.status === 'pending_approval') throw new Error('ACCOUNT_PENDING_APPROVAL');
+    if (existing.status === 'suspended') throw new Error('ACCOUNT_SUSPENDED');
+    throw new Error('ACCOUNT_NOT_ACTIVE');
+  }
   const data: any = { users: [existing] };
   if (submitted) {
     const pending: any = {};
@@ -54,12 +58,17 @@ export function scopeRelayInput(base: any, incoming: any, actor: RelayActor, sta
     const old = (base.vaultItems || []).find((v: any) => v.id === item.id);
     if (!old || old.status === 'distributed' || old.distributedTo) return [];
     const previous = (old.claimants || []).find((c: any) => c.userId === actor.uid || (existing.inGameName && c.inGameName?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase()));
-    if (!previous && Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
+    const isNewClaim = (item.claimants || []).some((c: any) =>
+      (c.userId === actor.uid || (existing.inGameName && c.inGameName?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase())) && !previous
+    );
+    if (isNewClaim && Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) {
+      throw new Error('INSUFFICIENT_POWER_LEVEL');
+    }
     const own = (item.claimants || []).filter((c: any) => c.userId === actor.uid || (existing.inGameName && c.inGameName?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase())).map((c: any) => ({
       userId: actor.uid,
       inGameName: existing.inGameName || c.inGameName,
       clan: existing.clan || c.clan,
-      powerLevel: Math.max(Number(c.powerLevel || 0), Number(existing.powerLevel || 0)),
+      powerLevel: Number(existing.powerLevel || 0),
       claimedAt: c.claimedAt || previous?.claimedAt || Date.now()
     }));
     return [{
@@ -74,9 +83,17 @@ export function scopeRelayInput(base: any, incoming: any, actor: RelayActor, sta
   for (const key of ['generalItems', 'queueItems']) {
     data[key] = (incoming[key] || []).flatMap((item: any) => {
       const old = (base[key] || []).find((v: any) => v.id === item.id);
-      if (!old || old.allowMemberQueue === false) return [];
+      if (!old) return [];
       const previous = (old.queueList || []).find((q: any) => q.userId === actor.uid || (existing.inGameName && q.name?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase()));
-      if (!previous && Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
+      const isNewQueueAddition = (item.queueList || []).some((m: any) =>
+        (m.userId === actor.uid || (existing.inGameName && m.name?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase())) && !previous
+      );
+      if (isNewQueueAddition) {
+        if (old.allowMemberQueue === false || old.status === 'closed' || old.closed === true) throw new Error('QUEUE_CLOSED');
+        if (Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) {
+          throw new Error('INSUFFICIENT_POWER_LEVEL');
+        }
+      }
       const own = (item.queueList || []).filter((m: any) => m.userId === actor.uid || (existing.inGameName && m.name?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase())).map((m: any) => {
         if (previous) {
           return {
@@ -84,7 +101,7 @@ export function scopeRelayInput(base: any, incoming: any, actor: RelayActor, sta
             userId: actor.uid,
             name: existing.inGameName || previous.name,
             clan: existing.clan || previous.clan,
-            powerLevel: Math.max(Number(previous.powerLevel || 0), Number(existing.powerLevel || 0))
+            powerLevel: Number(existing.powerLevel ?? previous.powerLevel ?? 0)
           };
         }
         return {
@@ -92,7 +109,7 @@ export function scopeRelayInput(base: any, incoming: any, actor: RelayActor, sta
           userId: actor.uid,
           name: existing.inGameName || m.name,
           clan: existing.clan || m.clan,
-          powerLevel: Math.max(Number(m.powerLevel || 0), Number(existing.powerLevel || 0)),
+          powerLevel: Number(existing.powerLevel || 0),
           status: 'pending',
           receivedQuantity: 0
         };
@@ -110,7 +127,7 @@ export function scopeRelayInput(base: any, incoming: any, actor: RelayActor, sta
   data.syncMeta = {};
   for (const field of ['cancelledClaims', 'removedQueueMembers']) {
     data.syncMeta[field] = Object.fromEntries(Object.entries(incoming.syncMeta?.[field] || {}).filter(([key]) =>
-      key.endsWith(':::' + actor.uid.toLowerCase()) || key.endsWith(':::' + existing.inGameName.toLowerCase())));
+      key.endsWith(':::' + actor.uid.toLowerCase()) || (existing.inGameName && key.endsWith(':::' + existing.inGameName.toLowerCase()))));
   }
   return data;
 }

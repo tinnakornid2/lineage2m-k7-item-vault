@@ -303,61 +303,77 @@ export async function verifyRoleToken(
 
 export async function deleteManagedUser(
   actor: { uid: string; role: string },
-  targetUid: string,
-  targetUsername?: string
+  targetUid: string
 ): Promise<{ allowed: boolean; reason?: string }> {
   if (!targetUid || actor.uid === targetUid) return { allowed: false, reason: 'SELF_DELETE_DENIED' };
 
   const sdk = await getAdminSdk();
   if (!sdk) {
-    console.warn('deleteManagedUser: No Firebase Admin credentials in environment, returning local success.');
-    return { allowed: true };
+    return { allowed: false, reason: 'AUTH_SERVICE_UNAVAILABLE' };
   }
 
   const targetRef = sdk.db.collection('users').doc(targetUid);
   const target = await targetRef.get();
-  let username = targetUsername;
+  let username = '';
+  let targetRole = 'member';
 
   if (target.exists) {
     const data = target.data();
-    const targetRole = String(data?.role || 'member');
-    if (!username && data?.username) username = data.username;
-    const allowed = (actor.role === 'owner' && targetRole !== 'owner')
-      || (actor.role === 'admin' && ['party_leader', 'member'].includes(targetRole));
-    if (!allowed) return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED' };
+    username = data?.username || '';
+    targetRole = String(data?.role || 'member');
   } else {
-    // If client deleted Firestore doc first, allow owner/admin to clean up Auth
-    if (!['owner', 'admin'].includes(actor.role)) return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED' };
-  }
-
-  // 1. Delete from Firebase Auth by targetUid
-  try {
-    await sdk.auth.deleteUser(targetUid);
-  } catch (error: any) {
-    if (error?.code !== 'auth/user-not-found') {
-      console.warn('deleteManagedUser: auth.deleteUser(targetUid) notice:', error?.message);
-    }
-  }
-
-  // 2. Also locate and delete by email if username is provided or was in doc
-  if (username) {
     try {
-      const email = usernameToAuthEmail(username);
-      const authUser = await sdk.auth.getUserByEmail(email);
-      if (authUser && authUser.uid) {
-        await sdk.auth.deleteUser(authUser.uid);
+      const authUser = await sdk.auth.getUser(targetUid);
+      if (authUser?.email) {
+        if (authUser.email === '656c6f6e69@auth.k7-clan.local' || targetUid === 'APsCZzEI4tYdx5UfHuY5Sw10L8B3') {
+          targetRole = 'owner';
+        }
       }
-    } catch (authErr: any) {
-      if (authErr?.code !== 'auth/user-not-found') {
-        console.warn('deleteManagedUser: auth.deleteUser(byEmail) notice:', authErr?.message);
+    } catch (e: any) {
+      if (e?.code === 'auth/user-not-found') {
+        return { allowed: false, reason: 'USER_NOT_FOUND' };
       }
+      throw e;
     }
   }
 
-  // 3. Delete Firestore doc if still exists
-  if (target.exists) {
-    await targetRef.delete().catch(() => {});
+  if (targetRole === 'owner' || targetUid === 'user_owner_eloni' || username.toLowerCase() === 'eloni') {
+    return { allowed: false, reason: 'OWNER_IMMUTABLE' };
   }
+
+  if (actor.role === 'admin') {
+    if (targetRole === 'owner' || targetRole === 'admin') {
+      return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED' };
+    }
+  } else if (actor.role !== 'owner') {
+    return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED' };
+  }
+
+  let authUidToDelete: string | null = null;
+  try {
+    const directUser = await sdk.auth.getUser(targetUid);
+    if (directUser) authUidToDelete = directUser.uid;
+  } catch (err: any) {
+    if (err?.code !== 'auth/user-not-found') throw err;
+  }
+
+  if (!authUidToDelete && username) {
+    try {
+      const emailUser = await sdk.auth.getUserByEmail(usernameToAuthEmail(username));
+      if (emailUser) authUidToDelete = emailUser.uid;
+    } catch (err: any) {
+      if (err?.code !== 'auth/user-not-found') throw err;
+    }
+  }
+
+  if (authUidToDelete) {
+    await sdk.auth.deleteUser(authUidToDelete);
+  }
+
+  if (target.exists) {
+    await targetRef.delete();
+  }
+
   return { allowed: true };
 }
 
@@ -374,89 +390,80 @@ export async function changeManagedUserPassword(
   const isOwner = actor.role === 'owner';
   const isAdmin = actor.role === 'admin';
 
-  // 1. Check basic permissions:
-  // Must be either self, owner, or admin. Regular members cannot change anyone else's password.
   if (!isSelf && !isOwner && !isAdmin) {
     return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED' };
   }
 
   const sdk = await getAdminSdk();
   if (!sdk) {
-    console.warn('changeManagedUserPassword: No Firebase Admin credentials in environment, returning local success.');
-    return { allowed: true };
+    return { allowed: false, reason: 'AUTH_SERVICE_UNAVAILABLE' };
   }
 
   const targetRef = sdk.db.collection('users').doc(targetUid);
   const target = await targetRef.get();
   let username = '';
-  let inGameName = '';
+  let targetRole = 'member';
 
   if (target.exists) {
     const data = target.data();
     username = data?.username || '';
-    inGameName = data?.inGameName || '';
-    const targetRole = String(data?.role || 'member');
-    // If admin is changing someone else's password:
-    // Admin can ONLY change member and party_leader (cannot change owner or other admins)
-    if (isAdmin && !isSelf) {
-      if (targetRole === 'owner' || targetRole === 'admin') {
-        return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED' };
+    targetRole = String(data?.role || 'member');
+  } else {
+    try {
+      const authUser = await sdk.auth.getUser(targetUid);
+      if (authUser?.email === '656c6f6e69@auth.k7-clan.local' || targetUid === 'APsCZzEI4tYdx5UfHuY5Sw10L8B3') {
+        targetRole = 'owner';
       }
+    } catch (err: any) {
+      if (err?.code === 'auth/user-not-found') {
+        return { allowed: false, reason: 'USER_NOT_FOUND' };
+      }
+      throw err;
     }
   }
 
-  const isOwnerUser = targetUid === 'user_owner_eloni' || username.toLowerCase() === 'eloni';
+  if (isAdmin && !isSelf) {
+    if (targetRole === 'owner' || targetRole === 'admin') {
+      return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED' };
+    }
+  }
+
+  const isOwnerUser = targetUid === 'user_owner_eloni' || username.toLowerCase() === 'eloni' || targetRole === 'owner';
   const ownerAuthUid = 'APsCZzEI4tYdx5UfHuY5Sw10L8B3';
 
-  // 2. Update in Firebase Auth
-  let authUpdated = false;
-  // Try direct update by targetUid
-  try {
-    await sdk.auth.updateUser(targetUid, { password: newPassword });
-    authUpdated = true;
-  } catch (error: any) {
-    if (error?.code !== 'auth/user-not-found') {
-      console.warn('Firebase Auth updateUser notice:', error?.message || error);
-    }
-  }
-
-  // If owner, also update by ownerAuthUid
+  let authUser: any = null;
   if (isOwnerUser) {
     try {
-      await sdk.auth.updateUser(ownerAuthUid, { password: newPassword });
-      authUpdated = true;
+      authUser = await sdk.auth.getUser(ownerAuthUid);
     } catch {}
   }
 
-  // If not updated yet by UID, try updating by Email
-  const effectiveUsername = username || (isOwnerUser ? 'eloni' : '');
-  if (!authUpdated && effectiveUsername) {
-    const email = usernameToAuthEmail(effectiveUsername);
+  if (!authUser) {
     try {
-      const authUser = await sdk.auth.getUserByEmail(email);
-      if (authUser) {
-        await sdk.auth.updateUser(authUser.uid, { password: newPassword });
-        authUpdated = true;
-      }
-    } catch (findErr: any) {
-      if (findErr?.code === 'auth/user-not-found') {
-        // User not in Firebase Auth at all! Create it now so they can log in!
-        try {
-          await sdk.auth.createUser({
-            uid: targetUid,
-            email,
-            password: newPassword,
-            displayName: inGameName || effectiveUsername
-          });
-          authUpdated = true;
-        } catch (createErr: any) {
-          console.warn('Firebase Auth createUser fallback notice:', createErr?.message);
-        }
-      }
+      authUser = await sdk.auth.getUser(targetUid);
+    } catch (err: any) {
+      if (err?.code !== 'auth/user-not-found') throw err;
     }
   }
 
-  // Firebase Auth is the only password store. Remove any legacy plaintext copies.
+  if (!authUser && username) {
+    try {
+      authUser = await sdk.auth.getUserByEmail(usernameToAuthEmail(username));
+    } catch (err: any) {
+      if (err?.code !== 'auth/user-not-found') throw err;
+    }
+  }
+
+  if (!authUser) {
+    return { allowed: false, reason: 'AUTH_USER_NOT_FOUND' };
+  }
+
+  try {
+    await sdk.auth.updateUser(authUser.uid, { password: newPassword });
+  } catch (err: any) {
+    return { allowed: false, reason: err?.code || 'AUTH_UPDATE_FAILED' };
+  }
+
   try {
     if (target.exists) {
       const { FieldValue } = await import('firebase-admin/firestore');
@@ -466,11 +473,10 @@ export async function changeManagedUserPassword(
     console.warn('Firestore password cleanup notice:', dbErr);
   }
 
-  // Remove the obsolete owner_auth document if it exists.
   if (isOwnerUser) {
     try {
       await sdk.db.collection('app_settings').doc('owner_auth').delete();
-    } catch (e) {}
+    } catch {}
   }
 
   return { allowed: true };
@@ -511,14 +517,11 @@ export async function purgeOrphanAuthUsers(preserveUids: string[] = ['APsCZzEI4t
   return { deletedCount: uidsToDelete.length, deletedUids: uidsToDelete };
 }
 
-export async function claimOrphanAuthUser(username: string, newPassword: string): Promise<{ allowed: boolean; uid?: string; reason?: string }> {
+export async function claimOrphanAuthUser(username: string): Promise<{ allowed: boolean; orphanDeleted?: boolean; reason?: string }> {
   const cleanUsername = username.trim();
   const lowerUser = cleanUsername.toLowerCase();
   if (!cleanUsername || cleanUsername.length < 3 || cleanUsername.length > 40) {
     return { allowed: false, reason: 'INVALID_USERNAME' };
-  }
-  if (!newPassword || newPassword.length < 6 || newPassword.length > 128) {
-    return { allowed: false, reason: 'INVALID_PASSWORD' };
   }
 
   if (lowerUser === 'eloni' || lowerUser === 'owner') {
@@ -530,28 +533,19 @@ export async function claimOrphanAuthUser(username: string, newPassword: string)
     return { allowed: false, reason: 'NO_ADMIN_SDK' };
   }
 
-  // Check if user already exists as active in Firestore users collection
   const existingDoc = await sdk.db.collection('users').where('username', '==', cleanUsername).limit(1).get();
   if (!existingDoc.empty) {
-    const data = existingDoc.docs[0].data();
-    if (data && data.status !== 'suspended') {
-      return { allowed: false, reason: 'USERNAME_IN_USE' };
-    }
+    return { allowed: false, reason: 'USERNAME_IN_USE' };
   }
 
-  // Also check all documents for case-insensitive match
   const allUsersSnap = await sdk.db.collection('users').limit(500).get();
   for (const uDoc of allUsersSnap.docs) {
     const data = uDoc.data();
     if (data && typeof data.username === 'string' && data.username.toLowerCase() === lowerUser) {
-      if (uDoc.id === 'user_owner_eloni' || uDoc.id === 'APsCZzEI4tYdx5UfHuY5Sw10L8B3' || data.role === 'owner') {
-        return { allowed: false, reason: 'OWNER_RESERVED' };
-      }
       return { allowed: false, reason: 'USERNAME_IN_USE' };
     }
   }
 
-  // Locate user in Firebase Auth
   const email = usernameToAuthEmail(cleanUsername);
   let authUser: any = null;
   try {
@@ -561,23 +555,13 @@ export async function claimOrphanAuthUser(username: string, newPassword: string)
   }
 
   if (!authUser) {
-    try {
-      authUser = await sdk.auth.createUser({
-        email,
-        password: newPassword,
-        displayName: cleanUsername
-      });
-      return { allowed: true, uid: authUser.uid };
-    } catch (createErr: any) {
-      return { allowed: false, reason: createErr?.code || 'AUTH_CREATE_FAILED' };
-    }
+    return { allowed: false, reason: 'AUTH_USER_NOT_FOUND' };
   }
 
-  // User exists in Auth but NOT in Firestore -> orphaned account!
   try {
-    await sdk.auth.updateUser(authUser.uid, { password: newPassword });
-    return { allowed: true, uid: authUser.uid };
-  } catch (updateErr: any) {
-    return { allowed: false, reason: updateErr?.code || 'AUTH_UPDATE_FAILED' };
+    await sdk.auth.deleteUser(authUser.uid);
+    return { allowed: true, orphanDeleted: true };
+  } catch (deleteErr: any) {
+    return { allowed: false, reason: deleteErr?.code || 'AUTH_DELETE_FAILED' };
   }
 }

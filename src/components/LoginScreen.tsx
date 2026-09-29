@@ -134,7 +134,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         setRegError(result.message || t.error);
       }
     } catch (err: any) {
-      setRegError(err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการลงทะเบียน' : 'Registration failed. Please try again.'));
+      const msg = err?.message || '';
+      const isAlreadyInUse = msg.includes('already-in-use') || err?.code === 'auth/email-already-in-use' || msg.includes('USERNAME_IN_USE');
+      const isInvalidCred = err?.code === 'auth/invalid-credential' || msg.includes('invalid-credential');
+      const userFriendly = isAlreadyInUse
+        ? (lang === 'th' ? 'ชื่อผู้ใช้นี้มีในระบบแล้ว กรุณาใช้ชื่ออื่น หรือสลับไปที่แท็บ "เข้าสู่ระบบ"' : 'Username already registered. Please choose another or switch to login.')
+        : isInvalidCred
+        ? (lang === 'th' ? 'ชื่อผู้ใช้นี้มีในระบบแล้ว กรุณาเข้าสู่ระบบด้วยรหัสผ่านเดิม หรือติดต่อ Admin เพื่อรีเซ็ตรหัสผ่าน' : 'This account exists. Please log in with your password or contact Admin for a password reset.')
+        : (msg && !msg.startsWith('Firebase:') ? msg : (lang === 'th' ? 'เกิดข้อผิดพลาดในการลงทะเบียน กรุณาลองใหม่อีกครั้ง' : 'Registration failed. Please try again.'));
+      setRegError(userFriendly);
     } finally {
       setIsSubmitting(false);
     }
@@ -209,7 +217,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 CLAN HUB SYSTEM
               </span>
               <span className="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/35 text-[10px] font-mono font-bold text-sky-300">
-                v2.11.2
+                v2.11.3
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-2 font-prompt">

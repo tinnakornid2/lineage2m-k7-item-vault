@@ -1,5 +1,5 @@
 import express from "express";
-import { claimBlocked, submissionError } from '../src/utils/statRound.ts';
+import { claimBlocked, submissionError, statMessage } from '../src/utils/statRound.ts';
 import { FirestoreRelayStore, publicRelayData, withRelayTimeout } from "./_relayStore.ts";
 import { mergeRelayData, sanitizeAndDeduplicateUsers } from "./_relayMerge.ts";
 import { scopeRelayInput, type RelayActor } from "./_relayAccess.ts";
@@ -364,16 +364,20 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
   app.delete("/api/users/:userId", requireRoles(['owner', 'admin']), async (req, res) => {
     try {
       const targetUserId = req.params.userId;
-      const targetUsername = typeof req.query.username === 'string' ? req.query.username : req.body?.username;
-      const result = await deleteManagedUser(res.locals.actor, targetUserId, targetUsername);
+      const result = await deleteManagedUser(res.locals.actor, targetUserId);
       if (!result.allowed) {
         const notFound = result.reason === 'USER_NOT_FOUND';
-        return res.status(notFound ? 404 : 403).json({
+        const isUnavailable = result.reason === 'AUTH_SERVICE_UNAVAILABLE';
+        return res.status(notFound ? 404 : isUnavailable ? 503 : 403).json({
           success: false,
           error: result.reason,
           message: notFound
             ? 'ไม่พบบัญชีผู้ใช้ / User account not found.'
-            : 'ไม่มีสิทธิ์ลบบัญชีนี้ / You do not have permission to delete this account.'
+            : isUnavailable
+              ? 'ระบบยืนยันตัวตนไม่พร้อมใช้งาน / Authentication service unavailable.'
+              : result.reason === 'OWNER_IMMUTABLE'
+                ? 'ไม่สามารถลบบัญชี Owner สูงสุดได้ / Cannot delete primary owner account.'
+                : 'ไม่มีสิทธิ์ลบบัญชีนี้ / You do not have permission to delete this account.'
         });
       }
 
@@ -391,6 +395,20 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
           fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8');
         } catch {}
         liveStateEmitter.emit('update');
+      }
+
+      try {
+        await commitRelay(null, current => {
+          current.syncMeta = current.syncMeta || {};
+          current.syncMeta.deletedUsers = current.syncMeta.deletedUsers || {};
+          current.syncMeta.deletedUsers[targetUserId] = Date.now();
+          if (Array.isArray(current.users)) {
+            current.users = current.users.filter((u: any) => u && u.id !== targetUserId);
+          }
+          return current;
+        });
+      } catch (commitErr) {
+        console.warn('Notice: commitRelay on delete user deferred:', commitErr);
       }
 
       return res.json({ success: true });
@@ -418,12 +436,15 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
       const result = await changeManagedUserPassword(res.locals.actor, req.params.userId, newPassword);
       if (!result.allowed) {
         const notFound = result.reason === 'USER_NOT_FOUND';
-        return res.status(notFound ? 404 : 403).json({
+        const isUnavailable = result.reason === 'AUTH_SERVICE_UNAVAILABLE';
+        return res.status(notFound ? 404 : isUnavailable ? 503 : 403).json({
           success: false,
           error: result.reason,
           message: notFound
             ? 'ไม่พบบัญชีผู้ใช้ / User account not found.'
-            : 'ไม่มีสิทธิ์เปลี่ยนรหัสผ่านสำหรับบัญชีนี้ / You do not have permission to change password for this account.'
+            : isUnavailable
+              ? 'ระบบยืนยันตัวตนไม่พร้อมใช้งาน / Authentication service unavailable.'
+              : 'ไม่มีสิทธิ์เปลี่ยนรหัสผ่านสำหรับบัญชีนี้ / You do not have permission to change password for this account.'
         });
       }
 
@@ -491,32 +512,34 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
   // Resolve Orphan Firebase Auth User Registration
   app.post("/api/auth/resolve-orphan-registration", async (req, res) => {
     try {
-      const { username, password } = req.body || {};
-      if (!username || !password) {
+      const { username } = req.body || {};
+      if (!username || typeof username !== 'string') {
         return res.status(400).json({
           allowed: false,
           error: 'MISSING_FIELDS',
-          message: 'ข้อมูลไม่ครบถ้วน / Missing username or password.'
+          message: 'ข้อมูลไม่ครบถ้วน / Missing username.'
         });
       }
 
-      const result = await claimOrphanAuthUser(String(username), String(password));
+      const result = await claimOrphanAuthUser(String(username));
       if (!result.allowed) {
         const isTaken = result.reason === 'USERNAME_IN_USE' || result.reason === 'OWNER_RESERVED';
-        return res.status(isTaken ? 409 : 400).json({
+        const isUnavailable = result.reason === 'NO_ADMIN_SDK';
+        return res.status(isTaken ? 409 : isUnavailable ? 503 : 400).json({
           allowed: false,
           error: result.reason,
           message: isTaken
             ? 'ชื่อผู้ใช้นี้มีในระบบแล้ว กรุณาใช้ชื่ออื่น / Username is already taken.'
-            : 'ไม่สามารถกู้คืนบัญชีได้ / Cannot claim account.'
+            : isUnavailable
+              ? 'ระบบยืนยันตัวตนไม่พร้อมใช้งาน / Authentication service unavailable.'
+              : 'ไม่สามารถลบบัญชีตกค้างได้ / Cannot clear orphan auth account.'
         });
       }
 
       return res.json({
         allowed: true,
-        uid: result.uid,
-        recovered: true,
-        message: 'กู้คืนและรีเซ็ตรหัสผ่านบัญชีสำเร็จ / Orphan account claimed and password updated.'
+        orphanDeleted: true,
+        message: 'ล้างบัญชีตกค้างในระบบยืนยันตัวตนสำเร็จแล้ว สามารถลงทะเบียนใหม่ได้ทันที / Orphan auth account cleared successfully. You can now complete registration.'
       });
     } catch (err: any) {
       console.error('Failed to resolve orphan registration:', err);
@@ -701,10 +724,18 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
       res.json({ success: true, settings: snapshot.data.statUpdateSettings });
     } catch { res.status(503).json({ success: false, error: 'ROUND_SAVE_FAILED' }); }
   });
-  const failWrite = (res: express.Response, error: any) => res.status(
-    /FORBIDDEN|NOT_ACTIVE|POWER_REQUIRED|STAT_ROUND_REQUIRED/.test(error?.message || '') ? 403 :
-    /NOT_FOUND|DISTRIBUTED|INVALID|DUPLICATE|UNCHANGED|SCREENSHOT_REQUIRED/.test(error?.message || '') ? 400 : 503
-  ).json({ success: false, persisted: false, error: error?.message || 'CENTRAL_WRITE_FAILED' });
+  const failWrite = (res: express.Response, error: any) => {
+    const errCode = error?.message || '';
+    const status =
+      /FORBIDDEN|NOT_ACTIVE|ACCOUNT_PENDING_APPROVAL|ACCOUNT_SUSPENDED|ACCOUNT_NOT_ACTIVE|POWER_REQUIRED|INSUFFICIENT_POWER_LEVEL|QUEUE_CLOSED|STAT_ROUND_REQUIRED/.test(errCode) ? 403 :
+      /NOT_FOUND|DISTRIBUTED|INVALID|DUPLICATE|UNCHANGED|SCREENSHOT_REQUIRED/.test(errCode) ? 400 : 503;
+    return res.status(status).json({
+      success: false,
+      persisted: false,
+      error: errCode || 'CENTRAL_WRITE_FAILED',
+      message: `${statMessage(errCode, 'th')} / ${statMessage(errCode, 'en')}`
+    });
+  };
 
   app.post("/api/claim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
@@ -795,8 +826,27 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
         const actor: RelayActor = res.locals.actor;
         if (!userId || !updates || typeof updates !== 'object') throw new Error('INVALID_PAYLOAD');
         if (!['owner', 'admin'].includes(actor.role) && userId !== actor.uid) throw new Error('FORBIDDEN');
+
+        let fallbackUser: any = null;
+        try {
+          const sdk = await getAdminSdk();
+          if (sdk?.db) {
+            const docSnap = await sdk.db.collection('users').doc(userId).get();
+            if (docSnap.exists) {
+              fallbackUser = { ...docSnap.data(), id: userId };
+            }
+          }
+        } catch {}
+
         const snapshot = await commitRelay(null, current => {
-          const user = (current.users || []).find((u: any) => u.id === userId);
+          let user = (current.users || []).find((u: any) => u.id === userId);
+          if (!user && fallbackUser) {
+            user = fallbackUser;
+            current.users = [...(current.users || []), fallbackUser];
+          } else if (user && fallbackUser && fallbackUser.status === 'active' && user.status !== 'active') {
+            user.status = 'active';
+            if (fallbackUser.powerLevel !== undefined) user.powerLevel = fallbackUser.powerLevel;
+          }
           if (!user) throw new Error('USER_NOT_FOUND');
           if (route === '/api/request-stat-update') {
             if (current.statUpdateSettings?.allowMemberUpdates === false && !['owner', 'admin'].includes(actor.role)) throw new Error('FORBIDDEN');

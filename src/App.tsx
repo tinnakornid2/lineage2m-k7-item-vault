@@ -477,8 +477,9 @@ export const App: React.FC = () => {
       try {
         const relayRes = await fetch(`/api/live-state?v=0&_t=${Date.now()}`);
         if (relayRes.ok) {
-          const relayJson = await relayRes.json();
-          if (relayJson.data) {
+          const text = await relayRes.text();
+          const relayJson = text && text.trim() ? JSON.parse(text) : null;
+          if (relayJson && relayJson.data) {
             const data = relayJson.data;
             if (Array.isArray(data.vaultItems) && data.vaultItems.length > 0) {
               setVaultItems((prev) => {
@@ -3018,11 +3019,21 @@ export const App: React.FC = () => {
       currentUser?.inGameName || currentUser?.username || 'Admin'
     );
 
-    // 2. Persist in Firestore & background serverless endpoint
-    centralApi('/api/update-boss-queue', {
-      method: 'POST',
-      body: JSON.stringify({ queueId, queueList: members })
-    }).catch(() => {});
+    // 2. Persist in background serverless endpoint with error rollback
+    try {
+      await centralApi('/api/update-boss-queue', {
+        method: 'POST',
+        body: JSON.stringify({ queueId, queueList: members })
+      });
+    } catch (err: any) {
+      console.warn('Failed to update boss queue on central relay:', err);
+      const reverted = queueItems.map((q) => (q.id === queueId ? { ...q, queueList: previous } : q));
+      setQueueItems(reverted);
+      setCachedQueues(reverted);
+      const msg = statMessage(err?.message || '', lang);
+      showToast(msg || (lang === 'th' ? 'ไม่สามารถอัปเดตคิวได้' : 'Failed to update queue'), 'error');
+      return;
+    }
 
     try {
       await updateQueueItemDoc(queueId, { queueList: members, updatedAt: now });
@@ -3190,12 +3201,24 @@ export const App: React.FC = () => {
       true
     );
 
-    // 5. Background serverless endpoint if queueList was modified
+    // 5. Background serverless endpoint if queueList was modified with error rollback
     if (updates.queueList) {
-      centralApi('/api/update-general-item-queue', {
-        method: 'POST',
-        body: JSON.stringify({ itemId, queueList: updates.queueList })
-      }).catch(() => {});
+      try {
+        await centralApi('/api/update-general-item-queue', {
+          method: 'POST',
+          body: JSON.stringify({ itemId, queueList: updates.queueList })
+        });
+      } catch (err: any) {
+        console.warn('Failed to update general item queue on central relay:', err);
+        if (previous) {
+          const reverted = generalItems.map((entry) => entry.id === itemId ? previous : entry);
+          setGeneralItems(reverted);
+          setCachedGeneralItems(reverted);
+        }
+        const msg = statMessage(err?.message || '', lang);
+        showToast(msg || (lang === 'th' ? 'ไม่สามารถอัปเดตคิวได้' : 'Failed to update queue'), 'error');
+        return;
+      }
     }
 
     // 6. Safe Firestore persistence (non-blocking)
@@ -3555,6 +3578,10 @@ export const App: React.FC = () => {
 
     try {
       await updateUserDoc(userId, { status: 'active', updatedAt: now });
+      await centralApi('/api/update-user-stats', {
+        method: 'POST',
+        body: JSON.stringify({ userId, updates: { status: 'active', updatedAt: now } })
+      }).catch(() => {});
       showToast(
         lang === 'th'
           ? `อนุมัติสมาชิก ${target?.inGameName || ''} สำเร็จ 🎉`
@@ -3660,36 +3687,37 @@ export const App: React.FC = () => {
 
   const handleDeleteMember = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
-    markUserAsDeleted(userId);
-    const updatedUsers = users.filter((u) => u.id !== userId);
-    setUsers(updatedUsers);
-    setCachedUsers(updatedUsers);
-
-    broadcastLiveState(
-      getFullBackupPayload({ users: updatedUsers }),
-      currentUser?.inGameName || 'Admin'
-    );
-
-    const googleConfig = getGoogleBackupConfig();
-    if (googleConfig.webAppUrl) {
-      triggerDebouncedAutoBackup(
-        getFullBackupPayload({ users: updatedUsers }),
-        'Delete Member',
-        true
-      );
-    }
-
     try {
       await deleteUserDoc(userId, target?.username);
+      const updatedUsers = users.filter((u) => u.id !== userId);
+      setUsers(updatedUsers);
+      setCachedUsers(updatedUsers);
+
+      broadcastLiveState(
+        getFullBackupPayload({ users: updatedUsers }),
+        currentUser?.inGameName || 'Admin'
+      );
+
+      const googleConfig = getGoogleBackupConfig();
+      if (googleConfig.webAppUrl) {
+        triggerDebouncedAutoBackup(
+          getFullBackupPayload({ users: updatedUsers }),
+          'Delete Member',
+          true
+        );
+      }
       showToast(
         lang === 'th'
           ? `ลบสมาชิก ${target?.inGameName || ''} สำเร็จ`
           : `Deleted member ${target?.inGameName || ''}`,
         'info'
       );
-    } catch (err) {
-      console.error('Failed to delete member in Firestore:', err);
-      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการลบสมาชิก' : 'Failed to delete member', 'error');
+    } catch (err: any) {
+      console.error('Failed to delete member:', err);
+      const msg = err?.message === 'OWNER_IMMUTABLE'
+        ? (lang === 'th' ? 'ไม่สามารถลบบัญชี Owner ได้' : 'Cannot delete Owner account.')
+        : (lang === 'th' ? 'ลบสมาชิกไม่สำเร็จ / ไม่มีสิทธิ์ดำเนินการ' : 'Failed to delete member / Permission denied');
+      showToast(msg, 'error');
     }
   };
 

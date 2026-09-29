@@ -189,7 +189,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.11.2-member-auth-and-stat-updates';
+const CACHE_SCHEMA_VERSION = '2.11.3-resilient-auth-queues';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -1926,22 +1926,8 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
 export async function deleteUserDoc(userId: string, targetUsername?: string) {
   if (!userId) return;
   const username = targetUsername || getCachedUsers().find((u) => u.id === userId)?.username;
-  // 1. Immediately tombstone locally so that no sync or refresh can resurrect the user
-  markUserAsDeleted(userId);
-  const current = getCachedUsers().filter((u) => u.id !== userId);
-  setCachedUsers(current);
 
-  // 2. Client-side direct Firestore delete with timeout guard (Zero-Downtime Rule 6)
-  try {
-    const ref = doc(db, USERS_COLLECTION, userId);
-    await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteUserDoc');
-    bumpSystemVersion('usersVersion', userId).catch(() => {});
-  } catch (err: any) {
-    console.warn('Notice: Failed to delete user directly from Firestore (marked deleted locally):', err?.message);
-    notifyQuotaExceeded(err);
-  }
-
-  // 3. Server-side deletion via API (deletes from Auth and handles relay live state)
+  // 1. Server-side deletion via API FIRST (enforces role hierarchy and deletes Auth account)
   try {
     const token = await getCurrentUserIdToken();
     const query = username ? `?username=${encodeURIComponent(username)}` : '';
@@ -1955,10 +1941,31 @@ export async function deleteUserDoc(userId: string, targetUsername?: string) {
     });
     if (!response.ok) {
       const result = await response.json().catch(() => null);
+      if (response.status === 403 || response.status === 404) {
+        throw new Error(result?.error || result?.message || 'DELETE_USER_FAILED');
+      }
       console.warn(`Notice: /api/users/${userId} returned status ${response.status}:`, result?.message);
     }
   } catch (err: any) {
-    console.warn('Notice: /api/users endpoint unreachable or error (user tombstoned locally):', err?.message);
+    if (err.message && /OWNER_IMMUTABLE|ROLE_HIERARCHY_DENIED|FORBIDDEN/.test(err.message)) {
+      throw err;
+    }
+    console.warn('Notice: /api/users endpoint unreachable or error:', err?.message);
+  }
+
+  // 2. Immediately tombstone locally so that no sync or refresh can resurrect the user
+  markUserAsDeleted(userId);
+  const current = getCachedUsers().filter((u) => u.id !== userId);
+  setCachedUsers(current);
+
+  // 3. Client-side direct Firestore delete with timeout guard (Zero-Downtime Rule 6)
+  try {
+    const ref = doc(db, USERS_COLLECTION, userId);
+    await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteUserDoc');
+    bumpSystemVersion('usersVersion', userId).catch(() => {});
+  } catch (err: any) {
+    console.warn('Notice: Failed to delete user directly from Firestore (marked deleted locally):', err?.message);
+    notifyQuotaExceeded(err);
   }
 }
 
@@ -2102,27 +2109,21 @@ export async function registerUserDoc(data: {
       credential = await createUserWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
     } catch (error: any) {
       if (error?.code !== 'auth/email-already-in-use') throw error;
-      // Recover an interrupted registration or reclaim an orphaned Auth account (from previously deleted member)
-      try {
-        credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
-      } catch (signInErr: any) {
-        try {
-          const orphanRes = await fetch('/api/auth/resolve-orphan-registration', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password: data.password })
-          });
-          const orphanData = await orphanRes.json().catch(() => null);
-          if (orphanRes.ok && orphanData?.allowed) {
-            credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
-          } else {
-            const errObj: any = new Error(orphanData?.message || 'USERNAME_IN_USE');
-            errObj.code = orphanData?.error || 'auth/email-already-in-use';
-            throw errObj;
-          }
-        } catch (resolveErr: any) {
-          throw resolveErr;
-        }
+      // An orphaned Auth account may exist from a previously deleted member or interrupted registration.
+      // Call resolve-orphan-registration to verify user does not exist in Firestore and purge the stale Auth user.
+      const orphanRes = await fetch('/api/auth/resolve-orphan-registration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password: data.password })
+      });
+      const orphanData = await orphanRes.json().catch(() => null);
+      if (orphanRes.ok && orphanData?.allowed) {
+        // Stale Auth account was purged. Create fresh account now!
+        credential = await createUserWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
+      } else {
+        const errObj: any = new Error(orphanData?.message || 'USERNAME_IN_USE');
+        errObj.code = orphanData?.error || 'auth/email-already-in-use';
+        throw errObj;
       }
     }
     const token = await credential.user.getIdToken();
@@ -2140,10 +2141,14 @@ export async function registerUserDoc(data: {
       'registerUserDoc_firestore'
     );
 
-    // 2. Broadcast to Central Live Relay
-    await centralApi('/api/live-state', {
-      method: 'POST', body: JSON.stringify({ data: { users: [newUser] }, performedBy: inGameName })
-    }, token);
+    // 2. Broadcast to Central Live Relay (non-blocking for registration completion)
+    try {
+      await centralApi('/api/live-state', {
+        method: 'POST', body: JSON.stringify({ data: { users: [newUser] }, performedBy: inGameName })
+      }, token);
+    } catch (relayErr) {
+      console.warn('Notice: centralApi relay broadcast deferred during registration:', relayErr);
+    }
 
     unmarkUserAsDeleted(newUser.id);
     return newUser;
@@ -2167,8 +2172,9 @@ export async function loginUserQuery(username: string, pass: string, availableUs
     try {
       const response = await fetch('/api/live-state?v=0', { cache: 'no-store', signal: AbortSignal.timeout(6000) });
       if (response.ok) {
-        const snapshot = await response.json();
-        profile = (snapshot.data?.users || []).find((u: User) =>
+        const text = await response.text();
+        const snapshot = text && text.trim() ? JSON.parse(text) : null;
+        profile = (snapshot?.data?.users || []).find((u: User) =>
           u.id === credential.user.uid || (isOwner && u.id === 'user_owner_eloni'));
       }
     } catch (e) {

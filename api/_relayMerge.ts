@@ -251,14 +251,11 @@ export function mergeRelayData(previousData: any, incoming: any): any {
                 if (key) queueMap.set(key, m);
               }
 
-              // Only include members from older if they were concurrently added very recently (within 10s) and not removed
-              const timeWindow = 10000;
+              // Preserve unremoved members from older if not tombstoned
               for (const m of olderMembers) {
                 if (!m || isMemberRemoved(m)) continue;
                 const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
-                if (!key || queueMap.has(key)) continue;
-                const joinedAt = Number(m.joinedAt || 0);
-                if (joinedAt && (Date.now() - joinedAt) <= timeWindow) {
+                if (key && !queueMap.has(key)) {
                   queueMap.set(key, m);
                 }
               }
