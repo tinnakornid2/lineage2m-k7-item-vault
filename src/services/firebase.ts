@@ -189,7 +189,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.11.1-stat-update-rounds';
+const CACHE_SCHEMA_VERSION = '2.11.2-member-auth-and-stat-updates';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -1923,8 +1923,9 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
   } catch {}
 }
 
-export async function deleteUserDoc(userId: string) {
+export async function deleteUserDoc(userId: string, targetUsername?: string) {
   if (!userId) return;
+  const username = targetUsername || getCachedUsers().find((u) => u.id === userId)?.username;
   // 1. Immediately tombstone locally so that no sync or refresh can resurrect the user
   markUserAsDeleted(userId);
   const current = getCachedUsers().filter((u) => u.id !== userId);
@@ -1943,9 +1944,14 @@ export async function deleteUserDoc(userId: string) {
   // 3. Server-side deletion via API (deletes from Auth and handles relay live state)
   try {
     const token = await getCurrentUserIdToken();
-    const response = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
+    const query = username ? `?username=${encodeURIComponent(username)}` : '';
+    const response = await fetch(`/api/users/${encodeURIComponent(userId)}${query}`, {
       method: 'DELETE',
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ username })
     });
     if (!response.ok) {
       const result = await response.json().catch(() => null);
@@ -2096,8 +2102,28 @@ export async function registerUserDoc(data: {
       credential = await createUserWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
     } catch (error: any) {
       if (error?.code !== 'auth/email-already-in-use') throw error;
-      // Recover an interrupted registration only by proving the same password.
-      credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
+      // Recover an interrupted registration or reclaim an orphaned Auth account (from previously deleted member)
+      try {
+        credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
+      } catch (signInErr: any) {
+        try {
+          const orphanRes = await fetch('/api/auth/resolve-orphan-registration', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password: data.password })
+          });
+          const orphanData = await orphanRes.json().catch(() => null);
+          if (orphanRes.ok && orphanData?.allowed) {
+            credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
+          } else {
+            const errObj: any = new Error(orphanData?.message || 'USERNAME_IN_USE');
+            errObj.code = orphanData?.error || 'auth/email-already-in-use';
+            throw errObj;
+          }
+        } catch (resolveErr: any) {
+          throw resolveErr;
+        }
+      }
     }
     const token = await credential.user.getIdToken();
     const newUser: User = {

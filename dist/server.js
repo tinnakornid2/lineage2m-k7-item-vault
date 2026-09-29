@@ -976,7 +976,7 @@ async function verifyRoleToken(authorization, allowedRoles) {
   }
   return null;
 }
-async function deleteManagedUser(actor, targetUid) {
+async function deleteManagedUser(actor, targetUid, targetUsername) {
   if (!targetUid || actor.uid === targetUid) return { allowed: false, reason: "SELF_DELETE_DENIED" };
   const sdk = await getAdminSdk();
   if (!sdk) {
@@ -985,16 +985,40 @@ async function deleteManagedUser(actor, targetUid) {
   }
   const targetRef = sdk.db.collection("users").doc(targetUid);
   const target = await targetRef.get();
-  if (!target.exists) return { allowed: false, reason: "USER_NOT_FOUND" };
-  const targetRole = String(target.data()?.role || "member");
-  const allowed = actor.role === "owner" && targetRole !== "owner" || actor.role === "admin" && ["party_leader", "member"].includes(targetRole);
-  if (!allowed) return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
+  let username = targetUsername;
+  if (target.exists) {
+    const data = target.data();
+    const targetRole = String(data?.role || "member");
+    if (!username && data?.username) username = data.username;
+    const allowed = actor.role === "owner" && targetRole !== "owner" || actor.role === "admin" && ["party_leader", "member"].includes(targetRole);
+    if (!allowed) return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
+  } else {
+    if (!["owner", "admin"].includes(actor.role)) return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
+  }
   try {
     await sdk.auth.deleteUser(targetUid);
   } catch (error) {
-    if (error?.code !== "auth/user-not-found") throw error;
+    if (error?.code !== "auth/user-not-found") {
+      console.warn("deleteManagedUser: auth.deleteUser(targetUid) notice:", error?.message);
+    }
   }
-  await targetRef.delete();
+  if (username) {
+    try {
+      const email = usernameToAuthEmail(username);
+      const authUser = await sdk.auth.getUserByEmail(email);
+      if (authUser && authUser.uid) {
+        await sdk.auth.deleteUser(authUser.uid);
+      }
+    } catch (authErr) {
+      if (authErr?.code !== "auth/user-not-found") {
+        console.warn("deleteManagedUser: auth.deleteUser(byEmail) notice:", authErr?.message);
+      }
+    }
+  }
+  if (target.exists) {
+    await targetRef.delete().catch(() => {
+    });
+  }
   return { allowed: true };
 }
 async function changeManagedUserPassword(actor, targetUid, newPassword) {
@@ -1014,19 +1038,60 @@ async function changeManagedUserPassword(actor, targetUid, newPassword) {
   }
   const targetRef = sdk.db.collection("users").doc(targetUid);
   const target = await targetRef.get();
+  let username = "";
+  let inGameName = "";
   if (target.exists) {
-    const targetRole = String(target.data()?.role || "member");
+    const data = target.data();
+    username = data?.username || "";
+    inGameName = data?.inGameName || "";
+    const targetRole = String(data?.role || "member");
     if (isAdmin && !isSelf) {
       if (targetRole === "owner" || targetRole === "admin") {
         return { allowed: false, reason: "ROLE_HIERARCHY_DENIED" };
       }
     }
   }
+  const isOwnerUser = targetUid === "user_owner_eloni" || username.toLowerCase() === "eloni";
+  const ownerAuthUid = "APsCZzEI4tYdx5UfHuY5Sw10L8B3";
+  let authUpdated = false;
   try {
     await sdk.auth.updateUser(targetUid, { password: newPassword });
+    authUpdated = true;
   } catch (error) {
     if (error?.code !== "auth/user-not-found") {
       console.warn("Firebase Auth updateUser notice:", error?.message || error);
+    }
+  }
+  if (isOwnerUser) {
+    try {
+      await sdk.auth.updateUser(ownerAuthUid, { password: newPassword });
+      authUpdated = true;
+    } catch {
+    }
+  }
+  const effectiveUsername = username || (isOwnerUser ? "eloni" : "");
+  if (!authUpdated && effectiveUsername) {
+    const email = usernameToAuthEmail(effectiveUsername);
+    try {
+      const authUser = await sdk.auth.getUserByEmail(email);
+      if (authUser) {
+        await sdk.auth.updateUser(authUser.uid, { password: newPassword });
+        authUpdated = true;
+      }
+    } catch (findErr) {
+      if (findErr?.code === "auth/user-not-found") {
+        try {
+          await sdk.auth.createUser({
+            uid: targetUid,
+            email,
+            password: newPassword,
+            displayName: inGameName || effectiveUsername
+          });
+          authUpdated = true;
+        } catch (createErr) {
+          console.warn("Firebase Auth createUser fallback notice:", createErr?.message);
+        }
+      }
     }
   }
   try {
@@ -1037,7 +1102,7 @@ async function changeManagedUserPassword(actor, targetUid, newPassword) {
   } catch (dbErr) {
     console.warn("Firestore password cleanup notice:", dbErr);
   }
-  if (targetUid === "user_owner_eloni" || target.data()?.username?.toLowerCase() === "eloni") {
+  if (isOwnerUser) {
     try {
       await sdk.db.collection("app_settings").doc("owner_auth").delete();
     } catch (e) {
@@ -1407,7 +1472,8 @@ async function createApp(options = {}) {
   app.delete("/api/users/:userId", requireRoles(["owner", "admin"]), async (req, res) => {
     try {
       const targetUserId = req.params.userId;
-      const result = await deleteManagedUser(res.locals.actor, targetUserId);
+      const targetUsername = typeof req.query.username === "string" ? req.query.username : req.body?.username;
+      const result = await deleteManagedUser(res.locals.actor, targetUserId, targetUsername);
       if (!result.allowed) {
         const notFound = result.reason === "USER_NOT_FOUND";
         return res.status(notFound ? 404 : 403).json({
@@ -1827,8 +1893,10 @@ async function createApp(options = {}) {
           if (!user) throw new Error("USER_NOT_FOUND");
           if (route === "/api/request-stat-update") {
             if (current.statUpdateSettings?.allowMemberUpdates === false && !["owner", "admin"].includes(actor.role)) throw new Error("FORBIDDEN");
-            const error = submissionError(user, { ...user, ...updates }, current.statUpdateSettings);
-            if (error) throw new Error(error);
+            if (!["owner", "admin"].includes(actor.role)) {
+              const error = submissionError(user, { ...user, ...updates }, current.statUpdateSettings);
+              if (error) throw new Error(error);
+            }
             updates.pendingPowerLevelRequestedAt = Date.now();
           }
           return mergeRelayData(current, scopeRelayInput(current, {

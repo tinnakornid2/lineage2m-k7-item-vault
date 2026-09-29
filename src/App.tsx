@@ -1943,11 +1943,14 @@ export const App: React.FC = () => {
       };
     } catch (err: any) {
       console.error('Registration failed:', err);
-      const isAlreadyInUse = err?.message?.includes('already-in-use');
+      const isAlreadyInUse = err?.message?.includes('already-in-use') || err?.code === 'auth/email-already-in-use' || err?.message === 'USERNAME_IN_USE';
+      const isInvalidCred = err?.code === 'auth/invalid-credential' || err?.message?.includes('invalid-credential');
       return {
         success: false,
         message: isAlreadyInUse
-          ? (lang === 'th' ? 'ชื่อผู้ใช้นี้มีในระบบแล้ว กรุณาใช้ชื่ออื่น' : 'Username is already taken.')
+          ? (lang === 'th' ? 'ชื่อผู้ใช้นี้มีในระบบแล้ว หากคุณเป็นเจ้าของบัญชี กรุณาสลับไปที่แท็บ "เข้าสู่ระบบ" หรือใช้ชื่ออื่น' : 'This username is already registered. If this is your account, please switch to the "Login" tab or choose another username.')
+          : isInvalidCred
+          ? (lang === 'th' ? 'ชื่อผู้ใช้นี้มีในระบบแล้ว กรุณาเข้าสู่ระบบด้วยรหัสผ่านเดิม หรือติดต่อ Admin เพื่อรีเซ็ตรหัสผ่าน' : 'This account exists. Please log in with your password or contact Admin for a password reset.')
           : (err?.message || (lang === 'th' ? 'การลงทะเบียนล้มเหลว' : 'Registration failed'))
       };
     }
@@ -3615,18 +3618,41 @@ export const App: React.FC = () => {
       ? { ...updates, role: 'owner' as UserRole }
       : updates;
 
-    setUsers((prev) =>
-      prev.map((u) => {
+    let updatedUsersList: User[] = [];
+    setUsers((prev) => {
+      const updated = prev.map((u) => {
         if (u.id === userId) {
           const isOwnerU = u.id === 'user_owner_eloni' || u.role === 'owner' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni';
           const finalRole = isOwnerU ? 'owner' : (safeUpdates.role || u.role);
           return { ...u, ...safeUpdates, role: finalRole };
         }
         return u;
-      })
+      });
+      updatedUsersList = updated;
+      return updated;
+    });
+    setCachedUsers(updatedUsersList);
+
+    broadcastLiveState(
+      getFullBackupPayload({ users: updatedUsersList }),
+      currentUser?.inGameName || 'Admin'
     );
+
+    const googleConfig = getGoogleBackupConfig();
+    if (googleConfig.webAppUrl) {
+      triggerDebouncedAutoBackup(
+        getFullBackupPayload({ users: updatedUsersList }),
+        'Update Member',
+        true
+      );
+    }
+
     try {
       await updateUserDoc(userId, safeUpdates);
+      showToast(
+        lang === 'th' ? 'อัปเดตข้อมูลสมาชิกสำเร็จ' : 'Member updated successfully',
+        'info'
+      );
     } catch (err) {
       console.error('Failed to update member in Firestore:', err);
     }
@@ -3654,7 +3680,7 @@ export const App: React.FC = () => {
     }
 
     try {
-      await deleteUserDoc(userId);
+      await deleteUserDoc(userId, target?.username);
       showToast(
         lang === 'th'
           ? `ลบสมาชิก ${target?.inGameName || ''} สำเร็จ`
@@ -3713,15 +3739,16 @@ export const App: React.FC = () => {
     const reqClan = profileData?.clan;
 
     const targetUser = users.find((u) => u.id === userId) || currentUser;
-    if (targetUser) {
+    const isOwnerUser = userId === 'user_owner_eloni' || targetUser?.username?.toLowerCase() === 'eloni' || targetUser?.inGameName?.toLowerCase() === 'eloni' || targetUser?.role === 'owner';
+    const isAuthorized = currentUser?.role === 'owner' || currentUser?.role === 'admin';
+
+    if (targetUser && !isAuthorized) {
       const error = submissionError(targetUser, { ...targetUser, pendingStats: newStats,
         pendingSpiritEnhancements: newSpiritEnhancements, pendingClasses: reqClasses ?? targetUser.classes,
         pendingLevel: reqLevel ?? targetUser.level, pendingLegendClasses: reqLegendClasses ?? targetUser.legendClasses,
         pendingLegendAgathions: reqLegendAgathions ?? targetUser.legendAgathions, pendingStatScreenshotUrl: screenshotUrl }, statUpdateSettings);
       if (error) throw new Error(statMessage(error, lang));
     }
-    const isOwnerUser = userId === 'user_owner_eloni' || targetUser?.username?.toLowerCase() === 'eloni' || targetUser?.inGameName?.toLowerCase() === 'eloni' || targetUser?.role === 'owner';
-    const isAuthorized = currentUser?.role === 'owner' || currentUser?.role === 'admin';
 
     const safeRole: UserRole = isOwnerUser
       ? 'owner'

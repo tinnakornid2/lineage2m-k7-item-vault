@@ -364,7 +364,8 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
   app.delete("/api/users/:userId", requireRoles(['owner', 'admin']), async (req, res) => {
     try {
       const targetUserId = req.params.userId;
-      const result = await deleteManagedUser(res.locals.actor, targetUserId);
+      const targetUsername = typeof req.query.username === 'string' ? req.query.username : req.body?.username;
+      const result = await deleteManagedUser(res.locals.actor, targetUserId, targetUsername);
       if (!result.allowed) {
         const notFound = result.reason === 'USER_NOT_FOUND';
         return res.status(notFound ? 404 : 403).json({
@@ -799,8 +800,10 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
           if (!user) throw new Error('USER_NOT_FOUND');
           if (route === '/api/request-stat-update') {
             if (current.statUpdateSettings?.allowMemberUpdates === false && !['owner', 'admin'].includes(actor.role)) throw new Error('FORBIDDEN');
-            const error = submissionError(user, { ...user, ...updates }, current.statUpdateSettings);
-            if (error) throw new Error(error);
+            if (!['owner', 'admin'].includes(actor.role)) {
+              const error = submissionError(user, { ...user, ...updates }, current.statUpdateSettings);
+              if (error) throw new Error(error);
+            }
             updates.pendingPowerLevelRequestedAt = Date.now();
           }
           return mergeRelayData(current, scopeRelayInput(current, {
