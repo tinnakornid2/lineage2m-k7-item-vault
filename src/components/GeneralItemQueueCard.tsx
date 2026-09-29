@@ -251,6 +251,24 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     return groups;
   }, [sortedAllMembers, th]);
 
+  // Dynamically resolve member name, clan and powerLevel against current profile (allMembers)
+  const resolveMemberProfile = React.useCallback(
+    (member: { userId?: string; name?: string; clan?: string; powerLevel?: number }) => {
+      const profile = allMembers.find(
+        (u) =>
+          (member.userId && u.id === member.userId) ||
+          (member.name && u.inGameName && u.inGameName.trim().toLowerCase() === member.name.trim().toLowerCase())
+      );
+      return {
+        name: profile?.inGameName || member.name || '',
+        clan: cleanClanName(profile?.clan || member.clan || ''),
+        powerLevel: profile?.powerLevel ?? member.powerLevel ?? 0,
+        profile
+      };
+    },
+    [allMembers]
+  );
+
   // Form Reset / Open / Close
   const closeForm = () => {
     setShowAddForm(false);
@@ -1377,6 +1395,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
               </div>
 
               {pendingList.slice(0, 5).map((m, idx) => {
+                const resolvedM = resolveMemberProfile(m);
                 const isSelf = currentUser && ((m.userId && m.userId === currentUser.id) || (m.name && currentUser.inGameName && m.name.toLowerCase() === currentUser.inGameName.toLowerCase()));
                 return (
                   <div
@@ -1419,15 +1438,15 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                       </span>
                       <span
                         className={`font-semibold truncate min-w-0 flex-1 ${isSelf ? 'text-amber-200' : 'text-slate-200'}`}
-                        title={m.name}
+                        title={resolvedM.name}
                       >
-                        {m.name}
+                        {resolvedM.name}
                       </span>
                       <span
                         className="w-[64px] sm:w-[72px] text-right font-mono text-[10px] text-sky-400 tabular-nums shrink-0"
-                        title={m.powerLevel ? (th ? `⚡ ค่าพลัง: ${m.powerLevel.toLocaleString()}` : `⚡ Power: ${m.powerLevel.toLocaleString()}`) : (th ? 'ไม่ระบุค่าพลัง' : 'No power level')}
+                        title={resolvedM.powerLevel ? (th ? `⚡ ค่าพลัง: ${resolvedM.powerLevel.toLocaleString()}` : `⚡ Power: ${resolvedM.powerLevel.toLocaleString()}`) : (th ? 'ไม่ระบุค่าพลัง' : 'No power level')}
                       >
-                        {m.powerLevel ? `⚡${m.powerLevel.toLocaleString()}` : <span className="text-slate-600">-</span>}
+                        {resolvedM.powerLevel ? `⚡${resolvedM.powerLevel.toLocaleString()}` : <span className="text-slate-600">-</span>}
                       </span>
                       {item.isCraftGoal || item.maxRequestQuantity === 0 || m.requestedQuantity === 0 ? (
                         <span
@@ -2384,7 +2403,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                 return (
                   <div className="space-y-2">
                     {pendingMembers.map((member, index) => {
-                      const isCurrentUserMember = currentUser && (member.userId === currentUser.id || member.name === currentUser.inGameName);
+                      const resolvedMember = resolveMemberProfile(member);
+                      const isCurrentUserMember = currentUser && ((member.userId && member.userId === currentUser.id) || (member.name && currentUser.inGameName && member.name.toLowerCase() === currentUser.inGameName.toLowerCase()));
 
                       return (
                         <div
@@ -2424,11 +2444,11 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className={`font-bold text-xs sm:text-sm ${isCurrentUserMember ? 'text-amber-300' : 'text-slate-100'}`}>
-                                  {member.name}
+                                  {resolvedMember.name}
                                 </span>
-                                {member.clan && (
+                                {resolvedMember.clan && (
                                   <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700 font-semibold">
-                                    🛡️ {cleanClanName(member.clan)}
+                                    🛡️ {cleanClanName(resolvedMember.clan)}
                                   </span>
                                 )}
                                 <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold">
@@ -2566,17 +2586,20 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
                           <span>{th ? 'สมาชิกที่ได้รับไอเทมแล้ว' : 'Delivered Requesters'} ({deliveredMembers.length})</span>
                         </div>
                         <div className="space-y-1.5 opacity-75">
-                          {deliveredMembers.map((m) => (
-                            <div key={m.id} className="flex items-center justify-between p-2 rounded-lg bg-[#0a0d16] border border-slate-800 text-xs">
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-slate-300">{m.name}</span>
-                                {m.clan && <span className="text-[10px] text-slate-500">({cleanClanName(m.clan)})</span>}
+                          {deliveredMembers.map((m) => {
+                            const resolvedM = resolveMemberProfile(m);
+                            return (
+                              <div key={m.id} className="flex items-center justify-between p-2 rounded-lg bg-[#0a0d16] border border-slate-800 text-xs">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-slate-300">{resolvedM.name}</span>
+                                  {resolvedM.clan && <span className="text-[10px] text-slate-500">({cleanClanName(resolvedM.clan)})</span>}
+                                </div>
+                                <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                                  ✓ {th ? 'ส่งมอบเรียบร้อย' : 'Delivered'}
+                                </span>
                               </div>
-                              <span className="text-[10px] text-emerald-400 font-mono font-bold">
-                                ✓ {th ? 'ส่งมอบเรียบร้อย' : 'Delivered'}
-                              </span>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}

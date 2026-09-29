@@ -10,7 +10,7 @@ import {
   CheckCircle,
   ExternalLink
 } from 'lucide-react';
-import { Language, User, VaultItem, Claimant, OFFICIAL_CLASSES } from '../types';
+import { Language, User, VaultItem, Claimant, OFFICIAL_CLASSES, cleanClanName } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -254,8 +254,11 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
                     const matchedMember = allMembers.find(
                       (m) =>
                         (c.userId && m.id === c.userId) ||
-                        m.inGameName.toLowerCase() === c.inGameName.toLowerCase()
+                        (m.inGameName && c.inGameName && m.inGameName.toLowerCase() === c.inGameName.toLowerCase())
                     );
+                    const displayName = matchedMember?.inGameName || c.inGameName;
+                    const displayClan = cleanClanName(matchedMember?.clan || c.clan || '');
+                    const displayPower = matchedMember?.powerLevel ?? c.powerLevel ?? 0;
                     const cClasses = (matchedMember?.classes && matchedMember.classes.length > 0)
                       ? matchedMember.classes
                       : (matchedMember?.characterClass ? [matchedMember.characterClass] : (c.characterClass ? [c.characterClass] : []));
@@ -274,7 +277,7 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
                         </td>
                         <td className="py-2.5 px-3">
                           <div className="flex items-center gap-1.5 font-bold text-slate-100">
-                            <span>{c.inGameName}</span>
+                            <span>{displayName}</span>
                             {isCurrentUser && (
                               <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#d4af37]/20 border border-[#d4af37]/50 text-[#f5d77f] font-semibold">
                                 {lang === 'th' ? 'คุณ' : 'You'}
@@ -305,11 +308,11 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
                         </td>
                         <td className="py-2.5 px-3 text-slate-400">
                           <span className="px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700/60 text-[11px]">
-                            {c.clan}
+                            {displayClan || 'VoltZ'}
                           </span>
                         </td>
                         <td className="py-2.5 px-3 font-mono font-bold text-amber-300">
-                          ⚡ {(c.powerLevel || 0).toLocaleString()} PL
+                          ⚡ {displayPower.toLocaleString()} PL
                         </td>
                         <td className="py-2.5 px-3 text-slate-400 text-[11px] font-mono whitespace-nowrap">
                           {dateStr}

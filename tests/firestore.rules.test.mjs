@@ -108,7 +108,7 @@ test('new account can create only its own pending member profile', async () => {
 test('active member can read but cannot promote or verify itself', async () => {
   const db = testEnv.authenticatedContext('member-1').firestore();
   await assertSucceeds(getDoc(doc(db, 'items', 'item-1')));
-  await assertSucceeds(updateDoc(doc(db, 'users', 'member-1'), {
+  await assertFails(updateDoc(doc(db, 'users', 'member-1'), {
     pendingPowerLevel: 123456,
     pendingPowerLevelRequestedAt: Date.now()
   }));
@@ -184,4 +184,24 @@ test('client users cannot read or write protected secret settings', async () => 
 test('unknown collections remain denied even to owner', async () => {
   const db = testEnv.authenticatedContext('owner-1').firestore();
   await assertFails(setDoc(doc(db, 'unexpected', 'document'), { allowed: true }));
+});
+
+test('round settings are Owner-only and unapproved members cannot claim or self-approve', async () => {
+  const ownerDb = testEnv.authenticatedContext('owner-1').firestore();
+  const adminDb = testEnv.authenticatedContext('admin-1').firestore();
+  const memberDb = testEnv.authenticatedContext('member-1').firestore();
+  const openedAt = Date.now() - 1000;
+  const settings = { allowMemberUpdates: true, round: { id: 'test', active: true, openedAt, enforceAt: openedAt } };
+  await assertFails(setDoc(doc(adminDb, 'app_settings', 'stat_updates'), settings));
+  await assertSucceeds(setDoc(doc(ownerDb, 'app_settings', 'stat_updates'), settings));
+  const claim = { itemId: 'item-1', userId: 'member-1', inGameName: 'Member', clan: 'no-clan', powerLevel: 0, claimedAt: Date.now() };
+  await assertFails(setDoc(doc(memberDb, 'item_claims', 'item-1__member-1'), claim));
+  await assertFails(updateDoc(doc(memberDb, 'users', 'member-1'), { approvedStatRequestAt: Date.now(), statApprovalAt: Date.now() }));
+  await assertFails(updateDoc(doc(adminDb, 'items', 'item-1'), { distributedTo: { userId: 'member-1', name: 'Member' } }));
+  await assertSucceeds(updateDoc(doc(adminDb, 'items', 'item-1'), { name: 'Renamed Sword' }));
+  await assertSucceeds(setDoc(doc(adminDb, 'items', 'empty-item'), { name: 'New Sword', claimants: [], status: 'available' }));
+  await assertSucceeds(updateDoc(doc(adminDb, 'users', 'member-1'), { approvedStatRequestAt: openedAt - 1, statApprovalAt: Date.now() }));
+  await assertFails(setDoc(doc(memberDb, 'item_claims', 'item-1__member-1'), claim));
+  await assertSucceeds(updateDoc(doc(adminDb, 'users', 'member-1'), { approvedStatRequestAt: openedAt + 1, statApprovalAt: Date.now() }));
+  await assertSucceeds(setDoc(doc(memberDb, 'item_claims', 'item-1__member-1'), claim));
 });

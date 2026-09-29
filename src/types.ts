@@ -103,6 +103,7 @@ export interface User {
   statRejectionReason?: string;
   statRejectionAt?: number;
   statApprovalAt?: number;
+  approvedStatRequestAt?: number;
   lastStatUpdatedAt?: number;
   verified?: boolean;
   statHistory?: StatHistoryPoint[];
@@ -565,6 +566,7 @@ export interface AppNotification {
 }
 
 export interface StatUpdateSettings {
+  round?: { id: string; openedAt: number; enforceAt: number; active: boolean };
   allowMemberUpdates: boolean;
   lockedMessageTh?: string;
   lockedMessageEn?: string;
@@ -679,4 +681,3 @@ export function areUsersEqual(a: User | null | undefined, b: User | null | undef
     JSON.stringify(a.pendingClasses || []) === JSON.stringify(b.pendingClasses || [])
   );
 }
-

@@ -1,16 +1,23 @@
 export interface RelayActor { uid: string; role: string }
+import { validateStatPolicy } from './_statPolicy.ts';
 const ADMIN = ['owner', 'admin'];
 const PENDING_FIELDS = ['pendingPowerLevel', 'pendingPowerLevelRequestedAt', 'pendingStats',
   'pendingSpiritEnhancements', 'pendingStatScreenshotUrl', 'pendingClasses', 'pendingLevel',
   'pendingLegendClasses', 'pendingLegendAgathions'];
 
 // Clients send full snapshots. Only take the fields this authenticated actor may change.
-export function scopeRelayInput(base: any, incoming: any, actor: RelayActor): any {
+export function scopeRelayInput(base: any, incoming: any, actor: RelayActor, statSubmission = false): any {
+  validateStatPolicy(base, incoming);
   if (incoming.isReset && actor.role !== 'owner') throw new Error('FORBIDDEN_RESET');
   if (ADMIN.includes(actor.role)) {
     const data = structuredClone(incoming);
+    // Round changes require the dedicated Owner endpoint; stale snapshots cannot reopen a round.
+    data.statUpdateSettings = base.statUpdateSettings || { allowMemberUpdates: true };
     data.users = (data.users || []).map((user: any) => {
       const existing = (base.users || []).find((u: any) => u.id === user.id);
+      if (existing && !statSubmission && user.pendingPowerLevelRequestedAt) {
+        for (const key of PENDING_FIELDS) user[key] = existing[key] ?? null;
+      }
       const owner = existing?.role === 'owner' || user.id === 'user_owner_eloni';
       if (owner) return existing ? { ...existing, ...(actor.role === 'owner' ? user : {}), role: 'owner', status: 'active' } : undefined;
       if (actor.role === 'admin' && (existing?.role === 'admin' || user.role === 'owner' || user.role === 'admin')) return existing;
@@ -38,28 +45,66 @@ export function scopeRelayInput(base: any, incoming: any, actor: RelayActor): an
   const data: any = { users: [existing] };
   if (submitted) {
     const pending: any = {};
-    for (const key of PENDING_FIELDS) if (submitted[key] !== undefined) pending[key] = submitted[key];
+    for (const key of PENDING_FIELDS) {
+      if (submitted[key] !== undefined && (statSubmission || submitted.pendingPowerLevelRequestedAt === null)) pending[key] = submitted[key];
+    }
     data.users = [{ ...existing, ...pending, updatedAt: submitted.updatedAt || existing.updatedAt }];
   }
   data.vaultItems = (incoming.vaultItems || []).flatMap((item: any) => {
     const old = (base.vaultItems || []).find((v: any) => v.id === item.id);
-    if (!old || old.status === 'distributed' || old.distributedTo || Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
-    const own = (item.claimants || []).filter((c: any) => c.userId === actor.uid).map((c: any) => ({
-      userId: actor.uid, inGameName: existing.inGameName, clan: existing.clan,
-      powerLevel: existing.powerLevel || 0, claimedAt: c.claimedAt || Date.now()
+    if (!old || old.status === 'distributed' || old.distributedTo) return [];
+    const previous = (old.claimants || []).find((c: any) => c.userId === actor.uid || (existing.inGameName && c.inGameName?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase()));
+    if (!previous && Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
+    const own = (item.claimants || []).filter((c: any) => c.userId === actor.uid || (existing.inGameName && c.inGameName?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase())).map((c: any) => ({
+      userId: actor.uid,
+      inGameName: existing.inGameName || c.inGameName,
+      clan: existing.clan || c.clan,
+      powerLevel: Math.max(Number(c.powerLevel || 0), Number(existing.powerLevel || 0)),
+      claimedAt: c.claimedAt || previous?.claimedAt || Date.now()
     }));
-    return [{ ...old, claimants: [...(old.claimants || []).filter((c: any) => c.userId !== actor.uid), ...own], updatedAt: item.updatedAt || old.updatedAt }];
+    return [{
+      ...old,
+      claimants: [
+        ...(old.claimants || []).filter((c: any) => c.userId !== actor.uid && (!existing.inGameName || c.inGameName?.trim().toLowerCase() !== existing.inGameName.trim().toLowerCase())),
+        ...own
+      ],
+      updatedAt: item.updatedAt || old.updatedAt
+    }];
   });
   for (const key of ['generalItems', 'queueItems']) {
     data[key] = (incoming[key] || []).flatMap((item: any) => {
       const old = (base[key] || []).find((v: any) => v.id === item.id);
-      if (!old || old.allowMemberQueue === false || Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
-      const own = (item.queueList || []).filter((m: any) => m.userId === actor.uid).map((m: any) => {
-        const previous = (old.queueList || []).find((q: any) => q.userId === actor.uid);
-        return previous || { ...m, name: existing.inGameName, clan: existing.clan, powerLevel: existing.powerLevel || 0,
-          status: 'pending', receivedQuantity: 0 };
+      if (!old || old.allowMemberQueue === false) return [];
+      const previous = (old.queueList || []).find((q: any) => q.userId === actor.uid || (existing.inGameName && q.name?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase()));
+      if (!previous && Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
+      const own = (item.queueList || []).filter((m: any) => m.userId === actor.uid || (existing.inGameName && m.name?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase())).map((m: any) => {
+        if (previous) {
+          return {
+            ...previous,
+            userId: actor.uid,
+            name: existing.inGameName || previous.name,
+            clan: existing.clan || previous.clan,
+            powerLevel: Math.max(Number(previous.powerLevel || 0), Number(existing.powerLevel || 0))
+          };
+        }
+        return {
+          ...m,
+          userId: actor.uid,
+          name: existing.inGameName || m.name,
+          clan: existing.clan || m.clan,
+          powerLevel: Math.max(Number(m.powerLevel || 0), Number(existing.powerLevel || 0)),
+          status: 'pending',
+          receivedQuantity: 0
+        };
       });
-      return [{ ...old, queueList: [...(old.queueList || []).filter((m: any) => m.userId !== actor.uid), ...own], updatedAt: item.updatedAt || old.updatedAt }];
+      return [{
+        ...old,
+        queueList: [
+          ...(old.queueList || []).filter((m: any) => m.userId !== actor.uid && (!existing.inGameName || m.name?.trim().toLowerCase() !== existing.inGameName.trim().toLowerCase())),
+          ...own
+        ],
+        updatedAt: item.updatedAt || old.updatedAt
+      }];
     });
   }
   data.syncMeta = {};

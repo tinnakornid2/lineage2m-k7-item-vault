@@ -189,7 +189,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.59-deploy-lockfile-fix';
+const CACHE_SCHEMA_VERSION = '2.11.1-stat-update-rounds';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -1286,15 +1286,12 @@ export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: Ge
         if (key) queueMap.set(key, m);
       }
 
-      // 2. Only concurrent new joins from older (joined within last 10s of both revisions)
+      // 2. Preserve unremoved members from older if not tombstoned
       for (const m of (older.queueList || [])) {
         if (!m || isQueueMemberRemoved(id, m)) continue;
         const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
         if (key && !queueMap.has(key)) {
-          const joinedAt = Number(m.joinedAt || 0);
-          if (joinedAt > (olderRevision - 10000) && joinedAt > (incomingRevision - 10000)) {
-            queueMap.set(key, m);
-          }
+          queueMap.set(key, m);
         }
       }
 
@@ -1661,10 +1658,7 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
         if (!m || isQueueMemberRemoved(id, m)) continue;
         const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
         if (key && !queueMap.has(key)) {
-          const joinedAt = Number(m.joinedAt || 0);
-          if (joinedAt > (localRevision - 10000) && joinedAt > (incomingRevision - 10000)) {
-            queueMap.set(key, m);
-          }
+          queueMap.set(key, m);
         }
       }
 
@@ -2357,13 +2351,9 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
         items.push(item);
       });
       const cached = getCachedVaultItems();
-      const freshLocalItems = cached.filter((c) => {
-        const age = Date.now() - (c.createdAt || 0);
-        return age >= 0 && age < 5000 && !items.some((i) => i.id === c.id);
-      });
-      const combinedItems = [...freshLocalItems, ...items];
-      setCachedVaultItems(combinedItems);
-      latestItems = combinedItems;
+      const mergedList = mergeVaultItems(cached, items);
+      setCachedVaultItems(mergedList);
+      latestItems = mergedList;
       emitCombinedItems();
     },
     (err) => {

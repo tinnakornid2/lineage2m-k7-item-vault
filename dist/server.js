@@ -1,6 +1,35 @@
 // api/_server.ts
 import express from "express";
 
+// src/utils/statRound.ts
+function roundApproved(user, settings) {
+  const round = settings?.round;
+  return !round?.active || Boolean(user && Number(user.approvedStatRequestAt || 0) >= round.openedAt && Number(user.statApprovalAt || 0) >= round.openedAt);
+}
+function claimBlocked(user, settings, now = Date.now()) {
+  return Boolean(settings?.round?.active && now >= settings.round.enforceAt && !roundApproved(user, settings));
+}
+var numberMap = (value = {}) => Object.entries(value || {}).map(([k, v]) => [k, Number(v) || 0]).filter(([, v]) => v !== 0).sort(([a], [b]) => a.localeCompare(b));
+function statSignature(user, pending = false) {
+  return JSON.stringify([
+    numberMap(pending ? user.pendingStats ?? user.stats : user.stats),
+    numberMap(pending ? user.pendingSpiritEnhancements ?? user.spiritEnhancements : user.spiritEnhancements),
+    [...pending ? user.pendingClasses ?? user.classes ?? [] : user.classes ?? []].sort(),
+    Number((pending ? user.pendingLevel ?? user.level : user.level) || 0),
+    Number((pending ? user.pendingLegendClasses ?? user.legendClasses : user.legendClasses) || 0),
+    Number((pending ? user.pendingLegendAgathions ?? user.legendAgathions : user.legendAgathions) || 0)
+  ]);
+}
+function submissionError(existing, submitted, settings) {
+  const pendingAt = Number(existing.pendingPowerLevelRequestedAt || 0);
+  const pending = pendingAt > Math.max(Number(existing.statApprovalAt || 0), Number(existing.statRejectionAt || 0));
+  if (pending && (!settings?.round?.active || pendingAt >= settings.round.openedAt) && statSignature(existing, true) === statSignature(submitted, true)) return "DUPLICATE_PENDING";
+  const needsRound = Boolean(settings?.round?.active && !roundApproved(existing, settings));
+  if (needsRound && (!submitted.pendingStatScreenshotUrl || submitted.pendingStatScreenshotUrl === existing.statScreenshotUrl || pendingAt < settings.round.openedAt && submitted.pendingStatScreenshotUrl === existing.pendingStatScreenshotUrl)) return "ROUND_SCREENSHOT_REQUIRED";
+  if (!needsRound && existing.statApprovalAt && statSignature(existing) === statSignature(submitted, true)) return "UNCHANGED_STATS";
+  return null;
+}
+
 // api/_relayStore.ts
 import { gzipSync, gunzipSync } from "node:zlib";
 
@@ -533,6 +562,38 @@ var FirestoreRelayStore = class {
   }
 };
 
+// api/_statPolicy.ts
+function validateStatPolicy(base, incoming) {
+  const settings = base.statUpdateSettings;
+  const check = (record) => {
+    const user = (base.users || []).find((u) => record.userId ? u.id === record.userId : u.inGameName === (record.name || record.inGameName));
+    if (claimBlocked(user, settings)) throw new Error("STAT_ROUND_REQUIRED");
+  };
+  for (const key of ["vaultItems", "generalItems", "queueItems"]) {
+    for (const item of incoming[key] || []) {
+      const old = (base[key] || []).find((v) => v.id === item.id);
+      for (const c of item.claimants || []) if (!(old?.claimants || []).some((v) => v.userId === c.userId)) check(c);
+      if (item.distributedTo && (!old?.distributedTo || item.distributedTo.userId !== old.distributedTo.userId || item.distributedTo.name !== old.distributedTo.name || item.distributedTo.distributedAt !== old.distributedTo.distributedAt)) check(typeof item.distributedTo === "string" ? { name: item.distributedTo } : item.distributedTo);
+      if (item.status === "distributed" && old?.status !== "distributed" && !item.distributedTo) check({});
+      for (const q of item.queueList || []) {
+        const previous = (old?.queueList || []).find((v) => v.id === q.id);
+        if (!previous || q.userId !== previous.userId || q.name !== previous.name || Number(q.requestedQuantity || 0) > Number(previous.requestedQuantity || 0) || Number(q.receivedQuantity || 0) > Number(previous.receivedQuantity || 0) || ["received", "completed"].includes(q.status) && previous.status !== q.status) check(q);
+      }
+      for (const receipt of item.receiptHistory || []) {
+        const previous = (old?.receiptHistory || []).find((v) => v.id === receipt.id);
+        if (!previous || receipt.userId !== previous.userId || receipt.name !== previous.name || Number(receipt.quantity || 0) > Number(previous.quantity || 0) || receipt.deliveredAt !== previous.deliveredAt) check(receipt);
+      }
+    }
+  }
+  for (const user of incoming.users || []) {
+    const old = (base.users || []).find((u) => u.id === user.id);
+    if (!old || !user.pendingPowerLevelRequestedAt || user.pendingPowerLevelRequestedAt <= Number(old.pendingPowerLevelRequestedAt || 0)) continue;
+    if (user.pendingPowerLevelRequestedAt <= Math.max(old.statApprovalAt || 0, old.statRejectionAt || 0)) continue;
+    const error = submissionError(old, user, settings);
+    if (error) throw new Error(error);
+  }
+}
+
 // api/_relayAccess.ts
 var ADMIN = ["owner", "admin"];
 var PENDING_FIELDS = [
@@ -546,12 +607,17 @@ var PENDING_FIELDS = [
   "pendingLegendClasses",
   "pendingLegendAgathions"
 ];
-function scopeRelayInput(base, incoming, actor) {
+function scopeRelayInput(base, incoming, actor, statSubmission = false) {
+  validateStatPolicy(base, incoming);
   if (incoming.isReset && actor.role !== "owner") throw new Error("FORBIDDEN_RESET");
   if (ADMIN.includes(actor.role)) {
     const data2 = structuredClone(incoming);
+    data2.statUpdateSettings = base.statUpdateSettings || { allowMemberUpdates: true };
     data2.users = (data2.users || []).map((user) => {
       const existing2 = (base.users || []).find((u) => u.id === user.id);
+      if (existing2 && !statSubmission && user.pendingPowerLevelRequestedAt) {
+        for (const key of PENDING_FIELDS) user[key] = existing2[key] ?? null;
+      }
       const owner = existing2?.role === "owner" || user.id === "user_owner_eloni";
       if (owner) return existing2 ? { ...existing2, ...actor.role === "owner" ? user : {}, role: "owner", status: "active" } : void 0;
       if (actor.role === "admin" && (existing2?.role === "admin" || user.role === "owner" || user.role === "admin")) return existing2;
@@ -589,37 +655,66 @@ function scopeRelayInput(base, incoming, actor) {
   const data = { users: [existing] };
   if (submitted) {
     const pending = {};
-    for (const key of PENDING_FIELDS) if (submitted[key] !== void 0) pending[key] = submitted[key];
+    for (const key of PENDING_FIELDS) {
+      if (submitted[key] !== void 0 && (statSubmission || submitted.pendingPowerLevelRequestedAt === null)) pending[key] = submitted[key];
+    }
     data.users = [{ ...existing, ...pending, updatedAt: submitted.updatedAt || existing.updatedAt }];
   }
   data.vaultItems = (incoming.vaultItems || []).flatMap((item) => {
     const old = (base.vaultItems || []).find((v) => v.id === item.id);
-    if (!old || old.status === "distributed" || old.distributedTo || Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
-    const own = (item.claimants || []).filter((c) => c.userId === actor.uid).map((c) => ({
+    if (!old || old.status === "distributed" || old.distributedTo) return [];
+    const previous = (old.claimants || []).find((c) => c.userId === actor.uid || existing.inGameName && c.inGameName?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase());
+    if (!previous && Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
+    const own = (item.claimants || []).filter((c) => c.userId === actor.uid || existing.inGameName && c.inGameName?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase()).map((c) => ({
       userId: actor.uid,
-      inGameName: existing.inGameName,
-      clan: existing.clan,
-      powerLevel: existing.powerLevel || 0,
-      claimedAt: c.claimedAt || Date.now()
+      inGameName: existing.inGameName || c.inGameName,
+      clan: existing.clan || c.clan,
+      powerLevel: Math.max(Number(c.powerLevel || 0), Number(existing.powerLevel || 0)),
+      claimedAt: c.claimedAt || previous?.claimedAt || Date.now()
     }));
-    return [{ ...old, claimants: [...(old.claimants || []).filter((c) => c.userId !== actor.uid), ...own], updatedAt: item.updatedAt || old.updatedAt }];
+    return [{
+      ...old,
+      claimants: [
+        ...(old.claimants || []).filter((c) => c.userId !== actor.uid && (!existing.inGameName || c.inGameName?.trim().toLowerCase() !== existing.inGameName.trim().toLowerCase())),
+        ...own
+      ],
+      updatedAt: item.updatedAt || old.updatedAt
+    }];
   });
   for (const key of ["generalItems", "queueItems"]) {
     data[key] = (incoming[key] || []).flatMap((item) => {
       const old = (base[key] || []).find((v) => v.id === item.id);
-      if (!old || old.allowMemberQueue === false || Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
-      const own = (item.queueList || []).filter((m) => m.userId === actor.uid).map((m) => {
-        const previous = (old.queueList || []).find((q) => q.userId === actor.uid);
-        return previous || {
+      if (!old || old.allowMemberQueue === false) return [];
+      const previous = (old.queueList || []).find((q) => q.userId === actor.uid || existing.inGameName && q.name?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase());
+      if (!previous && Number(old.minPowerLevel || 0) > Number(existing.powerLevel || 0)) return [];
+      const own = (item.queueList || []).filter((m) => m.userId === actor.uid || existing.inGameName && m.name?.trim().toLowerCase() === existing.inGameName.trim().toLowerCase()).map((m) => {
+        if (previous) {
+          return {
+            ...previous,
+            userId: actor.uid,
+            name: existing.inGameName || previous.name,
+            clan: existing.clan || previous.clan,
+            powerLevel: Math.max(Number(previous.powerLevel || 0), Number(existing.powerLevel || 0))
+          };
+        }
+        return {
           ...m,
-          name: existing.inGameName,
-          clan: existing.clan,
-          powerLevel: existing.powerLevel || 0,
+          userId: actor.uid,
+          name: existing.inGameName || m.name,
+          clan: existing.clan || m.clan,
+          powerLevel: Math.max(Number(m.powerLevel || 0), Number(existing.powerLevel || 0)),
           status: "pending",
           receivedQuantity: 0
         };
       });
-      return [{ ...old, queueList: [...(old.queueList || []).filter((m) => m.userId !== actor.uid), ...own], updatedAt: item.updatedAt || old.updatedAt }];
+      return [{
+        ...old,
+        queueList: [
+          ...(old.queueList || []).filter((m) => m.userId !== actor.uid && (!existing.inGameName || m.name?.trim().toLowerCase() !== existing.inGameName.trim().toLowerCase())),
+          ...own
+        ],
+        updatedAt: item.updatedAt || old.updatedAt
+      }];
     });
   }
   data.syncMeta = {};
@@ -1592,8 +1687,45 @@ async function createApp(options = {}) {
     }
   });
   const writeRoles = ["owner", "admin", "manager", "party_leader", "member"];
+  app.post("/api/stat-update-settings", requireRoles(["owner"]), async (req, res) => {
+    if (typeof req.body.allowMemberUpdates !== "boolean") return res.status(400).json({ success: false, error: "INVALID_SETTINGS" });
+    try {
+      const snapshot = await commitRelay(null, (current) => {
+        current.statUpdateSettings = {
+          ...current.statUpdateSettings,
+          allowMemberUpdates: req.body.allowMemberUpdates,
+          updatedAt: Date.now(),
+          updatedBy: res.locals.actor.uid
+        };
+        return current;
+      });
+      res.json({ success: true, settings: snapshot.data.statUpdateSettings });
+    } catch {
+      res.status(503).json({ success: false, error: "SETTINGS_SAVE_FAILED" });
+    }
+  });
+  app.post("/api/stat-round", requireRoles(["owner"]), async (req, res) => {
+    try {
+      const { enforceAt, close } = req.body;
+      if (close !== true && (!Number.isFinite(enforceAt) || enforceAt <= 0)) return res.status(400).json({ success: false, error: "INVALID_DATE" });
+      const snapshot = await commitRelay(null, (current) => {
+        const now = Date.now();
+        current.statUpdateSettings = {
+          ...current.statUpdateSettings,
+          allowMemberUpdates: true,
+          updatedAt: now,
+          updatedBy: res.locals.actor.uid,
+          round: close === true ? { ...current.statUpdateSettings?.round || {}, active: false } : { id: `round_${now}`, openedAt: now, enforceAt, active: true }
+        };
+        return current;
+      });
+      res.json({ success: true, settings: snapshot.data.statUpdateSettings });
+    } catch {
+      res.status(503).json({ success: false, error: "ROUND_SAVE_FAILED" });
+    }
+  });
   const failWrite = (res, error) => res.status(
-    /FORBIDDEN|NOT_ACTIVE|POWER_REQUIRED/.test(error?.message || "") ? 403 : /NOT_FOUND|DISTRIBUTED|INVALID/.test(error?.message || "") ? 400 : 503
+    /FORBIDDEN|NOT_ACTIVE|POWER_REQUIRED|STAT_ROUND_REQUIRED/.test(error?.message || "") ? 403 : /NOT_FOUND|DISTRIBUTED|INVALID|DUPLICATE|UNCHANGED|SCREENSHOT_REQUIRED/.test(error?.message || "") ? 400 : 503
   ).json({ success: false, persisted: false, error: error?.message || "CENTRAL_WRITE_FAILED" });
   app.post("/api/claim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
@@ -1602,14 +1734,22 @@ async function createApp(options = {}) {
       const actor = res.locals.actor;
       if (!["owner", "admin"].includes(actor.role) && claimant.userId !== actor.uid) throw new Error("FORBIDDEN");
       const snapshot = await commitRelay(null, (current) => {
-        const member = (current.users || []).find((u) => u.id === claimant.userId);
+        const member = (current.users || []).find((u) => u.id === claimant.userId || claimant.userId === actor.uid && (u.id === actor.uid || actor.role === "owner" && u.id === "user_owner_eloni"));
         if (!member || member.status !== "active") throw new Error("NOT_ACTIVE");
+        if (claimBlocked(member, current.statUpdateSettings)) throw new Error("STAT_ROUND_REQUIRED");
         const item = (current.vaultItems || []).find((i) => i.id === itemId);
         if (!item) throw new Error("ITEM_NOT_FOUND");
         if (item.status === "distributed" || item.distributedTo) throw new Error("ITEM_DISTRIBUTED");
         if (!["owner", "admin"].includes(actor.role) && Number(member.powerLevel || 0) < Number(item.minPowerLevel || 0)) throw new Error("POWER_REQUIRED");
-        const previous = (item.claimants || []).find((c) => c.userId === member.id);
-        if (previous) return current;
+        const previous = (item.claimants || []).find((c) => c.userId === member.id || member.inGameName && c.inGameName?.trim().toLowerCase() === member.inGameName.trim().toLowerCase());
+        if (previous) {
+          previous.userId = member.id;
+          previous.inGameName = member.inGameName;
+          previous.clan = member.clan;
+          previous.powerLevel = Math.max(Number(previous.powerLevel || 0), Number(member.powerLevel || 0));
+          item.updatedAt = Date.now();
+          return current;
+        }
         item.claimants = [...item.claimants || [], {
           userId: member.id,
           inGameName: member.inGameName,
@@ -1639,7 +1779,7 @@ async function createApp(options = {}) {
         const item = (current.vaultItems || []).find((i) => i.id === itemId);
         if (!item) throw new Error("ITEM_NOT_FOUND");
         const now = Date.now();
-        const removed = (item.claimants || []).filter((c) => userId ? c.userId === userId : c.inGameName === inGameName);
+        const removed = (item.claimants || []).filter((c) => userId ? c.userId === userId || inGameName && c.inGameName?.trim().toLowerCase() === inGameName.trim().toLowerCase() : inGameName && c.inGameName?.trim().toLowerCase() === inGameName.trim().toLowerCase());
         item.claimants = (item.claimants || []).filter((c) => !removed.includes(c));
         item.updatedAt = now;
         current.syncMeta ||= {};
@@ -1685,11 +1825,23 @@ async function createApp(options = {}) {
         const snapshot = await commitRelay(null, (current) => {
           const user = (current.users || []).find((u) => u.id === userId);
           if (!user) throw new Error("USER_NOT_FOUND");
+          if (route === "/api/request-stat-update") {
+            if (current.statUpdateSettings?.allowMemberUpdates === false && !["owner", "admin"].includes(actor.role)) throw new Error("FORBIDDEN");
+            const error = submissionError(user, { ...user, ...updates }, current.statUpdateSettings);
+            if (error) throw new Error(error);
+            updates.pendingPowerLevelRequestedAt = Date.now();
+          }
           return mergeRelayData(current, scopeRelayInput(current, {
             users: [{ ...user, ...updates, id: user.id, updatedAt: Date.now() }]
-          }, actor));
+          }, actor, route === "/api/request-stat-update"));
         });
-        res.json({ success: true, persisted: true, version: snapshot.version, userId });
+        res.json({
+          success: true,
+          persisted: true,
+          version: snapshot.version,
+          userId,
+          requestedAt: snapshot.data.users.find((u) => u.id === userId)?.pendingPowerLevelRequestedAt
+        });
       } catch (error) {
         failWrite(res, error);
       }

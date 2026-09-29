@@ -172,6 +172,9 @@ import { NotificationModal } from './components/NotificationModal';
 import { RequestPowerLevelModal } from './components/RequestPowerLevelModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { GeminiKeyModal } from './components/GeminiKeyModal';
+import { StatRoundPanel } from './components/StatRoundPanel';
+import { claimBlocked, submissionError, statMessage } from './utils/statRound';
+import { centralApi } from './services/centralApi';
 import { GoogleDriveBackupModal } from './components/GoogleDriveBackupModal';
 import {
   triggerDebouncedAutoBackup,
@@ -2282,6 +2285,7 @@ export const App: React.FC = () => {
       return;
     }
     const nextSettings: StatUpdateSettings = {
+      ...statUpdateSettings,
       allowMemberUpdates: allow,
       updatedAt: Date.now(),
       updatedBy: currentUser?.inGameName || currentUser?.username || 'Owner'
@@ -2289,7 +2293,10 @@ export const App: React.FC = () => {
     setStatUpdateSettings(nextSettings);
     sounds.playClick();
     try {
-      await saveStatUpdateSettingsDoc(nextSettings);
+      const response = await centralApi('/api/stat-update-settings', { method: 'POST', body: JSON.stringify({ allowMemberUpdates: allow }) });
+      const result = await response.json();
+      setStatUpdateSettings(result.settings);
+      await saveStatUpdateSettingsDoc(result.settings);
       sounds.playSuccess();
       showToast(
         allow
@@ -2304,12 +2311,23 @@ export const App: React.FC = () => {
   };
 
   // Vault Items Handlers
+  const checkRoundRecipient = (recipient: { userId?: string; name?: string; inGameName?: string }) => {
+    const user = users.find(u => recipient.userId ? u.id === recipient.userId : u.inGameName === (recipient.name || recipient.inGameName));
+    if (claimBlocked(user, statUpdateSettings)) throw new Error(statMessage('STAT_ROUND_REQUIRED', lang));
+  };
+  const checkRoundQueue = (previous: QueueMember[], next: QueueMember[]) => {
+    for (const member of next) {
+      const old = previous.find(q => q.id === member.id);
+      if (!old || member.userId !== old.userId || member.name !== old.name || Number(member.requestedQuantity || 0) > Number(old.requestedQuantity || 0) || Number(member.receivedQuantity || 0) > Number(old.receivedQuantity || 0) || (member.status === 'received' && old.status !== 'received')) checkRoundRecipient(member);
+    }
+  };
   const handleCreateVaultItem = async (
     itemData: Omit<VaultItem, 'id' | 'createdAt' | 'status' | 'claimants'>,
     directDistribution?: DirectDistributionPayload
   ) => {
     try {
       const isDirectDistribute = Boolean(directDistribution && directDistribution.recipient);
+      if (directDistribution?.recipient) checkRoundRecipient(directDistribution.recipient);
       const isFree = !itemData.price || itemData.price === 0;
       const initialPaymentStatus = isFree ? 'paid' : (directDistribution?.paymentStatus || 'pending');
       const recName = directDistribution?.recipient?.name || directDistribution?.recipient?.inGameName || 'Member';
@@ -2485,6 +2503,10 @@ export const App: React.FC = () => {
 
   // Claim Item Handler (Member clicks claim on Dashboard)
   const handleClaimItem = async (itemId: string) => {
+    if (claimBlocked(currentUser, statUpdateSettings)) {
+      showToast(statMessage('STAT_ROUND_REQUIRED', lang), 'warning');
+      return;
+    }
     if (!currentUser) {
       setShowAuthModal(true);
       return;
@@ -2585,9 +2607,8 @@ export const App: React.FC = () => {
     );
 
     // Call server claim endpoint to persist via Admin SDK asynchronously
-    fetch('/api/claim-vault-item', {
+    centralApi('/api/claim-vault-item', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ itemId, claimant: newClaimant })
     }).catch((e) => console.warn('claim-vault-item endpoint notice:', e));
 
@@ -2675,9 +2696,8 @@ export const App: React.FC = () => {
     );
 
     // Call server unclaim endpoint asynchronously
-    fetch('/api/unclaim-vault-item', {
+    centralApi('/api/unclaim-vault-item', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ itemId, userId: userIdToRemove, inGameName: inGameNameToRemove })
     }).catch((e) => console.warn('unclaim-vault-item endpoint notice:', e));
 
@@ -2745,6 +2765,7 @@ export const App: React.FC = () => {
   ) => {
     try {
       const targetItem = vaultItems.find((i) => i.id === itemId);
+      checkRoundRecipient(recipient);
       const isNotFree = Boolean(targetItem && targetItem.price > 0);
       const initialPaymentStatus: 'pending' | 'paid' = isNotFree ? 'pending' : 'paid';
 
@@ -2981,6 +3002,8 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateQueueMembers = async (queueId: string, members: QueueMember[]) => {
+    const previous = queueItems.find(q => q.id === queueId)?.queueList || [];
+    checkRoundQueue(previous, members);
     // 1. Optimistic UI update immediately
     const now = Date.now();
     const nextQueues = queueItems.map((q) => (q.id === queueId ? { ...q, queueList: members, updatedAt: now } : q));
@@ -2993,9 +3016,8 @@ export const App: React.FC = () => {
     );
 
     // 2. Persist in Firestore & background serverless endpoint
-    fetch('/api/update-boss-queue', {
+    centralApi('/api/update-boss-queue', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ queueId, queueList: members })
     }).catch(() => {});
 
@@ -3137,6 +3159,11 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateGeneralItem = async (itemId: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => {
+    const previous = generalItems.find(item => item.id === itemId);
+    if (updates.queueList) checkRoundQueue(previous?.queueList || [], updates.queueList);
+    for (const receipt of updates.receiptHistory || []) {
+      if (!previous?.receiptHistory?.some(r => r.id === receipt.id)) checkRoundRecipient(receipt);
+    }
     const now = Date.now();
     const fullUpdates = { ...updates, updatedAt: now };
 
@@ -3162,9 +3189,8 @@ export const App: React.FC = () => {
 
     // 5. Background serverless endpoint if queueList was modified
     if (updates.queueList) {
-      fetch('/api/update-general-item-queue', {
+      centralApi('/api/update-general-item-queue', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemId, queueList: updates.queueList })
       }).catch(() => {});
     }
@@ -3676,7 +3702,7 @@ export const App: React.FC = () => {
       clan?: string;
     }
   ) => {
-    const timestamp = Date.now();
+    let timestamp = Date.now();
     const reqClasses = profileData?.classes;
     const reqLevel = profileData?.level;
     const reqLegendClasses = profileData?.legendClasses;
@@ -3687,6 +3713,13 @@ export const App: React.FC = () => {
     const reqClan = profileData?.clan;
 
     const targetUser = users.find((u) => u.id === userId) || currentUser;
+    if (targetUser) {
+      const error = submissionError(targetUser, { ...targetUser, pendingStats: newStats,
+        pendingSpiritEnhancements: newSpiritEnhancements, pendingClasses: reqClasses ?? targetUser.classes,
+        pendingLevel: reqLevel ?? targetUser.level, pendingLegendClasses: reqLegendClasses ?? targetUser.legendClasses,
+        pendingLegendAgathions: reqLegendAgathions ?? targetUser.legendAgathions, pendingStatScreenshotUrl: screenshotUrl }, statUpdateSettings);
+      if (error) throw new Error(statMessage(error, lang));
+    }
     const isOwnerUser = userId === 'user_owner_eloni' || targetUser?.username?.toLowerCase() === 'eloni' || targetUser?.inGameName?.toLowerCase() === 'eloni' || targetUser?.role === 'owner';
     const isAuthorized = currentUser?.role === 'owner' || currentUser?.role === 'admin';
 
@@ -3695,6 +3728,18 @@ export const App: React.FC = () => {
       : (isAuthorized && reqRole ? reqRole : (targetUser?.role || 'member'));
     const safeStatus: UserStatus = isAuthorized && reqStatus ? reqStatus : (targetUser?.status || 'active');
     const safeClan: string = isAuthorized && reqClan ? reqClan : (targetUser?.clan || 'VoltZ');
+
+    try {
+      const response = await centralApi('/api/request-stat-update', { method: 'POST', body: JSON.stringify({ userId, updates: {
+        pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp, pendingStats: newStats,
+        pendingSpiritEnhancements: newSpiritEnhancements, pendingStatScreenshotUrl: screenshotUrl || null,
+        pendingClasses: reqClasses ?? targetUser?.classes ?? [], pendingLevel: reqLevel ?? targetUser?.level ?? 0,
+        pendingLegendClasses: reqLegendClasses ?? targetUser?.legendClasses ?? 0,
+        pendingLegendAgathions: reqLegendAgathions ?? targetUser?.legendAgathions ?? 0
+      } }) });
+      const result = await response.json();
+      timestamp = result.requestedAt;
+    } catch (error) { throw new Error(statMessage(error instanceof Error ? error.message : '', lang)); }
 
     const updatedUsers = users.map((u) =>
       u.id === userId
@@ -3787,13 +3832,6 @@ export const App: React.FC = () => {
 
       await updateUserDoc(userId, docUpdates);
 
-      // Background call to dedicated endpoint for immediate Admin SDK persistence & SSE broadcast
-      fetch('/api/request-stat-update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, updates: docUpdates })
-      }).catch(() => {});
-
       showToast(
         lang === 'th'
           ? 'ส่งคำขออัปเดตสเตตัสและค่าพลังเรียบร้อยแล้ว รอการอนุมัติ'
@@ -3812,6 +3850,7 @@ export const App: React.FC = () => {
   const handleApproveStatUpdate = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
     if (!target) return;
+    if (!['owner', 'admin'].includes(currentUser?.role || '') || !target.pendingPowerLevelRequestedAt) return;
 
     const approvedPower = typeof target.pendingPowerLevel === 'number'
       ? target.pendingPowerLevel
@@ -3883,6 +3922,7 @@ export const App: React.FC = () => {
             statRejectionReason: null,
             statRejectionAt: null,
             statApprovalAt: now,
+            approvedStatRequestAt: target.pendingPowerLevelRequestedAt,
             updatedAt: now
           }
         : u
@@ -3917,6 +3957,7 @@ export const App: React.FC = () => {
               statRejectionReason: null,
               statRejectionAt: null,
               statApprovalAt: now,
+              approvedStatRequestAt: target.pendingPowerLevelRequestedAt,
               updatedAt: now
             }
           : null
@@ -3957,15 +3998,15 @@ export const App: React.FC = () => {
       statRejectionReason: null,
       statRejectionAt: null,
       statApprovalAt: now,
+      approvedStatRequestAt: target.pendingPowerLevelRequestedAt,
       updatedAt: now
     };
 
     try {
       await updateUserDoc(userId, approveUpdates);
 
-      fetch('/api/update-user-stats', {
+      centralApi('/api/update-user-stats', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, updates: approveUpdates })
       }).catch(() => {});
 
@@ -4059,9 +4100,8 @@ export const App: React.FC = () => {
     try {
       await updateUserDoc(userId, rejectUpdates);
 
-      fetch('/api/update-user-stats', {
+      centralApi('/api/update-user-stats', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, updates: rejectUpdates })
       }).catch(() => {});
 
@@ -4230,9 +4270,8 @@ export const App: React.FC = () => {
     try {
       await updateUserDoc(userId, cancelUpdates);
 
-      fetch('/api/update-user-stats', {
+      centralApi('/api/update-user-stats', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, updates: cancelUpdates })
       }).catch(() => {});
 
@@ -4474,6 +4513,19 @@ export const App: React.FC = () => {
         />
 
         <main className="flex-1 w-full max-w-full 2xl:max-w-[1920px] mx-auto px-2.5 sm:px-4 md:px-6 lg:px-7 py-3 sm:py-5 min-w-0 transition-all">
+          {statUpdateSettings.round?.active && currentUser && <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-950/60 p-3 text-amber-100">
+            {lang === 'th' ? 'รอบอัปเดตสเตตัส — เริ่มบังคับอนุมัติก่อนเคลม: ' : 'Stat update round — approval required for claims from: '}
+            {new Date(statUpdateSettings.round.enforceAt).toLocaleString(lang === 'th' ? 'th-TH' : 'en-US')}
+            <button className="ml-3 underline" onClick={() => setActiveTab('my_stats')}>{lang === 'th' ? 'อัปเดตสเตตัส' : 'Update stats'}</button>
+            {claimBlocked(currentUser, statUpdateSettings) && <p>{statMessage('STAT_ROUND_REQUIRED', lang)}</p>}
+          </div>}
+          {activeTab === 'stat_approvals' && isOwner && <StatRoundPanel users={users} settings={statUpdateSettings} lang={lang} onChange={async enforceAt => {
+            const response = await centralApi('/api/stat-round', { method: 'POST', body: JSON.stringify(enforceAt === null ? { close: true } : { enforceAt }) });
+            const { settings } = await response.json();
+            setStatUpdateSettings(settings);
+            await saveStatUpdateSettingsDoc(settings);
+            triggerDebouncedAutoBackup(getFullBackupPayload({ statUpdateSettings: settings }), currentUser?.inGameName || 'Owner', true);
+          }} />}
           {activeTab === 'dashboard' && (
           <DashboardView
             lang={lang}

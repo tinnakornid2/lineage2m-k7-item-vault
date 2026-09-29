@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { submissionError, statMessage } from '../utils/statRound';
 import {
   Zap,
   Upload,
@@ -354,6 +355,10 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const plDiff = calculatedNewPL - currentVerifiedPL;
 
   const hasPending = isUserStatsPending(currentUser);
+  const duplicateReason = submissionError(currentUser, { ...currentUser, pendingStats: stats,
+    pendingSpiritEnhancements: spiritEnhancements, pendingClasses: selectedClasses, pendingLevel: charLevel,
+    pendingLegendClasses: charLegendClasses, pendingLegendAgathions: charLegendAgathions,
+    pendingStatScreenshotUrl: screenshotUrl }, statUpdateSettings);
   const isRejected = Boolean(currentUser.statRejectionReason);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -614,8 +619,8 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
           <button
             type="submit"
             form="mystats-form"
-            disabled={isSubmitting || isStatLocked}
-            title={isStatLocked ? t.statUpdateLockedBtnDesc : undefined}
+            disabled={isSubmitting || isStatLocked || Boolean(duplicateReason)}
+            title={duplicateReason ? statMessage(duplicateReason, lang) : isStatLocked ? t.statUpdateLockedBtnDesc : undefined}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs tracking-wide shadow-md shadow-amber-500/20 transition active:scale-98 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-1.5 cursor-pointer"
           >
             {isSubmitting ? (
@@ -635,6 +640,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
       </div>
 
       {/* Monthly Stat Updates Locked by Owner Banner */}
+      {duplicateReason && <p role="status" className="my-3 rounded-lg border border-amber-500/30 p-3 text-sm text-amber-200">{statMessage(duplicateReason, lang)}</p>}
       {isStatLocked && (
         <div className="p-3.5 rounded-xl bg-red-950/60 border border-red-500/60 text-xs flex items-center gap-3 text-red-200 shadow-md">
           <Lock className="size-5 text-red-400 shrink-0" />
@@ -776,13 +782,13 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
                       screenshotUrl ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-zinc-750 text-zinc-400 border border-zinc-700'
                     }`}>
-                      {screenshotUrl ? (lang === 'th' ? '1 รูปแนบอยู่' : '1 Attached') : (lang === 'th' ? '0 รูป ไม่บังคับ' : '0 Attached')}
+                      {screenshotUrl ? (lang === 'th' ? '1 รูปแนบอยู่' : '1 Attached') : (lang === 'th' ? 'ยังไม่ได้แนบรูป' : 'No screenshot attached')}
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
                     {lang === 'th'
-                      ? 'อัปโหลดภาพสเตตัสในเกมเพื่อเป็นหลักฐานยืนยันความถูกต้อง (ช่วยให้แอดมินตรวจเร็วขึ้น)'
-                      : 'Upload and manage screenshots used for stat verification (optional).'}
+                      ? 'อัปโหลดภาพสเตตัสในเกมเพื่อยืนยันความถูกต้อง รอบใหม่ต้องใช้ภาพหลักฐานใหม่'
+                      : 'Upload screenshots to verify your stats. A new round requires a new screenshot.'}
                   </p>
                 </div>
               </div>
@@ -930,7 +936,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                         {lang === 'th' ? 'คลิกเลือกไฟล์ หรือลากรูปภาพมาวางที่นี่' : 'Click to browse or drag & drop screenshot'}
                       </p>
                       <p className="text-[11px] text-zinc-400 mt-0.5">
-                        JPG, PNG, WEBP ({lang === 'th' ? 'ไม่บังคับ' : 'Optional'})
+                        JPG, PNG, WEBP
                       </p>
                     </div>
                   </div>
@@ -1482,14 +1488,14 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                 <div className="text-xs text-zinc-400">
                   {lang === 'th'
-                    ? 'กรุณาตรวจสอบข้อมูลสเตตัสก่อนกดบันทึก (ภาพสกรีนช็อตไม่บังคับ แต่ช่วยให้ตรวจสอบเร็วขึ้น)'
-                    : 'Verify stats before saving. Screenshots are optional but speed up verification.'}
+                    ? 'ตรวจสอบสเตตัสก่อนบันทึก รอบใหม่ต้องแนบภาพใหม่และรอ Admin/Owner อนุมัติ'
+                    : 'Verify stats before saving. New rounds require a new screenshot and Admin/Owner approval.'}
                 </div>
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || isStatLocked}
-                  title={isStatLocked ? t.statUpdateLockedBtnDesc : undefined}
+                  disabled={isSubmitting || isStatLocked || Boolean(duplicateReason)}
+                  title={duplicateReason ? statMessage(duplicateReason, lang) : isStatLocked ? t.statUpdateLockedBtnDesc : undefined}
                   className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-amber-500/25 transition active:scale-98 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-2 ml-auto cursor-pointer"
                 >
                   {isSubmitting ? (
