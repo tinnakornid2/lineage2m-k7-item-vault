@@ -422,6 +422,23 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
         });
       }
 
+      // Update in liveHubState so that the new password is immediately known across the hub
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.users)) {
+        const uIdx = liveHubState.data.users.findIndex((u: any) =>
+          u && (u.id === req.params.userId || (username && u.username?.toLowerCase() === String(username).toLowerCase()))
+        );
+        if (uIdx !== -1) {
+          liveHubState.data.users[uIdx].password = newPassword;
+          liveHubState.data.users[uIdx].updatedAt = Date.now();
+          liveHubState.updatedAt = Date.now();
+          liveHubState.version = (liveHubState.version || 0) + 1;
+          try {
+            fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8');
+          } catch {}
+          liveStateEmitter.emit('update');
+        }
+      }
+
       return res.json({
         success: true,
         message: 'เปลี่ยนรหัสผ่านสำเร็จแล้ว / Password changed successfully.'

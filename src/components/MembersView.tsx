@@ -956,16 +956,18 @@ export const MembersView: React.FC<MembersViewProps> = ({
                   )}
                 </div>
                 {(() => {
+                  const latestUser = allMembers.find((m) => m.id === editingUser.id);
                   const currentPwd =
                     editingUser.password ||
+                    latestUser?.password ||
                     (editingUser.username?.toLowerCase() === 'eloni'
                       ? (typeof localStorage !== 'undefined' ? localStorage.getItem('k7_owner_custom_pass') || '123456' : '123456')
                       : '');
 
                   if (!currentPwd) {
                     return (
-                      <div className="text-[11px] text-slate-500 font-mono py-1">
-                        {lang === 'th' ? '(ยังไม่มีการบันทึกรหัสผ่านในระบบ / ใช้รหัสเดิมที่เคยตั้ง)' : '(No stored password / using existing)'}
+                      <div className="flex items-center justify-between text-[11px] text-amber-400/80 font-mono py-1.5 px-2.5 rounded-lg bg-[#090d16] border border-amber-900/40">
+                        <span>{lang === 'th' ? '🔒 รหัสเดิมถูกเข้ารหัสความปลอดภัย (กด "เปลี่ยนรหัสผ่าน" เพื่อตั้งรหัสใหม่และดูรหัสได้ทันที)' : '🔒 Password is encrypted (click "Change" to set and reveal)'}</span>
                       </div>
                     );
                   }

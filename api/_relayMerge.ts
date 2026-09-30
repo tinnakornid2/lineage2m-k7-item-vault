@@ -405,8 +405,7 @@ export function mergeRelayData(previousData: any, incoming: any): any {
         if (Array.isArray(data.users)) {
           data.users = data.users.map((u: any) => {
             if (!u || typeof u !== 'object') return u;
-            const { password: _pw, ...cleanUser } = u;
-            return cleanUser;
+            return u;
           });
         }
         if (Array.isArray(data.vaultItems)) {

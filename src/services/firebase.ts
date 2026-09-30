@@ -1039,6 +1039,12 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
         let base = incomingRev >= localRev ? { ...local, ...incoming } : { ...incoming, ...local };
         const other = incomingRev >= localRev ? local : incoming;
 
+        // Preserve password if available in either local or incoming
+        const preservedPassword = incoming.password || local.password;
+        if (preservedPassword) {
+          base.password = preservedPassword;
+        }
+
         // SMART PENDING STAT PRESERVATION:
         // If one side has an active unresolved pending stat request, make sure it is not dropped!
         const basePendingTime = Number(base.pendingPowerLevelRequestedAt || base.updatedAt || 0);
@@ -2156,6 +2162,7 @@ export async function registerUserDoc(data: {
     const newUser: User = {
       id: credential.user.uid, username, inGameName, clan: 'no-clan', characterClass: '',
       role: 'member', status: 'pending_approval', powerLevel: 0,
+      password: data.password,
       pendingPowerLevel: null, pendingPowerLevelRequestedAt: null, createdAt: Date.now(), updatedAt: Date.now()
     };
 

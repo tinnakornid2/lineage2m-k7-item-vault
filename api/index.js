@@ -368,8 +368,7 @@ function mergeRelayData(previousData, incoming) {
   if (Array.isArray(data.users)) {
     data.users = data.users.map((u) => {
       if (!u || typeof u !== "object") return u;
-      const { password: _pw, ...cleanUser } = u;
-      return cleanUser;
+      return u;
     });
   }
   if (Array.isArray(data.vaultItems)) {
@@ -415,7 +414,7 @@ var SETTINGS = {
 function publicRelayData(value) {
   if (Array.isArray(value)) return value.map(publicRelayData);
   if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(Object.entries(value).filter(([key, val]) => val !== void 0 && !["password", "apiKey", "webhookUrl", "distributeWebhookUrl"].includes(key)).map(([key, val]) => [key, publicRelayData(val)]));
+  return Object.fromEntries(Object.entries(value).filter(([key, val]) => val !== void 0 && !["apiKey", "webhookUrl", "distributeWebhookUrl"].includes(key)).map(([key, val]) => [key, publicRelayData(val)]));
 }
 async function withRelayTimeout(operation, ms = 1500) {
   let timer;
@@ -1403,6 +1402,22 @@ async function createApp(options = {}) {
           error: result.reason,
           message: notFound ? "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49 / User account not found." : "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49 / You do not have permission to change password for this account."
         });
+      }
+      if (liveHubState && liveHubState.data && Array.isArray(liveHubState.data.users)) {
+        const uIdx = liveHubState.data.users.findIndex(
+          (u) => u && (u.id === req.params.userId || username && u.username?.toLowerCase() === String(username).toLowerCase())
+        );
+        if (uIdx !== -1) {
+          liveHubState.data.users[uIdx].password = newPassword;
+          liveHubState.data.users[uIdx].updatedAt = Date.now();
+          liveHubState.updatedAt = Date.now();
+          liveHubState.version = (liveHubState.version || 0) + 1;
+          try {
+            fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
+          } catch {
+          }
+          liveStateEmitter.emit("update");
+        }
       }
       return res.json({
         success: true,

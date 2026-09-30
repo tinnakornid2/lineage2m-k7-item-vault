@@ -19,7 +19,7 @@ export function publicRelayData(value: any): any {
   if (Array.isArray(value)) return value.map(publicRelayData);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.entries(value)
-    .filter(([key, val]) => val !== undefined && !['password', 'apiKey', 'webhookUrl', 'distributeWebhookUrl'].includes(key))
+    .filter(([key, val]) => val !== undefined && !['apiKey', 'webhookUrl', 'distributeWebhookUrl'].includes(key))
     .map(([key, val]) => [key, publicRelayData(val)]));
 }
 
