@@ -5,6 +5,18 @@ import express from "express";
 import { gzipSync, gunzipSync } from "node:zlib";
 
 // api/_relayMerge.ts
+var isTestArtifactId = (id, name) => {
+  if (!id && !name) return false;
+  const sId = String(id || "");
+  const sName = String(name || "");
+  if (sId.includes("_test_") || sId.startsWith("gi_test_") || sId.startsWith("queue_test_") || sId.startsWith("item_test_") || sId.startsWith("gi_old_rule_test_") || sId.startsWith("user_del_test_") || sId.startsWith("item_sim_") || sId.startsWith("gi_sim_")) {
+    return true;
+  }
+  if (sName.includes("Test Persistent Item") || sName.includes("Old Rule Format Test")) {
+    return true;
+  }
+  return false;
+};
 var sanitizeAndDeduplicateUsers = (users, deletedUsers) => {
   const seen = /* @__PURE__ */ new Set();
   const cleanUsers = [];
@@ -21,8 +33,7 @@ var sanitizeAndDeduplicateUsers = (users, deletedUsers) => {
       }
     }
     if (deletedUsers && deletedUsers[u.id]) {
-      const uRev = Number(u.updatedAt || u.createdAt || 0);
-      if (uRev <= deletedUsers[u.id]) continue;
+      if (!isEloni) continue;
     }
     if (isEloni) {
       if (!canonicalEloni) {
@@ -151,12 +162,19 @@ function mergeRelayData(previousData, incoming) {
   };
   const mergeVersionedRecords = (previous, incoming2, deleted, mergeClaims = false, mergeQueue = false) => {
     const records = /* @__PURE__ */ new Map();
+    const isTestEnv2 = process.env.NODE_ENV === "test" || Boolean(process.env.ISOLATED_TEST);
     for (const record of [...previous || [], ...incoming2 || []]) {
       if (!record?.id) continue;
+      if (!isTestEnv2 && isTestArtifactId(record.id, record.name)) {
+        continue;
+      }
       const recordRevision = Number(record.updatedAt || record.createdAt || 0);
       const deletedAt = deleted ? deleted[record.id] || 0 : 0;
-      if (deletedAt && recordRevision <= deletedAt) {
-        continue;
+      if (deletedAt) {
+        if (record.id === "user_owner_eloni") {
+        } else {
+          continue;
+        }
       }
       const existing = records.get(record.id);
       const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
@@ -304,31 +322,29 @@ function mergeRelayData(previousData, incoming) {
       data.vaultBalance = previousData.vaultBalance || 0;
     }
   }
+  const isTestEnv = process.env.NODE_ENV === "test" || Boolean(process.env.ISOLATED_TEST);
   if (Array.isArray(data.vaultItems)) {
     data.vaultItems = data.vaultItems.filter((it) => {
       if (!it || !it.id) return false;
-      const delAt = syncMeta.deletedVaultItems?.[it.id];
-      if (!delAt) return true;
-      const rev = Number(it.updatedAt || it.createdAt || 0);
-      return rev > delAt;
+      if (!isTestEnv && isTestArtifactId(it.id, it.name)) return false;
+      if (syncMeta.deletedVaultItems?.[it.id]) return false;
+      return true;
     });
   }
   if (Array.isArray(data.queueItems)) {
     data.queueItems = data.queueItems.filter((it) => {
       if (!it || !it.id) return false;
-      const delAt = syncMeta.deletedQueueItems?.[it.id];
-      if (!delAt) return true;
-      const rev = Number(it.updatedAt || it.createdAt || 0);
-      return rev > delAt;
+      if (!isTestEnv && isTestArtifactId(it.id, it.name)) return false;
+      if (syncMeta.deletedQueueItems?.[it.id]) return false;
+      return true;
     });
   }
   if (Array.isArray(data.generalItems)) {
     data.generalItems = data.generalItems.filter((it) => {
       if (!it || !it.id) return false;
-      const delAt = syncMeta.deletedGeneralItems?.[it.id];
-      if (!delAt) return true;
-      const rev = Number(it.updatedAt || it.createdAt || 0);
-      return rev > delAt;
+      if (!isTestEnv && isTestArtifactId(it.id, it.name)) return false;
+      if (syncMeta.deletedGeneralItems?.[it.id]) return false;
+      return true;
     });
   }
   if (Array.isArray(data.users)) {
@@ -339,6 +355,14 @@ function mergeRelayData(previousData, incoming) {
     const removedMap = syncMeta.removedQueueMembers || {};
     const filteredQueue = item.queueList.filter((m) => {
       if (!m) return false;
+      if (m.userId && syncMeta.deletedUsers?.[m.userId]) {
+        const userDelTime = syncMeta.deletedUsers[m.userId];
+        const joinedAt2 = Number(m.joinedAt || 0);
+        if (!joinedAt2 || joinedAt2 <= userDelTime) return false;
+      }
+      if (!isTestEnv && (m.name === "Hunter2" || m.name === "MemberB" || isTestArtifactId(m.id, m.name))) {
+        return false;
+      }
       const joinedAt = Number(m.joinedAt || 0);
       const directId = m.id ? `${item.id}:::${m.id}` : null;
       const legacyDirectId = m.id ? `${item.id}_${m.id}` : null;
@@ -374,6 +398,12 @@ function mergeRelayData(previousData, incoming) {
   if (Array.isArray(data.vaultItems)) {
     data.vaultItems = data.vaultItems.map((item) => {
       const claimants = (item.claimants || []).filter((claimant) => {
+        if (!claimant) return false;
+        if (claimant.userId && syncMeta.deletedUsers?.[claimant.userId]) {
+          const userDelTime = syncMeta.deletedUsers[claimant.userId];
+          const claimedAt2 = Number(claimant.claimedAt || 0);
+          if (!claimedAt2 || claimedAt2 <= userDelTime) return false;
+        }
         const claimedAt = Number(claimant.claimedAt || 0);
         const userKey = claimant.userId ? `${item.id}:::${String(claimant.userId).trim().toLowerCase()}` : "";
         const nameKey = claimant.inGameName ? `${item.id}:::${String(claimant.inGameName).trim().toLowerCase()}` : "";
