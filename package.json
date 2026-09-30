@@ -1,7 +1,7 @@
 {
   "name": "lineage2m-k7-item-vault",
   "private": true,
-  "version": "2.10.58",
+  "version": "2.10.59",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",

@@ -333,7 +333,8 @@ export async function deleteManagedUser(
 export async function changeManagedUserPassword(
   actor: { uid: string; role: string },
   targetUid: string,
-  newPassword: string
+  newPassword: string,
+  targetUsername?: string
 ): Promise<{ allowed: boolean; reason?: string }> {
   if (!targetUid || typeof newPassword !== 'string' || newPassword.length < 6 || newPassword.length > 128) {
     return { allowed: false, reason: 'INVALID_PASSWORD' };
@@ -358,8 +359,14 @@ export async function changeManagedUserPassword(
   const targetRef = sdk.db.collection('users').doc(targetUid);
   const target = await targetRef.get();
 
+  let targetRole = 'member';
+  let resolvedUsername = targetUsername || '';
+
   if (target.exists) {
-    const targetRole = String(target.data()?.role || 'member');
+    targetRole = String(target.data()?.role || 'member');
+    if (!resolvedUsername) {
+      resolvedUsername = target.data()?.username || '';
+    }
     // If admin is changing someone else's password:
     // Admin can ONLY change member and party_leader (cannot change owner or other admins)
     if (isAdmin && !isSelf) {
@@ -370,11 +377,37 @@ export async function changeManagedUserPassword(
   }
 
   // Update in Firebase Auth
+  let authUpdated = false;
   try {
     await sdk.auth.updateUser(targetUid, { password: newPassword });
+    authUpdated = true;
   } catch (error: any) {
-    if (error?.code !== 'auth/user-not-found') {
-      console.warn('Firebase Auth updateUser notice:', error?.message || error);
+    // If UID not found in Auth, try looking up by email below
+  }
+
+  if (!authUpdated && resolvedUsername) {
+    const authEmail = usernameToAuthEmail(resolvedUsername);
+    try {
+      const authUser = await sdk.auth.getUserByEmail(authEmail);
+      if (authUser) {
+        await sdk.auth.updateUser(authUser.uid, { password: newPassword });
+        authUpdated = true;
+      }
+    } catch (emailErr: any) {
+      if (emailErr?.code === 'auth/user-not-found') {
+        // User does not exist in Firebase Auth yet! Create them now with the new password!
+        try {
+          await sdk.auth.createUser({
+            uid: targetUid.length <= 128 ? targetUid : undefined,
+            email: authEmail,
+            password: newPassword,
+            displayName: resolvedUsername
+          });
+          authUpdated = true;
+        } catch (createErr) {
+          console.warn('Firebase Auth createUser fallback notice:', createErr);
+        }
+      }
     }
   }
 
@@ -385,13 +418,21 @@ export async function changeManagedUserPassword(
         password: newPassword,
         updatedAt: Date.now()
       }, { merge: true });
+    } else if (resolvedUsername) {
+      const qSnap = await sdk.db.collection('users').where('username', '==', resolvedUsername).limit(1).get();
+      if (!qSnap.empty) {
+        await qSnap.docs[0].ref.set({
+          password: newPassword,
+          updatedAt: Date.now()
+        }, { merge: true });
+      }
     }
   } catch (dbErr) {
     console.warn('Firestore set password notice:', dbErr);
   }
 
   // If this is eloni (owner), also save to app_settings/owner_auth
-  if (targetUid === 'user_owner_eloni' || target.data()?.username?.toLowerCase() === 'eloni') {
+  if (targetUid === 'user_owner_eloni' || resolvedUsername?.toLowerCase() === 'eloni') {
     try {
       await sdk.db.collection('app_settings').doc('owner_auth').set({
         password: newPassword,

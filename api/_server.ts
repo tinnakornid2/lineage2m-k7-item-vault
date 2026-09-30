@@ -401,7 +401,7 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
 
   app.post("/api/users/:userId/change-password", requireRoles(['owner', 'admin', 'party_leader', 'member']), async (req, res) => {
     try {
-      const { newPassword } = req.body;
+      const { newPassword, username } = req.body;
       if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6 || newPassword.length > 128) {
         return res.status(400).json({
           success: false,
@@ -410,7 +410,7 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
         });
       }
 
-      const result = await changeManagedUserPassword(res.locals.actor, req.params.userId, newPassword);
+      const result = await changeManagedUserPassword(res.locals.actor, req.params.userId, newPassword, username);
       if (!result.allowed) {
         const notFound = result.reason === 'USER_NOT_FOUND';
         return res.status(notFound ? 404 : 403).json({

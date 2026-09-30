@@ -2310,17 +2310,6 @@ Do not include markdown or explanations. Return pure JSON only.`;
   }
   return app;
 }
-async function startServer() {
-  const app = await createApp();
-  const port = process.env.PORT && process.env.PORT !== "8080" ? Number(process.env.PORT) : 3e3;
-  const server = app.listen(port, "0.0.0.0", () => {
-    console.log(`Lineage2M Clan Hub server running on http://0.0.0.0:${port}`);
-  });
-  server.on("error", (err) => {
-    console.error("Server listen error:", err);
-  });
-  return server;
-}
 process.on("unhandledRejection", (reason, promise) => {
   console.warn("Unhandled Rejection at:", promise, "reason:", reason);
 });
@@ -2328,12 +2317,91 @@ process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
 });
 
-// server.ts
-if (!process.env.VERCEL && process.env.NODE_ENV !== "test") {
-  startServer().catch((err) => console.error("Failed to start server:", err));
+// api/_entry.ts
+var appInstance = null;
+var initError = null;
+async function getApp() {
+  if (appInstance) return appInstance;
+  if (initError) throw initError;
+  try {
+    appInstance = await createApp({ serveFrontend: false });
+    return appInstance;
+  } catch (err) {
+    initError = err;
+    throw err;
+  }
+}
+async function handler(req, res) {
+  try {
+    const parsedUrl = new URL(req.url, "http://localhost");
+    const pathParam = parsedUrl.searchParams.get("__path");
+    const forwardedUri = req.headers?.["x-forwarded-uri"] || req.headers?.["x-original-url"];
+    const invokePath = req.headers?.["x-invoke-path"] || req.headers?.["x-matched-path"];
+    if (pathParam && typeof pathParam === "string" && pathParam.startsWith("/api")) {
+      parsedUrl.searchParams.delete("__path");
+      const remainingSearch = parsedUrl.searchParams.toString();
+      req.url = pathParam + (remainingSearch ? `?${remainingSearch}` : "");
+    } else if (forwardedUri && typeof forwardedUri === "string" && forwardedUri.startsWith("/api")) {
+      req.url = forwardedUri;
+    } else if (invokePath && typeof invokePath === "string" && invokePath.startsWith("/api") && invokePath !== "/api/index" && invokePath !== "/api") {
+      req.url = invokePath;
+    } else {
+      const queryPath = req.query?.path || req.query?.slug;
+      if (queryPath) {
+        const subPath = Array.isArray(queryPath) ? queryPath.join("/") : String(queryPath);
+        if (subPath && !req.url.startsWith("/api/" + subPath)) {
+          req.url = "/api/" + subPath;
+        }
+      }
+    }
+  } catch {
+  }
+  const sendJson = (statusCode, data) => {
+    if (res.headersSent) return;
+    if (typeof res.status === "function" && typeof res.json === "function") {
+      return res.status(statusCode).json(data);
+    }
+    res.statusCode = statusCode;
+    res.setHeader("Content-Type", "application/json");
+    return res.end(JSON.stringify(data));
+  };
+  const cleanUrl = typeof req.url === "string" ? req.url.split("?")[0].replace(/\/$/, "") : "";
+  if (cleanUrl === "/api/health" || cleanUrl === "/health" || cleanUrl === "/api") {
+    return sendJson(200, { status: "ok", serverless: true, timestamp: Date.now() });
+  }
+  try {
+    const app = await getApp();
+    return new Promise((resolve) => {
+      res.on("finish", resolve);
+      res.on("close", resolve);
+      app(req, res, (err) => {
+        if (err) {
+          console.error("Express Unhandled Error in serverless handler:", err);
+          sendJson(500, {
+            success: false,
+            error: "EXPRESS_UNHANDLED_ERROR",
+            message: String(err?.message || err)
+          });
+        } else if (!res.headersSent) {
+          sendJson(404, {
+            success: false,
+            error: "NOT_FOUND",
+            message: `API endpoint not found: ${req.method} ${req.url}`
+          });
+        }
+        resolve(null);
+      });
+    });
+  } catch (err) {
+    console.error("Vercel Serverless Function Handler Error:", err);
+    return sendJson(500, {
+      success: false,
+      error: "SERVERLESS_FUNCTION_ERROR",
+      message: String(err?.message || err),
+      stack: String(err?.stack || "")
+    });
+  }
 }
 export {
-  createApp,
-  startServer
+  handler as default
 };
-//# sourceMappingURL=server.js.map

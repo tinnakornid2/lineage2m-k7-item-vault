@@ -3714,7 +3714,7 @@ export const App: React.FC = () => {
 
   const handleChangePassword = async (targetUser: User, newPass: string) => {
     try {
-      await changeUserPassword(targetUser.id, newPass);
+      await changeUserPassword(targetUser.id, newPass, targetUser.username);
       showToast(
         lang === 'th' ? 'เปลี่ยนรหัสผ่านสำเร็จแล้ว!' : 'Password changed successfully!',
         'success'

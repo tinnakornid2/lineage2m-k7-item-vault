@@ -19,7 +19,8 @@ import {
   List,
   Loader2,
   Camera,
-  ZoomIn
+  ZoomIn,
+  KeyRound
 } from 'lucide-react';
 import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, OFFICIAL_CLASSES, cleanClanName, ClanGroup, isUserStatsPending } from '../types';
 import { translations } from '../translations';
@@ -637,6 +638,19 @@ export const MembersView: React.FC<MembersViewProps> = ({
                               </button>
                             )}
 
+                            {canChangePassword(currentUser, mem) && onChangePassword && (
+                              <button
+                                onClick={() => {
+                                  sounds.playClick();
+                                  onChangePassword(mem);
+                                }}
+                                className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800 transition-all cursor-pointer"
+                                title={lang === 'th' ? 'เปลี่ยนรหัสผ่าน' : 'Change Password'}
+                              >
+                                <KeyRound className="w-3 h-3" />
+                              </button>
+                            )}
+
                             {isAdminOrOwner && (
                               <button
                                 onClick={() => handleOpenEdit(mem)}
@@ -821,6 +835,20 @@ export const MembersView: React.FC<MembersViewProps> = ({
                                   >
                                     <Camera className="w-3.5 h-3.5" />
                                   </button>
+
+                                  {canChangePassword(currentUser, mem) && onChangePassword && (
+                                    <button
+                                      id={`btn-pwd-member-${mem.id}`}
+                                      onClick={() => {
+                                        sounds.playClick();
+                                        onChangePassword(mem);
+                                      }}
+                                      className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 text-[#f5d77f] border border-amber-500/30 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                                      title={lang === 'th' ? 'เปลี่ยนรหัสผ่าน' : 'Change Password'}
+                                    >
+                                      <KeyRound className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
 
                                   {canEditMember(mem) && (
                                     <button
