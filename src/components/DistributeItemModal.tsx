@@ -293,32 +293,24 @@ export const DistributeItemModal: React.FC<DistributeItemModalProps> = ({
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      sounds.playMythicFanfare();
-      const recipientPayload: { name: string; clan: string; userId?: string; receiptImages?: string[] } = {
-        name: selectedRecipient.name.trim(),
-        clan: selectedRecipient.clan.trim() || 'No Clan'
-      };
-      if (selectedRecipient.userId) {
-        recipientPayload.userId = selectedRecipient.userId;
-      }
-      if (receiptImages.length > 0) {
-        recipientPayload.receiptImages = receiptImages;
-      }
-
-      await onDistribute(item.id, recipientPayload);
-      onClose();
-    } catch (err: any) {
-      console.error('Error distributing item:', err);
-      setError(
-        lang === 'th'
-          ? `เกิดข้อผิดพลาดในการแจกไอเทม: ${err?.message || 'โปรดลองอีกครั้ง'}`
-          : `Error distributing item: ${err?.message || 'Please try again'}`
-      );
-    } finally {
-      setIsSubmitting(false);
+    sounds.playMythicFanfare();
+    const recipientPayload: { name: string; clan: string; userId?: string; receiptImages?: string[] } = {
+      name: selectedRecipient.name.trim(),
+      clan: selectedRecipient.clan.trim() || 'No Clan'
+    };
+    if (selectedRecipient.userId) {
+      recipientPayload.userId = selectedRecipient.userId;
     }
+    if (receiptImages.length > 0) {
+      recipientPayload.receiptImages = receiptImages;
+    }
+
+    // Instant optimistic close: update in background, do not freeze modal
+    onDistribute(item.id, recipientPayload).catch((err: any) => {
+      console.error('Error distributing item:', err);
+    });
+
+    onClose();
   };
 
   return (

@@ -262,14 +262,14 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
           return;
         }
 
-        await onPerformTransaction('credit', amt, note || (lang === 'th' ? 'เพิ่มกองทุนเพชร' : 'Fund deposit'), {
+        onPerformTransaction('credit', amt, note || (lang === 'th' ? 'เพิ่มกองทุนเพชร' : 'Fund deposit'), {
           grossAmount: amt,
           taxPct: 0,
           taxAmount: 0,
           netAmount: amt,
           clanScope: selectedScope,
           proofImageUrl: proofImage || undefined
-        });
+        }).catch((err) => console.error(err));
 
         sounds.playClaim();
         setSuccessToast(lang === 'th' ? `เพิ่ม ${amt.toLocaleString()} 💎 เข้ากองทุนเรียบร้อย` : `Credited ${amt.toLocaleString()} diamonds to clan fund`);
@@ -280,15 +280,15 @@ export const DiamondVaultModal: React.FC<DiamondVaultModalProps> = ({
           return;
         }
 
-        await onPerformTransaction('deduction', amt, note || (lang === 'th' ? 'ถอนกองทุนเพชร' : 'Fund withdrawal'), {
+        onPerformTransaction('deduction', amt, note || (lang === 'th' ? 'ถอนกองทุนเพชร' : 'Fund withdrawal'), {
           clanScope: selectedScope,
           proofImageUrl: proofImage || undefined
-        });
+        }).catch((err) => console.error(err));
 
         sounds.playClick();
         setSuccessToast(lang === 'th' ? `ถอน ${amt.toLocaleString()} 💎 เรียบร้อยแล้ว` : `Withdrawn ${amt.toLocaleString()} diamonds from clan fund`);
       }
-      // Reset form fields
+      // Reset form fields immediately
       setGrossAmount('');
       setDeductAmount('');
       setNewTargetBalance('');

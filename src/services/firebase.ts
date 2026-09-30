@@ -150,6 +150,7 @@ export const QUEUES_COLLECTION = 'item_queues';
 export const VAULT_COLLECTION = 'diamond_vault';
 export const CLANS_COLLECTION = 'clans';
 export const USER_NOTIFICATIONS_COLLECTION = 'user_notifications';
+export const APP_SETTINGS_COLLECTION = 'app_settings';
 
 // Default seeded owner account & sample data (Synced with latest verified profile)
 export const DEFAULT_OWNER: User = {
@@ -189,7 +190,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.11.2-member-auth-and-stat-updates';
+const CACHE_SCHEMA_VERSION = '2.11.12-stat-approval-sync-fix';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -775,12 +776,12 @@ export async function fetchSettingsOnce(): Promise<{
 }> {
   try {
     const [bgSnap, annSnap, qAnnSnap, discordSnap, formSnap, statSnap] = await Promise.all([
-      getDoc(doc(db, 'settings', 'background')).catch(() => null),
-      getDoc(doc(db, 'settings', 'announcement')).catch(() => null),
-      getDoc(doc(db, 'settings', 'queue_announcement')).catch(() => null),
-      getDoc(doc(db, 'settings', 'discord')).catch(() => null),
-      getDoc(doc(db, 'settings', 'formula')).catch(() => null),
-      getDoc(doc(db, 'settings', 'stat_updates')).catch(() => null)
+      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'background')).catch(() => null),
+      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'announcement')).catch(() => null),
+      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'queue_announcement')).catch(() => null),
+      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'discord')).catch(() => null),
+      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'power_formula')).catch(() => null),
+      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'stat_updates')).catch(() => null)
     ]);
     return {
       bg: bgSnap?.exists() ? bgSnap.data() : undefined,
@@ -1031,47 +1032,83 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
     } else if (!local && incoming) {
       result.push(incoming);
     } else if (local && incoming) {
+      const localRev = Number(local.updatedAt || local.createdAt || 0);
+      const incomingRev = Number(incoming.updatedAt || incoming.createdAt || 0);
+      let base = incomingRev >= localRev ? { ...local, ...incoming } : { ...incoming, ...local };
+      const other = incomingRev >= localRev ? local : incoming;
+
       if (id === 'user_owner_eloni') {
-        result.push({ ...DEFAULT_OWNER, ...local, ...incoming, id: 'user_owner_eloni', role: 'owner', status: 'active' });
-      } else {
-        const localRev = Number(local.updatedAt || local.createdAt || 0);
-        const incomingRev = Number(incoming.updatedAt || incoming.createdAt || 0);
-        let base = incomingRev >= localRev ? { ...local, ...incoming } : { ...incoming, ...local };
-        const other = incomingRev >= localRev ? local : incoming;
+        base = { ...DEFAULT_OWNER, ...base, id: 'user_owner_eloni', role: 'owner', status: 'active' };
+      }
 
-        // SMART PENDING STAT PRESERVATION:
-        // If one side has an active unresolved pending stat request, make sure it is not dropped!
-        const basePendingTime = Number(base.pendingPowerLevelRequestedAt || base.updatedAt || 0);
-        const otherPendingTime = Number(other.pendingPowerLevelRequestedAt || other.updatedAt || 0);
-        const baseResTime = Math.max(Number(base.statApprovalAt || 0), Number(base.statRejectionAt || 0));
-        const otherResTime = Math.max(Number(other.statApprovalAt || 0), Number(other.statRejectionAt || 0));
-        const latestRes = Math.max(baseResTime, otherResTime);
+      // SMART PENDING STAT & APPROVED STAT PRESERVATION:
+      // If one side has an active unresolved pending stat request, make sure it is not dropped!
+      const basePendingTime = Number(base.pendingPowerLevelRequestedAt || 0);
+      const otherPendingTime = Number(other.pendingPowerLevelRequestedAt || 0);
+      const baseApprovedReq = Number(base.approvedStatRequestAt || 0);
+      const otherApprovedReq = Number(other.approvedStatRequestAt || 0);
+      const latestApprovedReq = Math.max(baseApprovedReq, otherApprovedReq);
 
-        const otherHasActivePending = Boolean(
-          (typeof other.pendingPowerLevel === 'number' || other.pendingPowerLevelRequestedAt || other.pendingStatScreenshotUrl) &&
-          otherPendingTime > latestRes
-        );
-        const baseHasActivePending = Boolean(
-          (typeof base.pendingPowerLevel === 'number' || base.pendingPowerLevelRequestedAt || base.pendingStatScreenshotUrl) &&
-          basePendingTime > latestRes
-        );
+      const baseResTime = Math.max(Number(base.statApprovalAt || 0), Number(base.statRejectionAt || 0));
+      const otherResTime = Math.max(Number(other.statApprovalAt || 0), Number(other.statRejectionAt || 0));
+      const latestRes = Math.max(baseResTime, otherResTime);
 
-        if (otherHasActivePending && (!baseHasActivePending || otherPendingTime > basePendingTime)) {
-          base = {
-            ...base,
-            pendingPowerLevel: other.pendingPowerLevel,
-            pendingPowerLevelRequestedAt: other.pendingPowerLevelRequestedAt,
-            pendingStats: other.pendingStats || base.pendingStats,
-            pendingSpiritEnhancements: other.pendingSpiritEnhancements || base.pendingSpiritEnhancements,
-            pendingStatScreenshotUrl: other.pendingStatScreenshotUrl || base.pendingStatScreenshotUrl,
-            pendingClasses: other.pendingClasses ?? base.pendingClasses,
-            pendingLevel: other.pendingLevel ?? base.pendingLevel,
-            pendingLegendClasses: other.pendingLegendClasses ?? base.pendingLegendClasses,
-            pendingLegendAgathions: other.pendingLegendAgathions ?? base.pendingLegendAgathions,
-            statRejectionReason: null,
-            statRejectionAt: null
-          };
-        }
+      // Stat Resolution Precedence:
+      // If either record has an admin approval, the side with the latest resolution must provide the verified stats!
+      const resolvedSide = Number(incoming.statApprovalAt || 0) >= Number(local.statApprovalAt || 0) ? incoming : local;
+      if (latestRes > 0 && resolvedSide.statApprovalAt && Number(resolvedSide.statApprovalAt) >= latestRes) {
+        if (resolvedSide.powerLevel !== undefined) base.powerLevel = resolvedSide.powerLevel;
+        if (resolvedSide.stats !== undefined) base.stats = resolvedSide.stats;
+        if (resolvedSide.spiritEnhancements !== undefined) base.spiritEnhancements = resolvedSide.spiritEnhancements;
+        if (resolvedSide.classes !== undefined) base.classes = resolvedSide.classes;
+        if (resolvedSide.characterClass !== undefined) base.characterClass = resolvedSide.characterClass;
+        if (resolvedSide.level !== undefined) base.level = resolvedSide.level;
+        if (resolvedSide.legendClasses !== undefined) base.legendClasses = resolvedSide.legendClasses;
+        if (resolvedSide.legendAgathions !== undefined) base.legendAgathions = resolvedSide.legendAgathions;
+        if (resolvedSide.statScreenshotUrl !== undefined) base.statScreenshotUrl = resolvedSide.statScreenshotUrl;
+        if (resolvedSide.statHistory !== undefined) base.statHistory = resolvedSide.statHistory;
+        base.statApprovalAt = resolvedSide.statApprovalAt;
+        base.approvedStatRequestAt = latestApprovedReq || resolvedSide.approvedStatRequestAt;
+      }
+
+      const otherIsApproved = otherPendingTime > 0 && (otherPendingTime <= latestApprovedReq || (latestRes > 0 && otherPendingTime <= latestRes));
+      const baseIsApproved = basePendingTime > 0 && (basePendingTime <= latestApprovedReq || (latestRes > 0 && basePendingTime <= latestRes));
+
+      const otherHasActivePending = !otherIsApproved && Boolean(
+        (typeof other.pendingPowerLevel === 'number' || other.pendingPowerLevelRequestedAt || other.pendingStatScreenshotUrl) &&
+        otherPendingTime > 0 && otherPendingTime > latestRes
+      );
+      const baseHasActivePending = !baseIsApproved && Boolean(
+        (typeof base.pendingPowerLevel === 'number' || base.pendingPowerLevelRequestedAt || base.pendingStatScreenshotUrl) &&
+        basePendingTime > 0 && basePendingTime > latestRes
+      );
+
+      if (otherHasActivePending && (!baseHasActivePending || otherPendingTime > basePendingTime)) {
+        base = {
+          ...base,
+          pendingPowerLevel: other.pendingPowerLevel,
+          pendingPowerLevelRequestedAt: other.pendingPowerLevelRequestedAt,
+          pendingStats: other.pendingStats || base.pendingStats,
+          pendingSpiritEnhancements: other.pendingSpiritEnhancements || base.pendingSpiritEnhancements,
+          pendingStatScreenshotUrl: other.pendingStatScreenshotUrl || base.pendingStatScreenshotUrl,
+          pendingClasses: other.pendingClasses ?? base.pendingClasses,
+          pendingLevel: other.pendingLevel ?? base.pendingLevel,
+          pendingLegendClasses: other.pendingLegendClasses ?? base.pendingLegendClasses,
+          pendingLegendAgathions: other.pendingLegendAgathions ?? base.pendingLegendAgathions,
+          statRejectionReason: null,
+          statRejectionAt: null
+        };
+      } else if (latestApprovedReq > 0 || latestRes > 0) {
+        base.pendingPowerLevel = null;
+        base.pendingPowerLevelRequestedAt = null;
+        base.pendingStats = null;
+        base.pendingSpiritEnhancements = null;
+        base.pendingStatScreenshotUrl = null;
+        base.pendingClasses = null;
+        base.pendingLevel = null;
+        base.pendingLegendClasses = null;
+        base.pendingLegendAgathions = null;
+      }
 
         // Preserve registration status: newly registered users stay pending_approval until approved by admin/owner
         if (local.status === 'pending_approval' || incoming.status === 'pending_approval') {
@@ -1087,7 +1124,6 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
         result.push(base);
       }
     }
-  }
 
   return deduplicateUsers(result);
 }
@@ -1926,22 +1962,7 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
 export async function deleteUserDoc(userId: string, targetUsername?: string) {
   if (!userId) return;
   const username = targetUsername || getCachedUsers().find((u) => u.id === userId)?.username;
-  // 1. Immediately tombstone locally so that no sync or refresh can resurrect the user
-  markUserAsDeleted(userId);
-  const current = getCachedUsers().filter((u) => u.id !== userId);
-  setCachedUsers(current);
-
-  // 2. Client-side direct Firestore delete with timeout guard (Zero-Downtime Rule 6)
-  try {
-    const ref = doc(db, USERS_COLLECTION, userId);
-    await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteUserDoc');
-    bumpSystemVersion('usersVersion', userId).catch(() => {});
-  } catch (err: any) {
-    console.warn('Notice: Failed to delete user directly from Firestore (marked deleted locally):', err?.message);
-    notifyQuotaExceeded(err);
-  }
-
-  // 3. Server-side deletion via API (deletes from Auth and handles relay live state)
+  // 1. Server-side deletion via API (deletes from Auth and handles relay live state)
   try {
     const token = await getCurrentUserIdToken();
     const query = username ? `?username=${encodeURIComponent(username)}` : '';
@@ -1955,10 +1976,30 @@ export async function deleteUserDoc(userId: string, targetUsername?: string) {
     });
     if (!response.ok) {
       const result = await response.json().catch(() => null);
+      if (response.status === 403) {
+        throw new Error(result?.error || result?.message || 'DELETE_USER_FAILED');
+      }
       console.warn(`Notice: /api/users/${userId} returned status ${response.status}:`, result?.message);
     }
   } catch (err: any) {
-    console.warn('Notice: /api/users endpoint unreachable or error (user tombstoned locally):', err?.message);
+    if (err.message && /OWNER_IMMUTABLE|ROLE_HIERARCHY_DENIED|FORBIDDEN/.test(err.message)) {
+      throw err;
+    }
+    console.warn('Notice: /api/users endpoint notice:', err?.message);
+  }
+
+  // 2. Immediately tombstone locally so that no sync or refresh can resurrect the user
+  markUserAsDeleted(userId);
+  const current = getCachedUsers().filter((u) => u.id !== userId);
+  setCachedUsers(current);
+
+  // 3. Client-side direct Firestore delete with timeout guard (Zero-Downtime Rule 6)
+  try {
+    const ref = doc(db, USERS_COLLECTION, userId);
+    await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteUserDoc');
+    bumpSystemVersion('usersVersion', userId).catch(() => {});
+  } catch (err: any) {
+    console.warn('Notice: Failed to delete user directly from Firestore (marked deleted locally):', err?.message);
   }
 }
 
@@ -2507,8 +2548,8 @@ async function deleteClaimsForItem(itemId: string) {
   }
 }
 
-export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>) {
-  const newId = 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'> & { id?: string; createdAt?: number }) {
+  const newId = item.id || ('item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
   unmarkVaultItemAsDeleted(newId);
   // Ensure screenshots don't exceed Firestore 1MB limits
   let safeScreenshots = item.hunterScreenshots || [];
@@ -2523,7 +2564,7 @@ export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>)
     claimants: (item.claimants || []).map((c) => ({ ...c, clan: cleanClanName(c.clan) })),
     hunterScreenshots: safeScreenshots,
     id: newId,
-    createdAt: Date.now(),
+    createdAt: item.createdAt || Date.now(),
     updatedAt: Date.now()
   };
   if (fullItem.distributedTo?.clan) {
@@ -2601,6 +2642,9 @@ export async function confirmVaultItemPayment(
     } else {
       delete updatedDistributedTo.paidAt;
       delete updatedDistributedTo.paidBy;
+      updatedDistributedTo.diamondPayoutStatus = 'pending';
+      delete updatedDistributedTo.diamondPayoutAt;
+      delete updatedDistributedTo.diamondPayoutBy;
     }
   }
 
@@ -2609,7 +2653,71 @@ export async function confirmVaultItemPayment(
     updatedAt: now,
     ...(isPaid
       ? { paidAt: now, paidBy: actorName }
-      : { paidAt: null as any, paidBy: null as any }),
+      : {
+          paidAt: null as any,
+          paidBy: null as any,
+          diamondPayoutStatus: 'pending' as const,
+          diamondPayoutAt: null as any,
+          diamondPayoutBy: null as any
+        }),
+    ...(updatedDistributedTo ? { distributedTo: updatedDistributedTo } : {})
+  };
+
+  // Optimistically update local cache immediately
+  if (currentItem) {
+    const nextCached = currentCached.map((it) =>
+      it.id === itemId ? normalizeDistributedItem({ ...it, ...updates, distributedTo: updatedDistributedTo }) : it
+    );
+    setCachedVaultItems(nextCached);
+  }
+
+  await updateVaultItemDoc(itemId, updates);
+  bumpSystemVersion('vaultVersion').catch(() => {});
+}
+
+export async function confirmDiamondPayout(
+  itemId: string,
+  actorName: string,
+  status: 'pending' | 'paid_out' = 'paid_out'
+) {
+  const isPaidOut = status === 'paid_out';
+  const now = Date.now();
+  const currentCached = getCachedVaultItems();
+  const currentItem = currentCached.find((i) => i.id === itemId);
+
+  let updatedDistributedTo = currentItem?.distributedTo ? { ...currentItem.distributedTo } : undefined;
+
+  if (!updatedDistributedTo) {
+    try {
+      const snap = await safeFirestoreWrite(getDoc(doc(db, ITEMS_COLLECTION, itemId)), 1200, 'confirmDiamondPayout_getDoc');
+      if (snap && snap.exists()) {
+        const data = snap.data();
+        if (data.distributedTo) {
+          updatedDistributedTo = typeof data.distributedTo === 'string'
+            ? JSON.parse(data.distributedTo)
+            : { ...data.distributedTo };
+        }
+      }
+    } catch {}
+  }
+
+  if (updatedDistributedTo) {
+    updatedDistributedTo.diamondPayoutStatus = status;
+    if (isPaidOut) {
+      updatedDistributedTo.diamondPayoutAt = now;
+      updatedDistributedTo.diamondPayoutBy = actorName;
+    } else {
+      delete updatedDistributedTo.diamondPayoutAt;
+      delete updatedDistributedTo.diamondPayoutBy;
+    }
+  }
+
+  const updates: Partial<VaultItem> = {
+    diamondPayoutStatus: status,
+    updatedAt: now,
+    ...(isPaidOut
+      ? { diamondPayoutAt: now, diamondPayoutBy: actorName }
+      : { diamondPayoutAt: null as any, diamondPayoutBy: null as any }),
     ...(updatedDistributedTo ? { distributedTo: updatedDistributedTo } : {})
   };
 
@@ -3275,7 +3383,6 @@ export async function deleteDiamondTransactionDoc(recordId: string): Promise<voi
 
 
 // 7. Guild Theme & Background Settings (Global Sync for All Clan Members)
-export const APP_SETTINGS_COLLECTION = 'app_settings';
 
 export interface BackgroundSettingsData {
   imageUrl: string;

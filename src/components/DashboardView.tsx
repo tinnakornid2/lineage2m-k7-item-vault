@@ -179,32 +179,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setIsEditAnnouncementOpen(true);
   };
 
-  const handleSaveAnnouncement = async (e: React.FormEvent) => {
+  const handleSaveAnnouncement = (e: React.FormEvent) => {
     e.preventDefault();
     if (!onSaveQueueAnnouncement) return;
-    setIsSavingAnnouncement(true);
     sounds.playClick();
-    try {
-      await onSaveQueueAnnouncement({
-        textTh: announcementTextTh.trim() || '📢 สมาชิกที่ต้องการขอรับไอเทม กรุณาติดต่อ Admin เพื่อเพิ่มรายชื่อลงในคิว',
-        textEn: announcementTextEn.trim() || '📢 Members who wish to receive items, please contact an Admin to be added to the queue.',
-        enabled: announcementEnabled,
-        updatedBy: currentUser?.inGameName || currentUser?.username || 'Owner',
-        updatedAt: Date.now()
-      });
-      sounds.playSuccess();
-      setIsEditAnnouncementOpen(false);
-      if (showToast) {
-        showToast(lang === 'th' ? 'บันทึกข้อความประกาศคิวสำเร็จแล้ว' : 'Queue announcement saved successfully', 'success');
-      }
-    } catch (err: any) {
-      console.error(err);
-      if (showToast) {
-        showToast(lang === 'th' ? 'บันทึกประกาศไม่สำเร็จ' : 'Failed to save announcement', 'error');
-      }
-    } finally {
-      setIsSavingAnnouncement(false);
-    }
+    sounds.playSuccess();
+    setIsEditAnnouncementOpen(false);
+    onSaveQueueAnnouncement({
+      textTh: announcementTextTh.trim() || '📢 สมาชิกที่ต้องการขอรับไอเทม กรุณาติดต่อ Admin เพื่อเพิ่มรายชื่อลงในคิว',
+      textEn: announcementTextEn.trim() || '📢 Members who wish to receive items, please contact an Admin to be added to the queue.',
+      enabled: announcementEnabled,
+      updatedBy: currentUser?.inGameName || currentUser?.username || 'Owner',
+      updatedAt: Date.now()
+    });
   };
   const [broadcastingItemId, setBroadcastingItemId] = React.useState<string | null>(null);
   const [itemToDelete, setItemToDelete] = React.useState<VaultItem | null>(null);

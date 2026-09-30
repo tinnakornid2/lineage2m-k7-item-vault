@@ -213,36 +213,16 @@ export const BulkSwapClanModal: React.FC<BulkSwapClanModalProps> = ({
   };
 
   // Save all changes in one batch
-  const handleSaveAll = async () => {
+  const handleSaveAll = () => {
     if (pendingSwaps.length === 0) return;
-    setIsSaving(true);
-    try {
-      sounds.playSuccess();
-      await onBulkUpdateClans(
-        pendingSwaps.map((s) => ({
-          memberId: s.memberId,
-          toClan: s.toClan === 'Unassigned' ? '' : s.toClan
-        }))
-      );
-      if (showToast) {
-        showToast(
-          lang === 'th'
-            ? `ย้ายสังกัดสมาชิกสำเร็จ ${pendingSwaps.length} คนเรียบร้อยแล้ว! 🏰`
-            : `Reassigned ${pendingSwaps.length} members successfully! 🏰`,
-          'success'
-        );
-      }
-      onClose();
-    } catch (err: any) {
-      if (showToast) {
-        showToast(
-          err?.message || (lang === 'th' ? 'ไม่สามารถบันทึกการเปลี่ยนแปลงได้' : 'Failed to save changes'),
-          'error'
-        );
-      }
-    } finally {
-      setIsSaving(false);
-    }
+    sounds.playSuccess();
+    onBulkUpdateClans(
+      pendingSwaps.map((s) => ({
+        memberId: s.memberId,
+        toClan: s.toClan === 'Unassigned' ? '' : s.toClan
+      }))
+    );
+    onClose();
   };
 
   // Add new clan column handler

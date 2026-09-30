@@ -1,4 +1,4 @@
-import type { User, StatUpdateSettings } from '../types';
+import { isUserStatsPending, type User, type StatUpdateSettings } from '../types.ts';
 
 export function roundApproved(user: Partial<User> | null | undefined, settings?: StatUpdateSettings): boolean {
   const round = settings?.round;
@@ -19,8 +19,8 @@ export function statSignature(user: Partial<User>, pending = false): string {
   ]);
 }
 export function submissionError(existing: Partial<User>, submitted: Partial<User>, settings?: StatUpdateSettings): string | null {
+  const pending = isUserStatsPending(existing as User);
   const pendingAt = Number(existing.pendingPowerLevelRequestedAt || 0);
-  const pending = pendingAt > Math.max(Number(existing.statApprovalAt || 0), Number(existing.statRejectionAt || 0));
   if (pending && (!settings?.round?.active || pendingAt >= settings.round.openedAt) && statSignature(existing, true) === statSignature(submitted, true)) return 'DUPLICATE_PENDING';
   const needsRound = Boolean(settings?.round?.active && !roundApproved(existing, settings));
   if (needsRound && (!submitted.pendingStatScreenshotUrl || submitted.pendingStatScreenshotUrl === existing.statScreenshotUrl || (pendingAt < settings!.round!.openedAt && submitted.pendingStatScreenshotUrl === existing.pendingStatScreenshotUrl))) return 'ROUND_SCREENSHOT_REQUIRED';

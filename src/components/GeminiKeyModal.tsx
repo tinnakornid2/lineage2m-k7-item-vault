@@ -156,11 +156,9 @@ export const GeminiKeyModal: React.FC<GeminiKeyModalProps> = ({
 
       if (res.ok && data.success) {
         // Persist to Firestore so all admins can use it and key survives refreshes!
-        try {
-          await saveGeminiAiSettingsDoc(cleanKey);
-        } catch (saveErr) {
-          console.warn('Failed to save to Firestore app_settings/gemini_ai:', saveErr);
-        }
+        saveGeminiAiSettingsDoc(cleanKey).catch((saveErr) => {
+          console.warn('Notice: Failed to save to Firestore app_settings/gemini_ai:', saveErr);
+        });
 
         const masked = data.maskedKey || `${cleanKey.slice(0, 6)}...${cleanKey.slice(-4)}`;
         setServerStatus({

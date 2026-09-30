@@ -88,37 +88,16 @@ export const RequestPowerLevelModal: React.FC<RequestPowerLevelModalProps> = ({
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      sounds.playClaim();
-      await onRequestUpdate(currentUser.id, parsedNewPower);
-      setSuccessMessage(t.cpUpdateRequestedSuccess);
-      setTimeout(() => {
-        onClose();
-      }, 1500);
-    } catch (err: any) {
-      setErrorMessage(err?.message || t.error);
-    } finally {
-      setIsSubmitting(false);
-    }
+    sounds.playClaim();
+    onRequestUpdate(currentUser.id, parsedNewPower);
+    onClose();
   };
 
-  const handleCancelPending = async () => {
+  const handleCancelPending = () => {
     if (!onCancelRequest || !currentUser.pendingPowerLevel) return;
-    setIsSubmitting(true);
-    try {
-      sounds.playClick();
-      await onCancelRequest(currentUser.id);
-      setNewPowerLevel(currentUser.powerLevel ? currentUser.powerLevel.toString() : '');
-      setSuccessMessage(lang === 'th' ? 'ยกเลิกคำขอเรียบร้อยแล้ว' : 'Pending request cancelled');
-      setTimeout(() => {
-        onClose();
-      }, 1200);
-    } catch (err: any) {
-      setErrorMessage(err?.message || t.error);
-    } finally {
-      setIsSubmitting(false);
-    }
+    sounds.playClick();
+    onCancelRequest(currentUser.id);
+    onClose();
   };
 
   return (

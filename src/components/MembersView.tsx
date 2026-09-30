@@ -21,7 +21,7 @@ import {
   Camera,
   ZoomIn
 } from 'lucide-react';
-import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, OFFICIAL_CLASSES, cleanClanName, ClanGroup, isUserStatsPending } from '../types';
+import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, OFFICIAL_CLASSES, cleanClanName, ClanGroup, isUserStatsPending, isNoClan } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { canChangePassword } from '../services/firebase';
@@ -82,8 +82,11 @@ export const MembersView: React.FC<MembersViewProps> = ({
     if (!currentUser) return false;
     // Cannot delete your own account
     if (mem.id === currentUser.id) return false;
-    // Owner accounts are immutable and cannot be deleted by another owner.
-    if (currentUser.role === 'owner') return mem.role !== 'owner';
+    // Primary Owner is immutable and cannot be deleted
+    const isPrimaryOwner = mem.id === 'user_owner_eloni' || mem.username?.toLowerCase() === 'eloni' || mem.inGameName?.toLowerCase() === 'eloni';
+    if (isPrimaryOwner) return false;
+    // Owner can delete any other account
+    if (currentUser.role === 'owner') return true;
     // Admin can delete standard members and party leaders
     if (currentUser.role === 'admin') {
       return mem.role !== 'owner' && mem.role !== 'admin';
@@ -92,9 +95,15 @@ export const MembersView: React.FC<MembersViewProps> = ({
   };
 
   const canEditMember = (mem: User) => {
-    if (!currentUser || mem.id === currentUser.id || mem.role === 'owner') return false;
+    if (!currentUser) return false;
+    // Owner can edit anyone (including themselves and other accounts)
     if (currentUser.role === 'owner') return true;
-    return currentUser.role === 'admin' && (mem.role === 'party_leader' || mem.role === 'member');
+    // Admin can edit their own profile, or members and party leaders
+    if (currentUser.role === 'admin') {
+      if (mem.id === currentUser.id) return true;
+      return mem.role !== 'owner' && mem.role !== 'admin';
+    }
+    return false;
   };
 
   const classMap = new Map(OFFICIAL_CLASSES.map((c) => [c.nameEn.toLowerCase(), c]));
@@ -199,7 +208,8 @@ export const MembersView: React.FC<MembersViewProps> = ({
     setEditingUser(user);
     setEditInGameName(user.inGameName);
     setEditPowerLevel(user.powerLevel || 0);
-    setEditClan(cleanClanName(user.clan));
+    const initialClan = isNoClan(user.clan) ? 'no-clan' : (cleanClanName(user.clan) || 'no-clan');
+    setEditClan(initialClan);
     setEditClass(user.characterClass);
     setEditClasses(user.classes || (user.characterClass ? [user.characterClass] : []));
     setEditLevel(user.level || 0);
@@ -208,33 +218,29 @@ export const MembersView: React.FC<MembersViewProps> = ({
     setEditRole(user.role);
   };
 
-  const handleSaveEdit = async (e: React.FormEvent) => {
+  const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
 
-    setIsSaving(true);
-    try {
-      sounds.playClaim();
-      const primaryClass = editClasses.length > 0 ? editClasses[0] : editClass;
-      await onUpdateMember(editingUser.id, {
-        inGameName: editInGameName.trim(),
-        powerLevel: Number(editPowerLevel) || 0,
-        pendingPowerLevel: null,
-        pendingPowerLevelRequestedAt: null,
-        clan: cleanClanName(editClan.trim()) || 'VoltZ',
-        classes: editClasses,
-        characterClass: primaryClass,
-        level: Number(editLevel) || 0,
-        legendClasses: Number(editLegendClasses) || 0,
-        legendAgathions: Number(editLegendAgathions) || 0,
-        role: editRole
-      });
-      setEditingUser(null);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSaving(false);
-    }
+    sounds.playClaim();
+    const primaryClass = editClasses.length > 0 ? editClasses[0] : editClass;
+    const isPrimaryOwner = editingUser.id === 'user_owner_eloni' || editingUser.username?.toLowerCase() === 'eloni' || editingUser.inGameName?.toLowerCase() === 'eloni';
+    const finalRole = isPrimaryOwner ? 'owner' : editRole;
+    const cleanTarget = isNoClan(editClan) ? 'no-clan' : (cleanClanName(editClan.trim()) || 'no-clan');
+    onUpdateMember(editingUser.id, {
+      inGameName: editInGameName.trim(),
+      powerLevel: Number(editPowerLevel) || 0,
+      pendingPowerLevel: null,
+      pendingPowerLevelRequestedAt: null,
+      clan: cleanTarget,
+      classes: editClasses,
+      characterClass: primaryClass,
+      level: Number(editLevel) || 0,
+      legendClasses: Number(editLegendClasses) || 0,
+      legendAgathions: Number(editLegendAgathions) || 0,
+      role: finalRole
+    });
+    setEditingUser(null);
   };
 
   return (
@@ -432,42 +438,22 @@ export const MembersView: React.FC<MembersViewProps> = ({
                   <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
                     <button
                       type="button"
-                      disabled={processingMemberId === member.id}
-                      onClick={async () => {
-                        setProcessingMemberId(member.id);
-                        try {
-                          sounds.playClaim();
-                          await onApproveMember(member.id);
-                        } finally {
-                          setProcessingMemberId(null);
-                        }
+                      onClick={() => {
+                        sounds.playClaim();
+                        onApproveMember(member.id);
                       }}
-                      className="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-1 shadow cursor-pointer disabled:opacity-50"
+                      className="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-1 shadow cursor-pointer"
                     >
-                      {processingMemberId === member.id ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Check className="w-3.5 h-3.5" />
-                      )}
-                      <span>
-                        {processingMemberId === member.id
-                          ? (lang === 'th' ? 'กำลังอนุมัติ...' : 'Approving...')
-                          : t.approveBtn}
-                      </span>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{t.approveBtn}</span>
                     </button>
                     <button
                       type="button"
-                      disabled={processingMemberId === member.id}
-                      onClick={async () => {
-                        setProcessingMemberId(member.id);
-                        try {
-                          sounds.playClick();
-                          await onRejectMember(member.id);
-                        } finally {
-                          setProcessingMemberId(null);
-                        }
+                      onClick={() => {
+                        sounds.playClick();
+                        onRejectMember(member.id);
                       }}
-                      className="p-1.5 rounded-lg bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 transition-all cursor-pointer disabled:opacity-50"
+                      className="p-1.5 rounded-lg bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 transition-all cursor-pointer"
                       title={t.rejectBtn}
                     >
                       <X className="w-3.5 h-3.5" />
@@ -908,17 +894,46 @@ export const MembersView: React.FC<MembersViewProps> = ({
                 />
               </div>
 
-              {/* Clan Name */}
+              {/* Clan Name Dropdown */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   {t.changeClan}
                 </label>
-                <input
-                  type="text"
-                  value={editClan}
+                <select
+                  value={isNoClan(editClan) ? 'no-clan' : cleanClanName(editClan)}
                   onChange={(e) => setEditClan(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none"
-                />
+                  className="w-full px-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none cursor-pointer"
+                >
+                  {/* Clans from clans prop */}
+                  {clans.map((c) => {
+                    const cName = cleanClanName(c.name);
+                    return (
+                      <option key={c.id || c.name} value={cName} className="bg-[#090d16] text-slate-100">
+                        🛡️ {cName}
+                      </option>
+                    );
+                  })}
+                  {/* Default fallback clans if not in clans prop */}
+                  {!clans.some((c) => cleanClanName(c.name).toLowerCase() === 'voltz') && (
+                    <option value="VoltZ" className="bg-[#090d16] text-slate-100">🛡️ VoltZ</option>
+                  )}
+                  {!clans.some((c) => cleanClanName(c.name).toLowerCase() === 'levels') && (
+                    <option value="Levels" className="bg-[#090d16] text-slate-100">🛡️ Levels</option>
+                  )}
+                  {!clans.some((c) => cleanClanName(c.name).toLowerCase() === 'stronk') && (
+                    <option value="Stronk" className="bg-[#090d16] text-slate-100">🛡️ Stronk</option>
+                  )}
+                  {/* Custom clan if not already listed */}
+                  {editClan && !isNoClan(editClan) && !clans.some((c) => cleanClanName(c.name).toLowerCase() === cleanClanName(editClan).toLowerCase()) && !['voltz', 'levels', 'stronk'].includes(cleanClanName(editClan).toLowerCase()) && (
+                    <option value={cleanClanName(editClan)} className="bg-[#090d16] text-slate-100">
+                      🛡️ {cleanClanName(editClan)}
+                    </option>
+                  )}
+                  {/* Unassigned / No Clan */}
+                  <option value="no-clan" className="bg-[#090d16] text-amber-300">
+                    {lang === 'th' ? '⛔ ไม่มีแคลน (Unassigned)' : '⛔ No Clan (Unassigned)'}
+                  </option>
+                </select>
               </div>
 
               {/* Character Profile: Classes (multi) */}
@@ -1172,13 +1187,13 @@ export const MembersView: React.FC<MembersViewProps> = ({
           onClose={() => setInspectingUser(null)}
           user={inspectingUser}
           lang={lang}
-          onApprove={onApproveCpUpdate ? async (u) => {
-            await onApproveCpUpdate(u.id);
+          onApprove={onApproveCpUpdate ? (u) => {
             setInspectingUser(null);
+            onApproveCpUpdate(u.id);
           } : undefined}
-          onOpenReject={onRejectCpUpdate ? async (userId) => {
+          onOpenReject={onRejectCpUpdate ? (userId) => {
             setInspectingUser(null);
-            await onRejectCpUpdate(userId);
+            onRejectCpUpdate(userId);
           } : undefined}
         />
       )}

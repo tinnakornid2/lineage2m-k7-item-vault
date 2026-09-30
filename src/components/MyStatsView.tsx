@@ -4,6 +4,7 @@ import {
   Zap,
   Upload,
   CheckCircle,
+  CheckCircle2,
   AlertCircle,
   Clock,
   Sparkles,
@@ -146,6 +147,18 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
 
     // Never wipe the user's inputs while they are actively filling out the form, unless user changed or approval/rejection arrived
     if (shouldForceReset || !hasUserEditedRef.current) {
+      if (!isDifferentUser && approvalChanged && currentUser.statApprovalAt && lastKnownApprovalAtRef.current !== null && Number(currentUser.statApprovalAt) > Number(lastKnownApprovalAtRef.current)) {
+        sounds.playSuccess();
+        if (showToast) {
+          showToast(
+            lang === 'th'
+              ? `🎉 สเตตัสของคุณได้รับการอนุมัติแล้ว! (⚡ ${currentUser.powerLevel?.toLocaleString() || 0} PL)`
+              : `🎉 Your stats have been approved! (⚡ ${currentUser.powerLevel?.toLocaleString() || 0} PL)`,
+            'success'
+          );
+        }
+      }
+
       lastLoadedUserIdRef.current = currentUser.id;
       lastKnownApprovalAtRef.current = currentUser.statApprovalAt || null;
       lastKnownRejectionAtRef.current = currentUser.statRejectionAt || null;
@@ -372,6 +385,13 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
       return;
     }
 
+    if (duplicateReason) {
+      const msg = statMessage(duplicateReason, lang);
+      setErrorMessage(msg);
+      showToast?.(msg, 'warning');
+      return;
+    }
+
     // Determine effective Power Level: calculate from entered stats or retain existing verified PL
     const finalPL = calculatedNewPL > 0 ? calculatedNewPL : (currentUser.powerLevel || 0);
 
@@ -385,55 +405,53 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      sounds.playClaim();
-      await onRequestStatUpdate(
-        currentUser.id,
-        stats,
-        spiritEnhancements,
-        finalPL,
-        screenshotUrl || undefined,
-        {
-          inGameName: inGameName.trim() || currentUser.inGameName,
-          classes: selectedClasses,
-          level: charLevel,
-          legendClasses: charLegendClasses,
-          legendAgathions: charLegendAgathions
-        }
+    sounds.playClaim();
+    setSuccessMessage(
+      lang === 'th'
+        ? 'ส่งคำขออัปเดตสเตตัสเรียบร้อยแล้ว! รอแอดมินหรือโอเนอร์ตรวจสอบและอนุมัติ ⚡'
+        : 'Stat update request submitted! Waiting for Admin/Owner approval ⚡'
+    );
+    hasUserEditedRef.current = false;
+    if (showToast) {
+      showToast(
+        lang === 'th' ? 'ส่งคำขออัปเดตสเตตัสสำเร็จ (รออนุมัติ) ⚡' : 'Stat update request submitted (Pending approval) ⚡',
+        'success'
       );
-      setSuccessMessage(
-        lang === 'th'
-          ? 'ส่งคำขออัปเดตสเตตัสเรียบร้อยแล้ว! รอแอดมินหรือโอเนอร์ตรวจสอบและอนุมัติ ⚡'
-          : 'Stat update request submitted! Waiting for Admin/Owner approval ⚡'
-      );
-      hasUserEditedRef.current = false;
-      if (showToast) {
-        showToast(
-          lang === 'th' ? 'ส่งคำขออัปเดตสเตตัสสำเร็จ (รออนุมัติ) ⚡' : 'Stat update request submitted (Pending approval) ⚡',
-          'success'
-        );
-      }
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Failed to submit request');
-    } finally {
-      setIsSubmitting(false);
     }
+
+    // Instant optimistic response: send request in background
+    onRequestStatUpdate(
+      currentUser.id,
+      stats,
+      spiritEnhancements,
+      finalPL,
+      screenshotUrl || undefined,
+      {
+        inGameName: inGameName.trim() || currentUser.inGameName,
+        classes: selectedClasses,
+        level: charLevel,
+        legendClasses: charLegendClasses,
+        legendAgathions: charLegendAgathions
+      }
+    ).catch((err: any) => {
+      setErrorMessage(err?.message || 'Failed to submit request');
+      if (showToast) showToast(err?.message || 'Failed to submit request', 'error');
+    });
   };
 
   const handleCancelPending = async () => {
     if (!onCancelPendingRequest) return;
-    setIsSubmitting(true);
-    try {
-      sounds.playClick();
-      await onCancelPendingRequest(currentUser.id);
-      hasUserEditedRef.current = false;
-      setSuccessMessage(lang === 'th' ? 'ยกเลิกคำขอเรียบร้อยแล้ว' : 'Pending request cancelled');
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Failed to cancel request');
-    } finally {
-      setIsSubmitting(false);
+    sounds.playClick();
+    hasUserEditedRef.current = false;
+    setSuccessMessage(lang === 'th' ? 'ยกเลิกคำขอเรียบร้อยแล้ว' : 'Pending request cancelled');
+    if (showToast) {
+      showToast(lang === 'th' ? 'ยกเลิกคำขอเรียบร้อยแล้ว' : 'Pending request cancelled', 'info');
     }
+
+    // Instant optimistic response: cancel in background
+    onCancelPendingRequest(currentUser.id).catch((err: any) => {
+      setErrorMessage(err?.message || 'Failed to cancel request');
+    });
   };
 
   // Group stats by categories
@@ -695,6 +713,27 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
               {lang === 'th' ? 'ยกเลิกคำขอ' : 'Cancel'}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Newly Approved / Verified Stat Banner */}
+      {!hasPending && !isRejected && currentUser.statApprovalAt && (
+        <div className="p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-500/60 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-emerald-200 shadow-lg animate-in fade-in">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />
+            <span>
+              <strong className="text-emerald-300">
+                {lang === 'th' ? 'สเตตัสได้รับการยืนยันและอนุมัติแล้ว: ' : 'Stats Verified & Approved: '}
+              </strong>
+              ⚡ {currentUser.powerLevel?.toLocaleString() || 0} PL
+              <span className="text-emerald-400/80 ml-2">
+                ({new Date(currentUser.statApprovalAt).toLocaleString(lang === 'th' ? 'th-TH' : 'en-US')})
+              </span>
+            </span>
+          </div>
+          <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 font-bold uppercase tracking-wider self-start sm:self-auto">
+            {lang === 'th' ? 'อนุมัติแล้ว' : 'Approved'}
+          </span>
         </div>
       )}
 

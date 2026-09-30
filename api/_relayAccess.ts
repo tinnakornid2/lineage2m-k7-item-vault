@@ -20,7 +20,16 @@ export function scopeRelayInput(base: any, incoming: any, actor: RelayActor, sta
       }
       const owner = existing?.role === 'owner' || user.id === 'user_owner_eloni';
       if (owner) return existing ? { ...existing, ...(actor.role === 'owner' ? user : {}), role: 'owner', status: 'active' } : undefined;
-      if (actor.role === 'admin' && (existing?.role === 'admin' || user.role === 'owner' || user.role === 'admin')) return existing;
+      if (actor.role === 'admin' && user.role === 'owner') return existing;
+      if (actor.role === 'admin' && (existing?.role === 'admin' || user.role === 'admin')) {
+        return {
+          ...user,
+          role: existing ? existing.role : 'admin',
+          status: existing ? existing.status : 'active',
+          username: existing ? existing.username : user.username,
+          passwordHash: existing ? existing.passwordHash : user.passwordHash
+        };
+      }
       return user;
     }).filter(Boolean);
     const deleted = { ...(data.syncMeta?.deletedUsers || {}) };

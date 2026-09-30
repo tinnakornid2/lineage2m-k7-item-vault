@@ -87,6 +87,7 @@ interface VaultViewProps {
   ) => void;
   onOpenOwnerResetModal?: () => void;
   onConfirmPayment?: (item: VaultItem, targetStatus?: 'pending' | 'paid') => void;
+  onToggleDiamondPayout?: (item: VaultItem, targetStatus?: 'pending' | 'paid_out') => void;
 }
 
 export const VaultView: React.FC<VaultViewProps> = ({
@@ -101,7 +102,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
   onEditItem,
   onViewImageZoom,
   onOpenOwnerResetModal,
-  onConfirmPayment
+  onConfirmPayment,
+  onToggleDiamondPayout
 }) => {
   const t = translations[lang];
   const isOwner = currentUser?.role === 'owner';
@@ -269,7 +271,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [distHuntersTextFormat, setDistHuntersTextFormat] = useState<'by-clan' | 'plain' | 'inline' | 'comma'>('by-clan');
   const [distHuntersClanFilter, setDistHuntersClanFilter] = useState<string>('all');
   const [copiedDistHunters, setCopiedDistHunters] = useState<boolean>(false);
-  const [distFilterStatus, setDistFilterStatus] = useState<'all' | 'incomplete' | 'complete'>('all');
+  const [distFilterStatus, setDistFilterStatus] = useState<'all' | 'incomplete' | 'pending_payout' | 'paid_out' | 'complete' | 'free'>('all');
 
   // Check server-side Gemini availability without exposing the API key to this screen.
   useEffect(() => {
@@ -1140,24 +1142,23 @@ export const VaultView: React.FC<VaultViewProps> = ({
             }
           : undefined;
 
-      await Promise.race([
-        onCreateVaultItem(
-          {
-            name: name.trim(),
-            price: Number(price) || 0,
-            quantity: Math.max(1, Number(quantity) || 1),
-            minPowerLevel: Number(minPowerLevel) || 0,
-            rarity,
-            imageUrl:
-              itemImageUrl ||
-              'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=400&auto=format&fit=crop&q=80',
-            hunters: deduplicatedFinalHunters,
-            hunterScreenshots
-          },
-          directPayload
-        ),
-        new Promise((resolve) => setTimeout(resolve, 3500))
-      ]);
+      onCreateVaultItem(
+        {
+          name: name.trim(),
+          price: Number(price) || 0,
+          quantity: Math.max(1, Number(quantity) || 1),
+          minPowerLevel: Number(minPowerLevel) || 0,
+          rarity,
+          imageUrl:
+            itemImageUrl ||
+            'https://images.unsplash.com/photo-1595590424283-b8f17842773f?w=400&auto=format&fit=crop&q=80',
+          hunters: deduplicatedFinalHunters,
+          hunterScreenshots
+        },
+        directPayload
+      ).catch((err) => {
+        console.error('Failed to create vault item:', err);
+      });
 
       // Save item name to localStorage
       try {
@@ -1259,24 +1260,56 @@ export const VaultView: React.FC<VaultViewProps> = ({
     return distributedItems.filter(isDistributedItemPaymentPending);
   }, [distributedItems]);
 
+  const pendingDiamondPayoutItems = useMemo(() => {
+    return distributedItems.filter(
+      (i) => i.price > 0 && !isDistributedItemPaymentPending(i) && i.diamondPayoutStatus !== 'paid_out'
+    );
+  }, [distributedItems]);
+
+  const paidOutDiamondItems = useMemo(() => {
+    return distributedItems.filter(
+      (i) => i.price > 0 && !isDistributedItemPaymentPending(i) && i.diamondPayoutStatus === 'paid_out'
+    );
+  }, [distributedItems]);
+
+  const freeDistributedItems = useMemo(() => {
+    return distributedItems.filter((i) => !i.price || i.price === 0);
+  }, [distributedItems]);
+
   const completeDistributedItems = useMemo(() => {
     return distributedItems.filter((i) => !isDistributedItemPaymentPending(i));
   }, [distributedItems]);
 
+  const fullyCompletedItems = useMemo(() => {
+    return distributedItems.filter(
+      (i) => !isDistributedItemPaymentPending(i) && (!i.price || i.price === 0 || i.diamondPayoutStatus === 'paid_out')
+    );
+  }, [distributedItems]);
+
+  const totalPendingPayoutDiamonds = useMemo(() => {
+    return pendingDiamondPayoutItems.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+  }, [pendingDiamondPayoutItems]);
+
   const displayedDistributedItems = useMemo(() => {
     if (distFilterStatus === 'incomplete') return incompleteDistributedItems;
+    if (distFilterStatus === 'pending_payout') return pendingDiamondPayoutItems;
+    if (distFilterStatus === 'paid_out') return paidOutDiamondItems;
+    if (distFilterStatus === 'free') return freeDistributedItems;
     if (distFilterStatus === 'complete') return completeDistributedItems;
     return distributedItems;
-  }, [distFilterStatus, incompleteDistributedItems, completeDistributedItems, distributedItems]);
+  }, [distFilterStatus, incompleteDistributedItems, pendingDiamondPayoutItems, paidOutDiamondItems, freeDistributedItems, completeDistributedItems, distributedItems]);
 
   const renderDistributedCard = (item: VaultItem, forcePending?: boolean) => {
     const isPending = forcePending !== undefined ? forcePending : isDistributedItemPaymentPending(item);
+    const isPendingPayout = !isPending && item.price > 0 && item.diamondPayoutStatus !== 'paid_out';
     return (
       <div
         key={item.id}
         className={`p-3 rounded-xl border transition-all ${
           isPending
-            ? 'bg-[#15111c] border-amber-500/40 hover:border-amber-400/70 shadow-md'
+            ? 'bg-[#18121c] border-rose-500/35 hover:border-rose-400/60 shadow-md'
+            : isPendingPayout
+            ? 'bg-[#16120b] border-amber-500/50 hover:border-amber-400/80 shadow-md ring-1 ring-amber-500/20'
             : 'bg-[#0b1424] border-slate-800 hover:border-emerald-500/40 shadow-md'
         }`}
       >
@@ -1530,21 +1563,72 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 </button>
               )
             ) : item.price > 0 ? (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!onConfirmPayment) return;
-                  sounds.playClick();
-                  if (window.confirm(lang === 'th' ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นรอชำระใช่หรือไม่?` : `Revert "${item.name}" status to pending payment?`)) {
-                    onConfirmPayment(item, 'pending');
-                  }
-                }}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer hover:bg-emerald-500/30 transition-all"
-                title={lang === 'th' ? 'ชำระแล้ว - คลิกเพื่อเปลี่ยนกลับเป็นรอชำระ' : 'Paid - Click to revert to pending'}
-              >
-                <CheckCircle className="w-3 h-3 text-emerald-400" />
-                <span>{t.paymentStatusPaid || (lang === 'th' ? 'ชำระแล้ว' : 'Paid')}</span>
-              </button>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!onConfirmPayment) return;
+                    sounds.playClick();
+                    if (window.confirm(lang === 'th' ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นรอชำระใช่หรือไม่?` : `Revert "${item.name}" status to pending payment?`)) {
+                      onConfirmPayment(item, 'pending');
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer hover:bg-emerald-500/30 transition-all"
+                  title={lang === 'th' ? 'ชำระแล้ว - คลิกเพื่อเปลี่ยนกลับเป็นรอชำระ' : 'Paid - Click to revert to pending'}
+                >
+                  <CheckCircle className="w-3 h-3 text-emerald-400" />
+                  <span>{t.paymentStatusPaid || (lang === 'th' ? 'ชำระแล้ว' : 'Paid')}</span>
+                </button>
+
+                {onToggleDiamondPayout && (
+                  item.diamondPayoutStatus === 'paid_out' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        if (window.confirm(
+                          lang === 'th'
+                            ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นยังไม่แจกเพชรใช่หรือไม่?`
+                            : `Revert "${item.name}" status to pending diamond payout?`
+                        )) {
+                          onToggleDiamondPayout(item, 'pending');
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40 cursor-pointer hover:bg-sky-500/30 transition-all shadow-sm"
+                      title={
+                        lang === 'th'
+                          ? `แจกเพชรแล้ว ${item.diamondPayoutBy ? `(โดย ${item.diamondPayoutBy})` : ''} - คลิกเพื่อเปลี่ยนสถานะ`
+                          : `Diamonds paid out ${item.diamondPayoutBy ? `(by ${item.diamondPayoutBy})` : ''} - Click to revert`
+                      }
+                    >
+                      <span>💎</span>
+                      <span>{t.diamondPayoutCompleted || (lang === 'th' ? 'แจกเพชรแล้ว' : 'Diamonds Paid Out')}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        onToggleDiamondPayout(item, 'paid_out');
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 border border-amber-300 shadow cursor-pointer transition-all active:scale-95"
+                      title={
+                        lang === 'th'
+                          ? `คลิกเพื่อบันทึกว่าแจกเพชรให้คนล่าแล้ว ${item.hunters && item.hunters.length > 0 ? `(คนละ ~${Math.floor(item.price / item.hunters.length).toLocaleString()} 💎)` : ''}`
+                          : `Click to mark diamonds paid out ${item.hunters && item.hunters.length > 0 ? `(~${Math.floor(item.price / item.hunters.length).toLocaleString()} 💎 each)` : ''}`
+                      }
+                    >
+                      <Check className="w-3 h-3 text-slate-950 stroke-[3]" />
+                      <span>{t.confirmDiamondPayout || (lang === 'th' ? 'แจกเพชรแล้ว' : 'Confirm Payout')}</span>
+                      {item.hunters && item.hunters.length > 0 && (
+                        <span className="text-[10px] text-slate-950 font-mono font-extrabold bg-amber-300/80 px-1 py-0.2 rounded">
+                          ~{Math.floor(item.price / item.hunters.length).toLocaleString()}💎
+                        </span>
+                      )}
+                    </button>
+                  )
+                )}
+              </div>
             ) : (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/70 border border-emerald-500/40 text-emerald-300">
                 🎁 {t.itemFree || (lang === 'th' ? 'ฟรี' : 'Free')}
@@ -2856,7 +2940,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
             </div>
           ) : (
             <div className="space-y-4">
-              {/* View Mode Switcher: Dual-Box (กล่องคู่) VS Table (ตาราง) */}
+              {/* View Mode Switcher: Tri-Box (3 กล่องสถานะ) VS Table (ตาราง) */}
               <div className="flex items-center justify-between flex-wrap gap-2.5 pb-1">
                 <div className="flex items-center p-1 rounded-xl bg-[#090d16] border border-slate-800 shadow-inner">
                   <button
@@ -2872,7 +2956,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     }`}
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
-                    <span>{lang === 'th' ? 'มุมมองกล่องคู่ (แยกค้างชำระ)' : 'Dual-Box View (Split Debt)'}</span>
+                    <span>{t.triBoxView || (lang === 'th' ? 'มุมมอง 3 กล่องสถานะ' : '3-Box Status View')}</span>
                   </button>
                   <button
                     type="button"
@@ -2893,27 +2977,27 @@ export const VaultView: React.FC<VaultViewProps> = ({
               </div>
 
               {distViewMode === 'boxes' ? (
-                /* Dual-Box Layout (กล่องคู่: แยกค้างชำระ กับ แจกเสร็จสิ้น) */
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
+                /* Tri-Box Layout (3 กล่องแยกสถานะ: 1.รอชำระเพชร -> 2.รอแจกเพชรคนล่า -> 3.แจกเสร็จสมบูรณ์) */
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
                   
-                  {/* BOX 1: ค้างชำระ (Pending Payment / Debt) */}
-                  <div className="rounded-2xl bg-gradient-to-b from-[#18131d] via-[#120f18] to-[#0a0710] border border-amber-500/40 p-4 shadow-xl flex flex-col space-y-3">
-                    <div className="flex items-center justify-between pb-2.5 border-b border-amber-500/20">
+                  {/* BOX 1: รอผู้รับชำระเพชร (Pending Buyer Payment) */}
+                  <div className="rounded-2xl bg-gradient-to-b from-[#18131d] via-[#120f18] to-[#0a0710] border border-rose-500/35 p-3.5 sm:p-4 shadow-xl flex flex-col space-y-3">
+                    <div className="flex items-center justify-between pb-2.5 border-b border-rose-500/20">
                       <div className="flex items-center gap-2">
-                        <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-inner">
+                        <div className="p-1.5 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-inner">
                           <Clock className="w-4 h-4 animate-pulse" />
                         </div>
                         <div>
-                          <h3 className="text-sm font-bold text-amber-200 font-cinzel">
-                            {lang === 'th' ? 'รายการค้างชำระเพชร' : 'Pending Diamond Payments'}
+                          <h3 className="text-sm font-bold text-rose-200 font-cinzel">
+                            {t.boxPendingBuyerPaymentTitle || (lang === 'th' ? 'รอผู้รับชำระเพชร' : 'Pending Buyer Payment')}
                           </h3>
-                          <p className="text-[11px] text-amber-400/80">
-                            {lang === 'th' ? 'ไอเทมที่แจกแล้วแต่ยังรอชำระเพชรเข้ากองทุน' : 'Distributed items awaiting diamond payment'}
+                          <p className="text-[11px] text-rose-400/80">
+                            {t.boxPendingBuyerPaymentDesc || (lang === 'th' ? 'ไอเทมที่แจกแล้วแต่ยังรอชำระเพชรเข้ากองทุน' : 'Distributed items awaiting diamond payment')}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40">
                           {incompleteDistributedItems.length} {lang === 'th' ? 'รายการ' : 'items'}
                         </span>
                       </div>
@@ -2932,8 +3016,52 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     )}
                   </div>
 
-                  {/* BOX 2: แจกเสร็จสิ้น (Completed Distributions) */}
-                  <div className="rounded-2xl bg-gradient-to-b from-[#101b2b] via-[#0b1320] to-[#070b14] border border-emerald-500/40 p-4 shadow-xl flex flex-col space-y-3">
+                  {/* BOX 2: รอแจกเพชรให้คนล่า (Pending Diamond Payout to Hunters) */}
+                  <div className="rounded-2xl bg-gradient-to-b from-[#1c160e] via-[#141009] to-[#0c0905] border-2 border-amber-500/50 p-3.5 sm:p-4 shadow-xl flex flex-col space-y-3 relative overflow-hidden">
+                    <div className="flex items-center justify-between pb-2.5 border-b border-amber-500/20">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-inner">
+                          <Sparkles className="w-4 h-4 animate-pulse" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-amber-200 font-cinzel flex items-center gap-1.5">
+                            <span>{t.boxPendingDiamondPayoutTitle || (lang === 'th' ? 'รอแจกเพชรให้คนล่า' : 'Pending Diamond Payout')}</span>
+                            {pendingDiamondPayoutItems.length > 0 && (
+                              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping inline-block" />
+                            )}
+                          </h3>
+                          <p className="text-[11px] text-amber-400/80">
+                            {t.boxPendingDiamondPayoutDesc || (lang === 'th' ? 'ได้รับเพชรแล้ว • รอหัวตี้โอนเพชรให้คนล่า' : 'Paid • Awaiting diamond payout to hunters')}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end shrink-0">
+                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          {pendingDiamondPayoutItems.length} {lang === 'th' ? 'รายการ' : 'items'}
+                        </span>
+                        {totalPendingPayoutDiamonds > 0 && (
+                          <span className="text-[10px] text-amber-300 font-mono font-bold mt-1">
+                            💎 {totalPendingPayoutDiamonds.toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {pendingDiamondPayoutItems.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-500 border border-dashed border-slate-800/80 rounded-xl space-y-1 bg-[#090d16]/50">
+                        <CheckCircle className="w-7 h-7 mx-auto text-emerald-400/60" />
+                        <p className="text-emerald-400 font-semibold">{t.noPendingPayouts || (lang === 'th' ? 'แจกเพชรครบทุกรายการแล้ว' : 'All diamond payouts completed')}</p>
+                        <p className="text-[10px] text-slate-400">{t.noPendingPayoutsDesc || (lang === 'th' ? 'ไม่มีรายการค้างแจกเพชรให้สมาชิก' : 'No items awaiting diamond payout')}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
+                        {pendingDiamondPayoutItems.map((item) => renderDistributedCard(item, false))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* BOX 3: แจกเสร็จสิ้นสมบูรณ์ (Fully Completed Distributions) */}
+                  <div className="rounded-2xl bg-gradient-to-b from-[#101b2b] via-[#0b1320] to-[#070b14] border border-emerald-500/40 p-3.5 sm:p-4 shadow-xl flex flex-col space-y-3">
                     <div className="flex items-center justify-between pb-2.5 border-b border-emerald-500/20">
                       <div className="flex items-center gap-2">
                         <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-inner">
@@ -2941,28 +3069,28 @@ export const VaultView: React.FC<VaultViewProps> = ({
                         </div>
                         <div>
                           <h3 className="text-sm font-bold text-emerald-200 font-cinzel">
-                            {lang === 'th' ? 'แจกเสร็จสิ้นแล้ว' : 'Completed Distributions'}
+                            {t.boxFullyCompletedTitle || (lang === 'th' ? 'แจกเสร็จสิ้นสมบูรณ์' : 'Fully Completed')}
                           </h3>
                           <p className="text-[11px] text-emerald-400/80">
-                            {lang === 'th' ? 'ไอเทมที่ชำระแล้วหรือแจกฟรี เรียงล่าสุดบนสุด' : 'Paid and free items, sorted latest first'}
+                            {t.boxFullyCompletedDesc || (lang === 'th' ? 'ชำระและแจกเพชรครบถ้วน หรือแจกฟรี' : 'Paid & diamonds distributed, or free items')}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                          {completeDistributedItems.length} {lang === 'th' ? 'รายการ' : 'items'}
+                          {fullyCompletedItems.length} {lang === 'th' ? 'รายการ' : 'items'}
                         </span>
                       </div>
                     </div>
 
-                    {completeDistributedItems.length === 0 ? (
+                    {fullyCompletedItems.length === 0 ? (
                       <div className="py-8 text-center text-xs text-slate-500 border border-dashed border-slate-800/80 rounded-xl space-y-1 bg-[#090d16]/50">
                         <Gift className="w-7 h-7 mx-auto text-slate-600" />
-                        <p>{lang === 'th' ? 'ยังไม่มีประวัติการแจก' : 'No completed distributions yet'}</p>
+                        <p>{lang === 'th' ? 'ยังไม่มีประวัติที่แจกเสร็จสมบูรณ์' : 'No completed distributions yet'}</p>
                       </div>
                     ) : (
                       <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
-                        {completeDistributedItems.map((item) => renderDistributedCard(item, false))}
+                        {fullyCompletedItems.map((item) => renderDistributedCard(item, false))}
                       </div>
                     )}
                   </div>
@@ -2971,66 +3099,114 @@ export const VaultView: React.FC<VaultViewProps> = ({
               ) : (
                 /* Table View */
                 <div className="space-y-3">
-                  {/* Category Filter Pills: All / Incomplete / Complete */}
+                  {/* Category Filter Pills: All / Pending Payout / Paid Out / Pending Payment / Free / Complete */}
                   <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    setDistFilterStatus('all');
-                  }}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                    distFilterStatus === 'all'
-                      ? 'bg-gradient-to-r from-sky-600 to-blue-600 text-white shadow-md'
-                      : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
-                  }`}
-                >
-                  <span>{lang === 'th' ? 'ทั้งหมด' : 'All'}</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
-                    {distributedItems.length}
-                  </span>
-                </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        setDistFilterStatus('all');
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        distFilterStatus === 'all'
+                          ? 'bg-gradient-to-r from-sky-600 to-blue-600 text-white shadow-md'
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                      }`}
+                    >
+                      <span>{lang === 'th' ? 'ทั้งหมด' : 'All'}</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
+                        {distributedItems.length}
+                      </span>
+                    </button>
 
-                {incompleteDistributedItems.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      setDistFilterStatus('incomplete');
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                      distFilterStatus === 'incomplete'
-                        ? 'bg-gradient-to-r from-amber-600 to-yellow-600 text-slate-950 font-black shadow-md'
-                        : 'bg-amber-950/40 hover:bg-amber-950/60 text-amber-300 border border-amber-600/40'
-                    }`}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                    <span>{t.boxIncompleteDist}</span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
-                      {incompleteDistributedItems.length}
-                    </span>
-                  </button>
-                )}
+                    {/* Quick Tab: รอแจกเพชร (Pending Diamond Payout) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        setDistFilterStatus('pending_payout');
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        distFilterStatus === 'pending_payout'
+                          ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-slate-950 font-black shadow-md'
+                          : pendingDiamondPayoutItems.length > 0
+                          ? 'bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-500/50 shadow-sm'
+                          : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                      <span>{t.filterPendingPayout || (lang === 'th' ? '⏳ รอแจกเพชร' : 'Pending Payout')}</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
+                        {pendingDiamondPayoutItems.length}
+                      </span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    setDistFilterStatus('complete');
-                  }}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                    distFilterStatus === 'complete'
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-                      : 'bg-emerald-950/40 hover:bg-emerald-950/60 text-emerald-300 border border-emerald-600/40'
-                  }`}
-                >
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                  <span>{t.boxCompleteDist}</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
-                    {completeDistributedItems.length}
-                  </span>
-                </button>
-              </div>
+                    {/* Quick Tab: แจกเพชรแล้ว (Paid Out) */}
+                    {paidOutDiamondItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setDistFilterStatus('paid_out');
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          distFilterStatus === 'paid_out'
+                            ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-md'
+                            : 'bg-sky-950/30 hover:bg-sky-900/50 text-sky-300 border border-sky-600/40'
+                        }`}
+                      >
+                        <span>💎</span>
+                        <span>{t.filterPaidOut || (lang === 'th' ? 'แจกเพชรแล้ว' : 'Paid Out')}</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
+                          {paidOutDiamondItems.length}
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Quick Tab: รอชำระเงิน (Pending Payment from Buyer) */}
+                    {incompleteDistributedItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setDistFilterStatus('incomplete');
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          distFilterStatus === 'incomplete'
+                            ? 'bg-gradient-to-r from-red-600 to-amber-600 text-white font-black shadow-md'
+                            : 'bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-600/40'
+                        }`}
+                      >
+                        <Clock className="w-3 h-3 text-red-400" />
+                        <span>{t.filterPendingPayment || (lang === 'th' ? 'รอชำระเงิน' : 'Pending Payment')}</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
+                          {incompleteDistributedItems.length}
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Quick Tab: ของฟรี (Free Items) */}
+                    {freeDistributedItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setDistFilterStatus('free');
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          distFilterStatus === 'free'
+                            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                            : 'bg-emerald-950/30 hover:bg-emerald-900/50 text-emerald-300 border border-emerald-600/40'
+                        }`}
+                      >
+                        <span>🎁</span>
+                        <span>{t.filterFreeItems || (lang === 'th' ? 'ของฟรี' : 'Free Items')}</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
+                          {freeDistributedItems.length}
+                        </span>
+                      </button>
+                    )}
+                  </div>
 
               {displayedDistributedItems.length === 0 ? (
                 <div className="p-8 rounded-xl bg-[#0c121e] border border-slate-800 text-center text-xs text-slate-500">
@@ -3113,29 +3289,85 @@ export const VaultView: React.FC<VaultViewProps> = ({
                               {item.price.toLocaleString()} {t.diamonds}
                             </span>
                             {!isDistributedItemPaymentPending(item) ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!onConfirmPayment) return;
-                                  sounds.playClick();
-                                  if (window.confirm(
+                              <div className="space-y-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!onConfirmPayment) return;
+                                    sounds.playClick();
+                                    if (window.confirm(
+                                      lang === 'th'
+                                        ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นรอชำระใช่หรือไม่?`
+                                        : `Revert "${item.name}" status to pending payment?`
+                                    )) {
+                                      onConfirmPayment(item, 'pending');
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer hover:bg-emerald-500/30 transition-all shadow-sm"
+                                  title={
                                     lang === 'th'
-                                      ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นรอชำระใช่หรือไม่?`
-                                      : `Revert "${item.name}" status to pending payment?`
-                                  )) {
-                                    onConfirmPayment(item, 'pending');
+                                      ? `ชำระแล้ว ${item.paidBy ? `(ยืนยันโดย ${item.paidBy})` : ''} - คลิกเพื่อเปลี่ยนกลับเป็นรอชำระ`
+                                      : `Paid ${item.paidBy ? `(verified by ${item.paidBy})` : ''} - Click to revert to pending`
                                   }
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer hover:bg-emerald-500/30 transition-all shadow-sm"
-                                title={
-                                  lang === 'th'
-                                    ? `ชำระแล้ว ${item.paidBy ? `(ยืนยันโดย ${item.paidBy})` : ''} - คลิกเพื่อเปลี่ยนกลับเป็นรอชำระ`
-                                    : `Paid ${item.paidBy ? `(verified by ${item.paidBy})` : ''} - Click to revert to pending`
-                                }
-                              >
-                                <CheckCircle className="w-3 h-3 text-emerald-400" />
-                                <span>{t.paymentStatusPaid || (lang === 'th' ? 'ชำระแล้ว' : 'Paid')}</span>
-                              </button>
+                                >
+                                  <CheckCircle className="w-3 h-3 text-emerald-400" />
+                                  <span>{t.paymentStatusPaid || (lang === 'th' ? 'ชำระแล้ว' : 'Paid')}</span>
+                                </button>
+
+                                {/* Diamond Payout Toggle Badge */}
+                                {onToggleDiamondPayout && (
+                                  <div className="pt-0.5">
+                                    {item.diamondPayoutStatus === 'paid_out' ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          sounds.playClick();
+                                          if (window.confirm(
+                                            lang === 'th'
+                                              ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นยังไม่แจกเพชรใช่หรือไม่?`
+                                              : `Revert "${item.name}" status to pending diamond payout?`
+                                          )) {
+                                            onToggleDiamondPayout(item, 'pending');
+                                          }
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40 cursor-pointer hover:bg-sky-500/30 transition-all shadow-sm"
+                                        title={
+                                          lang === 'th'
+                                            ? `แจกเพชรแล้ว ${item.diamondPayoutBy ? `(โดย ${item.diamondPayoutBy})` : ''} - คลิกเพื่อเปลี่ยนสถานะ`
+                                            : `Diamonds paid out ${item.diamondPayoutBy ? `(by ${item.diamondPayoutBy})` : ''} - Click to revert`
+                                        }
+                                      >
+                                        <span>💎</span>
+                                        <span>{t.diamondPayoutCompleted || (lang === 'th' ? 'แจกเพชรแล้ว' : 'Diamonds Paid Out')}</span>
+                                      </button>
+                                    ) : (
+                                      <div className="space-y-0.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            sounds.playClick();
+                                            onToggleDiamondPayout(item, 'paid_out');
+                                          }}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50 cursor-pointer transition-all shadow-sm active:scale-95"
+                                          title={
+                                            lang === 'th'
+                                              ? `คลิกเพื่อบันทึกว่าแจกเพชรให้คนล่าแล้ว ${item.hunters && item.hunters.length > 0 ? `(คนละ ~${Math.floor(item.price / item.hunters.length).toLocaleString()} 💎)` : ''}`
+                                              : `Click to mark diamonds paid out ${item.hunters && item.hunters.length > 0 ? `(~${Math.floor(item.price / item.hunters.length).toLocaleString()} 💎 each)` : ''}`
+                                          }
+                                        >
+                                          <span>⏳</span>
+                                          <span>{t.diamondPayoutPending || (lang === 'th' ? 'รอแจกเพชร' : 'Pending Diamond Payout')}</span>
+                                        </button>
+                                        {item.hunters && item.hunters.length > 0 && (
+                                          <div className="text-[9px] text-amber-300/80 font-sans">
+                                            {item.hunters.length} {lang === 'th' ? 'คน' : 'hunters'} • ~{Math.floor(item.price / item.hunters.length).toLocaleString()} 💎
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             ) : (
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse shadow-sm">

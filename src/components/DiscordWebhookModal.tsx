@@ -412,8 +412,8 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
       }
 
       // 3. Save settings via onSaveSettings (Firestore, Google Sheets, React state)
-      await onSaveSettings(updated);
       sounds.playSuccess();
+      onSaveSettings(updated).catch((err: any) => console.error('Save discord settings error:', err));
       onClose();
     } catch (err: any) {
       console.error('Save discord settings error:', err);

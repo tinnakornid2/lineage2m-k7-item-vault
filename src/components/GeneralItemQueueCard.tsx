@@ -385,13 +385,17 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
       };
 
       if (editingId) {
-        await onUpdate(editingId, payload);
+        onUpdate(editingId, payload).catch((err: any) => {
+          console.error(err);
+        });
         if (showToast) showToast(th ? 'แก้ไขรายการไอเทมสำเร็จ' : 'Item updated', 'success');
       } else {
-        await onAdd({
+        onAdd({
           ...payload,
           queueList: [],
           receiptHistory: []
+        }).catch((err: any) => {
+          console.error(err);
         });
         if (showToast) showToast(th ? 'เพิ่มไอเทมลงคิวสำเร็จ' : 'Item added to queue', 'success');
       }
@@ -528,13 +532,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     const { item, quantity } = requestModalData;
     const isCraftGoal = item.isCraftGoal === true || item.maxRequestQuantity === 0;
     const reqQty = isCraftGoal ? 0 : Math.max(1, typeof quantity === 'number' ? quantity : (parseInt(String(quantity), 10) || 1));
-    setIsSubmittingRequest(true);
-    try {
-      await handleToggleQueue(item, reqQty);
-      setRequestModalData(null);
-    } finally {
-      setIsSubmittingRequest(false);
-    }
+    setRequestModalData(null);
+    handleToggleQueue(item, reqQty).catch((err) => console.error('Error toggling queue:', err));
   };
 
   // Admin/Owner: Pin / Unpin Item

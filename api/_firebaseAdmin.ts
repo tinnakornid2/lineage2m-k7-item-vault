@@ -335,6 +335,11 @@ export async function deleteManagedUser(
     if (!['owner', 'admin'].includes(actor.role)) return { allowed: false, reason: 'ROLE_HIERARCHY_DENIED' };
   }
 
+  const isPrimaryOwner = targetUid === 'user_owner_eloni' || (username && username.toLowerCase() === 'eloni') || targetUid === 'APsCZzEI4tYdx5UfHuY5Sw10L8B3';
+  if (isPrimaryOwner) {
+    return { allowed: false, reason: 'OWNER_IMMUTABLE' };
+  }
+
   // 1. Delete from Firebase Auth by targetUid
   try {
     await sdk.auth.deleteUser(targetUid);

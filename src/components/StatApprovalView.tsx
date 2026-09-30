@@ -83,8 +83,8 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
   const classMap = new Map(OFFICIAL_CLASSES.map((c) => [c.nameEn.toLowerCase(), c]));
 
   const handleApprove = async (user: User) => {
-    setIsProcessing(true);
     setProcessingUserId(user.id);
+    setIsProcessing(true);
     try {
       sounds.playSuccess();
       await onApproveStatUpdate(user.id);
@@ -99,8 +99,8 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
     } catch (err: any) {
       if (showToast) showToast(err?.message || 'Approval failed', 'error');
     } finally {
-      setIsProcessing(false);
       setProcessingUserId(null);
+      setIsProcessing(false);
     }
   };
 
@@ -117,21 +117,26 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
       return;
     }
 
+    sounds.playClick();
+    const targetUserId = rejectingUserId;
+    const targetReason = rejectionReason.trim();
+    setRejectingUserId(null);
+    setRejectionReason('');
+    setProcessingUserId(targetUserId);
     setIsProcessing(true);
+
     try {
-      sounds.playClick();
-      await onRejectStatUpdate(rejectingUserId, rejectionReason.trim());
+      await onRejectStatUpdate(targetUserId, targetReason);
       if (showToast) {
         showToast(
           lang === 'th' ? 'ปฏิเสธคำขอและส่งเหตุผลกลับไปยังสมาชิกแล้ว' : 'Request rejected and feedback sent',
           'info'
         );
       }
-      setRejectingUserId(null);
-      setRejectionReason('');
     } catch (err: any) {
       if (showToast) showToast(err?.message || 'Rejection failed', 'error');
     } finally {
+      setProcessingUserId(null);
       setIsProcessing(false);
     }
   };
