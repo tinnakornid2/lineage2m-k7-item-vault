@@ -436,11 +436,10 @@ export const VaultView: React.FC<VaultViewProps> = ({
     return entries.sort(([clanA], [clanB]) => {
       const normA = clanA.toLowerCase();
       const normB = clanB.toLowerCase();
-      const idxA = ['voltz', 'levels', 'stronk', 'no clan'].indexOf(normA);
-      const idxB = ['voltz', 'levels', 'stronk', 'no clan'].indexOf(normB);
-      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-      if (idxA !== -1) return -1;
-      if (idxB !== -1) return 1;
+      if (normA === 'voltz' && normB !== 'voltz') return -1;
+      if (normB === 'voltz' && normA !== 'voltz') return 1;
+      if (normA === 'no clan') return 1;
+      if (normB === 'no clan') return -1;
       return clanA.localeCompare(clanB);
     });
   }, [membersByClan]);
@@ -2643,15 +2642,9 @@ export const VaultView: React.FC<VaultViewProps> = ({
                         // Clan specific styling accents
                         const normClan = clanName.toLowerCase();
                         const isVoltZ = normClan.includes('voltz');
-                        const isLevelS = normClan.includes('levels');
-                        const isStronk = normClan.includes('stronk');
 
                         const badgeColor = isVoltZ
                           ? 'border-amber-500/50 text-amber-300 bg-amber-950/40'
-                          : isLevelS
-                          ? 'border-purple-500/50 text-purple-300 bg-purple-950/40'
-                          : isStronk
-                          ? 'border-emerald-500/50 text-emerald-300 bg-emerald-950/40'
                           : 'border-slate-700 text-slate-300 bg-slate-900/40';
 
                         return (

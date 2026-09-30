@@ -111,20 +111,39 @@ export const MembersView: React.FC<MembersViewProps> = ({
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [copiedPassword, setCopiedPassword] = useState(false);
 
-  // Available clans for dropdown selection
+  // Available clans for dropdown selection (Strictly real clans from database)
   const availableClanOptions = React.useMemo(() => {
     const map = new Map<string, string>();
-    ['VoltZ', 'LevelS', 'STRONK', 'No Clan'].forEach((c) => map.set(c.toLowerCase(), c));
+
+    // 1. Real clans configured in the system
     (clans || []).forEach((c) => {
-      const cleaned = cleanClanName(c.name);
-      if (cleaned) map.set(cleaned.toLowerCase(), cleaned);
+      if (c && c.name && c.name.trim() && c.enabled !== false) {
+        const cleaned = cleanClanName(c.name);
+        if (cleaned) map.set(cleaned.toLowerCase(), cleaned);
+      }
     });
+
+    // 2. Real clans assigned to current members
     (allMembers || []).forEach((m) => {
-      const cleaned = cleanClanName(m.clan);
-      if (cleaned) map.set(cleaned.toLowerCase(), cleaned);
+      if (m && m.clan && m.clan.trim()) {
+        const cleaned = cleanClanName(m.clan);
+        if (cleaned) map.set(cleaned.toLowerCase(), cleaned);
+      }
     });
-    return Array.from(map.values());
-  }, [clans, allMembers]);
+
+    // 3. If currently editing a user whose clan is set, ensure it's included
+    if (editingUser?.clan && editingUser.clan.trim()) {
+      const cleaned = cleanClanName(editingUser.clan);
+      if (cleaned) map.set(cleaned.toLowerCase(), cleaned);
+    }
+
+    // 4. Fallback only if no clans exist anywhere
+    if (map.size === 0) {
+      map.set('voltz', 'VoltZ');
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
+  }, [clans, allMembers, editingUser?.clan]);
 
   // View mode: Table vs 4-Column Grid
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
