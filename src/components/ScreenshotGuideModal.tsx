@@ -146,7 +146,9 @@ export const ScreenshotGuideModal: React.FC<ScreenshotGuideModalProps> = ({
   const handleClose = () => {
     if (!canClose) return;
     sounds.playClick();
-    localStorage.setItem('k7_screenshot_guide_dismissed', 'true');
+    try {
+      localStorage.setItem('k7_screenshot_guide_dismissed', 'true');
+    } catch {}
     onClose();
   };
 

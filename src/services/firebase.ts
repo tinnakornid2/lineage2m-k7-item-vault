@@ -189,7 +189,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.11.4-resilient-auth-queues';
+const CACHE_SCHEMA_VERSION = '2.11.6-resilient-auth-queues';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -2011,7 +2011,8 @@ export async function changeUserPassword(targetUserId: string, newPassword: stri
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
-      body: JSON.stringify({ newPassword })
+      body: JSON.stringify({ newPassword }),
+      signal: AbortSignal.timeout(12000)
     });
 
     if (response.ok) {

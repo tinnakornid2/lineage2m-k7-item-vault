@@ -11,7 +11,7 @@ import path from 'node:path';
 
 async function runFourBugsVerificationTests() {
   console.log('======================================================================');
-  console.log('🧪 VERIFYING 4 CRITICAL PRODUCTION BUGS (v2.11.4)');
+  console.log('🧪 VERIFYING 4 CRITICAL PRODUCTION BUGS (v2.11.6)');
   console.log('   1. Newly registered member stat updates (pending vs active vs suspended)');
   console.log('   2. Admin/Owner password change & role hierarchy enforcement');
   console.log('   3. Queue join persistence across merges (removal of 10s drop window)');

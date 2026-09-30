@@ -670,6 +670,14 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
         ...(modified ? { data: publicRelayData(liveHubState.data) } : {})
       });
     } catch (error: any) {
+      if (liveHubState && liveHubState.version > 0) {
+        const clientVersion = Number(req.query.v) || 0;
+        const modified = clientVersion !== liveHubState.version || clientVersion === 0;
+        return res.json({
+          modified, version: liveHubState.version, updatedAt: liveHubState.updatedAt,
+          ...(modified ? { data: publicRelayData(liveHubState.data) } : {})
+        });
+      }
       return res.status(503).json({ success: false, error: error?.message || 'CENTRAL_READ_FAILED' });
     }
   });

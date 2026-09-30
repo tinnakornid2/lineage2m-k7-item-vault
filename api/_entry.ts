@@ -31,6 +31,14 @@ export default async function handler(req: any, res: any) {
       req.url = forwardedUri;
     } else if (invokePath && typeof invokePath === 'string' && invokePath.startsWith('/api') && invokePath !== '/api/index' && invokePath !== '/api') {
       req.url = invokePath;
+    } else {
+      const queryPath = req.query?.path || req.query?.slug;
+      if (queryPath) {
+        const subPath = Array.isArray(queryPath) ? queryPath.join('/') : String(queryPath);
+        if (subPath && !req.url.startsWith('/api/' + subPath)) {
+          req.url = '/api/' + subPath;
+        }
+      }
     }
   } catch {}
 

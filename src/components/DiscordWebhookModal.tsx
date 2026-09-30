@@ -341,12 +341,14 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
 
       // Always save active URLs to local storage immediately
       if (typeof window !== 'undefined') {
-        if (activeUrl) localStorage.setItem('vault_discord_webhook_url', activeUrl);
-        if (activeDistUrl) {
-          localStorage.setItem('vault_discord_distribute_webhook_url', activeDistUrl);
-        } else if (rawDistInput === '' && !settings?.distributeWebhookUrl) {
-          localStorage.removeItem('vault_discord_distribute_webhook_url');
-        }
+        try {
+          if (activeUrl) localStorage.setItem('vault_discord_webhook_url', activeUrl);
+          if (activeDistUrl) {
+            localStorage.setItem('vault_discord_distribute_webhook_url', activeDistUrl);
+          } else if (rawDistInput === '' && !settings?.distributeWebhookUrl) {
+            localStorage.removeItem('vault_discord_distribute_webhook_url');
+          }
+        } catch {}
       }
 
       // 1. If user entered new Webhook URLs, save them to backend server asynchronously with timeout guard
@@ -408,7 +410,9 @@ export const DiscordWebhookModal: React.FC<DiscordWebhookModalProps> = ({
 
       // Always save to localStorage immediately
       if (typeof window !== 'undefined') {
-        localStorage.setItem('vault_discord_settings', JSON.stringify(updated));
+        try {
+          localStorage.setItem('vault_discord_settings', JSON.stringify(updated));
+        } catch {}
       }
 
       // 3. Save settings via onSaveSettings (Firestore, Google Sheets, React state)

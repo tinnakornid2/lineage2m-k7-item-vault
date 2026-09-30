@@ -41,7 +41,10 @@ function statMessage(code, lang) {
     USER_NOT_FOUND: ["\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A", "User account not found."],
     INSUFFICIENT_POWER_LEVEL: ["\u0E04\u0E48\u0E32\u0E1E\u0E25\u0E31\u0E07\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E16\u0E36\u0E07\u0E40\u0E01\u0E13\u0E11\u0E4C\u0E02\u0E31\u0E49\u0E19\u0E15\u0E48\u0E33\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E44\u0E2D\u0E40\u0E17\u0E21\u0E19\u0E35\u0E49", "Your power level does not meet the minimum requirement for this item."],
     QUEUE_CLOSED: ["\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E19\u0E35\u0E49\u0E1B\u0E34\u0E14\u0E23\u0E31\u0E1A\u0E01\u0E32\u0E23\u0E25\u0E07\u0E04\u0E34\u0E27\u0E41\u0E25\u0E49\u0E27", "This item queue is currently closed."],
-    FORBIDDEN: ["\u0E04\u0E38\u0E13\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E19\u0E35\u0E49", "You do not have permission to perform this action."]
+    FORBIDDEN: ["\u0E04\u0E38\u0E13\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E19\u0E35\u0E49", "You do not have permission to perform this action."],
+    CENTRAL_STORE_TIMEOUT: ["\u0E01\u0E32\u0E23\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E15\u0E48\u0E2D\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E2A\u0E48\u0E27\u0E19\u0E01\u0E25\u0E32\u0E07\u0E2B\u0E21\u0E14\u0E40\u0E27\u0E25\u0E32 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E2D\u0E35\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07", "Central database connection timed out. Please try again."],
+    CENTRAL_STORE_UNAVAILABLE: ["\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E2A\u0E48\u0E27\u0E19\u0E01\u0E25\u0E32\u0E07\u0E44\u0E21\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E2D\u0E35\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07", "Central store is unavailable. Please try again."],
+    AUTH_REQUIRED: ["\u0E40\u0E0B\u0E2A\u0E0A\u0E31\u0E19\u0E2B\u0E21\u0E14\u0E2D\u0E32\u0E22\u0E38 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E43\u0E2B\u0E21\u0E48\u0E2D\u0E35\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07", "Session expired. Please sign in again."]
   };
   return messages[code]?.[lang === "th" ? 0 : 1] || (lang === "th" ? "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48" : "Save failed. Please try again.");
 }
@@ -458,7 +461,7 @@ function publicRelayData(value) {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).filter(([key, val]) => val !== void 0 && !["password", "apiKey", "webhookUrl", "distributeWebhookUrl"].includes(key)).map(([key, val]) => [key, publicRelayData(val)]));
 }
-async function withRelayTimeout(operation, ms = 1500) {
+async function withRelayTimeout(operation, ms = 8e3) {
   let timer;
   try {
     return await Promise.race([operation, new Promise((_, reject) => {
@@ -479,6 +482,8 @@ function decodeSnapshot(parts) {
 }
 var FirestoreRelayStore = class {
   constructor(db) {
+    this.cachedSnapshot = null;
+    this.lastReadTime = 0;
     this.db = db;
   }
   async readTransaction(tx) {
@@ -494,25 +499,40 @@ var FirestoreRelayStore = class {
         const row = await tx.get(this.db.collection("app_settings").doc(id));
         if (row.exists) data[key] = row.data();
       }));
-      return { data: publicRelayData(data), version: 0, updatedAt: 0 };
+      const initial = { data: publicRelayData(data), version: 0, updatedAt: 0 };
+      this.cachedSnapshot = initial;
+      return initial;
     }
     const manifest = snap.data();
     if (manifest.format !== "gzip-parts-v1") {
-      return manifest.data ? { ...manifest, data: publicRelayData(manifest.data) } : null;
+      const legacy = manifest.data ? { ...manifest, data: publicRelayData(manifest.data) } : null;
+      this.cachedSnapshot = legacy;
+      return legacy;
+    }
+    if (this.cachedSnapshot && this.cachedSnapshot.version === manifest.version && this.cachedSnapshot.data) {
+      return this.cachedSnapshot;
     }
     if (!Number.isInteger(manifest.parts) || manifest.parts < 1 || manifest.parts > 64) {
       throw new Error("INVALID_CENTRAL_MANIFEST");
     }
     const chunks = await Promise.all(Array.from({ length: manifest.parts }, (_, i) => tx.get(this.db.collection("system_live_parts").doc(String(i)))));
     if (chunks.some((chunk) => !chunk.exists)) throw new Error("INCOMPLETE_CENTRAL_STATE");
-    return {
+    const decoded = {
       version: manifest.version,
       updatedAt: manifest.updatedAt,
       data: decodeSnapshot(chunks.map((chunk) => chunk.data().payload))
     };
+    this.cachedSnapshot = decoded;
+    return decoded;
   }
   async read() {
-    return this.db.runTransaction((tx) => this.readTransaction(tx), { readOnly: true });
+    const now = Date.now();
+    if (this.cachedSnapshot && now - this.lastReadTime < 2500) {
+      return this.cachedSnapshot;
+    }
+    const result = await this.db.runTransaction((tx) => this.readTransaction(tx), { readOnly: true });
+    this.lastReadTime = Date.now();
+    return result;
   }
   async commit(incoming, mutate) {
     return this.db.runTransaction(async (tx) => {
@@ -570,7 +590,10 @@ var FirestoreRelayStore = class {
         lastUpdatedAt: updatedAt,
         lastChangeType: "liveState"
       }, { merge: true });
-      return { data, version, updatedAt };
+      const result = { data, version, updatedAt };
+      this.cachedSnapshot = result;
+      this.lastReadTime = Date.now();
+      return result;
     });
   }
 };
@@ -941,13 +964,13 @@ async function verifyRoleToken(authorization, allowedRoles) {
     try {
       const decoded = await Promise.race([
         sdk.auth.verifyIdToken(token),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Auth verifyIdToken timeout")), 2500))
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Auth verifyIdToken timeout")), 5e3))
       ]);
       const trustedOwner = ["APsCZzEI4tYdx5UfHuY5Sw10L8B3", "rbgWddfwUeQiCr5CE3eRD8ZPdZB2"].includes(decoded.uid) || decoded.email === "656c6f6e69@auth.k7-clan.local";
       if (trustedOwner && allowedRoles.includes("owner")) return { uid: "user_owner_eloni", role: "owner" };
       const profile = await Promise.race([
         sdk.db.collection("users").doc(decoded.uid).get(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore user profile timeout")), 2500))
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore user profile timeout")), 5e3))
       ]).catch(() => null);
       if (!profile || !profile.exists) {
         const defaultRole = "member";
@@ -1767,6 +1790,16 @@ async function createApp(options = {}) {
         ...modified ? { data: publicRelayData(liveHubState.data) } : {}
       });
     } catch (error) {
+      if (liveHubState && liveHubState.version > 0) {
+        const clientVersion = Number(req.query.v) || 0;
+        const modified = clientVersion !== liveHubState.version || clientVersion === 0;
+        return res.json({
+          modified,
+          version: liveHubState.version,
+          updatedAt: liveHubState.updatedAt,
+          ...modified ? { data: publicRelayData(liveHubState.data) } : {}
+        });
+      }
       return res.status(503).json({ success: false, error: error?.message || "CENTRAL_READ_FAILED" });
     }
   });
@@ -2590,6 +2623,14 @@ async function handler(req, res) {
       req.url = forwardedUri;
     } else if (invokePath && typeof invokePath === "string" && invokePath.startsWith("/api") && invokePath !== "/api/index" && invokePath !== "/api") {
       req.url = invokePath;
+    } else {
+      const queryPath = req.query?.path || req.query?.slug;
+      if (queryPath) {
+        const subPath = Array.isArray(queryPath) ? queryPath.join("/") : String(queryPath);
+        if (subPath && !req.url.startsWith("/api/" + subPath)) {
+          req.url = "/api/" + subPath;
+        }
+      }
     }
   } catch {
   }

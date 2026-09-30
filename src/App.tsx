@@ -222,7 +222,9 @@ export const App: React.FC = () => {
     sounds.playClick();
     const next = lang === 'th' ? 'en' : 'th';
     setLang(next);
-    localStorage.setItem('k7_lang', next);
+    try {
+      localStorage.setItem('k7_lang', next);
+    } catch {}
   };
 
   const handleToggleSound = () => {
@@ -2298,9 +2300,11 @@ export const App: React.FC = () => {
     sounds.playClick();
     try {
       const response = await centralApi('/api/stat-update-settings', { method: 'POST', body: JSON.stringify({ allowMemberUpdates: allow }) });
-      const result = await response.json();
-      setStatUpdateSettings(result.settings);
-      await saveStatUpdateSettingsDoc(result.settings);
+      const result = await response.json().catch(() => null);
+      if (result?.settings) {
+        setStatUpdateSettings(result.settings);
+        await saveStatUpdateSettingsDoc(result.settings);
+      }
       sounds.playSuccess();
       showToast(
         allow
@@ -3019,26 +3023,29 @@ export const App: React.FC = () => {
       currentUser?.inGameName || currentUser?.username || 'Admin'
     );
 
-    // 2. Persist in background serverless endpoint with error rollback
+    // 2. Direct Firestore Cloud persistence
+    try {
+      await updateQueueItemDoc(queueId, { queueList: members, updatedAt: now });
+    } catch (err) {
+      console.error('Failed to update queue item doc in Firestore:', err);
+    }
+
+    // 3. Central Relay synchronization with policy rollback
     try {
       await centralApi('/api/update-boss-queue', {
         method: 'POST',
         body: JSON.stringify({ queueId, queueList: members })
       });
     } catch (err: any) {
-      console.warn('Failed to update boss queue on central relay:', err);
-      const reverted = queueItems.map((q) => (q.id === queueId ? { ...q, queueList: previous } : q));
-      setQueueItems(reverted);
-      setCachedQueues(reverted);
-      const msg = statMessage(err?.message || '', lang);
-      showToast(msg || (lang === 'th' ? 'ไม่สามารถอัปเดตคิวได้' : 'Failed to update queue'), 'error');
-      return;
-    }
-
-    try {
-      await updateQueueItemDoc(queueId, { queueList: members, updatedAt: now });
-    } catch (err) {
-      console.error('Failed to update queue item doc in Firestore:', err);
+      console.warn('Notice: Central relay queue update notice:', err?.message || err);
+      if (/ROUND|CLOSED|INSUFFICIENT|FORBIDDEN/.test(err?.message || '')) {
+        const reverted = queueItems.map((q) => (q.id === queueId ? { ...q, queueList: previous } : q));
+        setQueueItems(reverted);
+        setCachedQueues(reverted);
+        await updateQueueItemDoc(queueId, { queueList: previous, updatedAt: Date.now() }).catch(() => {});
+        const msg = statMessage(err?.message || '', lang);
+        showToast(msg || (lang === 'th' ? 'ไม่สามารถอัปเดตคิวได้' : 'Failed to update queue'), 'error');
+      }
     }
   };
 
@@ -3201,7 +3208,14 @@ export const App: React.FC = () => {
       true
     );
 
-    // 5. Background serverless endpoint if queueList was modified with error rollback
+    // 5. Direct Firestore persistence
+    try {
+      await updateGeneralItemDoc(itemId, fullUpdates);
+    } catch (err) {
+      console.warn('General item updated locally/relay/sheets; firestore update deferred:', err);
+    }
+
+    // 6. Background serverless endpoint if queueList was modified with policy rollback
     if (updates.queueList) {
       try {
         await centralApi('/api/update-general-item-queue', {
@@ -3209,23 +3223,18 @@ export const App: React.FC = () => {
           body: JSON.stringify({ itemId, queueList: updates.queueList })
         });
       } catch (err: any) {
-        console.warn('Failed to update general item queue on central relay:', err);
-        if (previous) {
-          const reverted = generalItems.map((entry) => entry.id === itemId ? previous : entry);
-          setGeneralItems(reverted);
-          setCachedGeneralItems(reverted);
+        console.warn('Notice: Central relay general item queue update notice:', err?.message || err);
+        if (/ROUND|CLOSED|INSUFFICIENT|FORBIDDEN/.test(err?.message || '')) {
+          if (previous) {
+            const reverted = generalItems.map((entry) => entry.id === itemId ? previous : entry);
+            setGeneralItems(reverted);
+            setCachedGeneralItems(reverted);
+            await updateGeneralItemDoc(itemId, previous).catch(() => {});
+          }
+          const msg = statMessage(err?.message || '', lang);
+          showToast(msg || (lang === 'th' ? 'ไม่สามารถอัปเดตคิวได้' : 'Failed to update queue'), 'error');
         }
-        const msg = statMessage(err?.message || '', lang);
-        showToast(msg || (lang === 'th' ? 'ไม่สามารถอัปเดตคิวได้' : 'Failed to update queue'), 'error');
-        return;
       }
-    }
-
-    // 6. Safe Firestore persistence (non-blocking)
-    try {
-      await updateGeneralItemDoc(itemId, fullUpdates);
-    } catch (err) {
-      console.warn('General item updated locally/relay/sheets; firestore update deferred:', err);
     }
   };
 
@@ -3303,7 +3312,9 @@ export const App: React.FC = () => {
   // Clan Handlers
   const handleUpdateBackgroundConfig = async (newConfig: BackgroundConfig, syncGlobally = false) => {
     setBgConfig(newConfig);
-    localStorage.setItem('k7_bg_config', JSON.stringify(newConfig));
+    try {
+      localStorage.setItem('k7_bg_config', JSON.stringify(newConfig));
+    } catch {}
 
     if (syncGlobally && isOwner) {
       const bgPayload = {
@@ -3403,7 +3414,9 @@ export const App: React.FC = () => {
       if (currentUser && cleanClanName(currentUser.clan).toLowerCase() === oldCleanName.toLowerCase()) {
         const updated = { ...currentUser, clan: cleanNew };
         setCurrentUser(updated);
-        localStorage.setItem('k7_vault_user', JSON.stringify(updated));
+        try {
+          localStorage.setItem('k7_vault_user', JSON.stringify(updated));
+        } catch {}
       }
     }
 
@@ -3458,7 +3471,9 @@ export const App: React.FC = () => {
       if (currentUser && cleanClanName(currentUser.clan).toLowerCase() === resolvedName.toLowerCase()) {
         const updated = { ...currentUser, clan: 'no-clan' };
         setCurrentUser(updated);
-        localStorage.setItem('k7_vault_user', JSON.stringify(updated));
+        try {
+          localStorage.setItem('k7_vault_user', JSON.stringify(updated));
+        } catch {}
       }
     }
 
@@ -3771,6 +3786,12 @@ export const App: React.FC = () => {
     const isAuthorized = currentUser?.role === 'owner' || currentUser?.role === 'admin';
 
     if (targetUser && !isAuthorized) {
+      if (targetUser.status === 'pending_approval') {
+        throw new Error(statMessage('ACCOUNT_PENDING_APPROVAL', lang));
+      }
+      if (targetUser.status === 'suspended') {
+        throw new Error(statMessage('ACCOUNT_SUSPENDED', lang));
+      }
       const error = submissionError(targetUser, { ...targetUser, pendingStats: newStats,
         pendingSpiritEnhancements: newSpiritEnhancements, pendingClasses: reqClasses ?? targetUser.classes,
         pendingLevel: reqLevel ?? targetUser.level, pendingLegendClasses: reqLegendClasses ?? targetUser.legendClasses,
@@ -3792,9 +3813,14 @@ export const App: React.FC = () => {
         pendingLegendClasses: reqLegendClasses ?? targetUser?.legendClasses ?? 0,
         pendingLegendAgathions: reqLegendAgathions ?? targetUser?.legendAgathions ?? 0
       } }) });
-      const result = await response.json();
-      timestamp = result.requestedAt;
-    } catch (error) { throw new Error(statMessage(error instanceof Error ? error.message : '', lang)); }
+      const result = await response.json().catch(() => null);
+      if (result?.requestedAt) timestamp = result.requestedAt;
+    } catch (error: any) {
+      console.warn('Notice: Central stat relay notice:', error?.message || error);
+      if (/FORBIDDEN|ACCOUNT_PENDING_APPROVAL|ACCOUNT_SUSPENDED|ACCOUNT_NOT_ACTIVE|STAT_ROUND_REQUIRED|DUPLICATE_PENDING|UNCHANGED_STATS|ROUND_SCREENSHOT_REQUIRED/.test(error?.message || '')) {
+        throw new Error(statMessage(error?.message || '', lang));
+      }
+    }
 
     const updatedUsers = users.map((u) =>
       u.id === userId
@@ -4576,10 +4602,12 @@ export const App: React.FC = () => {
           </div>}
           {activeTab === 'stat_approvals' && isOwner && <StatRoundPanel users={users} settings={statUpdateSettings} lang={lang} onChange={async enforceAt => {
             const response = await centralApi('/api/stat-round', { method: 'POST', body: JSON.stringify(enforceAt === null ? { close: true } : { enforceAt }) });
-            const { settings } = await response.json();
-            setStatUpdateSettings(settings);
-            await saveStatUpdateSettingsDoc(settings);
-            triggerDebouncedAutoBackup(getFullBackupPayload({ statUpdateSettings: settings }), currentUser?.inGameName || 'Owner', true);
+            const result = await response.json().catch(() => null);
+            if (result?.settings) {
+              setStatUpdateSettings(result.settings);
+              await saveStatUpdateSettingsDoc(result.settings);
+              triggerDebouncedAutoBackup(getFullBackupPayload({ statUpdateSettings: result.settings }), currentUser?.inGameName || 'Owner', true);
+            }
           }} />}
           {activeTab === 'dashboard' && (
           <DashboardView

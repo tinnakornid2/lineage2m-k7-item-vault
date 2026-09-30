@@ -39,7 +39,10 @@ export function statMessage(code: string, lang: 'th' | 'en'): string {
     USER_NOT_FOUND: ['ไม่พบบัญชีผู้ใช้ในระบบ', 'User account not found.'],
     INSUFFICIENT_POWER_LEVEL: ['ค่าพลังของคุณยังไม่ถึงเกณฑ์ขั้นต่ำสำหรับไอเทมนี้', 'Your power level does not meet the minimum requirement for this item.'],
     QUEUE_CLOSED: ['รายการนี้ปิดรับการลงคิวแล้ว', 'This item queue is currently closed.'],
-    FORBIDDEN: ['คุณไม่มีสิทธิ์ดำเนินการนี้', 'You do not have permission to perform this action.']
+    FORBIDDEN: ['คุณไม่มีสิทธิ์ดำเนินการนี้', 'You do not have permission to perform this action.'],
+    CENTRAL_STORE_TIMEOUT: ['การเชื่อมต่อฐานข้อมูลส่วนกลางหมดเวลา กรุณาลองใหม่อีกครั้ง', 'Central database connection timed out. Please try again.'],
+    CENTRAL_STORE_UNAVAILABLE: ['ฐานข้อมูลส่วนกลางไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง', 'Central store is unavailable. Please try again.'],
+    AUTH_REQUIRED: ['เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง', 'Session expired. Please sign in again.']
   };
   return messages[code]?.[lang === 'th' ? 0 : 1] || (lang === 'th' ? 'บันทึกไม่สำเร็จ กรุณาลองใหม่' : 'Save failed. Please try again.');
 }

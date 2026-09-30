@@ -227,14 +227,14 @@ export async function verifyRoleToken(
     try {
       const decoded = await Promise.race([
         sdk.auth.verifyIdToken(token),
-        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Auth verifyIdToken timeout')), 2500))
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Auth verifyIdToken timeout')), 5000))
       ]);
       const trustedOwner = ['APsCZzEI4tYdx5UfHuY5Sw10L8B3', 'rbgWddfwUeQiCr5CE3eRD8ZPdZB2'].includes(decoded.uid)
         || decoded.email === '656c6f6e69@auth.k7-clan.local';
       if (trustedOwner && allowedRoles.includes('owner')) return { uid: 'user_owner_eloni', role: 'owner' };
       const profile: any = await Promise.race([
         sdk.db.collection('users').doc(decoded.uid).get(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore user profile timeout')), 2500))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore user profile timeout')), 5000))
       ]).catch(() => null);
 
       if (!profile || !profile.exists) {
