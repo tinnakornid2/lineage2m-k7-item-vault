@@ -158,40 +158,50 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
   }, [linePath, points]);
 
   // Handle Add Milestone
-  const handleAddMilestone = (e: React.FormEvent) => {
+  const handleAddMilestone = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPl || newPl <= 0) return;
 
-    sounds.playClaim();
-    const milestoneDate = new Date(newDate).getTime() || Date.now();
-    const newPoint: StatHistoryPoint = {
-      id: `milestone_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      date: milestoneDate,
-      powerLevel: Number(newPl),
-      level: Number(newLevel),
-      classes: user.classes || (user.characterClass ? [user.characterClass] : []),
-      damage: user.stats?.['damage'] || 0,
-      accuracy: user.stats?.['accuracy'] || 0,
-      defense: user.stats?.['defense'] || 0,
-      damageReduction: user.stats?.['damage_reduction'] || 0,
-      note: newNote.trim() || (lang === 'th' ? 'บันทึกพัฒนาการ' : 'Milestone Record'),
-      type: 'milestone',
-      verifiedBy: user.inGameName
-    };
+    setIsSubmitting(true);
+    try {
+      sounds.playClaim();
+      const milestoneDate = new Date(newDate).getTime() || Date.now();
+      const newPoint: StatHistoryPoint = {
+        id: `milestone_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        date: milestoneDate,
+        powerLevel: Number(newPl),
+        level: Number(newLevel),
+        classes: user.classes || (user.characterClass ? [user.characterClass] : []),
+        damage: user.stats?.['damage'] || 0,
+        accuracy: user.stats?.['accuracy'] || 0,
+        defense: user.stats?.['defense'] || 0,
+        damageReduction: user.stats?.['damage_reduction'] || 0,
+        note: newNote.trim() || (lang === 'th' ? 'บันทึกพัฒนาการ' : 'Milestone Record'),
+        type: 'milestone',
+        verifiedBy: user.inGameName
+      };
 
-    const updatedHistory = [...fullHistory, newPoint].sort((a, b) => a.date - b.date);
+      const updatedHistory = [...fullHistory, newPoint].sort((a, b) => a.date - b.date);
 
-    if (onSaveHistory) {
-      onSaveHistory(updatedHistory);
-    }
+      if (onSaveHistory) {
+        await onSaveHistory(updatedHistory);
+      }
 
-    setIsAddModalOpen(false);
-    setNewNote('');
-    if (showToast) {
-      showToast(
-        lang === 'th' ? '✓ บันทึกหมุดการเติบโตสำเร็จแล้ว' : '✓ Milestone logged successfully',
-        'success'
-      );
+      setIsAddModalOpen(false);
+      setNewNote('');
+      if (showToast) {
+        showToast(
+          lang === 'th' ? '✓ บันทึกหมุดการเติบโตสำเร็จแล้ว' : '✓ Milestone logged successfully',
+          'success'
+        );
+      }
+    } catch (err: any) {
+      console.error(err);
+      if (showToast) {
+        showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการบันทึก' : 'Failed to save milestone', 'error');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

@@ -75,19 +75,25 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
   if (!isOpen) return null;
 
   const handleApprove = async (user: User) => {
-    sounds.playSuccess();
-    if (showToast) {
-      showToast(
-        lang === 'th'
-          ? `อนุมัติสเตตัสใหม่ของ ${user.inGameName} สำเร็จ (⚡ ${user.pendingPowerLevel?.toLocaleString()} PL) 🎉`
-          : `Approved ${user.inGameName}'s stat update (⚡ ${user.pendingPowerLevel?.toLocaleString()} PL) 🎉`,
-        'success'
-      );
-    }
-    // Optimistic instant response: update in background
-    onApproveStatUpdate(user.id).catch((err: any) => {
+    setIsProcessing(true);
+    setProcessingUserId(user.id);
+    try {
+      sounds.playSuccess();
+      await onApproveStatUpdate(user.id);
+      if (showToast) {
+        showToast(
+          lang === 'th'
+            ? `อนุมัติสเตตัสใหม่ของ ${user.inGameName} สำเร็จ (⚡ ${user.pendingPowerLevel?.toLocaleString()} PL) 🎉`
+            : `Approved ${user.inGameName}'s stat update (⚡ ${user.pendingPowerLevel?.toLocaleString()} PL) 🎉`,
+          'success'
+        );
+      }
+    } catch (err: any) {
       if (showToast) showToast(err?.message || 'Approval failed', 'error');
-    });
+    } finally {
+      setIsProcessing(false);
+      setProcessingUserId(null);
+    }
   };
 
   const handleOpenReject = (userId: string) => {
@@ -103,23 +109,23 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
       return;
     }
 
-    sounds.playClick();
-    const targetUserId = rejectingUserId;
-    const targetReason = rejectionReason.trim();
-    setRejectingUserId(null);
-    setRejectionReason('');
-
-    if (showToast) {
-      showToast(
-        lang === 'th' ? 'ปฏิเสธคำขอและส่งเหตุผลกลับไปยังสมาชิกแล้ว' : 'Request rejected and feedback sent',
-        'info'
-      );
-    }
-
-    // Optimistic instant response: update in background
-    onRejectStatUpdate(targetUserId, targetReason).catch((err: any) => {
+    setIsProcessing(true);
+    try {
+      sounds.playClick();
+      await onRejectStatUpdate(rejectingUserId, rejectionReason.trim());
+      if (showToast) {
+        showToast(
+          lang === 'th' ? 'ปฏิเสธคำขอและส่งเหตุผลกลับไปยังสมาชิกแล้ว' : 'Request rejected and feedback sent',
+          'info'
+        );
+      }
+      setRejectingUserId(null);
+      setRejectionReason('');
+    } catch (err: any) {
       if (showToast) showToast(err?.message || 'Rejection failed', 'error');
-    });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (

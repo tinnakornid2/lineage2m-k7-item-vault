@@ -198,7 +198,7 @@ export const QuickItemModal: React.FC<QuickItemModalProps> = ({
     };
   }, [isOpen]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -207,37 +207,49 @@ export const QuickItemModal: React.FC<QuickItemModalProps> = ({
       return;
     }
 
-    const finalImage = imageUrl?.trim() || editingItem?.imageUrl || '';
-    if (editingItem) {
-      // Edit Mode
-      if (onUpdateQuickItem) {
-        sounds.playEquip();
-        onUpdateQuickItem(editingItem.id, {
+    setIsSubmitting(true);
+    try {
+      const finalImage = imageUrl?.trim() || editingItem?.imageUrl || '';
+      if (editingItem) {
+        // Edit Mode
+        if (onUpdateQuickItem) {
+          sounds.playEquip();
+          await onUpdateQuickItem(editingItem.id, {
+            name: name.trim(),
+            rarity,
+            imageUrl: finalImage,
+          });
+        }
+        resetForm();
+      } else {
+        // Add Mode
+        sounds.playClaim();
+        await onAddQuickItem({
           name: name.trim(),
           rarity,
           imageUrl: finalImage,
         });
+        resetForm();
       }
-      resetForm();
-    } else {
-      // Add Mode
-      sounds.playClaim();
-      onAddQuickItem({
-        name: name.trim(),
-        rarity,
-        imageUrl: finalImage,
-      });
-      resetForm();
+    } catch (err: any) {
+      console.error('Error in QuickItemModal handleSubmit:', err);
+      setError(err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการบันทึก กรุณาลองใหม่อีกครั้ง' : 'Failed to save item, please try again'));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleDeleteItem = (itemId: string) => {
+  const handleDeleteItem = async (itemId: string) => {
     sounds.playClick();
-    onDeleteQuickItem(itemId);
-    if (editingItem?.id === itemId) {
-      resetForm();
+    try {
+      await onDeleteQuickItem(itemId);
+      if (editingItem?.id === itemId) {
+        resetForm();
+      }
+      setDeleteConfirmId(null);
+    } catch {
+      setError(t.error);
     }
-    setDeleteConfirmId(null);
   };
 
   const getRarityBadge = (r: ItemRarity) => {

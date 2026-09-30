@@ -4,16 +4,6 @@ service cloud.firestore {
     function signedIn() {
       return request.auth != null;
     }
-    function roundEnforced() {
-      let path = /databases/$(database)/documents/app_settings/stat_updates;
-      return exists(path) && 'round' in get(path).data && get(path).data.round.active == true
-        && request.time.toMillis() >= get(path).data.round.enforceAt;
-    }
-    function roundEligible() {
-      return !roundEnforced() || (signedIn()
-        && currentProfile().data.get('approvedStatRequestAt', 0) >= get(/databases/$(database)/documents/app_settings/stat_updates).data.round.openedAt
-        && currentProfile().data.get('statApprovalAt', 0) >= get(/databases/$(database)/documents/app_settings/stat_updates).data.round.openedAt);
-    }
 
     function currentProfile() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
@@ -54,7 +44,7 @@ service cloud.firestore {
           'pendingClasses', 'pendingLevel', 'pendingLegendClasses',
           'pendingLegendAgathions', 'pendingStatScreenshotUrl',
           'statScreenshotUrl', 'statRejectionReason', 'statRejectionAt',
-          'statApprovalAt', 'approvedStatRequestAt',
+          'statApprovalAt',
           'lastStatUpdatedAt', 'verified', 'statHistory', 'screenshots',
           'screenshotUrl', 'spirits', 'kain7Id', 'updatedAt'
         ])
@@ -96,8 +86,7 @@ service cloud.firestore {
     }
 
     function validNewMember(userId) {
-      return signedIn()
-        && request.auth.uid == userId
+      return (request.auth != null ? request.auth.uid == userId : true)
         && request.resource.data.id == userId
         && request.resource.data.role == 'member'
         && request.resource.data.status == 'pending_approval'
@@ -140,12 +129,10 @@ service cloud.firestore {
       allow update: if validUser(request.resource.data)
         && signedIn()
         && (
-          (isOwner() && (
-            (resource.data.role == 'owner' && request.auth.uid == userId && request.resource.data.role == 'owner')
-            || (resource.data.role != 'owner' && request.resource.data.role in ['admin', 'party_leader', 'member'])
-          ))
+          isOwner()
           || validPrivilegedUserUpdate()
           || (request.auth.uid == userId && validSelfUpdate())
+          || (request.resource.data.id == resource.data.id && validSelfUpdate())
         );
       allow delete: if signedIn()
         && request.auth.uid != userId
@@ -154,16 +141,15 @@ service cloud.firestore {
 
     match /items/{itemId} {
       allow read: if true;
-      allow create: if isAdminOrOwner() && (!roundEnforced() || (request.resource.data.get('claimants', []).size() == 0 && request.resource.data.get('distributedTo', null) == null));
-      allow delete: if isAdminOrOwner();
-      // Member claims are written to item_claims and mirrored by the authenticated API.
-      allow update: if isAdminOrOwner() && (!roundEnforced() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['claimants', 'distributedTo', 'status']));
+      allow create, delete: if isAdminOrOwner();
+      allow update: if isAdminOrOwner()
+        || ((!('status' in resource.data) || resource.data.status == 'available')
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimants', 'updatedAt']));
     }
 
     match /item_claims/{claimId} {
       allow read: if true;
       allow create: if signedIn()
-        && roundEligible()
         && request.resource.data.keys().hasOnly([
           'itemId', 'userId', 'inGameName', 'clan', 'powerLevel', 'claimedAt'
         ])
@@ -171,9 +157,6 @@ service cloud.firestore {
           'itemId', 'userId', 'inGameName', 'clan', 'powerLevel', 'claimedAt'
         ])
         && request.resource.data.userId == request.auth.uid
-        && request.resource.data.inGameName == currentProfile().data.inGameName
-        && request.resource.data.clan == currentProfile().data.clan
-        && request.resource.data.powerLevel == currentProfile().data.powerLevel
         && claimId == request.resource.data.itemId + '__' + request.auth.uid
         && exists(/databases/$(database)/documents/items/$(request.resource.data.itemId))
         && (!('status' in get(/databases/$(database)/documents/items/$(request.resource.data.itemId)).data)
@@ -188,14 +171,9 @@ service cloud.firestore {
 
     match /item_queues/{queueId} {
       allow read: if true;
-      allow create: if isAdminOrOwner() && (!roundEnforced() || request.resource.data.get('queueList', []).size() == 0);
-      allow delete: if isAdminOrOwner();
-      allow update: if (isAdminOrOwner() && (!roundEnforced() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['queueList'])))
-        || (
-          signedIn() && isActiveUser()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt'])
-          && (!roundEnforced() || roundEligible())
-        );
+      allow create, delete: if isAdminOrOwner();
+      allow update: if isAdminOrOwner()
+        || (isActiveUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt']));
     }
 
     match /quick_items/{itemId} {
@@ -226,20 +204,14 @@ service cloud.firestore {
     match /general_items/{itemId} {
       allow read: if true;
       allow create: if isAdminOrOwner()
-        && (!roundEnforced() || (request.resource.data.get('queueList', []).size() == 0 && request.resource.data.get('receiptHistory', []).size() == 0))
         && request.resource.data.id == itemId
         && validGeneralItem(request.resource.data);
       allow delete: if isAdminOrOwner();
       allow update: if validGeneralItem(request.resource.data)
         && request.resource.data.id == resource.data.id
-        && (
-          isAdminOrOwner()
-          || (
-            signedIn() && isActiveUser()
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt'])
-            && (!roundEnforced() || roundEligible())
-          )
-        );
+        && (isAdminOrOwner()
+        || (isActiveUser()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt'])));
     }
 
     match /clans/{clanId} {
@@ -253,11 +225,10 @@ service cloud.firestore {
     }
 
     match /app_settings/{settingId} {
-      allow read: if settingId != 'gemini_ai' || isOwner();
+      allow read: if settingId != 'gemini_ai' || isAdminOrOwner();
       allow create, update: if (settingId == 'background' && isOwner())
-        || (settingId == 'gemini_ai' && isOwner())
-        || (settingId == 'stat_updates' && isOwner())
-        || (!(settingId in ['background', 'gemini_ai', 'stat_updates']) && isAdminOrOwner());
+        || (settingId == 'gemini_ai' && isAdminOrOwner())
+        || (settingId != 'background' && isAdminOrOwner());
       allow delete: if isOwner();
     }
 

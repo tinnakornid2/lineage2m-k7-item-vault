@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { submissionError, statMessage } from '../utils/statRound';
 import {
   Zap,
   Upload,
   CheckCircle,
-  CheckCircle2,
   AlertCircle,
   Clock,
   Sparkles,
@@ -147,18 +145,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
 
     // Never wipe the user's inputs while they are actively filling out the form, unless user changed or approval/rejection arrived
     if (shouldForceReset || !hasUserEditedRef.current) {
-      if (!isDifferentUser && approvalChanged && currentUser.statApprovalAt && lastKnownApprovalAtRef.current !== null && Number(currentUser.statApprovalAt) > Number(lastKnownApprovalAtRef.current)) {
-        sounds.playSuccess();
-        if (showToast) {
-          showToast(
-            lang === 'th'
-              ? `🎉 สเตตัสของคุณได้รับการอนุมัติแล้ว! (⚡ ${currentUser.powerLevel?.toLocaleString() || 0} PL)`
-              : `🎉 Your stats have been approved! (⚡ ${currentUser.powerLevel?.toLocaleString() || 0} PL)`,
-            'success'
-          );
-        }
-      }
-
       lastLoadedUserIdRef.current = currentUser.id;
       lastKnownApprovalAtRef.current = currentUser.statApprovalAt || null;
       lastKnownRejectionAtRef.current = currentUser.statRejectionAt || null;
@@ -368,10 +354,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const plDiff = calculatedNewPL - currentVerifiedPL;
 
   const hasPending = isUserStatsPending(currentUser);
-  const duplicateReason = submissionError(currentUser, { ...currentUser, pendingStats: stats,
-    pendingSpiritEnhancements: spiritEnhancements, pendingClasses: selectedClasses, pendingLevel: charLevel,
-    pendingLegendClasses: charLegendClasses, pendingLegendAgathions: charLegendAgathions,
-    pendingStatScreenshotUrl: screenshotUrl }, statUpdateSettings);
   const isRejected = Boolean(currentUser.statRejectionReason);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -382,13 +364,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     if (isStatLocked) {
       setErrorMessage(t.statUpdateLockedNotice);
       showToast?.(t.statUpdateLockedNotice, 'warning');
-      return;
-    }
-
-    if (duplicateReason) {
-      const msg = statMessage(duplicateReason, lang);
-      setErrorMessage(msg);
-      showToast?.(msg, 'warning');
       return;
     }
 
@@ -405,53 +380,55 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
       return;
     }
 
-    sounds.playClaim();
-    setSuccessMessage(
-      lang === 'th'
-        ? 'ส่งคำขออัปเดตสเตตัสเรียบร้อยแล้ว! รอแอดมินหรือโอเนอร์ตรวจสอบและอนุมัติ ⚡'
-        : 'Stat update request submitted! Waiting for Admin/Owner approval ⚡'
-    );
-    hasUserEditedRef.current = false;
-    if (showToast) {
-      showToast(
-        lang === 'th' ? 'ส่งคำขออัปเดตสเตตัสสำเร็จ (รออนุมัติ) ⚡' : 'Stat update request submitted (Pending approval) ⚡',
-        'success'
+    setIsSubmitting(true);
+    try {
+      sounds.playClaim();
+      await onRequestStatUpdate(
+        currentUser.id,
+        stats,
+        spiritEnhancements,
+        finalPL,
+        screenshotUrl || undefined,
+        {
+          inGameName: inGameName.trim() || currentUser.inGameName,
+          classes: selectedClasses,
+          level: charLevel,
+          legendClasses: charLegendClasses,
+          legendAgathions: charLegendAgathions
+        }
       );
-    }
-
-    // Instant optimistic response: send request in background
-    onRequestStatUpdate(
-      currentUser.id,
-      stats,
-      spiritEnhancements,
-      finalPL,
-      screenshotUrl || undefined,
-      {
-        inGameName: inGameName.trim() || currentUser.inGameName,
-        classes: selectedClasses,
-        level: charLevel,
-        legendClasses: charLegendClasses,
-        legendAgathions: charLegendAgathions
+      setSuccessMessage(
+        lang === 'th'
+          ? 'ส่งคำขออัปเดตสเตตัสเรียบร้อยแล้ว! รอแอดมินหรือโอเนอร์ตรวจสอบและอนุมัติ ⚡'
+          : 'Stat update request submitted! Waiting for Admin/Owner approval ⚡'
+      );
+      hasUserEditedRef.current = false;
+      if (showToast) {
+        showToast(
+          lang === 'th' ? 'ส่งคำขออัปเดตสเตตัสสำเร็จ (รออนุมัติ) ⚡' : 'Stat update request submitted (Pending approval) ⚡',
+          'success'
+        );
       }
-    ).catch((err: any) => {
+    } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to submit request');
-      if (showToast) showToast(err?.message || 'Failed to submit request', 'error');
-    });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCancelPending = async () => {
     if (!onCancelPendingRequest) return;
-    sounds.playClick();
-    hasUserEditedRef.current = false;
-    setSuccessMessage(lang === 'th' ? 'ยกเลิกคำขอเรียบร้อยแล้ว' : 'Pending request cancelled');
-    if (showToast) {
-      showToast(lang === 'th' ? 'ยกเลิกคำขอเรียบร้อยแล้ว' : 'Pending request cancelled', 'info');
-    }
-
-    // Instant optimistic response: cancel in background
-    onCancelPendingRequest(currentUser.id).catch((err: any) => {
+    setIsSubmitting(true);
+    try {
+      sounds.playClick();
+      await onCancelPendingRequest(currentUser.id);
+      hasUserEditedRef.current = false;
+      setSuccessMessage(lang === 'th' ? 'ยกเลิกคำขอเรียบร้อยแล้ว' : 'Pending request cancelled');
+    } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to cancel request');
-    });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Group stats by categories
@@ -637,8 +614,8 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
           <button
             type="submit"
             form="mystats-form"
-            disabled={isSubmitting || isStatLocked || Boolean(duplicateReason)}
-            title={duplicateReason ? statMessage(duplicateReason, lang) : isStatLocked ? t.statUpdateLockedBtnDesc : undefined}
+            disabled={isSubmitting || isStatLocked}
+            title={isStatLocked ? t.statUpdateLockedBtnDesc : undefined}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs tracking-wide shadow-md shadow-amber-500/20 transition active:scale-98 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-1.5 cursor-pointer"
           >
             {isSubmitting ? (
@@ -658,7 +635,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
       </div>
 
       {/* Monthly Stat Updates Locked by Owner Banner */}
-      {duplicateReason && <p role="status" className="my-3 rounded-lg border border-amber-500/30 p-3 text-sm text-amber-200">{statMessage(duplicateReason, lang)}</p>}
       {isStatLocked && (
         <div className="p-3.5 rounded-xl bg-red-950/60 border border-red-500/60 text-xs flex items-center gap-3 text-red-200 shadow-md">
           <Lock className="size-5 text-red-400 shrink-0" />
@@ -713,27 +689,6 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
               {lang === 'th' ? 'ยกเลิกคำขอ' : 'Cancel'}
             </button>
           )}
-        </div>
-      )}
-
-      {/* Newly Approved / Verified Stat Banner */}
-      {!hasPending && !isRejected && currentUser.statApprovalAt && (
-        <div className="p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-500/60 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-emerald-200 shadow-lg animate-in fade-in">
-          <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />
-            <span>
-              <strong className="text-emerald-300">
-                {lang === 'th' ? 'สเตตัสได้รับการยืนยันและอนุมัติแล้ว: ' : 'Stats Verified & Approved: '}
-              </strong>
-              ⚡ {currentUser.powerLevel?.toLocaleString() || 0} PL
-              <span className="text-emerald-400/80 ml-2">
-                ({new Date(currentUser.statApprovalAt).toLocaleString(lang === 'th' ? 'th-TH' : 'en-US')})
-              </span>
-            </span>
-          </div>
-          <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 font-bold uppercase tracking-wider self-start sm:self-auto">
-            {lang === 'th' ? 'อนุมัติแล้ว' : 'Approved'}
-          </span>
         </div>
       )}
 
@@ -821,13 +776,13 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
                       screenshotUrl ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-zinc-750 text-zinc-400 border border-zinc-700'
                     }`}>
-                      {screenshotUrl ? (lang === 'th' ? '1 รูปแนบอยู่' : '1 Attached') : (lang === 'th' ? 'ยังไม่ได้แนบรูป' : 'No screenshot attached')}
+                      {screenshotUrl ? (lang === 'th' ? '1 รูปแนบอยู่' : '1 Attached') : (lang === 'th' ? '0 รูป ไม่บังคับ' : '0 Attached')}
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
                     {lang === 'th'
-                      ? 'อัปโหลดภาพสเตตัสในเกมเพื่อยืนยันความถูกต้อง รอบใหม่ต้องใช้ภาพหลักฐานใหม่'
-                      : 'Upload screenshots to verify your stats. A new round requires a new screenshot.'}
+                      ? 'อัปโหลดภาพสเตตัสในเกมเพื่อเป็นหลักฐานยืนยันความถูกต้อง (ช่วยให้แอดมินตรวจเร็วขึ้น)'
+                      : 'Upload and manage screenshots used for stat verification (optional).'}
                   </p>
                 </div>
               </div>
@@ -975,7 +930,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
                         {lang === 'th' ? 'คลิกเลือกไฟล์ หรือลากรูปภาพมาวางที่นี่' : 'Click to browse or drag & drop screenshot'}
                       </p>
                       <p className="text-[11px] text-zinc-400 mt-0.5">
-                        JPG, PNG, WEBP
+                        JPG, PNG, WEBP ({lang === 'th' ? 'ไม่บังคับ' : 'Optional'})
                       </p>
                     </div>
                   </div>
@@ -1527,14 +1482,14 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                 <div className="text-xs text-zinc-400">
                   {lang === 'th'
-                    ? 'ตรวจสอบสเตตัสก่อนบันทึก รอบใหม่ต้องแนบภาพใหม่และรอ Admin/Owner อนุมัติ'
-                    : 'Verify stats before saving. New rounds require a new screenshot and Admin/Owner approval.'}
+                    ? 'กรุณาตรวจสอบข้อมูลสเตตัสก่อนกดบันทึก (ภาพสกรีนช็อตไม่บังคับ แต่ช่วยให้ตรวจสอบเร็วขึ้น)'
+                    : 'Verify stats before saving. Screenshots are optional but speed up verification.'}
                 </div>
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || isStatLocked || Boolean(duplicateReason)}
-                  title={duplicateReason ? statMessage(duplicateReason, lang) : isStatLocked ? t.statUpdateLockedBtnDesc : undefined}
+                  disabled={isSubmitting || isStatLocked}
+                  title={isStatLocked ? t.statUpdateLockedBtnDesc : undefined}
                   className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-amber-500/25 transition active:scale-98 disabled:opacity-50 disabled:pointer-events-none flex items-center gap-2 ml-auto cursor-pointer"
                 >
                   {isSubmitting ? (

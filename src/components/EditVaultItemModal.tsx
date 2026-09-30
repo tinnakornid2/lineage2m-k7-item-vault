@@ -295,36 +295,44 @@ export const EditVaultItemModal: React.FC<EditVaultItemModalProps> = ({
       return;
     }
 
-    const numericPrice = typeof price === 'number' ? Math.max(0, price) : 0;
-    const numericQty = typeof quantity === 'number' ? Math.max(1, quantity) : 1;
-    const numericPower = typeof minPowerLevel === 'number' ? Math.max(0, minPowerLevel) : 0;
-
-    // Save trimmed name to localStorage for future autocomplete
     try {
-      const stored = localStorage.getItem('l2m_recent_item_names');
-      const list: string[] = stored ? JSON.parse(stored) : [];
-      const updated = [trimmedName, ...list.filter((n) => n.toLowerCase() !== trimmedName.toLowerCase())].slice(0, 30);
-      localStorage.setItem('l2m_recent_item_names', JSON.stringify(updated));
-    } catch {
-      // ignore
-    }
+      setIsSubmitting(true);
+      setError('');
 
-    sounds.playClaim();
-    // Instant optimistic close: update in background, do not freeze modal
-    onUpdateItem(item.id, {
-      name: trimmedName,
-      price: numericPrice,
-      quantity: numericQty,
-      minPowerLevel: numericPower,
-      rarity,
-      imageUrl,
-      hunters,
-      hunterScreenshots
-    }).catch((err) => {
+      const numericPrice = typeof price === 'number' ? Math.max(0, price) : 0;
+      const numericQty = typeof quantity === 'number' ? Math.max(1, quantity) : 1;
+      const numericPower = typeof minPowerLevel === 'number' ? Math.max(0, minPowerLevel) : 0;
+
+      await onUpdateItem(item.id, {
+        name: trimmedName,
+        price: numericPrice,
+        quantity: numericQty,
+        minPowerLevel: numericPower,
+        rarity,
+        imageUrl,
+        hunters,
+        hunterScreenshots
+      });
+
+      // Save trimmed name to localStorage for future autocomplete
+      try {
+        const stored = localStorage.getItem('l2m_recent_item_names');
+        const list: string[] = stored ? JSON.parse(stored) : [];
+        const updated = [trimmedName, ...list.filter((n) => n.toLowerCase() !== trimmedName.toLowerCase())].slice(0, 30);
+        localStorage.setItem('l2m_recent_item_names', JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
+
+      sounds.playClaim();
+      onClose();
+    } catch (err: any) {
       console.error('Failed to update vault item:', err);
-    });
-
-    onClose();
+      setError(err?.message || (lang === 'th' ? 'บันทึกการแก้ไขไม่สำเร็จ' : 'Failed to update item'));
+      sounds.playError();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (!isOpen || !item) return null;

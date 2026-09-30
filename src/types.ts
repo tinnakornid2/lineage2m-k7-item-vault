@@ -103,7 +103,6 @@ export interface User {
   statRejectionReason?: string;
   statRejectionAt?: number;
   statApprovalAt?: number;
-  approvedStatRequestAt?: number;
   lastStatUpdatedAt?: number;
   verified?: boolean;
   statHistory?: StatHistoryPoint[];
@@ -207,9 +206,6 @@ export interface DistributedInfo {
   paymentStatus?: 'pending' | 'paid';
   paidAt?: number;
   paidBy?: string;
-  diamondPayoutStatus?: 'pending' | 'paid_out';
-  diamondPayoutAt?: number;
-  diamondPayoutBy?: string;
   source?: 'vault' | 'item_queue';
 }
 
@@ -222,7 +218,6 @@ export interface DirectDistributionPayload {
   };
   receiptImages?: string[];
   paymentStatus?: 'pending' | 'paid';
-  diamondPayoutStatus?: 'pending' | 'paid_out';
   skipDiscordNotification?: boolean;
 }
 
@@ -243,9 +238,6 @@ export interface VaultItem {
   paymentStatus?: 'pending' | 'paid';
   paidAt?: number;
   paidBy?: string;
-  diamondPayoutStatus?: 'pending' | 'paid_out';
-  diamondPayoutAt?: number;
-  diamondPayoutBy?: string;
   source?: 'vault' | 'item_queue';
   createdAt: number;
   updatedAt?: number;
@@ -335,21 +327,10 @@ export function normalizeDistributedItem<T extends Partial<VaultItem>>(item: T):
     const paidAt = item.paidAt ?? (dist && typeof dist === 'object' ? dist.paidAt : undefined);
     const paidBy = item.paidBy ?? (dist && typeof dist === 'object' ? dist.paidBy : undefined);
 
-    const rawPayoutStatus = item.diamondPayoutStatus || (dist && typeof dist === 'object' ? dist.diamondPayoutStatus : undefined);
-    const diamondPayoutStatus: 'pending' | 'paid_out' | undefined =
-      rawPayoutStatus === 'paid_out'
-        ? 'paid_out'
-        : (effectivePaymentStatus === 'paid' && !isFree ? 'pending' : undefined);
-    const diamondPayoutAt = item.diamondPayoutAt ?? (dist && typeof dist === 'object' ? dist.diamondPayoutAt : undefined);
-    const diamondPayoutBy = item.diamondPayoutBy ?? (dist && typeof dist === 'object' ? dist.diamondPayoutBy : undefined);
-
     if (dist && typeof dist === 'object') {
       dist = {
         ...dist,
         paymentStatus: effectivePaymentStatus,
-        ...(diamondPayoutStatus ? { diamondPayoutStatus } : {}),
-        ...(diamondPayoutAt ? { diamondPayoutAt } : {}),
-        ...(diamondPayoutBy ? { diamondPayoutBy } : {}),
         ...(effectivePaymentStatus === 'paid' ? {
           ...(paidAt ? { paidAt } : {}),
           ...(paidBy ? { paidBy } : {})
@@ -365,9 +346,6 @@ export function normalizeDistributedItem<T extends Partial<VaultItem>>(item: T):
       ...item,
       status: 'distributed' as const,
       paymentStatus: effectivePaymentStatus,
-      ...(diamondPayoutStatus ? { diamondPayoutStatus } : {}),
-      ...(diamondPayoutAt ? { diamondPayoutAt } : {}),
-      ...(diamondPayoutBy ? { diamondPayoutBy } : {}),
       ...(effectivePaymentStatus === 'paid' ? {
         ...(paidAt ? { paidAt } : {}),
         ...(paidBy ? { paidBy } : {})
@@ -502,43 +480,24 @@ export function isUserStatsPending(user?: User | null): boolean {
   const reqTime = Number(user.pendingPowerLevelRequestedAt || 0);
   const approvalTime = Number(user.statApprovalAt || 0);
   const rejectionTime = Number(user.statRejectionAt || 0);
-  const approvedReqTime = Number(user.approvedStatRequestAt || 0);
   const latestResolution = Math.max(approvalTime, rejectionTime);
-
-  // If explicitly approved for this request timestamp, definitely not pending
-  if (approvedReqTime > 0 && reqTime > 0 && approvedReqTime >= reqTime) {
-    return false;
-  }
 
   // If approved or rejected after or at request time, definitely not pending
   if (latestResolution > 0 && reqTime > 0 && latestResolution >= reqTime) {
     return false;
   }
 
-  const hasPendingPL = typeof user.pendingPowerLevel === 'number' && user.pendingPowerLevel > 0;
-  const hasPendingScreenshot = Boolean(user.pendingStatScreenshotUrl && user.pendingStatScreenshotUrl.trim() !== '');
-  const hasPendingStats = Boolean(user.pendingStats && typeof user.pendingStats === 'object' && Object.values(user.pendingStats).some((v) => typeof v === 'number' && v > 0));
-
-  if (!hasPendingPL && !hasPendingScreenshot && !hasPendingStats && reqTime === 0) {
-    return false;
-  }
-
-  // If already resolved and no newer request was made, not pending
-  if (latestResolution > 0 && (reqTime === 0 || latestResolution >= reqTime)) {
-    return false;
-  }
-
   if (reqTime > 0 && reqTime > latestResolution) {
     return true;
   }
-  if (hasPendingPL && (!latestResolution || reqTime > latestResolution)) {
+  if (typeof user.pendingPowerLevel === 'number' && user.pendingPowerLevel > 0 && (!latestResolution || reqTime > latestResolution)) {
     return true;
   }
-  if (hasPendingScreenshot && (!latestResolution || reqTime > latestResolution)) {
+  if (user.pendingStatScreenshotUrl && user.pendingStatScreenshotUrl.trim() !== '' && (!latestResolution || reqTime > latestResolution)) {
     return true;
   }
-  if (hasPendingStats && (!latestResolution || reqTime > latestResolution)) {
-    return true;
+  if (user.pendingStats && typeof user.pendingStats === 'object' && (!latestResolution || reqTime > latestResolution)) {
+    return Object.values(user.pendingStats).some((v) => typeof v === 'number' && v > 0);
   }
   return false;
 }
@@ -606,7 +565,6 @@ export interface AppNotification {
 }
 
 export interface StatUpdateSettings {
-  round?: { id: string; openedAt: number; enforceAt: number; active: boolean };
   allowMemberUpdates: boolean;
   lockedMessageTh?: string;
   lockedMessageEn?: string;
@@ -721,3 +679,4 @@ export function areUsersEqual(a: User | null | undefined, b: User | null | undef
     JSON.stringify(a.pendingClasses || []) === JSON.stringify(b.pendingClasses || [])
   );
 }
+

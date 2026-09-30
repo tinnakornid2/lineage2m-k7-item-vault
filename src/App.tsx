@@ -83,7 +83,6 @@ import {
   deleteUserDoc,
   changeUserPassword,
   confirmVaultItemPayment,
-  confirmDiamondPayout,
   addDiamondTransactionDoc,
   updateDiamondTransactionNoteDoc,
   clearDiamondTransactionsDoc,
@@ -173,9 +172,6 @@ import { NotificationModal } from './components/NotificationModal';
 import { RequestPowerLevelModal } from './components/RequestPowerLevelModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { GeminiKeyModal } from './components/GeminiKeyModal';
-import { StatRoundPanel } from './components/StatRoundPanel';
-import { claimBlocked, submissionError, statMessage } from './utils/statRound';
-import { centralApi } from './services/centralApi';
 import { GoogleDriveBackupModal } from './components/GoogleDriveBackupModal';
 import {
   triggerDebouncedAutoBackup,
@@ -1151,11 +1147,9 @@ export const App: React.FC = () => {
 
       const curPendingAt = Number(currentUser.pendingPowerLevelRequestedAt || 0);
       const foundPendingAt = Number(safeUser.pendingPowerLevelRequestedAt || 0);
-      const foundApprovedReq = Number(safeUser.approvedStatRequestAt || 0);
       const foundResAt = Math.max(Number(safeUser.statApprovalAt || 0), Number(safeUser.statRejectionAt || 0));
-      const isApproved = (curPendingAt > 0 && curPendingAt <= foundApprovedReq) || (foundResAt > 0 && curPendingAt <= foundResAt);
 
-      const shouldPreservePending = !isApproved && Boolean(currentUser.pendingStats && curPendingAt > 0 && curPendingAt > foundResAt && curPendingAt >= foundPendingAt);
+      const shouldPreservePending = Boolean(currentUser.pendingStats && curPendingAt > foundResAt && curPendingAt >= foundPendingAt);
       const targetUser: User = shouldPreservePending
         ? {
             ...safeUser,
@@ -1224,10 +1218,8 @@ export const App: React.FC = () => {
                 : found;
               const curPendingAt = Number(current.pendingPowerLevelRequestedAt || 0);
               const foundPendingAt = Number(safeUser.pendingPowerLevelRequestedAt || 0);
-              const foundApprovedReq = Number(safeUser.approvedStatRequestAt || 0);
               const foundResAt = Math.max(Number(safeUser.statApprovalAt || 0), Number(safeUser.statRejectionAt || 0));
-              const isApproved = curPendingAt > 0 && curPendingAt <= foundApprovedReq;
-              const shouldPreserve = !isApproved && Boolean(current.pendingStats && curPendingAt > foundResAt && curPendingAt >= foundPendingAt);
+              const shouldPreserve = Boolean(current.pendingStats && curPendingAt > foundResAt && curPendingAt >= foundPendingAt);
               const finalUser = shouldPreserve
                 ? {
                     ...safeUser,
@@ -1562,10 +1554,8 @@ export const App: React.FC = () => {
               : found;
             const curPendingAt = Number(cur.pendingPowerLevelRequestedAt || 0);
             const foundPendingAt = Number(safeUser.pendingPowerLevelRequestedAt || 0);
-            const foundApprovedReq = Number(safeUser.approvedStatRequestAt || 0);
             const foundResAt = Math.max(Number(safeUser.statApprovalAt || 0), Number(safeUser.statRejectionAt || 0));
-            const isApproved = curPendingAt > 0 && curPendingAt <= foundApprovedReq;
-            const shouldPreserve = !isApproved && Boolean(cur.pendingStats && curPendingAt > foundResAt && curPendingAt >= foundPendingAt);
+            const shouldPreserve = Boolean(cur.pendingStats && curPendingAt > foundResAt && curPendingAt >= foundPendingAt);
             const finalUser = shouldPreserve
               ? {
                   ...safeUser,
@@ -1950,14 +1940,11 @@ export const App: React.FC = () => {
       };
     } catch (err: any) {
       console.error('Registration failed:', err);
-      const isAlreadyInUse = err?.message?.includes('already-in-use') || err?.code === 'auth/email-already-in-use' || err?.message === 'USERNAME_IN_USE';
-      const isInvalidCred = err?.code === 'auth/invalid-credential' || err?.message?.includes('invalid-credential');
+      const isAlreadyInUse = err?.message?.includes('already-in-use');
       return {
         success: false,
         message: isAlreadyInUse
-          ? (lang === 'th' ? 'ชื่อผู้ใช้นี้มีในระบบแล้ว หากคุณเป็นเจ้าของบัญชี กรุณาสลับไปที่แท็บ "เข้าสู่ระบบ" หรือใช้ชื่ออื่น' : 'This username is already registered. If this is your account, please switch to the "Login" tab or choose another username.')
-          : isInvalidCred
-          ? (lang === 'th' ? 'ชื่อผู้ใช้นี้มีในระบบแล้ว กรุณาเข้าสู่ระบบด้วยรหัสผ่านเดิม หรือติดต่อ Admin เพื่อรีเซ็ตรหัสผ่าน' : 'This account exists. Please log in with your password or contact Admin for a password reset.')
+          ? (lang === 'th' ? 'ชื่อผู้ใช้นี้มีในระบบแล้ว กรุณาใช้ชื่ออื่น' : 'Username is already taken.')
           : (err?.message || (lang === 'th' ? 'การลงทะเบียนล้มเหลว' : 'Registration failed'))
       };
     }
@@ -1991,10 +1978,8 @@ export const App: React.FC = () => {
     const currentBal = vaultBalance;
     const net = calculateDiamondNetChange({ type, amount, netAmount: details?.netAmount });
     const computedBalanceAfter = Math.max(0, currentBal + net);
-    const finalBalance = typeof details?.balanceAfter === 'number' ? details.balanceAfter : computedBalanceAfter;
-    const now = Date.now();
-    const newRecord: DiamondVaultRecord = {
-      id: 'dtx_' + now + '_' + Math.random().toString(36).substring(2, 6),
+
+    await addDiamondTransactionDoc({
       type,
       amount,
       note,
@@ -2007,40 +1992,12 @@ export const App: React.FC = () => {
       recipientName: details?.recipientName,
       recipientClan: details?.recipientClan,
       proofImageUrl: details?.proofImageUrl,
-      balanceAfter: finalBalance,
-      performedBy: {
-        userId: currentUser.id,
-        name: currentUser.inGameName,
-        role: currentUser.role
-      },
-      timestamp: now
-    };
-
-    // Instant optimistic UI updates (< 1ms)
-    setDiamondLogs((prev) => [newRecord, ...prev]);
-
-    // Background Firestore persistence (non-blocking)
-    addDiamondTransactionDoc({
-      type,
-      amount,
-      note,
-      grossAmount: details?.grossAmount,
-      taxPct: details?.taxPct,
-      taxAmount: details?.taxAmount,
-      netAmount: details?.netAmount,
-      clanScope: details?.clanScope || 'all',
-      recipientUserId: details?.recipientUserId,
-      recipientName: details?.recipientName,
-      recipientClan: details?.recipientClan,
-      proofImageUrl: details?.proofImageUrl,
-      balanceAfter: finalBalance,
+      balanceAfter: typeof details?.balanceAfter === 'number' ? details.balanceAfter : computedBalanceAfter,
       performedBy: {
         userId: currentUser.id,
         name: currentUser.inGameName,
         role: currentUser.role
       }
-    }).catch((err) => {
-      console.warn('Diamond transaction write deferred:', err);
     });
   };
 
@@ -2135,10 +2092,19 @@ export const App: React.FC = () => {
 
   const handleSaveQueueAnnouncement = async (newSettings: QueueAnnouncementSettings) => {
     setQueueAnnouncement(newSettings);
-    showToast(
-      lang === 'th' ? 'บันทึกข้อความประกาศคิวสำเร็จแล้ว' : 'Queue announcement updated successfully',
-      'success'
-    );
+    try {
+      await saveQueueAnnouncementSettingsDoc(newSettings);
+      showToast(
+        lang === 'th' ? 'บันทึกข้อความประกาศคิวสำเร็จแล้ว' : 'Queue announcement updated successfully',
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to save queue announcement:', err);
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการบันทึกประกาศคิว' : 'Failed to update queue announcement',
+        'error'
+      );
+    }
     triggerDebouncedAutoBackup(
       {
         users,
@@ -2155,20 +2121,23 @@ export const App: React.FC = () => {
       currentUser?.inGameName || 'Admin',
       true
     );
-    saveQueueAnnouncementSettingsDoc(newSettings).catch((err) => {
-      console.warn('Notice: Firestore save announcement deferred:', err);
-    });
   };
 
   const handleSaveDiscordSettings = async (newSettings: DiscordSettings) => {
     setDiscordSettings(newSettings);
-    showToast(
-      lang === 'th' ? 'บันทึกการตั้งค่า Discord เรียบร้อยแล้ว' : 'Discord settings saved successfully',
-      'success'
-    );
-    saveDiscordSettingsDoc(newSettings).catch((err) => {
+    try {
+      await saveDiscordSettingsDoc(newSettings);
+      showToast(
+        lang === 'th' ? 'บันทึกการตั้งค่า Discord เรียบร้อยแล้ว' : 'Discord settings saved successfully',
+        'success'
+      );
+    } catch (err) {
       console.error('Failed to save discord settings:', err);
-    });
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการบันทึกการตั้งค่า Discord' : 'Failed to save Discord settings',
+        'error'
+      );
+    }
     triggerDebouncedAutoBackup(
       {
         users,
@@ -2313,7 +2282,6 @@ export const App: React.FC = () => {
       return;
     }
     const nextSettings: StatUpdateSettings = {
-      ...statUpdateSettings,
       allowMemberUpdates: allow,
       updatedAt: Date.now(),
       updatedBy: currentUser?.inGameName || currentUser?.username || 'Owner'
@@ -2321,10 +2289,7 @@ export const App: React.FC = () => {
     setStatUpdateSettings(nextSettings);
     sounds.playClick();
     try {
-      const response = await centralApi('/api/stat-update-settings', { method: 'POST', body: JSON.stringify({ allowMemberUpdates: allow }) });
-      const result = await response.json();
-      setStatUpdateSettings(result.settings);
-      await saveStatUpdateSettingsDoc(result.settings);
+      await saveStatUpdateSettingsDoc(nextSettings);
       sounds.playSuccess();
       showToast(
         allow
@@ -2339,23 +2304,12 @@ export const App: React.FC = () => {
   };
 
   // Vault Items Handlers
-  const checkRoundRecipient = (recipient: { userId?: string; name?: string; inGameName?: string }) => {
-    const user = users.find(u => recipient.userId ? u.id === recipient.userId : u.inGameName === (recipient.name || recipient.inGameName));
-    if (claimBlocked(user, statUpdateSettings)) throw new Error(statMessage('STAT_ROUND_REQUIRED', lang));
-  };
-  const checkRoundQueue = (previous: QueueMember[], next: QueueMember[]) => {
-    for (const member of next) {
-      const old = previous.find(q => q.id === member.id);
-      if (!old || member.userId !== old.userId || member.name !== old.name || Number(member.requestedQuantity || 0) > Number(old.requestedQuantity || 0) || Number(member.receivedQuantity || 0) > Number(old.receivedQuantity || 0) || (member.status === 'received' && old.status !== 'received')) checkRoundRecipient(member);
-    }
-  };
   const handleCreateVaultItem = async (
     itemData: Omit<VaultItem, 'id' | 'createdAt' | 'status' | 'claimants'>,
     directDistribution?: DirectDistributionPayload
   ) => {
     try {
       const isDirectDistribute = Boolean(directDistribution && directDistribution.recipient);
-      if (directDistribution?.recipient) checkRoundRecipient(directDistribution.recipient);
       const isFree = !itemData.price || itemData.price === 0;
       const initialPaymentStatus = isFree ? 'paid' : (directDistribution?.paymentStatus || 'pending');
       const recName = directDistribution?.recipient?.name || directDistribution?.recipient?.inGameName || 'Member';
@@ -2378,30 +2332,23 @@ export const App: React.FC = () => {
           }
         : undefined;
 
-      const newId = 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-      unmarkVaultItemAsDeleted(newId);
-      setPendingFirebaseSync(true);
-
-      const safeQuantity = Math.max(1, Number(itemData.quantity) || 1);
-      const createdItem: VaultItem = {
+      const createdItem = await addVaultItemDoc({
         ...itemData,
-        id: newId,
-        quantity: safeQuantity,
-        hunters: (itemData.hunters || []).map((h) => ({ ...h, clan: cleanClanName(h.clan) })),
-        claimants: [],
         status: isDirectDistribute ? 'distributed' : 'available',
+        claimants: [],
         ...(isDirectDistribute
           ? {
               distributedTo: distributedPayload,
               receiptImages: isFree ? [] : (directDistribution!.receiptImages || []),
               paymentStatus: initialPaymentStatus
             }
-          : {}),
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
+          : {})
+      });
 
-      // 1. Instant Optimistic UI update (<1ms)
+      unmarkVaultItemAsDeleted(createdItem.id);
+      setPendingFirebaseSync(true);
+
+      // 1. Optimistic UI update immediately so user sees the new item instantly
       const nextVaultItems: VaultItem[] = [createdItem, ...vaultItems.filter((i) => i.id !== createdItem.id)];
       setVaultItems(nextVaultItems);
       setCachedVaultItems(nextVaultItems);
@@ -2437,11 +2384,6 @@ export const App: React.FC = () => {
         currentUser?.inGameName || currentUser?.username || 'Admin',
         true
       );
-
-      // 3. Background Firestore persistence (non-blocking)
-      addVaultItemDoc(createdItem).catch((err) => {
-        console.warn('Vault item added locally/relay/sheets; firestore write deferred:', err);
-      });
 
       // 3. Discord notification if enabled (Rule 5: English 100%, item-only)
       const activeDiscord = discordSettings || getCachedDiscordSettings();
@@ -2543,10 +2485,6 @@ export const App: React.FC = () => {
 
   // Claim Item Handler (Member clicks claim on Dashboard)
   const handleClaimItem = async (itemId: string) => {
-    if (claimBlocked(currentUser, statUpdateSettings)) {
-      showToast(statMessage('STAT_ROUND_REQUIRED', lang), 'warning');
-      return;
-    }
     if (!currentUser) {
       setShowAuthModal(true);
       return;
@@ -2647,21 +2585,26 @@ export const App: React.FC = () => {
     );
 
     // Call server claim endpoint to persist via Admin SDK asynchronously
-    centralApi('/api/claim-vault-item', {
+    fetch('/api/claim-vault-item', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ itemId, claimant: newClaimant })
     }).catch((e) => console.warn('claim-vault-item endpoint notice:', e));
 
-    showToast(
-      lang === 'th' ? 'ลงชื่อเคลมไอเทมสำเร็จ!' : 'Claim submitted successfully!',
-      'success'
-    );
-
-    // Background persistence (non-blocking)
-    updateVaultItemDoc(itemId, { claimants: updatedClaimants, updatedAt: now }).catch((err) => {
-      console.warn('Notice: Firestore claim update deferred:', err);
-    });
-    addItemClaimDoc(itemId, newClaimant).catch((e) => console.warn('addItemClaimDoc notice:', e));
+    try {
+      await updateVaultItemDoc(itemId, { claimants: updatedClaimants, updatedAt: now });
+      await addItemClaimDoc(itemId, newClaimant).catch((e) => console.warn('addItemClaimDoc notice:', e));
+      showToast(
+        lang === 'th' ? 'ลงชื่อเครมไอเทมสำเร็จ!' : 'Claim submitted successfully!',
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to update claim in Firestore:', err);
+      showToast(
+        lang === 'th' ? 'ลงชื่อเครมไอเทมสำเร็จ! (โหมดแคช)' : 'Claim submitted successfully! (Cached)',
+        'success'
+      );
+    }
   };
 
   // Unclaim Item Handler (Member cancels claim or Admin removes claimant)
@@ -2732,22 +2675,28 @@ export const App: React.FC = () => {
     );
 
     // Call server unclaim endpoint asynchronously
-    centralApi('/api/unclaim-vault-item', {
+    fetch('/api/unclaim-vault-item', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ itemId, userId: userIdToRemove, inGameName: inGameNameToRemove })
     }).catch((e) => console.warn('unclaim-vault-item endpoint notice:', e));
 
-    showToast(
-      lang === 'th' ? 'ยกเลิกการลงชื่อเคลมสำเร็จ' : 'Claim cancelled successfully',
-      'info'
-    );
-
-    // Background persistence (non-blocking)
-    updateVaultItemDoc(itemId, { claimants: updatedClaimants, updatedAt: now }).catch((err) => {
-      console.warn('Notice: Firestore unclaim update deferred:', err);
-    });
-    if (userIdToRemove) {
-      deleteItemClaimDoc(itemId, userIdToRemove).catch((e) => console.warn('deleteItemClaimDoc notice:', e));
+    // 4. Persist to Firestore
+    try {
+      await updateVaultItemDoc(itemId, { claimants: updatedClaimants, updatedAt: now });
+      if (userIdToRemove) {
+        await deleteItemClaimDoc(itemId, userIdToRemove).catch((e) => console.warn('deleteItemClaimDoc notice:', e));
+      }
+      showToast(
+        lang === 'th' ? 'ยกเลิกการลงชื่อเครมสำเร็จ' : 'Claim cancelled successfully',
+        'info'
+      );
+    } catch (err) {
+      console.error('Failed to unclaim item in Firestore:', err);
+      showToast(
+        lang === 'th' ? 'ยกเลิกการลงชื่อเครมสำเร็จ (โหมดแคช)' : 'Claim cancelled successfully (Cached)',
+        'info'
+      );
     }
   };
 
@@ -2762,25 +2711,31 @@ export const App: React.FC = () => {
     setVaultItems(nextVaultItems);
     setCachedVaultItems(nextVaultItems);
 
-    showToast(
-      lang === 'th' ? 'อัปเดตข้อมูลไอเทมเรียบร้อยแล้ว' : 'Item updated successfully',
-      'success'
-    );
+    try {
+      await updateVaultItemDoc(itemId, versionedUpdates);
+      showToast(
+        lang === 'th' ? 'อัปเดตข้อมูลไอเทมเรียบร้อยแล้ว' : 'Item updated successfully',
+        'success'
+      );
 
-    broadcastLiveState(
-      getFullBackupPayload({ vaultItems: nextVaultItems }),
-      currentUser?.inGameName || currentUser?.username || 'Admin'
-    );
+      broadcastLiveState(
+        getFullBackupPayload({ vaultItems: nextVaultItems }),
+        currentUser?.inGameName || currentUser?.username || 'Admin'
+      );
 
-    triggerDebouncedAutoBackup(
-      getFullBackupPayload({ vaultItems: nextVaultItems }),
-      currentUser?.inGameName || currentUser?.username || 'Admin',
-      true
-    );
-
-    updateVaultItemDoc(itemId, versionedUpdates).catch((err: any) => {
-      console.error('Error updating vault item in Firestore:', err);
-    });
+      triggerDebouncedAutoBackup(
+        getFullBackupPayload({ vaultItems: nextVaultItems }),
+        currentUser?.inGameName || currentUser?.username || 'Admin',
+        true
+      );
+    } catch (err: any) {
+      console.error('Error updating vault item:', err);
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการอัปเดตไอเทม' : 'Error updating item',
+        'error'
+      );
+      throw err;
+    }
   };
 
   // Distribute Item Handler (Admin awards item, removes from Dashboard, stores in distributed archive)
@@ -2790,7 +2745,6 @@ export const App: React.FC = () => {
   ) => {
     try {
       const targetItem = vaultItems.find((i) => i.id === itemId);
-      checkRoundRecipient(recipient);
       const isNotFree = Boolean(targetItem && targetItem.price > 0);
       const initialPaymentStatus: 'pending' | 'paid' = isNotFree ? 'pending' : 'paid';
 
@@ -2839,23 +2793,18 @@ export const App: React.FC = () => {
         true
       );
 
-      showToast(
-        lang === 'th'
-          ? `แจกไอเทม [${targetItem?.name || 'ไอเทม'}] ให้กับ ${recipient.name} สำเร็จ!`
-          : `Distributed [${targetItem?.name || 'item'}] to ${recipient.name} successfully!`,
-        'success'
-      );
-
-      // 5. Background Firestore persistence (non-blocking)
-      updateVaultItemDoc(itemId, {
-        status: 'distributed',
-        distributedTo: distributedPayload,
-        receiptImages: recipient.receiptImages || [],
-        paymentStatus: initialPaymentStatus,
-        updatedAt: Date.now()
-      }).catch((firestoreErr) => {
+      // 5. Update Firestore with setDoc merge
+      try {
+        await updateVaultItemDoc(itemId, {
+          status: 'distributed',
+          distributedTo: distributedPayload,
+          receiptImages: recipient.receiptImages || [],
+          paymentStatus: initialPaymentStatus,
+          updatedAt: Date.now()
+        });
+      } catch (firestoreErr) {
         console.warn('Notice: Firestore update distributed item failover:', firestoreErr);
-      });
+      }
 
       // Send Discord notification if enabled (Rule 5: English 100%)
       const activeDistDiscord = discordSettings || getCachedDiscordSettings();
@@ -2934,8 +2883,7 @@ export const App: React.FC = () => {
             ...i.distributedTo,
             paymentStatus: targetStatus,
             paidAt: isPaid ? now : undefined,
-            paidBy: isPaid ? actorName : undefined,
-            ...(!isPaid ? { diamondPayoutStatus: 'pending' as const, diamondPayoutAt: undefined, diamondPayoutBy: undefined } : {})
+            paidBy: isPaid ? actorName : undefined
           }
         : undefined;
       return {
@@ -2943,7 +2891,6 @@ export const App: React.FC = () => {
         paymentStatus: targetStatus,
         paidAt: isPaid ? now : undefined,
         paidBy: isPaid ? actorName : undefined,
-        ...(!isPaid ? { diamondPayoutStatus: 'pending' as const, diamondPayoutAt: undefined, diamondPayoutBy: undefined } : {}),
         distributedTo: updatedDistributedTo,
         updatedAt: now
       };
@@ -2974,69 +2921,6 @@ export const App: React.FC = () => {
       console.error('Failed to update payment status:', err);
       showToast(
         lang === 'th' ? 'เกิดข้อผิดพลาดในการอัปเดตสถานะการชำระ' : 'Failed to update payment status',
-        'error'
-      );
-    }
-  };
-
-  // Diamond Payout Status Handler for Distributed Items (แจกเพชรให้คนล่าหรือยัง)
-  const handleToggleDiamondPayout = async (
-    item: VaultItem,
-    targetStatus?: 'pending' | 'paid_out'
-  ) => {
-    sounds.playClick();
-    const currentStatus = item.diamondPayoutStatus === 'paid_out' ? 'paid_out' : 'pending';
-    const nextStatus: 'pending' | 'paid_out' = targetStatus ?? (currentStatus === 'paid_out' ? 'pending' : 'paid_out');
-    const isPaidOut = nextStatus === 'paid_out';
-    const actorName = currentUser?.inGameName || currentUser?.username || 'Admin';
-    const now = Date.now();
-
-    // Optimistic update
-    const nextVaultItems: VaultItem[] = vaultItems.map((i) => {
-      if (i.id !== item.id) return i;
-      const updatedDistributedTo = i.distributedTo
-        ? {
-            ...i.distributedTo,
-            diamondPayoutStatus: nextStatus,
-            diamondPayoutAt: isPaidOut ? now : undefined,
-            diamondPayoutBy: isPaidOut ? actorName : undefined
-          }
-        : undefined;
-      return {
-        ...i,
-        diamondPayoutStatus: nextStatus,
-        diamondPayoutAt: isPaidOut ? now : undefined,
-        diamondPayoutBy: isPaidOut ? actorName : undefined,
-        distributedTo: updatedDistributedTo,
-        updatedAt: now
-      };
-    });
-    setVaultItems(nextVaultItems);
-    setCachedVaultItems(nextVaultItems);
-
-    broadcastLiveState(
-      getFullBackupPayload({ vaultItems: nextVaultItems }),
-      actorName
-    );
-
-    triggerDebouncedAutoBackup(
-      getFullBackupPayload({ vaultItems: nextVaultItems }),
-      actorName,
-      false
-    );
-
-    try {
-      await confirmDiamondPayout(item.id, actorName, nextStatus);
-      showToast(
-        isPaidOut
-          ? (lang === 'th' ? `บันทึกการแจกเพชรสำหรับ "${item.name}" แล้ว!` : `Diamonds marked as paid out for "${item.name}"!`)
-          : (lang === 'th' ? `เปลี่ยนสถานะ "${item.name}" เป็นยังไม่แจกเพชรแล้ว` : `Status reverted to pending diamond payout for "${item.name}"`),
-        'success'
-      );
-    } catch (err) {
-      console.error('Failed to update diamond payout status:', err);
-      showToast(
-        lang === 'th' ? 'เกิดข้อผิดพลาดในการอัปเดตสถานะการแจกเพชร' : 'Failed to update diamond payout status',
         'error'
       );
     }
@@ -3097,8 +2981,6 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateQueueMembers = async (queueId: string, members: QueueMember[]) => {
-    const previous = queueItems.find(q => q.id === queueId)?.queueList || [];
-    checkRoundQueue(previous, members);
     // 1. Optimistic UI update immediately
     const now = Date.now();
     const nextQueues = queueItems.map((q) => (q.id === queueId ? { ...q, queueList: members, updatedAt: now } : q));
@@ -3111,8 +2993,9 @@ export const App: React.FC = () => {
     );
 
     // 2. Persist in Firestore & background serverless endpoint
-    centralApi('/api/update-boss-queue', {
+    fetch('/api/update-boss-queue', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ queueId, queueList: members })
     }).catch(() => {});
 
@@ -3151,18 +3034,27 @@ export const App: React.FC = () => {
       currentUser?.inGameName || 'Admin'
     );
 
-    // 2. Persist in Firestore in background (non-blocking)
-    addQuickItemDoc(item)
-      .then((saved) => {
-        setQuickItems((prev) => {
-          const updated = prev.map((q) => (q.id === tempId ? saved : q));
-          setCachedQuickItems(updated);
-          return updated;
-        });
-      })
-      .catch((err) => {
-        console.warn('Failed to add quick item to Firestore, saved in local/relay:', err);
+    // 2. Persist in Firestore
+    try {
+      const saved = await addQuickItemDoc(item);
+      setQuickItems((prev) => {
+        const updated = prev.map((q) => (q.id === tempId ? saved : q));
+        setCachedQuickItems(updated);
+        return updated;
       });
+    } catch (err) {
+      console.error('Failed to add quick item to Firestore:', err);
+      const fallbackItems = [optimisticItem, ...quickItems];
+      const googleResult = await saveFailoverSnapshot(fallbackItems, generalItems, 'Quick Item Failover');
+      if (!googleResult.success) {
+        setQuickItems((prev) => {
+          const reverted = prev.filter((q) => q.id !== tempId);
+          setCachedQuickItems(reverted);
+          return reverted;
+        });
+        throw err;
+      }
+    }
   };
 
   const handleUpdateQuickItem = async (itemId: string, updates: Partial<Omit<QuickItem, 'id' | 'createdAt'>>) => {
@@ -3173,9 +3065,13 @@ export const App: React.FC = () => {
       getFullBackupPayload({ quickItems: nextItems }),
       currentUser?.inGameName || 'Admin'
     );
-    updateQuickItemDoc(itemId, updates).catch((err) => {
-      console.warn('Failed to update quick item in Firestore:', err);
-    });
+    try {
+      await updateQuickItemDoc(itemId, updates);
+    } catch (err) {
+      console.error('Failed to update quick item in Firestore:', err);
+      const googleResult = await saveFailoverSnapshot(nextItems, generalItems, 'Quick Item Update Failover');
+      if (!googleResult.success) throw err;
+    }
   };
 
   const handleDeleteQuickItem = async (itemId: string) => {
@@ -3186,9 +3082,13 @@ export const App: React.FC = () => {
       getFullBackupPayload({ quickItems: nextItems }),
       currentUser?.inGameName || 'Admin'
     );
-    deleteQuickItemDoc(itemId).catch((err) => {
-      console.warn('Failed to delete quick item in Firestore:', err);
-    });
+    try {
+      await deleteQuickItemDoc(itemId);
+    } catch (err) {
+      console.error('Failed to delete quick item in Firestore:', err);
+      const googleResult = await saveFailoverSnapshot(nextItems, generalItems, 'Quick Item Delete Failover');
+      if (!googleResult.success) throw err;
+    }
   };
 
   const handleAddGeneralItem = async (item: Omit<GeneralItem, 'id' | 'createdAt'>) => {
@@ -3229,17 +3129,14 @@ export const App: React.FC = () => {
     );
 
     // 5. Safe Firestore persistence (non-blocking)
-    addGeneralItemDoc(fullItem).catch((err) => {
+    try {
+      await addGeneralItemDoc(fullItem);
+    } catch (err) {
       console.warn('General item saved locally/relay/sheets; firestore write deferred:', err);
-    });
+    }
   };
 
   const handleUpdateGeneralItem = async (itemId: string, updates: Partial<Omit<GeneralItem, 'id' | 'createdAt'>>) => {
-    const previous = generalItems.find(item => item.id === itemId);
-    if (updates.queueList) checkRoundQueue(previous?.queueList || [], updates.queueList);
-    for (const receipt of updates.receiptHistory || []) {
-      if (!previous?.receiptHistory?.some(r => r.id === receipt.id)) checkRoundRecipient(receipt);
-    }
     const now = Date.now();
     const fullUpdates = { ...updates, updatedAt: now };
 
@@ -3263,29 +3160,20 @@ export const App: React.FC = () => {
       true
     );
 
-    // 5. Direct Firestore persistence (non-blocking)
-    updateGeneralItemDoc(itemId, fullUpdates).catch((err) => {
-      console.warn('General item updated locally/relay/sheets; firestore update deferred:', err);
-    });
-
-    // 6. Background serverless endpoint if queueList was modified with policy rollback
+    // 5. Background serverless endpoint if queueList was modified
     if (updates.queueList) {
-      centralApi('/api/update-general-item-queue', {
+      fetch('/api/update-general-item-queue', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemId, queueList: updates.queueList })
-      }).catch((err: any) => {
-        console.warn('Notice: Central relay general item queue update notice:', err?.message || err);
-        if (/ROUND|CLOSED|INSUFFICIENT|FORBIDDEN/.test(err?.message || '')) {
-          if (previous) {
-            const reverted = generalItems.map((entry) => entry.id === itemId ? previous : entry);
-            setGeneralItems(reverted);
-            setCachedGeneralItems(reverted);
-            updateGeneralItemDoc(itemId, previous).catch(() => {});
-          }
-          const msg = statMessage(err?.message || '', lang);
-          showToast(msg || (lang === 'th' ? 'ไม่สามารถอัปเดตคิวได้' : 'Failed to update queue'), 'error');
-        }
-      });
+      }).catch(() => {});
+    }
+
+    // 6. Safe Firestore persistence (non-blocking)
+    try {
+      await updateGeneralItemDoc(itemId, fullUpdates);
+    } catch (err) {
+      console.warn('General item updated locally/relay/sheets; firestore update deferred:', err);
     }
   };
 
@@ -3315,15 +3203,17 @@ export const App: React.FC = () => {
       true
     );
 
-    // 5. Safe Firestore persistence in batch (non-blocking)
-    const itemsWithOrder = itemsWithTime.map((item) => ({
-      id: item.id,
-      sortOrder: item.sortOrder ?? 0,
-      isPinned: !!item.isPinned
-    }));
-    batchUpdateGeneralItemsOrder(itemsWithOrder).catch((err) => {
+    // 5. Safe Firestore persistence in batch
+    try {
+      const itemsWithOrder = itemsWithTime.map((item) => ({
+        id: item.id,
+        sortOrder: item.sortOrder ?? 0,
+        isPinned: !!item.isPinned
+      }));
+      await batchUpdateGeneralItemsOrder(itemsWithOrder);
+    } catch (err) {
       console.warn('General items reordered locally/relay/sheets; firestore batch write deferred:', err);
-    });
+    }
   };
 
   const handleDeleteGeneralItem = async (itemId: string) => {
@@ -3351,9 +3241,11 @@ export const App: React.FC = () => {
     );
 
     // 5. Safe Firestore persistence (non-blocking)
-    deleteGeneralItemDoc(itemId).catch((err) => {
+    try {
+      await deleteGeneralItemDoc(itemId);
+    } catch (err) {
       console.warn('General item deleted locally/relay/sheets; firestore delete deferred:', err);
-    });
+    }
   };
 
   // Clan Handlers
@@ -3369,15 +3261,17 @@ export const App: React.FC = () => {
         vignetteOpacity: newConfig.vignetteOpacity,
         updatedBy: currentUser?.inGameName || 'Owner'
       };
-      showToast(
-        lang === 'th'
-          ? 'ซิงค์ภาพพื้นหลังไปยังสมาชิกทุกคนในกิลด์เรียบร้อยแล้ว!'
-          : 'Background synchronized to all guild members!',
-        'success'
-      );
-      saveBackgroundSettingsDoc(bgPayload).catch((err) => {
+      try {
+        await saveBackgroundSettingsDoc(bgPayload);
+        showToast(
+          lang === 'th'
+            ? 'ซิงค์ภาพพื้นหลังไปยังสมาชิกทุกคนในกิลด์เรียบร้อยแล้ว!'
+            : 'Background synchronized to all guild members!',
+          'success'
+        );
+      } catch (err) {
         console.error('Failed to sync background settings to Firestore:', err);
-      });
+      }
 
       triggerDebouncedAutoBackup(
         {
@@ -3425,10 +3319,13 @@ export const App: React.FC = () => {
       enabled: true
     };
     setClans((prev) => [...prev, newClan]);
-    showToast(lang === 'th' ? `เพิ่มแคลน ${cleanName} สำเร็จ` : `Clan ${cleanName} added`, 'success');
-    addClanDoc({ name: cleanName, color: color || '#d4af37', order: nextOrder }).catch((err) => {
-      console.error('Failed to add clan in Firestore:', err);
-    });
+    try {
+      await addClanDoc({ name: cleanName, color: color || '#d4af37', order: nextOrder });
+      showToast(lang === 'th' ? `เพิ่มแคลน ${cleanName} สำเร็จ` : `Clan ${cleanName} added`, 'success');
+    } catch (err) {
+      console.error('Failed to add clan:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการเพิ่มแคลน' : 'Failed to add clan', 'error');
+    }
   };
 
   const handleUpdateClan = async (clanId: string, newName: string, newColor?: string) => {
@@ -3458,22 +3355,23 @@ export const App: React.FC = () => {
       }
     }
 
-    showToast(lang === 'th' ? `แก้ไขแคลน ${cleanNew} สำเร็จ` : `Clan ${cleanNew} updated`, 'success');
+    try {
+      await updateClanDoc(clanId, {
+        name: cleanNew,
+        ...(newColor ? { color: newColor } : {})
+      });
 
-    // Background Firestore persistence (non-blocking)
-    updateClanDoc(clanId, {
-      name: cleanNew,
-      ...(newColor ? { color: newColor } : {})
-    }).catch((err) => {
-      console.error('Failed to update clan in Firestore:', err);
-    });
-
-    // Cascade update users in Firestore
-    if (oldCleanName && oldCleanName.toLowerCase() !== cleanNew.toLowerCase()) {
-      const affected = users.filter((u) => cleanClanName(u.clan).toLowerCase() === oldCleanName.toLowerCase());
-      for (const mem of affected) {
-        updateUserDoc(mem.id, { clan: cleanNew }).catch(console.error);
+      // Cascade update users in Firestore
+      if (oldCleanName && oldCleanName.toLowerCase() !== cleanNew.toLowerCase()) {
+        const affected = users.filter((u) => cleanClanName(u.clan).toLowerCase() === oldCleanName.toLowerCase());
+        for (const mem of affected) {
+          updateUserDoc(mem.id, { clan: cleanNew }).catch(console.error);
+        }
       }
+      showToast(lang === 'th' ? `แก้ไขแคลน ${cleanNew} สำเร็จ` : `Clan ${cleanNew} updated`, 'success');
+    } catch (err) {
+      console.error('Failed to update clan:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการแก้ไขแคลน' : 'Failed to update clan', 'error');
     }
   };
 
@@ -3512,24 +3410,25 @@ export const App: React.FC = () => {
       }
     }
 
-    showToast(
-      lang === 'th'
-        ? `ลบแคลน ${resolvedName} สำเร็จ (สมาชิกถูกย้ายไปที่ ไม่มีแคลน)`
-        : `Clan ${resolvedName} deleted (members moved to Unassigned)`,
-      'info'
-    );
-
-    // Background Firestore persistence (non-blocking)
-    deleteClanDoc(resolvedId).catch((err) => {
-      console.error('Failed to delete clan in Firestore:', err);
-    });
-    if (resolvedName) {
-      const affected = users.filter(
-        (u) => cleanClanName(u.clan).toLowerCase() === resolvedName.toLowerCase()
-      );
-      for (const mem of affected) {
-        updateUserDoc(mem.id, { clan: 'no-clan' }).catch(console.error);
+    try {
+      await deleteClanDoc(resolvedId);
+      if (resolvedName) {
+        const affected = users.filter(
+          (u) => cleanClanName(u.clan).toLowerCase() === resolvedName.toLowerCase()
+        );
+        for (const mem of affected) {
+          updateUserDoc(mem.id, { clan: 'no-clan' }).catch(console.error);
+        }
       }
+      showToast(
+        lang === 'th'
+          ? `ลบแคลน ${resolvedName} สำเร็จ (สมาชิกถูกย้ายไปที่ ไม่มีแคลน)`
+          : `Clan ${resolvedName} deleted (members moved to Unassigned)`,
+        'info'
+      );
+    } catch (err) {
+      console.error('Failed to delete clan:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการลบแคลน' : 'Failed to delete clan', 'error');
     }
   };
 
@@ -3543,69 +3442,57 @@ export const App: React.FC = () => {
       prev.map((c) => (c.id === clanId ? { ...c, enabled: nextEnabled } : c))
     );
 
-    showToast(
-      lang === 'th'
-        ? `${nextEnabled ? 'เปิดแสดง' : 'ซ่อน'}แคลน ${cleanClanName(targetClan.name)} เรียบร้อย`
-        : `Clan ${cleanClanName(targetClan.name)} is now ${nextEnabled ? 'visible' : 'hidden'}`,
-      'info'
-    );
-
-    updateClanDoc(clanId, { enabled: nextEnabled }).catch((err) => {
-      console.error('Failed to toggle clan visibility in Firestore:', err);
-    });
+    try {
+      await updateClanDoc(clanId, { enabled: nextEnabled });
+      showToast(
+        lang === 'th'
+          ? `${nextEnabled ? 'เปิดแสดง' : 'ซ่อน'}แคลน ${cleanClanName(targetClan.name)} เรียบร้อย`
+          : `Clan ${cleanClanName(targetClan.name)} is now ${nextEnabled ? 'visible' : 'hidden'}`,
+        'info'
+      );
+    } catch (err) {
+      console.error('Failed to toggle clan visibility:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการตั้งค่าแคลน' : 'Failed to toggle clan visibility', 'error');
+    }
   };
 
   const handleReorderClans = async (orderedClans: ClanGroup[]) => {
     sounds.playClick();
     const updatedClans = orderedClans.map((c, idx) => ({ ...c, order: idx }));
     setClans(updatedClans);
-    showToast(lang === 'th' ? 'จัดตำแหน่งแคลนสำเร็จ' : 'Clan order updated', 'success');
 
-    for (let i = 0; i < updatedClans.length; i++) {
-      const c = updatedClans[i];
-      updateClanDoc(c.id, { order: i, name: c.name, color: c.color }).catch((err) => {
-        console.error('Failed to save clan order in Firestore:', err);
-      });
+    try {
+      for (let i = 0; i < updatedClans.length; i++) {
+        const c = updatedClans[i];
+        await updateClanDoc(c.id, { order: i, name: c.name, color: c.color });
+      }
+      showToast(lang === 'th' ? 'จัดตำแหน่งแคลนสำเร็จ' : 'Clan order updated', 'success');
+    } catch (err) {
+      console.error('Failed to reorder clans in Firestore:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการจัดตำแหน่งแคลน' : 'Failed to save clan order', 'error');
     }
   };
 
   const handleMoveMemberClan = async (userId: string, newClanName: string) => {
     sounds.playClaim();
     const cleanTarget = isNoClan(newClanName) ? 'no-clan' : (cleanClanName(newClanName) || 'no-clan');
-    const now = Date.now();
-    const updatedUsers = users.map((u) => (u.id === userId ? { ...u, clan: cleanTarget, updatedAt: now } : u));
-    setUsers(updatedUsers);
-    setCachedUsers(updatedUsers);
-
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, clan: cleanTarget } : u))
+    );
     if (currentUser && currentUser.id === userId) {
-      const updatedCurr = { ...currentUser, clan: cleanTarget, updatedAt: now };
-      setCurrentUser(updatedCurr);
-      try {
-        localStorage.setItem('k7_vault_user', JSON.stringify(updatedCurr));
-      } catch {}
+      setCurrentUser((prev) => (prev ? { ...prev, clan: cleanTarget } : null));
     }
-
-    showToast(
-      lang === 'th'
-        ? (cleanTarget === 'no-clan' ? 'ปลดสมาชิกออกจากแคลนแล้ว' : `ย้ายเข้าแคลน ${cleanTarget} สำเร็จ`)
-        : (cleanTarget === 'no-clan' ? 'Member unassigned from clan' : `Member moved to ${cleanTarget}`),
-      'success'
-    );
-
-    broadcastLiveState(
-      getFullBackupPayload({ users: updatedUsers }),
-      currentUser?.inGameName || 'Admin'
-    );
-
-    triggerDebouncedAutoBackup(
-      getFullBackupPayload({ users: updatedUsers }),
-      currentUser?.inGameName || 'Admin',
-      true
-    );
-
-    updateUserDoc(userId, { clan: cleanTarget, updatedAt: now }).catch((err) => {
-      console.error('Failed to move member clan in Firestore:', err);
-    });
+    try {
+      await updateUserDoc(userId, { clan: cleanTarget });
+      showToast(
+        lang === 'th'
+          ? (cleanTarget === 'no-clan' ? 'ปลดสมาชิกออกจากแคลนแล้ว' : `ย้ายเข้าแคลน ${cleanTarget} สำเร็จ`)
+          : (cleanTarget === 'no-clan' ? 'Member unassigned from clan' : `Member moved to ${cleanTarget}`),
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to move member clan:', err);
+    }
   };
 
   const handleBatchMoveMembersClan = async (userIds: string[], targetClan: string) => {
@@ -3623,13 +3510,6 @@ export const App: React.FC = () => {
     setUsers(updatedUsers);
     setCachedUsers(updatedUsers);
 
-    showToast(
-      lang === 'th'
-        ? `อนุมัติสมาชิก ${target?.inGameName || ''} สำเร็จ 🎉`
-        : `Approved member ${target?.inGameName || ''} successfully 🎉`,
-      'success'
-    );
-
     broadcastLiveState(
       getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Admin'
@@ -3644,14 +3524,23 @@ export const App: React.FC = () => {
       );
     }
 
-    // Background persistence (non-blocking)
-    updateUserDoc(userId, { status: 'active', updatedAt: now }).catch((err) => {
+    try {
+      await updateUserDoc(userId, { status: 'active', updatedAt: now });
+      showToast(
+        lang === 'th'
+          ? `อนุมัติสมาชิก ${target?.inGameName || ''} สำเร็จ 🎉`
+          : `Approved member ${target?.inGameName || ''} successfully 🎉`,
+        'success'
+      );
+    } catch (err) {
       console.warn('Failed to approve member in Firestore (fallback mode active):', err);
-    });
-    centralApi('/api/update-user-stats', {
-      method: 'POST',
-      body: JSON.stringify({ userId, updates: { status: 'active', updatedAt: now } })
-    }).catch(() => {});
+      showToast(
+        lang === 'th'
+          ? `อนุมัติสมาชิก ${target?.inGameName || ''} สำเร็จ 🎉`
+          : `Approved member ${target?.inGameName || ''} successfully 🎉`,
+        'success'
+      );
+    }
   };
 
   const handleRejectMember = async (userId: string) => {
@@ -3660,13 +3549,6 @@ export const App: React.FC = () => {
     const updatedUsers = users.filter((u) => u.id !== userId);
     setUsers(updatedUsers);
     setCachedUsers(updatedUsers);
-
-    showToast(
-      lang === 'th'
-        ? `ปฏิเสธคำขอสมัครของ ${target?.inGameName || ''} แล้ว`
-        : `Rejected registration for ${target?.inGameName || ''}`,
-      'info'
-    );
 
     broadcastLiveState(
       getFullBackupPayload({ users: updatedUsers }),
@@ -3682,10 +3564,23 @@ export const App: React.FC = () => {
       );
     }
 
-    // Background persistence (non-blocking)
-    deleteUserDoc(userId).catch((err) => {
+    try {
+      await deleteUserDoc(userId);
+      showToast(
+        lang === 'th'
+          ? `ปฏิเสธคำขอสมัครของ ${target?.inGameName || ''} แล้ว`
+          : `Rejected registration for ${target?.inGameName || ''}`,
+        'info'
+      );
+    } catch (err) {
       console.warn('Failed to reject member in Firestore (fallback mode active):', err);
-    });
+      showToast(
+        lang === 'th'
+          ? `ปฏิเสธคำขอสมัครของ ${target?.inGameName || ''} แล้ว`
+          : `Rejected registration for ${target?.inGameName || ''}`,
+        'info'
+      );
+    }
   };
 
   const handleUpdateMember = async (userId: string, updates: Partial<User>) => {
@@ -3694,66 +3589,29 @@ export const App: React.FC = () => {
       ? { ...updates, role: 'owner' as UserRole }
       : updates;
 
-    let updatedUsersList: User[] = [];
-    setUsers((prev) => {
-      const updated = prev.map((u) => {
+    setUsers((prev) =>
+      prev.map((u) => {
         if (u.id === userId) {
           const isOwnerU = u.id === 'user_owner_eloni' || u.role === 'owner' || u.username?.toLowerCase() === 'eloni' || u.inGameName?.toLowerCase() === 'eloni';
           const finalRole = isOwnerU ? 'owner' : (safeUpdates.role || u.role);
           return { ...u, ...safeUpdates, role: finalRole };
         }
         return u;
-      });
-      updatedUsersList = updated;
-      return updated;
-    });
-    setCachedUsers(updatedUsersList);
-
-    showToast(
-      lang === 'th' ? 'อัปเดตข้อมูลสมาชิกสำเร็จ' : 'Member updated successfully',
-      'info'
+      })
     );
-
-    broadcastLiveState(
-      getFullBackupPayload({ users: updatedUsersList }),
-      currentUser?.inGameName || 'Admin'
-    );
-
-    const googleConfig = getGoogleBackupConfig();
-    if (googleConfig.webAppUrl) {
-      triggerDebouncedAutoBackup(
-        getFullBackupPayload({ users: updatedUsersList }),
-        'Update Member',
-        true
-      );
-    }
-
-    // Background persistence (non-blocking)
-    updateUserDoc(userId, safeUpdates).catch((err) => {
+    try {
+      await updateUserDoc(userId, safeUpdates);
+    } catch (err) {
       console.error('Failed to update member in Firestore:', err);
-    });
+    }
   };
 
   const handleDeleteMember = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
-    const isPrimaryOwner = target?.id === 'user_owner_eloni' || target?.username?.toLowerCase() === 'eloni' || target?.inGameName?.toLowerCase() === 'eloni';
-    if (isPrimaryOwner) {
-      showToast(lang === 'th' ? 'ไม่สามารถลบบัญชี Owner สูงสุดได้' : 'Cannot delete primary Owner account.', 'error');
-      return;
-    }
-
-    // Immediately tombstone locally so that no sync or refresh can resurrect the user
     markUserAsDeleted(userId);
     const updatedUsers = users.filter((u) => u.id !== userId);
     setUsers(updatedUsers);
     setCachedUsers(updatedUsers);
-
-    showToast(
-      lang === 'th'
-        ? `ลบสมาชิก ${target?.inGameName || ''} สำเร็จ`
-        : `Deleted member ${target?.inGameName || ''}`,
-      'info'
-    );
 
     broadcastLiveState(
       getFullBackupPayload({ users: updatedUsers }),
@@ -3769,10 +3627,18 @@ export const App: React.FC = () => {
       );
     }
 
-    // Background persistence (non-blocking)
-    deleteUserDoc(userId, target?.username).catch((err: any) => {
+    try {
+      await deleteUserDoc(userId);
+      showToast(
+        lang === 'th'
+          ? `ลบสมาชิก ${target?.inGameName || ''} สำเร็จ`
+          : `Deleted member ${target?.inGameName || ''}`,
+        'info'
+      );
+    } catch (err) {
       console.error('Failed to delete member in Firestore:', err);
-    });
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการลบสมาชิก' : 'Failed to delete member', 'error');
+    }
   };
 
   const handleChangePassword = async (targetUser: User, newPass: string) => {
@@ -3810,7 +3676,7 @@ export const App: React.FC = () => {
       clan?: string;
     }
   ) => {
-    let timestamp = Date.now();
+    const timestamp = Date.now();
     const reqClasses = profileData?.classes;
     const reqLevel = profileData?.level;
     const reqLegendClasses = profileData?.legendClasses;
@@ -3824,31 +3690,12 @@ export const App: React.FC = () => {
     const isOwnerUser = userId === 'user_owner_eloni' || targetUser?.username?.toLowerCase() === 'eloni' || targetUser?.inGameName?.toLowerCase() === 'eloni' || targetUser?.role === 'owner';
     const isAuthorized = currentUser?.role === 'owner' || currentUser?.role === 'admin';
 
-    if (targetUser && !isAuthorized) {
-      const error = submissionError(targetUser, { ...targetUser, pendingStats: newStats,
-        pendingSpiritEnhancements: newSpiritEnhancements, pendingClasses: reqClasses ?? targetUser.classes,
-        pendingLevel: reqLevel ?? targetUser.level, pendingLegendClasses: reqLegendClasses ?? targetUser.legendClasses,
-        pendingLegendAgathions: reqLegendAgathions ?? targetUser.legendAgathions, pendingStatScreenshotUrl: screenshotUrl }, statUpdateSettings);
-      if (error) throw new Error(statMessage(error, lang));
-    }
-
     const safeRole: UserRole = isOwnerUser
       ? 'owner'
       : (isAuthorized && reqRole ? reqRole : (targetUser?.role || 'member'));
     const safeStatus: UserStatus = isAuthorized && reqStatus ? reqStatus : (targetUser?.status || 'active');
     const safeClan: string = isAuthorized && reqClan ? reqClan : (targetUser?.clan || 'VoltZ');
 
-    try {
-      const response = await centralApi('/api/request-stat-update', { method: 'POST', body: JSON.stringify({ userId, updates: {
-        pendingPowerLevel: newPowerLevel, pendingPowerLevelRequestedAt: timestamp, pendingStats: newStats,
-        pendingSpiritEnhancements: newSpiritEnhancements, pendingStatScreenshotUrl: screenshotUrl || null,
-        pendingClasses: reqClasses ?? targetUser?.classes ?? [], pendingLevel: reqLevel ?? targetUser?.level ?? 0,
-        pendingLegendClasses: reqLegendClasses ?? targetUser?.legendClasses ?? 0,
-        pendingLegendAgathions: reqLegendAgathions ?? targetUser?.legendAgathions ?? 0
-      } }) });
-      const result = await response.json();
-      timestamp = result.requestedAt;
-    } catch (error) { throw new Error(statMessage(error instanceof Error ? error.message : '', lang)); }
     const updatedUsers = users.map((u) =>
       u.id === userId
         ? {
@@ -3914,71 +3761,57 @@ export const App: React.FC = () => {
       true
     );
 
-    showToast(
-      lang === 'th'
-        ? 'ส่งคำขออัปเดตสเตตัสและค่าพลังเรียบร้อยแล้ว รอการอนุมัติ'
-        : 'Stat & PL update request submitted! Waiting for Admin approval',
-      'success'
-    );
+    try {
+      const docUpdates: Record<string, any> = {
+        pendingPowerLevel: newPowerLevel,
+        pendingPowerLevelRequestedAt: timestamp,
+        pendingStats: newStats,
+        pendingSpiritEnhancements: newSpiritEnhancements,
+        pendingStatScreenshotUrl: screenshotUrl || null,
+        pendingClasses: reqClasses ?? null,
+        pendingLevel: reqLevel ?? null,
+        pendingLegendClasses: reqLegendClasses ?? null,
+        pendingLegendAgathions: reqLegendAgathions ?? null,
+        statRejectionReason: null,
+        statRejectionAt: null,
+        updatedAt: timestamp
+      };
+      if (reqInGameName) docUpdates.inGameName = reqInGameName;
+      if (isOwnerUser) {
+        docUpdates.role = 'owner';
+      } else if (isAuthorized && reqRole) {
+        docUpdates.role = reqRole;
+      }
+      if (isAuthorized && reqStatus) docUpdates.status = reqStatus;
+      if (isAuthorized && reqClan) docUpdates.clan = reqClan;
 
-    // Background serverless relay & Firestore update (non-blocking)
-    const docUpdates: Record<string, any> = {
-      pendingPowerLevel: newPowerLevel,
-      pendingPowerLevelRequestedAt: timestamp,
-      pendingStats: newStats,
-      pendingSpiritEnhancements: newSpiritEnhancements,
-      pendingStatScreenshotUrl: screenshotUrl || null,
-      pendingClasses: reqClasses ?? null,
-      pendingLevel: reqLevel ?? null,
-      pendingLegendClasses: reqLegendClasses ?? null,
-      pendingLegendAgathions: reqLegendAgathions ?? null,
-      statRejectionReason: null,
-      statRejectionAt: null,
-      updatedAt: timestamp
-    };
-    if (reqInGameName) docUpdates.inGameName = reqInGameName;
-    if (isOwnerUser) {
-      docUpdates.role = 'owner';
-    } else if (isAuthorized && reqRole) {
-      docUpdates.role = reqRole;
+      await updateUserDoc(userId, docUpdates);
+
+      // Background call to dedicated endpoint for immediate Admin SDK persistence & SSE broadcast
+      fetch('/api/request-stat-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, updates: docUpdates })
+      }).catch(() => {});
+
+      showToast(
+        lang === 'th'
+          ? 'ส่งคำขออัปเดตสเตตัสและค่าพลังเรียบร้อยแล้ว รอการอนุมัติ'
+          : 'Stat & PL update request submitted! Waiting for Admin approval',
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to submit stat update request:', err);
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการส่งคำขอ' : 'Failed to submit stat request',
+        'error'
+      );
     }
-    if (isAuthorized && reqStatus) docUpdates.status = reqStatus;
-    if (isAuthorized && reqClan) docUpdates.clan = reqClan;
-
-    centralApi('/api/request-stat-update', {
-      method: 'POST',
-      body: JSON.stringify({
-        userId,
-        updates: {
-          pendingPowerLevel: newPowerLevel,
-          pendingPowerLevelRequestedAt: timestamp,
-          pendingStats: newStats,
-          pendingSpiritEnhancements: newSpiritEnhancements,
-          pendingStatScreenshotUrl: screenshotUrl || null,
-          pendingClasses: reqClasses ?? targetUser?.classes ?? [],
-          pendingLevel: reqLevel ?? targetUser?.level ?? 0,
-          pendingLegendClasses: reqLegendClasses ?? targetUser?.legendClasses ?? 0,
-          pendingLegendAgathions: reqLegendAgathions ?? targetUser?.legendAgathions ?? 0
-        }
-      })
-    }).catch((err) => {
-      console.warn('Notice: Central stat relay notice:', err?.message || err);
-    });
-
-    updateUserDoc(userId, docUpdates).catch((err) => {
-      console.warn('Notice: Firestore user doc update deferred:', err);
-    });
   };
 
   const handleApproveStatUpdate = async (userId: string) => {
     const target = users.find((u) => u.id === userId);
     if (!target) return;
-    if (!['owner', 'admin'].includes(currentUser?.role || '')) return;
-    if (!isUserStatsPending(target) && !target.pendingPowerLevel && !target.pendingStats) return;
-
-    const requestedAt = target.pendingPowerLevelRequestedAt || target.updatedAt || Date.now();
-    const now = Date.now();
-    const effectiveApprovalTime = Math.max(now, requestedAt + 1);
 
     const approvedPower = typeof target.pendingPowerLevel === 'number'
       ? target.pendingPowerLevel
@@ -4001,9 +3834,10 @@ export const App: React.FC = () => {
     const primaryClass = approvedClasses.length > 0 ? approvedClasses[0] : (target.characterClass || '');
     const approvedScreenshot = target.pendingStatScreenshotUrl || target.statScreenshotUrl || null;
 
+    const now = Date.now();
     const newHistoryPoint: StatHistoryPoint = {
-      id: `approval_${effectiveApprovalTime}_${Math.random().toString(36).substring(2, 7)}`,
-      date: effectiveApprovalTime,
+      id: `approval_${now}_${Math.random().toString(36).substring(2, 7)}`,
+      date: now,
       powerLevel: approvedPower,
       level: approvedLevel,
       classes: approvedClasses,
@@ -4048,9 +3882,8 @@ export const App: React.FC = () => {
             pendingLegendAgathions: null,
             statRejectionReason: null,
             statRejectionAt: null,
-            statApprovalAt: effectiveApprovalTime,
-            approvedStatRequestAt: requestedAt,
-            updatedAt: effectiveApprovalTime
+            statApprovalAt: now,
+            updatedAt: now
           }
         : u
     );
@@ -4058,35 +3891,36 @@ export const App: React.FC = () => {
     setCachedUsers(updatedUsers);
 
     if (currentUser && currentUser.id === userId) {
-      const finalApprovedUser: User = {
-        ...currentUser,
-        powerLevel: approvedPower,
-        stats: approvedStats,
-        spiritEnhancements: approvedSpirits,
-        classes: approvedClasses,
-        characterClass: primaryClass,
-        level: approvedLevel,
-        legendClasses: approvedLegendClasses,
-        legendAgathions: approvedLegendAgathions,
-        statHistory: updatedHistory,
-        pendingPowerLevel: null,
-        pendingPowerLevelRequestedAt: null,
-        pendingStats: null,
-        pendingSpiritEnhancements: null,
-        pendingStatScreenshotUrl: null,
-        statScreenshotUrl: approvedScreenshot,
-        pendingClasses: null,
-        pendingLevel: null,
-        pendingLegendClasses: null,
-        pendingLegendAgathions: null,
-        statRejectionReason: null,
-        statRejectionAt: null,
-        statApprovalAt: effectiveApprovalTime,
-        approvedStatRequestAt: requestedAt,
-        updatedAt: effectiveApprovalTime
-      };
-      setCurrentUser(finalApprovedUser);
-      saveLocalSessionUser(finalApprovedUser);
+      setCurrentUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              powerLevel: approvedPower,
+              stats: approvedStats,
+              spiritEnhancements: approvedSpirits,
+              classes: approvedClasses,
+              characterClass: primaryClass,
+              level: approvedLevel,
+              legendClasses: approvedLegendClasses,
+              legendAgathions: approvedLegendAgathions,
+              statHistory: updatedHistory,
+              pendingPowerLevel: null,
+              pendingPowerLevelRequestedAt: null,
+              pendingStats: null,
+              pendingSpiritEnhancements: null,
+              pendingStatScreenshotUrl: null,
+              statScreenshotUrl: approvedScreenshot,
+              pendingClasses: null,
+              pendingLevel: null,
+              pendingLegendClasses: null,
+              pendingLegendAgathions: null,
+              statRejectionReason: null,
+              statRejectionAt: null,
+              statApprovalAt: now,
+              updatedAt: now
+            }
+          : null
+      );
     }
 
     broadcastLiveState(
@@ -4122,35 +3956,35 @@ export const App: React.FC = () => {
       pendingLegendAgathions: null,
       statRejectionReason: null,
       statRejectionAt: null,
-      statApprovalAt: effectiveApprovalTime,
-      approvedStatRequestAt: requestedAt,
-      updatedAt: effectiveApprovalTime
+      statApprovalAt: now,
+      updatedAt: now
     };
 
-    showToast(
-      lang === 'th'
-        ? `อนุมัติสเตตัสใหม่ของ ${target.inGameName} (⚡ ${approvedPower.toLocaleString()} PL) สำเร็จ!`
-        : `Approved new stats for ${target.inGameName} (⚡ ${approvedPower.toLocaleString()} PL)!`,
-      'success'
-    );
+    try {
+      await updateUserDoc(userId, approveUpdates);
 
-    // Background persistence (non-blocking)
-    updateUserDoc(userId, approveUpdates).catch((err) => {
-      console.warn('Notice: Firestore user doc update deferred:', err);
-    });
+      fetch('/api/update-user-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, updates: approveUpdates })
+      }).catch(() => {});
 
-    centralApi('/api/update-user-stats', {
-      method: 'POST',
-      body: JSON.stringify({ userId, updates: approveUpdates })
-    }).catch(() => {});
+      showToast(
+        lang === 'th'
+          ? `อนุมัติสเตตัสใหม่ของ ${target.inGameName} (⚡ ${approvedPower.toLocaleString()} PL) สำเร็จ!`
+          : `Approved new stats for ${target.inGameName} (⚡ ${approvedPower.toLocaleString()} PL)!`,
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to approve stat update:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการอนุมัติ' : 'Failed to approve request', 'error');
+    }
   };
 
   const handleRejectStatUpdate = async (userId: string, reason?: string) => {
     const target = users.find((u) => u.id === userId);
     const rejectionReason = reason || (lang === 'th' ? 'ข้อมูลไม่ตรงกับภาพสกรีนช็อต' : 'Stats do not match screenshot');
-    const requestedAt = target?.pendingPowerLevelRequestedAt || target?.updatedAt || Date.now();
     const now = Date.now();
-    const effectiveRejectionTime = Math.max(now, requestedAt + 1);
 
     const updatedUsers = users.map((u) =>
       u.id === userId
@@ -4166,8 +4000,8 @@ export const App: React.FC = () => {
             pendingLegendClasses: null,
             pendingLegendAgathions: null,
             statRejectionReason: rejectionReason,
-            statRejectionAt: effectiveRejectionTime,
-            updatedAt: effectiveRejectionTime
+            statRejectionAt: now,
+            updatedAt: now
           }
         : u
     );
@@ -4175,23 +4009,25 @@ export const App: React.FC = () => {
     setCachedUsers(updatedUsers);
 
     if (currentUser && currentUser.id === userId) {
-      const finalRejectedUser: User = {
-        ...currentUser,
-        pendingPowerLevel: null,
-        pendingPowerLevelRequestedAt: null,
-        pendingStats: null,
-        pendingSpiritEnhancements: null,
-        pendingStatScreenshotUrl: null,
-        pendingClasses: null,
-        pendingLevel: null,
-        pendingLegendClasses: null,
-        pendingLegendAgathions: null,
-        statRejectionReason: rejectionReason,
-        statRejectionAt: effectiveRejectionTime,
-        updatedAt: effectiveRejectionTime
-      };
-      setCurrentUser(finalRejectedUser);
-      saveLocalSessionUser(finalRejectedUser);
+      setCurrentUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              pendingPowerLevel: null,
+              pendingPowerLevelRequestedAt: null,
+              pendingStats: null,
+              pendingSpiritEnhancements: null,
+              pendingStatScreenshotUrl: null,
+              pendingClasses: null,
+              pendingLevel: null,
+              pendingLegendClasses: null,
+              pendingLegendAgathions: null,
+              statRejectionReason: rejectionReason,
+              statRejectionAt: now,
+              updatedAt: now
+            }
+          : null
+      );
     }
 
     broadcastLiveState(
@@ -4216,26 +4052,28 @@ export const App: React.FC = () => {
       pendingLegendClasses: null,
       pendingLegendAgathions: null,
       statRejectionReason: rejectionReason,
-      statRejectionAt: effectiveRejectionTime,
-      updatedAt: effectiveRejectionTime
+      statRejectionAt: now,
+      updatedAt: now
     };
 
-    showToast(
-      lang === 'th'
-        ? `ส่งผลการปฏิเสธคำขอของ ${target?.inGameName || 'สมาชิก'} เรียบร้อยแล้ว`
-        : `Rejected stat update request for ${target?.inGameName || 'member'}`,
-      'info'
-    );
+    try {
+      await updateUserDoc(userId, rejectUpdates);
 
-    // Background persistence (non-blocking)
-    updateUserDoc(userId, rejectUpdates).catch((err) => {
-      console.warn('Notice: Firestore user doc update deferred:', err);
-    });
+      fetch('/api/update-user-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, updates: rejectUpdates })
+      }).catch(() => {});
 
-    centralApi('/api/update-user-stats', {
-      method: 'POST',
-      body: JSON.stringify({ userId, updates: rejectUpdates })
-    }).catch(() => {});
+      showToast(
+        lang === 'th'
+          ? `ส่งผลการปฏิเสธคำขอของ ${target?.inGameName || 'สมาชิก'} เรียบร้อยแล้ว`
+          : `Rejected stat update request for ${target?.inGameName || 'member'}`,
+        'info'
+      );
+    } catch (err) {
+      console.error('Failed to reject stat update:', err);
+    }
   };
 
   const handleSaveUserHistory = async (newHistory: StatHistoryPoint[]) => {
@@ -4243,51 +4081,38 @@ export const App: React.FC = () => {
     const updatedUser = { ...currentUser, statHistory: newHistory };
     setCurrentUser(updatedUser);
     setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? { ...u, statHistory: newHistory } : u)));
-    updateUserDoc(currentUser.id, { statHistory: newHistory }).catch((err) => {
-      console.warn('Notice: Firestore save user history deferred:', err);
-    });
+    try {
+      await updateUserDoc(currentUser.id, { statHistory: newHistory });
+    } catch (err) {
+      console.error('Failed to save user history:', err);
+    }
   };
 
   // Bulk Swap Clan Organizer Batch Handler
   const handleBulkUpdateClans = async (swaps: { memberId: string; toClan: string }[]) => {
     const swapMap = new Map(swaps.map((s) => [s.memberId, s.toClan]));
-    const now = Date.now();
-    const updatedUsers = users.map((u) => (swapMap.has(u.id) ? { ...u, clan: swapMap.get(u.id)!, updatedAt: now } : u));
-    setUsers(updatedUsers);
-    setCachedUsers(updatedUsers);
-
+    setUsers((prev) =>
+      prev.map((u) => (swapMap.has(u.id) ? { ...u, clan: swapMap.get(u.id)! } : u))
+    );
     if (currentUser && swapMap.has(currentUser.id)) {
-      const updatedCurr = { ...currentUser, clan: swapMap.get(currentUser.id)!, updatedAt: now };
-      setCurrentUser(updatedCurr);
-      try {
-        localStorage.setItem('k7_vault_user', JSON.stringify(updatedCurr));
-      } catch {}
+      setCurrentUser((prev) =>
+        prev ? { ...prev, clan: swapMap.get(prev.id)! } : null
+      );
     }
-
-    broadcastLiveState(
-      getFullBackupPayload({ users: updatedUsers }),
-      currentUser?.inGameName || 'Admin'
-    );
-
-    triggerDebouncedAutoBackup(
-      getFullBackupPayload({ users: updatedUsers }),
-      currentUser?.inGameName || 'Admin',
-      true
-    );
-
-    showToast(
-      lang === 'th'
-        ? `ย้ายสังกัดสมาชิกสำเร็จ ${swaps.length} คน`
-        : `Transferred ${swaps.length} members successfully`,
-      'success'
-    );
-
-    // Background persistence (non-blocking)
-    Promise.all(
-      swaps.map((s) => updateUserDoc(s.memberId, { clan: s.toClan, updatedAt: now }))
-    ).catch((err) => {
+    try {
+      await Promise.all(
+        swaps.map((s) => updateUserDoc(s.memberId, { clan: s.toClan }))
+      );
+      showToast(
+        lang === 'th'
+          ? `ย้ายสังกัดสมาชิกสำเร็จ ${swaps.length} คน`
+          : `Transferred ${swaps.length} members successfully`,
+        'success'
+      );
+    } catch (err) {
       console.error('Failed to apply bulk clan swaps:', err);
-    });
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการย้ายสังกัด' : 'Failed to apply clan swaps', 'error');
+    }
   };
 
   // Legacy manual power level update fallback
@@ -4307,13 +4132,6 @@ export const App: React.FC = () => {
       );
     }
 
-    showToast(
-      lang === 'th'
-        ? 'ส่งคำขออัปเดตค่าพลังแล้ว รอ Admin/Owner อนุมัติ'
-        : 'PL update request submitted! Waiting for Admin/Owner approval',
-      'success'
-    );
-
     broadcastLiveState(
       getFullBackupPayload({ users: updatedUsers }),
       currentUser?.inGameName || 'Member'
@@ -4325,14 +4143,22 @@ export const App: React.FC = () => {
       true
     );
 
-    // Background persistence (non-blocking)
-    updateUserDoc(userId, {
-      pendingPowerLevel: newPowerLevel,
-      pendingPowerLevelRequestedAt: timestamp,
-      updatedAt: timestamp
-    }).catch((err) => {
-      console.warn('Notice: Firestore power level update deferred:', err);
-    });
+    try {
+      await updateUserDoc(userId, {
+        pendingPowerLevel: newPowerLevel,
+        pendingPowerLevelRequestedAt: timestamp,
+        updatedAt: timestamp
+      });
+      showToast(
+        lang === 'th'
+          ? 'ส่งคำขออัปเดตค่าพลังแล้ว รอ Admin/Owner อนุมัติ'
+          : 'PL update request submitted! Waiting for Admin/Owner approval',
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to request power level update:', err);
+      showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการส่งคำขอ' : 'Failed to submit request', 'error');
+    }
   };
 
   const handleCancelPowerLevelRequest = async (userId: string) => {
@@ -4401,20 +4227,22 @@ export const App: React.FC = () => {
       updatedAt: now
     };
 
-    showToast(
-      lang === 'th' ? 'ยกเลิกคำขออัปเดตค่าพลังแล้ว' : 'PL update request cancelled',
-      'info'
-    );
+    try {
+      await updateUserDoc(userId, cancelUpdates);
 
-    // Background persistence (non-blocking)
-    updateUserDoc(userId, cancelUpdates).catch((err) => {
-      console.warn('Notice: Firestore cancel update deferred:', err);
-    });
+      fetch('/api/update-user-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, updates: cancelUpdates })
+      }).catch(() => {});
 
-    centralApi('/api/update-user-stats', {
-      method: 'POST',
-      body: JSON.stringify({ userId, updates: cancelUpdates })
-    }).catch(() => {});
+      showToast(
+        lang === 'th' ? 'ยกเลิกคำขออัปเดตค่าพลังแล้ว' : 'PL update request cancelled',
+        'info'
+      );
+    } catch (err) {
+      console.error('Failed to cancel power level request:', err);
+    }
   };
 
   const handleApprovePowerLevelUpdate = async (userId: string) => {
@@ -4646,19 +4474,6 @@ export const App: React.FC = () => {
         />
 
         <main className="flex-1 w-full max-w-full 2xl:max-w-[1920px] mx-auto px-2.5 sm:px-4 md:px-6 lg:px-7 py-3 sm:py-5 min-w-0 transition-all">
-          {statUpdateSettings.round?.active && currentUser && <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-950/60 p-3 text-amber-100">
-            {lang === 'th' ? 'รอบอัปเดตสเตตัส — เริ่มบังคับอนุมัติก่อนเคลม: ' : 'Stat update round — approval required for claims from: '}
-            {new Date(statUpdateSettings.round.enforceAt).toLocaleString(lang === 'th' ? 'th-TH' : 'en-US')}
-            <button className="ml-3 underline" onClick={() => setActiveTab('my_stats')}>{lang === 'th' ? 'อัปเดตสเตตัส' : 'Update stats'}</button>
-            {claimBlocked(currentUser, statUpdateSettings) && <p>{statMessage('STAT_ROUND_REQUIRED', lang)}</p>}
-          </div>}
-          {activeTab === 'stat_approvals' && isOwner && <StatRoundPanel users={users} settings={statUpdateSettings} lang={lang} onChange={async enforceAt => {
-            const response = await centralApi('/api/stat-round', { method: 'POST', body: JSON.stringify(enforceAt === null ? { close: true } : { enforceAt }) });
-            const { settings } = await response.json();
-            setStatUpdateSettings(settings);
-            await saveStatUpdateSettingsDoc(settings);
-            triggerDebouncedAutoBackup(getFullBackupPayload({ statUpdateSettings: settings }), currentUser?.inGameName || 'Owner', true);
-          }} />}
           {activeTab === 'dashboard' && (
           <DashboardView
             lang={lang}
@@ -4720,7 +4535,6 @@ export const App: React.FC = () => {
             }
             onOpenOwnerResetModal={() => setShowOwnerResetModal(true)}
             onConfirmPayment={handleConfirmPayment}
-            onToggleDiamondPayout={handleToggleDiamondPayout}
           />
         )}
 

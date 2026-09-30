@@ -1,9 +1,6 @@
 import assert from 'node:assert';
-import { createApp } from '../api/_server.ts';
+import { createApp } from '../dist/server.js';
 import http from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 
 async function runQueueUserResurrectionTests() {
   console.log('======================================================================');
@@ -12,13 +9,7 @@ async function runQueueUserResurrectionTests() {
   console.log('======================================================================\n');
 
   // Start internal test server on ephemeral port
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'k7-queue-test-'));
-  const app = await createApp({
-    dataDir,
-    serveFrontend: false,
-    isolatedTest: true,
-    testActor: { uid: 'test-owner', role: 'owner' }
-  });
+  const app = await createApp({ serveFrontend: false });
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, resolve));
   const port = server.address().port;
@@ -274,8 +265,7 @@ async function runQueueUserResurrectionTests() {
     console.log('🎉 ALL ANTI-RESURRECTION TESTS PASSED 100%!');
     console.log('======================================================================\n');
   } finally {
-    await new Promise(resolve => server.close(resolve));
-    await rm(dataDir, { recursive: true, force: true });
+    server.close();
   }
 }
 

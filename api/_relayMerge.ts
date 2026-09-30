@@ -23,8 +23,8 @@ export const sanitizeAndDeduplicateUsers = (users: any[], deletedUsers?: Record<
       }
 
       if (deletedUsers && deletedUsers[u.id]) {
-        // A retained tombstone always wins. Client clocks are untrusted and may be ahead.
-        continue;
+        const uRev = Number(u.updatedAt || u.createdAt || 0);
+        if (uRev <= deletedUsers[u.id]) continue;
       }
 
       if (isEloni) {
@@ -55,14 +55,18 @@ export const sanitizeAndDeduplicateUsers = (users: any[], deletedUsers?: Record<
       } else {
         if (!seen.has(u.id)) {
           seen.add(u.id);
-          // If member has no verified statApprovalAt timestamp in the new CLAN-HUB system, ensure verified stats are zeroed but keep pending requests
+          // If member has no verified statApprovalAt timestamp in the new CLAN-HUB system, ensure stats are fresh/zeroed
           if (!u.statApprovalAt && u.powerLevel && u.powerLevel > 0) {
             u = {
               ...u,
               powerLevel: 0,
-              stats: u.stats || {},
-              statHistory: u.statHistory || [],
-              statApprovalAt: null
+              stats: {},
+              statHistory: [],
+              statApprovalAt: null,
+              statRejectionAt: null,
+              pendingPowerLevel: null,
+              pendingPowerLevelRequestedAt: null,
+              pendingStats: null
             };
           }
           cleanUsers.push(u);
@@ -159,11 +163,11 @@ export function mergeRelayData(previousData: any, incoming: any): any {
           const records = new Map<string, any>();
           for (const record of [...(previous || []), ...(incoming || [])]) {
             if (!record?.id) continue;
+            const recordRevision = Number(record.updatedAt || record.createdAt || 0);
             const deletedAt = deleted ? (deleted[record.id] || 0) : 0;
-            if (deletedAt) {
+            if (deletedAt && recordRevision <= deletedAt) {
               continue;
             }
-            const recordRevision = Number(record.updatedAt || record.createdAt || 0);
             const existing = records.get(record.id);
             const existingRevision = Number(existing?.updatedAt || existing?.createdAt || 0);
             if (!existing) {
@@ -173,41 +177,16 @@ export function mergeRelayData(previousData: any, incoming: any): any {
             let newest = recordRevision >= existingRevision ? { ...existing, ...record } : { ...record, ...existing };
             const older = recordRevision >= existingRevision ? existing : record;
 
-            // Smart user pending stat & approved stat preservation
-            if (newest.pendingPowerLevel !== undefined || older.pendingPowerLevel !== undefined || newest.statApprovalAt || older.statApprovalAt) {
-              const newestPendingTime = Number(newest.pendingPowerLevelRequestedAt || 0);
-              const olderPendingTime = Number(older.pendingPowerLevelRequestedAt || 0);
-              const newestApprovedReq = Number(newest.approvedStatRequestAt || 0);
-              const olderApprovedReq = Number(older.approvedStatRequestAt || 0);
-              const latestApprovedReq = Math.max(newestApprovedReq, olderApprovedReq);
-
+            // Smart user pending stat preservation
+            if (newest.pendingPowerLevel !== undefined || older.pendingPowerLevel !== undefined) {
+              const newestPendingTime = Number(newest.pendingPowerLevelRequestedAt || newest.updatedAt || 0);
+              const olderPendingTime = Number(older.pendingPowerLevelRequestedAt || older.updatedAt || 0);
               const newestResTime = Math.max(Number(newest.statApprovalAt || 0), Number(newest.statRejectionAt || 0));
               const olderResTime = Math.max(Number(older.statApprovalAt || 0), Number(older.statRejectionAt || 0));
               const latestRes = Math.max(newestResTime, olderResTime);
 
-              // Stat Resolution Precedence:
-              // If either record has an admin approval, the side with the latest resolution must provide the verified stats!
-              const resolved = Number(newest.statApprovalAt || 0) >= Number(older.statApprovalAt || 0) ? newest : older;
-              if (latestRes > 0 && resolved.statApprovalAt && Number(resolved.statApprovalAt) >= latestRes) {
-                if (resolved.powerLevel !== undefined) newest.powerLevel = resolved.powerLevel;
-                if (resolved.stats !== undefined) newest.stats = resolved.stats;
-                if (resolved.spiritEnhancements !== undefined) newest.spiritEnhancements = resolved.spiritEnhancements;
-                if (resolved.classes !== undefined) newest.classes = resolved.classes;
-                if (resolved.characterClass !== undefined) newest.characterClass = resolved.characterClass;
-                if (resolved.level !== undefined) newest.level = resolved.level;
-                if (resolved.legendClasses !== undefined) newest.legendClasses = resolved.legendClasses;
-                if (resolved.legendAgathions !== undefined) newest.legendAgathions = resolved.legendAgathions;
-                if (resolved.statScreenshotUrl !== undefined) newest.statScreenshotUrl = resolved.statScreenshotUrl;
-                if (resolved.statHistory !== undefined) newest.statHistory = resolved.statHistory;
-                newest.statApprovalAt = resolved.statApprovalAt;
-                newest.approvedStatRequestAt = latestApprovedReq || resolved.approvedStatRequestAt;
-              }
-
-              const olderIsApproved = olderPendingTime > 0 && (olderPendingTime <= latestApprovedReq || (latestRes > 0 && olderPendingTime <= latestRes));
-              const newestIsApproved = newestPendingTime > 0 && (newestPendingTime <= latestApprovedReq || (latestRes > 0 && newestPendingTime <= latestRes));
-
-              const olderHasPending = !olderIsApproved && Boolean((typeof older.pendingPowerLevel === 'number' || older.pendingPowerLevelRequestedAt || older.pendingStatScreenshotUrl) && olderPendingTime > 0 && olderPendingTime > latestRes);
-              const newestHasPending = !newestIsApproved && Boolean((typeof newest.pendingPowerLevel === 'number' || newest.pendingPowerLevelRequestedAt || newest.pendingStatScreenshotUrl) && newestPendingTime > 0 && newestPendingTime > latestRes);
+              const olderHasPending = Boolean((typeof older.pendingPowerLevel === 'number' || older.pendingPowerLevelRequestedAt || older.pendingStatScreenshotUrl) && olderPendingTime > latestRes);
+              const newestHasPending = Boolean((typeof newest.pendingPowerLevel === 'number' || newest.pendingPowerLevelRequestedAt || newest.pendingStatScreenshotUrl) && newestPendingTime > latestRes);
 
               if (olderHasPending && (!newestHasPending || olderPendingTime > newestPendingTime)) {
                 newest = {
@@ -224,16 +203,6 @@ export function mergeRelayData(previousData: any, incoming: any): any {
                   statRejectionReason: null,
                   statRejectionAt: null
                 };
-              } else if (latestApprovedReq > 0 || latestRes > 0) {
-                newest.pendingPowerLevel = null;
-                newest.pendingPowerLevelRequestedAt = null;
-                newest.pendingStats = null;
-                newest.pendingSpiritEnhancements = null;
-                newest.pendingStatScreenshotUrl = null;
-                newest.pendingClasses = null;
-                newest.pendingLevel = null;
-                newest.pendingLegendClasses = null;
-                newest.pendingLegendAgathions = null;
               }
             }
 
@@ -282,11 +251,14 @@ export function mergeRelayData(previousData: any, incoming: any): any {
                 if (key) queueMap.set(key, m);
               }
 
-              // Preserve unremoved members from older if not tombstoned
+              // Only include members from older if they were concurrently added very recently (within 10s) and not removed
+              const timeWindow = 10000;
               for (const m of olderMembers) {
                 if (!m || isMemberRemoved(m)) continue;
                 const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
-                if (key && !queueMap.has(key)) {
+                if (!key || queueMap.has(key)) continue;
+                const joinedAt = Number(m.joinedAt || 0);
+                if (joinedAt && (Date.now() - joinedAt) <= timeWindow) {
                   queueMap.set(key, m);
                 }
               }
@@ -457,3 +429,4 @@ export function mergeRelayData(previousData: any, incoming: any): any {
 
   return { ...previousData, ...data };
 }
+

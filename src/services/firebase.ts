@@ -150,7 +150,6 @@ export const QUEUES_COLLECTION = 'item_queues';
 export const VAULT_COLLECTION = 'diamond_vault';
 export const CLANS_COLLECTION = 'clans';
 export const USER_NOTIFICATIONS_COLLECTION = 'user_notifications';
-export const APP_SETTINGS_COLLECTION = 'app_settings';
 
 // Default seeded owner account & sample data (Synced with latest verified profile)
 export const DEFAULT_OWNER: User = {
@@ -190,7 +189,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.11.12-stat-approval-sync-fix';
+const CACHE_SCHEMA_VERSION = '2.10.57-payment-status-sync';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -776,12 +775,12 @@ export async function fetchSettingsOnce(): Promise<{
 }> {
   try {
     const [bgSnap, annSnap, qAnnSnap, discordSnap, formSnap, statSnap] = await Promise.all([
-      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'background')).catch(() => null),
-      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'announcement')).catch(() => null),
-      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'queue_announcement')).catch(() => null),
-      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'discord')).catch(() => null),
-      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'power_formula')).catch(() => null),
-      getDoc(doc(db, APP_SETTINGS_COLLECTION, 'stat_updates')).catch(() => null)
+      getDoc(doc(db, 'settings', 'background')).catch(() => null),
+      getDoc(doc(db, 'settings', 'announcement')).catch(() => null),
+      getDoc(doc(db, 'settings', 'queue_announcement')).catch(() => null),
+      getDoc(doc(db, 'settings', 'discord')).catch(() => null),
+      getDoc(doc(db, 'settings', 'formula')).catch(() => null),
+      getDoc(doc(db, 'settings', 'stat_updates')).catch(() => null)
     ]);
     return {
       bg: bgSnap?.exists() ? bgSnap.data() : undefined,
@@ -1032,83 +1031,47 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
     } else if (!local && incoming) {
       result.push(incoming);
     } else if (local && incoming) {
-      const localRev = Number(local.updatedAt || local.createdAt || 0);
-      const incomingRev = Number(incoming.updatedAt || incoming.createdAt || 0);
-      let base = incomingRev >= localRev ? { ...local, ...incoming } : { ...incoming, ...local };
-      const other = incomingRev >= localRev ? local : incoming;
-
       if (id === 'user_owner_eloni') {
-        base = { ...DEFAULT_OWNER, ...base, id: 'user_owner_eloni', role: 'owner', status: 'active' };
-      }
+        result.push({ ...DEFAULT_OWNER, ...local, ...incoming, id: 'user_owner_eloni', role: 'owner', status: 'active' });
+      } else {
+        const localRev = Number(local.updatedAt || local.createdAt || 0);
+        const incomingRev = Number(incoming.updatedAt || incoming.createdAt || 0);
+        let base = incomingRev >= localRev ? { ...local, ...incoming } : { ...incoming, ...local };
+        const other = incomingRev >= localRev ? local : incoming;
 
-      // SMART PENDING STAT & APPROVED STAT PRESERVATION:
-      // If one side has an active unresolved pending stat request, make sure it is not dropped!
-      const basePendingTime = Number(base.pendingPowerLevelRequestedAt || 0);
-      const otherPendingTime = Number(other.pendingPowerLevelRequestedAt || 0);
-      const baseApprovedReq = Number(base.approvedStatRequestAt || 0);
-      const otherApprovedReq = Number(other.approvedStatRequestAt || 0);
-      const latestApprovedReq = Math.max(baseApprovedReq, otherApprovedReq);
+        // SMART PENDING STAT PRESERVATION:
+        // If one side has an active unresolved pending stat request, make sure it is not dropped!
+        const basePendingTime = Number(base.pendingPowerLevelRequestedAt || base.updatedAt || 0);
+        const otherPendingTime = Number(other.pendingPowerLevelRequestedAt || other.updatedAt || 0);
+        const baseResTime = Math.max(Number(base.statApprovalAt || 0), Number(base.statRejectionAt || 0));
+        const otherResTime = Math.max(Number(other.statApprovalAt || 0), Number(other.statRejectionAt || 0));
+        const latestRes = Math.max(baseResTime, otherResTime);
 
-      const baseResTime = Math.max(Number(base.statApprovalAt || 0), Number(base.statRejectionAt || 0));
-      const otherResTime = Math.max(Number(other.statApprovalAt || 0), Number(other.statRejectionAt || 0));
-      const latestRes = Math.max(baseResTime, otherResTime);
+        const otherHasActivePending = Boolean(
+          (typeof other.pendingPowerLevel === 'number' || other.pendingPowerLevelRequestedAt || other.pendingStatScreenshotUrl) &&
+          otherPendingTime > latestRes
+        );
+        const baseHasActivePending = Boolean(
+          (typeof base.pendingPowerLevel === 'number' || base.pendingPowerLevelRequestedAt || base.pendingStatScreenshotUrl) &&
+          basePendingTime > latestRes
+        );
 
-      // Stat Resolution Precedence:
-      // If either record has an admin approval, the side with the latest resolution must provide the verified stats!
-      const resolvedSide = Number(incoming.statApprovalAt || 0) >= Number(local.statApprovalAt || 0) ? incoming : local;
-      if (latestRes > 0 && resolvedSide.statApprovalAt && Number(resolvedSide.statApprovalAt) >= latestRes) {
-        if (resolvedSide.powerLevel !== undefined) base.powerLevel = resolvedSide.powerLevel;
-        if (resolvedSide.stats !== undefined) base.stats = resolvedSide.stats;
-        if (resolvedSide.spiritEnhancements !== undefined) base.spiritEnhancements = resolvedSide.spiritEnhancements;
-        if (resolvedSide.classes !== undefined) base.classes = resolvedSide.classes;
-        if (resolvedSide.characterClass !== undefined) base.characterClass = resolvedSide.characterClass;
-        if (resolvedSide.level !== undefined) base.level = resolvedSide.level;
-        if (resolvedSide.legendClasses !== undefined) base.legendClasses = resolvedSide.legendClasses;
-        if (resolvedSide.legendAgathions !== undefined) base.legendAgathions = resolvedSide.legendAgathions;
-        if (resolvedSide.statScreenshotUrl !== undefined) base.statScreenshotUrl = resolvedSide.statScreenshotUrl;
-        if (resolvedSide.statHistory !== undefined) base.statHistory = resolvedSide.statHistory;
-        base.statApprovalAt = resolvedSide.statApprovalAt;
-        base.approvedStatRequestAt = latestApprovedReq || resolvedSide.approvedStatRequestAt;
-      }
-
-      const otherIsApproved = otherPendingTime > 0 && (otherPendingTime <= latestApprovedReq || (latestRes > 0 && otherPendingTime <= latestRes));
-      const baseIsApproved = basePendingTime > 0 && (basePendingTime <= latestApprovedReq || (latestRes > 0 && basePendingTime <= latestRes));
-
-      const otherHasActivePending = !otherIsApproved && Boolean(
-        (typeof other.pendingPowerLevel === 'number' || other.pendingPowerLevelRequestedAt || other.pendingStatScreenshotUrl) &&
-        otherPendingTime > 0 && otherPendingTime > latestRes
-      );
-      const baseHasActivePending = !baseIsApproved && Boolean(
-        (typeof base.pendingPowerLevel === 'number' || base.pendingPowerLevelRequestedAt || base.pendingStatScreenshotUrl) &&
-        basePendingTime > 0 && basePendingTime > latestRes
-      );
-
-      if (otherHasActivePending && (!baseHasActivePending || otherPendingTime > basePendingTime)) {
-        base = {
-          ...base,
-          pendingPowerLevel: other.pendingPowerLevel,
-          pendingPowerLevelRequestedAt: other.pendingPowerLevelRequestedAt,
-          pendingStats: other.pendingStats || base.pendingStats,
-          pendingSpiritEnhancements: other.pendingSpiritEnhancements || base.pendingSpiritEnhancements,
-          pendingStatScreenshotUrl: other.pendingStatScreenshotUrl || base.pendingStatScreenshotUrl,
-          pendingClasses: other.pendingClasses ?? base.pendingClasses,
-          pendingLevel: other.pendingLevel ?? base.pendingLevel,
-          pendingLegendClasses: other.pendingLegendClasses ?? base.pendingLegendClasses,
-          pendingLegendAgathions: other.pendingLegendAgathions ?? base.pendingLegendAgathions,
-          statRejectionReason: null,
-          statRejectionAt: null
-        };
-      } else if (latestApprovedReq > 0 || latestRes > 0) {
-        base.pendingPowerLevel = null;
-        base.pendingPowerLevelRequestedAt = null;
-        base.pendingStats = null;
-        base.pendingSpiritEnhancements = null;
-        base.pendingStatScreenshotUrl = null;
-        base.pendingClasses = null;
-        base.pendingLevel = null;
-        base.pendingLegendClasses = null;
-        base.pendingLegendAgathions = null;
-      }
+        if (otherHasActivePending && (!baseHasActivePending || otherPendingTime > basePendingTime)) {
+          base = {
+            ...base,
+            pendingPowerLevel: other.pendingPowerLevel,
+            pendingPowerLevelRequestedAt: other.pendingPowerLevelRequestedAt,
+            pendingStats: other.pendingStats || base.pendingStats,
+            pendingSpiritEnhancements: other.pendingSpiritEnhancements || base.pendingSpiritEnhancements,
+            pendingStatScreenshotUrl: other.pendingStatScreenshotUrl || base.pendingStatScreenshotUrl,
+            pendingClasses: other.pendingClasses ?? base.pendingClasses,
+            pendingLevel: other.pendingLevel ?? base.pendingLevel,
+            pendingLegendClasses: other.pendingLegendClasses ?? base.pendingLegendClasses,
+            pendingLegendAgathions: other.pendingLegendAgathions ?? base.pendingLegendAgathions,
+            statRejectionReason: null,
+            statRejectionAt: null
+          };
+        }
 
         // Preserve registration status: newly registered users stay pending_approval until approved by admin/owner
         if (local.status === 'pending_approval' || incoming.status === 'pending_approval') {
@@ -1124,6 +1087,7 @@ export function mergeUsers(currentUsers: User[], incomingUsers: User[]): User[] 
         result.push(base);
       }
     }
+  }
 
   return deduplicateUsers(result);
 }
@@ -1322,12 +1286,15 @@ export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: Ge
         if (key) queueMap.set(key, m);
       }
 
-      // 2. Preserve unremoved members from older if not tombstoned
+      // 2. Only concurrent new joins from older (joined within last 10s of both revisions)
       for (const m of (older.queueList || [])) {
         if (!m || isQueueMemberRemoved(id, m)) continue;
         const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
         if (key && !queueMap.has(key)) {
-          queueMap.set(key, m);
+          const joinedAt = Number(m.joinedAt || 0);
+          if (joinedAt > (olderRevision - 10000) && joinedAt > (incomingRevision - 10000)) {
+            queueMap.set(key, m);
+          }
         }
       }
 
@@ -1694,7 +1661,10 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
         if (!m || isQueueMemberRemoved(id, m)) continue;
         const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
         if (key && !queueMap.has(key)) {
-          queueMap.set(key, m);
+          const joinedAt = Number(m.joinedAt || 0);
+          if (joinedAt > (localRevision - 10000) && joinedAt > (incomingRevision - 10000)) {
+            queueMap.set(key, m);
+          }
         }
       }
 
@@ -1947,59 +1917,44 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
 
   // 2. Serverless fallback: notify /api/update-user-stats in background (Admin SDK persistence & live relay)
   try {
-    const token = await getCurrentUserIdToken();
     fetch('/api/update-user-stats', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId, updates: cleanUpdates })
     }).catch(() => {});
   } catch {}
 }
 
-export async function deleteUserDoc(userId: string, targetUsername?: string) {
+export async function deleteUserDoc(userId: string) {
   if (!userId) return;
-  const username = targetUsername || getCachedUsers().find((u) => u.id === userId)?.username;
-  // 1. Server-side deletion via API (deletes from Auth and handles relay live state)
-  try {
-    const token = await getCurrentUserIdToken();
-    const query = username ? `?username=${encodeURIComponent(username)}` : '';
-    const response = await fetch(`/api/users/${encodeURIComponent(userId)}${query}`, {
-      method: 'DELETE',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ username })
-    });
-    if (!response.ok) {
-      const result = await response.json().catch(() => null);
-      if (response.status === 403) {
-        throw new Error(result?.error || result?.message || 'DELETE_USER_FAILED');
-      }
-      console.warn(`Notice: /api/users/${userId} returned status ${response.status}:`, result?.message);
-    }
-  } catch (err: any) {
-    if (err.message && /OWNER_IMMUTABLE|ROLE_HIERARCHY_DENIED|FORBIDDEN/.test(err.message)) {
-      throw err;
-    }
-    console.warn('Notice: /api/users endpoint notice:', err?.message);
-  }
-
-  // 2. Immediately tombstone locally so that no sync or refresh can resurrect the user
+  // 1. Immediately tombstone locally so that no sync or refresh can resurrect the user
   markUserAsDeleted(userId);
   const current = getCachedUsers().filter((u) => u.id !== userId);
   setCachedUsers(current);
 
-  // 3. Client-side direct Firestore delete with timeout guard (Zero-Downtime Rule 6)
+  // 2. Client-side direct Firestore delete with timeout guard (Zero-Downtime Rule 6)
   try {
     const ref = doc(db, USERS_COLLECTION, userId);
     await safeFirestoreWrite(deleteDoc(ref), 1200, 'deleteUserDoc');
     bumpSystemVersion('usersVersion', userId).catch(() => {});
   } catch (err: any) {
     console.warn('Notice: Failed to delete user directly from Firestore (marked deleted locally):', err?.message);
+    notifyQuotaExceeded(err);
+  }
+
+  // 3. Server-side deletion via API (deletes from Auth and handles relay live state)
+  try {
+    const token = await getCurrentUserIdToken();
+    const response = await fetch(`/api/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      console.warn(`Notice: /api/users/${userId} returned status ${response.status}:`, result?.message);
+    }
+  } catch (err: any) {
+    console.warn('Notice: /api/users endpoint unreachable or error (user tombstoned locally):', err?.message);
   }
 }
 
@@ -2033,6 +1988,24 @@ export async function changeUserPassword(targetUserId: string, newPassword: stri
   }
 
   const local = getLocalSessionUser();
+  const isOwnerTarget = targetUserId === 'user_owner_eloni' || local?.username?.toLowerCase() === 'eloni';
+
+  // 2. Special owner custom pass backup in localStorage & Firestore app_settings/owner_auth
+  if (isOwnerTarget) {
+    try {
+      localStorage.setItem('k7_owner_custom_pass', newPassword);
+      await safeFirestoreWrite(
+        setDoc(doc(db, 'app_settings', 'owner_auth'), {
+          password: newPassword,
+          updatedAt: Date.now()
+        }, { merge: true }),
+        1200,
+        'owner_auth_setDoc'
+      );
+    } catch (e) {
+      console.warn('Owner auth settings sync notice:', e);
+    }
+  }
 
   // 3. Call backend server API
   let backendSuccess = false;
@@ -2059,24 +2032,23 @@ export async function changeUserPassword(targetUserId: string, newPassword: stri
   }
 
   // If backend call failed, but client auth or owner custom pass already succeeded, do not throw
-  if (!backendSuccess && !clientAuthUpdated) {
+  if (!backendSuccess && !clientAuthUpdated && !isOwnerTarget) {
     throw new Error(backendError || 'Change password failed');
   }
 
-  // Keep local profiles in sync without ever persisting credentials.
+  // 4. Keep local fallback / session in sync
   if (local && local.id === targetUserId) {
-    const { password: _legacyPassword, ...safeLocal } = local as User & { password?: string };
-    saveLocalSessionUser(safeLocal as User);
+    saveLocalSessionUser({ ...local, password: newPassword });
   }
 
-  // Remove legacy plaintext credentials from every cached profile.
+  // 5. Also update cached users list so next offline/local login uses the new password
   try {
-    const cached = getCachedUsers().map((user) => {
-      const { password: _legacyPassword, ...safeUser } = user as User & { password?: string };
-      return safeUser as User;
-    });
-    setCachedUsers(cached);
-    localStorage.removeItem('k7_owner_custom_pass');
+    const cached = getCachedUsers();
+    const idx = cached.findIndex(u => u.id === targetUserId);
+    if (idx !== -1) {
+      cached[idx] = { ...cached[idx], password: newPassword } as any;
+      setCachedData(CACHE_KEYS.USERS, cached);
+    }
   } catch {}
   bumpSystemVersion('usersVersion', targetUserId).catch(() => {});
 }
@@ -2086,8 +2058,7 @@ const LEGACY_LOGGED_KEY = 'clanhub_logged_user_v21028';
 
 export function saveLocalSessionUser(user: User) {
   try {
-    const { password: _legacyPassword, ...safeUser } = user as User & { password?: string };
-    const raw = JSON.stringify(safeUser);
+    const raw = JSON.stringify(user);
     localStorage.setItem(SESSION_KEY, raw);
     localStorage.setItem(LEGACY_LOGGED_KEY, raw);
     // Explicitly destroy old legacy keys
@@ -2143,28 +2114,8 @@ export async function registerUserDoc(data: {
       credential = await createUserWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
     } catch (error: any) {
       if (error?.code !== 'auth/email-already-in-use') throw error;
-      // Recover an interrupted registration or reclaim an orphaned Auth account (from previously deleted member)
-      try {
-        credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
-      } catch (signInErr: any) {
-        try {
-          const orphanRes = await fetch('/api/auth/resolve-orphan-registration', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password: data.password })
-          });
-          const orphanData = await orphanRes.json().catch(() => null);
-          if (orphanRes.ok && orphanData?.allowed) {
-            credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
-          } else {
-            const errObj: any = new Error(orphanData?.message || 'USERNAME_IN_USE');
-            errObj.code = orphanData?.error || 'auth/email-already-in-use';
-            throw errObj;
-          }
-        } catch (resolveErr: any) {
-          throw resolveErr;
-        }
-      }
+      // Recover an interrupted registration only by proving the same password.
+      credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
     }
     const token = await credential.user.getIdToken();
     const newUser: User = {
@@ -2418,9 +2369,13 @@ export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
         items.push(item);
       });
       const cached = getCachedVaultItems();
-      const mergedList = mergeVaultItems(cached, items);
-      setCachedVaultItems(mergedList);
-      latestItems = mergedList;
+      const freshLocalItems = cached.filter((c) => {
+        const age = Date.now() - (c.createdAt || 0);
+        return age >= 0 && age < 5000 && !items.some((i) => i.id === c.id);
+      });
+      const combinedItems = [...freshLocalItems, ...items];
+      setCachedVaultItems(combinedItems);
+      latestItems = combinedItems;
       emitCombinedItems();
     },
     (err) => {
@@ -2548,8 +2503,8 @@ async function deleteClaimsForItem(itemId: string) {
   }
 }
 
-export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'> & { id?: string; createdAt?: number }) {
-  const newId = item.id || ('item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
+export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'>) {
+  const newId = 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
   unmarkVaultItemAsDeleted(newId);
   // Ensure screenshots don't exceed Firestore 1MB limits
   let safeScreenshots = item.hunterScreenshots || [];
@@ -2564,7 +2519,7 @@ export async function addVaultItemDoc(item: Omit<VaultItem, 'id' | 'createdAt'> 
     claimants: (item.claimants || []).map((c) => ({ ...c, clan: cleanClanName(c.clan) })),
     hunterScreenshots: safeScreenshots,
     id: newId,
-    createdAt: item.createdAt || Date.now(),
+    createdAt: Date.now(),
     updatedAt: Date.now()
   };
   if (fullItem.distributedTo?.clan) {
@@ -2642,9 +2597,6 @@ export async function confirmVaultItemPayment(
     } else {
       delete updatedDistributedTo.paidAt;
       delete updatedDistributedTo.paidBy;
-      updatedDistributedTo.diamondPayoutStatus = 'pending';
-      delete updatedDistributedTo.diamondPayoutAt;
-      delete updatedDistributedTo.diamondPayoutBy;
     }
   }
 
@@ -2653,71 +2605,7 @@ export async function confirmVaultItemPayment(
     updatedAt: now,
     ...(isPaid
       ? { paidAt: now, paidBy: actorName }
-      : {
-          paidAt: null as any,
-          paidBy: null as any,
-          diamondPayoutStatus: 'pending' as const,
-          diamondPayoutAt: null as any,
-          diamondPayoutBy: null as any
-        }),
-    ...(updatedDistributedTo ? { distributedTo: updatedDistributedTo } : {})
-  };
-
-  // Optimistically update local cache immediately
-  if (currentItem) {
-    const nextCached = currentCached.map((it) =>
-      it.id === itemId ? normalizeDistributedItem({ ...it, ...updates, distributedTo: updatedDistributedTo }) : it
-    );
-    setCachedVaultItems(nextCached);
-  }
-
-  await updateVaultItemDoc(itemId, updates);
-  bumpSystemVersion('vaultVersion').catch(() => {});
-}
-
-export async function confirmDiamondPayout(
-  itemId: string,
-  actorName: string,
-  status: 'pending' | 'paid_out' = 'paid_out'
-) {
-  const isPaidOut = status === 'paid_out';
-  const now = Date.now();
-  const currentCached = getCachedVaultItems();
-  const currentItem = currentCached.find((i) => i.id === itemId);
-
-  let updatedDistributedTo = currentItem?.distributedTo ? { ...currentItem.distributedTo } : undefined;
-
-  if (!updatedDistributedTo) {
-    try {
-      const snap = await safeFirestoreWrite(getDoc(doc(db, ITEMS_COLLECTION, itemId)), 1200, 'confirmDiamondPayout_getDoc');
-      if (snap && snap.exists()) {
-        const data = snap.data();
-        if (data.distributedTo) {
-          updatedDistributedTo = typeof data.distributedTo === 'string'
-            ? JSON.parse(data.distributedTo)
-            : { ...data.distributedTo };
-        }
-      }
-    } catch {}
-  }
-
-  if (updatedDistributedTo) {
-    updatedDistributedTo.diamondPayoutStatus = status;
-    if (isPaidOut) {
-      updatedDistributedTo.diamondPayoutAt = now;
-      updatedDistributedTo.diamondPayoutBy = actorName;
-    } else {
-      delete updatedDistributedTo.diamondPayoutAt;
-      delete updatedDistributedTo.diamondPayoutBy;
-    }
-  }
-
-  const updates: Partial<VaultItem> = {
-    diamondPayoutStatus: status,
-    updatedAt: now,
-    ...(isPaidOut
-      ? { diamondPayoutAt: now, diamondPayoutBy: actorName }
-      : { diamondPayoutAt: null as any, diamondPayoutBy: null as any }),
+      : { paidAt: null as any, paidBy: null as any }),
     ...(updatedDistributedTo ? { distributedTo: updatedDistributedTo } : {})
   };
 
@@ -3383,6 +3271,7 @@ export async function deleteDiamondTransactionDoc(recordId: string): Promise<voi
 
 
 // 7. Guild Theme & Background Settings (Global Sync for All Clan Members)
+export const APP_SETTINGS_COLLECTION = 'app_settings';
 
 export interface BackgroundSettingsData {
   imageUrl: string;
@@ -4307,3 +4196,4 @@ export async function testFirestoreHealth(): Promise<boolean> {
     return true;
   }
 }
+

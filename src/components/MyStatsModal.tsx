@@ -243,37 +243,58 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
       return;
     }
 
-    sounds.playClaim();
-    onRequestStatUpdate(
-      currentUser.id,
-      stats,
-      spiritEnhancements,
-      calculatedNewPL,
-      screenshotUrl,
-      {
-        classes: selectedClasses,
-        level: charLevel,
-        legendClasses: charLegendClasses,
-        legendAgathions: charLegendAgathions
-      }
-    );
-    if (showToast) {
-      showToast(
-        lang === 'th' ? 'ส่งคำขออัปเดตสเตตัสสำเร็จ ⚡' : 'Stat update request submitted ⚡',
-        'success'
+    setIsSubmitting(true);
+    try {
+      sounds.playClaim();
+      await onRequestStatUpdate(
+        currentUser.id,
+        stats,
+        spiritEnhancements,
+        calculatedNewPL,
+        screenshotUrl,
+        {
+          classes: selectedClasses,
+          level: charLevel,
+          legendClasses: charLegendClasses,
+          legendAgathions: charLegendAgathions
+        }
       );
+      setSuccessMessage(
+        lang === 'th'
+          ? 'ส่งคำขออัปเดตสเตตัสเรียบร้อยแล้ว! แอดมินจะทำการตรวจสอบเร็วๆ นี้'
+          : 'Stat update request submitted! Admin will verify shortly'
+      );
+      if (showToast) {
+        showToast(
+          lang === 'th' ? 'ส่งคำขออัปเดตสเตตัสสำเร็จ ⚡' : 'Stat update request submitted ⚡',
+          'success'
+        );
+      }
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to submit request');
+    } finally {
+      setIsSubmitting(false);
     }
-    onClose();
   };
 
-  const handleCancelPending = () => {
+  const handleCancelPending = async () => {
     if (!onCancelPendingRequest) return;
-    sounds.playClick();
-    onCancelPendingRequest(currentUser.id);
-    if (showToast) {
-      showToast(lang === 'th' ? 'ยกเลิกคำขอเรียบร้อยแล้ว' : 'Pending request cancelled', 'info');
+    setIsSubmitting(true);
+    try {
+      sounds.playClick();
+      await onCancelPendingRequest(currentUser.id);
+      setSuccessMessage(lang === 'th' ? 'ยกเลิกคำขอเรียบร้อยแล้ว' : 'Pending request cancelled');
+      setTimeout(() => {
+        onClose();
+      }, 1000);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to cancel request');
+    } finally {
+      setIsSubmitting(false);
     }
-    onClose();
   };
 
   // Group stats by categories

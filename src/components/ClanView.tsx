@@ -321,15 +321,22 @@ export const ClanView: React.FC<ClanViewProps> = ({
     setEditClanColor(clan.color || '#d4af37');
   };
 
-  const handleSaveEditClan = (e: React.FormEvent) => {
+  const handleSaveEditClan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingClan) return;
     const cleanNew = cleanClanName(editClanName.trim());
     if (!cleanNew || isNoClan(cleanNew)) return;
 
-    sounds.playClaim();
-    onUpdateClan(editingClan.id, cleanNew, editClanColor);
-    setEditingClan(null);
+    setIsSavingEdit(true);
+    try {
+      sounds.playClaim();
+      await onUpdateClan(editingClan.id, cleanNew, editClanColor);
+      setEditingClan(null);
+    } catch (err) {
+      console.error('Failed to update clan:', err);
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
   // Add Clan Handler

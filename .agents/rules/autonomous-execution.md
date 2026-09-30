@@ -8,4 +8,3 @@
 2. **No Blocking Plan Approval:** ไม่ต้องสร้าง `implementation_plan.md` ที่ตั้งค่า `RequestFeedback: true` เพื่อหยุดรอผู้ใช้กด Submit/Proceed ให้ดำเนินการในโหมดลงมือทำจริง (Direct Execution) ทันที
 3. **Automated Verification:** ทำการตรวจสอบ TypeScript (`npx tsc --noEmit`) และ Build เพื่อความสมบูรณ์ก่อนสรุปผล
 4. **Transparent Reporting:** เมื่อเสร็จสิ้น ให้สรุปผลสิ่งที่ได้ทำอย่างกระชับ ชัดเจน พร้อมระบุไฟล์ที่แก้ไขและผลการทดสอบ
-5. **Strict No-Auto-Deploy & No-Git-Push (กฎเหล็กห้ามดีพลอย):** ห้ามรันคำสั่ง `vercel`, `vercel --prod` หรือ `git push` โดยเด็ดขาด 100% เพื่อป้องกันการผลาญโควต้า Build Minutes และป้องกันผู้ใช้ถูกคิดค่าบริการ Vercel Pro ($20/เดือน) ให้ทดสอบและยืนยันผลบน Local (`localhost:3000`) เท่านั้น เว้นแต่ผู้ใช้งานจะพิมพ์คำสั่งยืนยันอย่างชัดเจน เช่น *"ดีพลอยได้เลย"* หรือ *"อัปโหลดขึ้น Vercel เลย"*
