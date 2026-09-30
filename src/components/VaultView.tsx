@@ -411,6 +411,50 @@ export const VaultView: React.FC<VaultViewProps> = ({
     setHunters((prev) => prev.filter((h) => !filteredKeys.has(h.name.trim().toLowerCase())));
   };
 
+  // Select all members of a specific clan
+  const handleSelectClanAll = (cMembers: User[], clanName: string) => {
+    sounds.playClaim();
+    setHunters((prev) => {
+      const existingNames = new Set(prev.map((h) => h.name.trim().toLowerCase()));
+      const toAdd = cMembers
+        .filter((m) => !existingNames.has(m.inGameName.trim().toLowerCase()))
+        .map((m) => ({ name: m.inGameName.trim(), clan: cleanClanName(m.clan) || clanName }));
+      return [...prev, ...toAdd];
+    });
+  };
+
+  // Deselect all members of a specific clan
+  const handleDeselectClanAll = (cMembers: User[]) => {
+    sounds.playClick();
+    const clanMemberNames = new Set(cMembers.map((m) => m.inGameName.trim().toLowerCase()));
+    setHunters((prev) => prev.filter((h) => !clanMemberNames.has(h.name.trim().toLowerCase())));
+  };
+
+  // Ordered clan entries for display
+  const orderedClanEntries = useMemo(() => {
+    const entries = Object.entries(membersByClan) as [string, User[]][];
+    return entries.sort(([clanA], [clanB]) => {
+      const normA = clanA.toLowerCase();
+      const normB = clanB.toLowerCase();
+      const idxA = ['voltz', 'levels', 'stronk', 'no clan'].indexOf(normA);
+      const idxB = ['voltz', 'levels', 'stronk', 'no clan'].indexOf(normB);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return clanA.localeCompare(clanB);
+    });
+  }, [membersByClan]);
+
+  // Active member names set
+  const activeMemberNamesSet = useMemo(() => {
+    return new Set(activeMembersList.map((m) => m.inGameName.trim().toLowerCase()));
+  }, [activeMembersList]);
+
+  // Hunters not found in active members (e.g. from OCR or external guests)
+  const unlinkedHunters = useMemo(() => {
+    return hunters.filter((h) => !activeMemberNamesSet.has(h.name.trim().toLowerCase()));
+  }, [hunters, activeMemberNamesSet]);
+
   // Helper to generate formatted text based on format and clan filter
   const getFormattedHunterText = (
     format: 'by-clan' | 'plain' | 'inline' | 'comma' = hunterTextFormat,
@@ -1828,80 +1872,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
               </button>
             </div>
 
-            {/* Right: Quick Presets & Form Controls */}
+            {/* Right: Presets & Form Controls */}
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Quick Presets Dropdown */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowQuickItemsDropdown((prev) => !prev)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#11192a] hover:bg-[#18233a] border border-[#d4af37]/40 text-[#f5d77f] text-xs font-semibold transition cursor-pointer shadow-sm"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-[#f5d77f]" />
-                  <span>{t.selectFromQuickItem}</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 font-mono text-amber-300">
-                    {quickItems.length}
-                  </span>
-                  <span className="text-[10px] text-slate-400 ml-0.5">▾</span>
-                </button>
-
-                {/* Quick Presets Floating Menu */}
-                {showQuickItemsDropdown && (
-                  <div className="absolute right-0 top-full mt-1.5 w-72 max-h-80 overflow-y-auto rounded-xl bg-slate-900 border border-[#d4af37]/40 shadow-2xl p-2 z-40 space-y-1 custom-scrollbar">
-                    <div className="flex items-center justify-between pb-1.5 mb-1 border-b border-slate-800 text-[11px] text-slate-400 font-semibold px-1">
-                      <span>{t.selectFromQuickItem}</span>
-                      {isAdminOrOwner && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowQuickItemsDropdown(false);
-                            onOpenQuickItemsModal();
-                          }}
-                          className="text-[#f5d77f] hover:underline"
-                        >
-                          {t.manageQuickItems}
-                        </button>
-                      )}
-                    </div>
-
-                    {quickItems.length === 0 ? (
-                      <div className="p-3 text-center text-xs text-slate-500">
-                        {lang === 'th' ? 'ยังไม่มีควิกไอเทม' : 'No quick items yet.'}
-                      </div>
-                    ) : (
-                      quickItems.map((qi) => (
-                        <button
-                          key={qi.id}
-                          type="button"
-                          onClick={() => {
-                            handleApplyQuickItem(qi);
-                            setShowQuickItemsDropdown(false);
-                          }}
-                          className="w-full flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-800 text-left transition cursor-pointer group"
-                        >
-                          {qi.imageUrl ? (
-                            <img src={qi.imageUrl} alt={qi.name} className="w-8 h-8 rounded object-cover border border-slate-700" />
-                          ) : (
-                            <span className="w-8 h-8 rounded bg-slate-800 border border-slate-700 flex items-center justify-center">
-                              <Sparkles className="w-4 h-4 text-[#f5d77f]" />
-                            </span>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <div className="text-xs font-semibold text-slate-200 group-hover:text-white truncate">
-                              {qi.name}
-                            </div>
-                            <span className={`text-[9px] px-1 py-0.2 rounded font-mono border ${getRarityBadge(qi.rarity)}`}>
-                              {qi.rarity}
-                            </span>
-                          </div>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Manage Presets direct button for Admin/Owner */}
               {isAdminOrOwner && (
                 <button
                   type="button"
@@ -1909,11 +1881,11 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     sounds.playClick();
                     onOpenQuickItemsModal();
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#0e1627] hover:bg-[#162138] border border-slate-700 hover:border-[#d4af37]/60 text-slate-300 hover:text-[#f5d77f] text-xs font-semibold transition cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0e1627] hover:bg-[#162138] border border-slate-700 hover:border-[#d4af37]/60 text-slate-300 hover:text-[#f5d77f] text-xs font-semibold transition cursor-pointer"
                   title={t.manageQuickItems}
                 >
                   <Sparkles className="w-3.5 h-3.5 text-[#f5d77f]" />
-                  <span className="hidden sm:inline">{t.manageQuickItems}</span>
+                  <span>{lang === 'th' ? 'จัดการควิกไอเทม' : 'Manage Quick Items'}</span>
                 </button>
               )}
 
@@ -1929,6 +1901,59 @@ export const VaultView: React.FC<VaultViewProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Dedicated Compact Quick Items Strip */}
+          {quickItems.length > 0 && (
+            <div className="p-2.5 rounded-xl bg-gradient-to-r from-[#0d1525] via-[#0b101c] to-[#080d17] border border-[#d4af37]/35 shadow-md space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-slate-200">
+                  <Sparkles className="w-3.5 h-3.5 text-[#f5d77f]" />
+                  <span>{lang === 'th' ? 'ควิกไอเทมสำเร็จรูป (คลิกเพื่อเลือกทันที)' : 'Quick Item Presets (Click to select)'}:</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-amber-300 font-mono">
+                    {quickItems.length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Horizontal Scrollable Quick Items Chips */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                {quickItems.map((qi) => {
+                  const isSelected = name.trim().toLowerCase() === qi.name.trim().toLowerCase();
+                  return (
+                    <button
+                      key={qi.id}
+                      type="button"
+                      onClick={() => handleApplyQuickItem(qi)}
+                      className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs transition cursor-pointer shrink-0 select-none group shadow-sm ${
+                        isSelected
+                          ? 'bg-amber-500/20 border-[#d4af37] text-white ring-1 ring-[#d4af37]/60 font-bold'
+                          : 'bg-[#0e1627]/90 hover:bg-[#18243c] border-slate-700/80 text-slate-300 hover:text-white'
+                      }`}
+                      title={`${qi.name} (${qi.rarity})`}
+                    >
+                      {qi.imageUrl ? (
+                        <img
+                          src={qi.imageUrl}
+                          alt={qi.name}
+                          className="w-5 h-5 rounded object-cover border border-slate-700 shrink-0"
+                        />
+                      ) : (
+                        <span className="w-5 h-5 rounded bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
+                          <Sparkles className="w-3 h-3 text-[#f5d77f]" />
+                        </span>
+                      )}
+                      <span className="truncate max-w-[130px] font-medium group-hover:text-white">
+                        {qi.name}
+                      </span>
+                      <span className={`text-[8.5px] px-1 py-0.2 rounded font-mono border ${getRarityBadge(qi.rarity)}`}>
+                        {qi.rarity}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Form Feedback Alerts (compact) */}
           {formError && (
@@ -2047,6 +2072,30 @@ export const VaultView: React.FC<VaultViewProps> = ({
                             >
                               <span className="font-semibold truncate">{suggestionName}</span>
                               <span className="text-[9px] text-[#f5d77f] font-mono shrink-0 ml-1">↵</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Recent Item Names Memory */}
+                      {rememberedNames.length > 0 && (
+                        <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                          <span className="text-[10px] text-slate-500 font-medium">
+                            {lang === 'th' ? 'ที่เคยเพิ่ม:' : 'Recent:'}
+                          </span>
+                          {rememberedNames.slice(0, 5).map((rName, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => {
+                                sounds.playClick();
+                                setName(rName);
+                                setShowNameSuggestions(false);
+                              }}
+                              className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-[#f5d77f] border border-slate-700/60 transition cursor-pointer truncate max-w-[130px]"
+                              title={rName}
+                            >
+                              {rName}
                             </button>
                           ))}
                         </div>
@@ -2498,23 +2547,25 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     )}
                   </div>
 
-                  {/* Hunters Tags / List Box */}
-                  <div className="space-y-1.5">
-                    {/* Header with Modal Trigger & Quick Actions */}
-                    <div className="flex flex-wrap items-center justify-between gap-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-slate-200">
-                          👥 {t.scanResults} ({hunters.length} {lang === 'th' ? 'คน' : 'hunters'})
+                  {/* Hunters Selection Cockpit: Clan Boxes Grid & Formats */}
+                  <div className="space-y-2">
+                    {/* Header with Title, Counts & Action Buttons */}
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 bg-[#080d17] p-2 rounded-xl border border-slate-800/80">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-[#f5d77f]" />
+                          <span>{lang === 'th' ? 'เลือกผู้ล่า' : 'Select Hunters'}</span>
+                          <span className="text-amber-300 font-mono">({hunters.length} {lang === 'th' ? 'คน' : 'selected'})</span>
                         </span>
-                        {uniqueClansInHunters.length > 1 && (
-                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-950/60 border border-amber-800/50 text-amber-300 font-mono">
+                        {uniqueClansInHunters.length > 0 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-950/60 border border-amber-800/50 text-amber-300 font-mono">
                             {uniqueClansInHunters.length} {t.clansCount}
                           </span>
                         )}
                       </div>
 
                       <div className="flex items-center gap-1 flex-wrap">
-                        {/* OPEN HUNTER CHECKLIST MODAL BUTTON */}
+                        {/* Open Detailed Search Modal */}
                         <button
                           type="button"
                           id="btn-open-hunter-checklist-modal"
@@ -2522,11 +2573,11 @@ export const VaultView: React.FC<VaultViewProps> = ({
                             sounds.playClick();
                             setShowHunterChecklistModal(true);
                           }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-gradient-to-r from-amber-500 to-yellow-600 hover:brightness-110 text-slate-950 text-xs font-bold transition shadow cursor-pointer"
-                          title={lang === 'th' ? 'เปิดหน้าต่างเลือกสมาชิกแคลน' : 'Open clan member checklist modal'}
+                          className="flex items-center gap-1 px-2 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[11px] font-medium transition cursor-pointer border border-slate-700/60"
+                          title={lang === 'th' ? 'เปิดหน้าต่างค้นหาเพิ่มเติม' : 'Open search checklist modal'}
                         >
-                          <UserCheck className="w-3.5 h-3.5" />
-                          <span>{lang === 'th' ? '+ เลือกสมาชิก' : '+ Pick Members'}</span>
+                          <UserCheck className="w-3 h-3 text-[#f5d77f]" />
+                          <span>{lang === 'th' ? 'ค้นหา/ค้น' : 'Search Modal'}</span>
                         </button>
 
                         {/* Copy All Hunters */}
@@ -2571,47 +2622,144 @@ export const VaultView: React.FC<VaultViewProps> = ({
                           <button
                             type="button"
                             onClick={handleClearAllHunters}
-                            className="p-1 rounded-md bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-400 transition cursor-pointer"
+                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-red-950/60 hover:bg-red-900/80 border border-red-800/60 text-red-300 text-[11px] font-semibold transition cursor-pointer"
                             title={t.clearEntireClan}
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <Trash2 className="w-3 h-3 text-red-400" />
+                            <span>{lang === 'th' ? 'ล้าง' : 'Clear'}</span>
                           </button>
                         )}
                       </div>
                     </div>
 
-                    {/* Scrollable Hunter Chips / Empty State */}
-                    <div className="min-h-[90px] max-h-[150px] overflow-y-auto p-2 rounded-xl bg-[#060a12] border border-slate-800/80 custom-scrollbar">
-                      {hunters.length === 0 ? (
-                        <div className="h-full min-h-[74px] flex flex-col items-center justify-center text-center p-2 text-slate-500 text-xs">
-                          <p>{lang === 'th' ? 'ยังไม่มีรายชื่อผู้ล่า' : 'No hunters added yet'}</p>
-                          <p className="text-[10px] text-slate-600 mt-0.5">
-                            {lang === 'th' ? 'กด "📸 สแกน AI OCR" หรือกด "+ เลือกสมาชิก" เพื่อเลือกจากแคลน' : 'Use AI OCR or click "+ Pick Members" to select'}
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap gap-1.5">
-                          {hunters.map((h, idx) => (
-                            <span
-                              key={idx}
-                              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#0e1628] border border-slate-700/80 hover:border-slate-600 text-xs text-slate-200 shadow-sm"
-                            >
-                              <span className="text-[9px] font-mono font-bold text-amber-400 px-1 py-0.2 rounded bg-amber-950/60 border border-amber-700/40">
-                                {h.clan}
-                              </span>
-                              <span className="font-semibold text-slate-100">{h.name}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveHunter(idx)}
-                                className="text-slate-500 hover:text-red-400 text-sm leading-none pl-0.5 cursor-pointer"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                    {/* Clan Boxes Grid: compact chips grouped by clan, displaying everyone */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[380px] overflow-y-auto p-1.5 rounded-xl bg-[#060a12] border border-slate-800/80 custom-scrollbar">
+                      {orderedClanEntries.map(([clanName, cMembers]) => {
+                        const selectedInThisClan = cMembers.filter((m) =>
+                          selectedHunterNameSet.has(m.inGameName.trim().toLowerCase())
+                        ).length;
+                        const isAllSelected = selectedInThisClan === cMembers.length && cMembers.length > 0;
+
+                        // Clan specific styling accents
+                        const normClan = clanName.toLowerCase();
+                        const isVoltZ = normClan.includes('voltz');
+                        const isLevelS = normClan.includes('levels');
+                        const isStronk = normClan.includes('stronk');
+
+                        const badgeColor = isVoltZ
+                          ? 'border-amber-500/50 text-amber-300 bg-amber-950/40'
+                          : isLevelS
+                          ? 'border-purple-500/50 text-purple-300 bg-purple-950/40'
+                          : isStronk
+                          ? 'border-emerald-500/50 text-emerald-300 bg-emerald-950/40'
+                          : 'border-slate-700 text-slate-300 bg-slate-900/40';
+
+                        return (
+                          <div
+                            key={clanName}
+                            className="p-2 rounded-lg bg-[#0c1220]/90 border border-slate-800/90 flex flex-col justify-between space-y-1.5 shadow-sm"
+                          >
+                            {/* Clan Box Header */}
+                            <div className="flex items-center justify-between gap-1 pb-1 border-b border-slate-800/60">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider font-mono shrink-0 ${badgeColor}`}>
+                                  {clanName}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                                  {selectedInThisClan}/{cMembers.length}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectClanAll(cMembers, clanName)}
+                                  className={`text-[9px] px-1.5 py-0.5 rounded font-medium transition cursor-pointer ${
+                                    isAllSelected
+                                      ? 'bg-amber-500 text-slate-950 font-bold'
+                                      : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300'
+                                  }`}
+                                  title={lang === 'th' ? `เลือกทั้งแคลน ${clanName}` : `Select all ${clanName}`}
+                                >
+                                  {lang === 'th' ? '+ ทั้งหมด' : '+ All'}
+                                </button>
+                                {selectedInThisClan > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeselectClanAll(cMembers)}
+                                    className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800/60 hover:bg-red-950 text-slate-400 hover:text-red-300 transition cursor-pointer"
+                                    title={lang === 'th' ? `ยกเลิกแคลน ${clanName}` : `Clear ${clanName}`}
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Member Chips Wrap */}
+                            <div className="flex flex-wrap gap-1">
+                              {cMembers.map((m) => {
+                                const isSelected = selectedHunterNameSet.has(m.inGameName.trim().toLowerCase());
+                                return (
+                                  <button
+                                    key={m.id || m.username || m.inGameName}
+                                    type="button"
+                                    onClick={() => handleToggleHunterMember(m)}
+                                    className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-all flex items-center gap-1 cursor-pointer select-none active:scale-95 ${
+                                      isSelected
+                                        ? 'bg-gradient-to-r from-amber-500/25 to-yellow-500/20 border border-amber-400 text-amber-200 font-semibold shadow-sm'
+                                        : 'bg-[#080d17] hover:bg-[#152033] border border-slate-800/80 hover:border-slate-600 text-slate-300'
+                                    }`}
+                                    title={`${m.inGameName} (${cleanClanName(m.clan) || clanName})${m.powerLevel ? ` • ${m.powerLevel.toLocaleString()} CP` : ''}`}
+                                  >
+                                    {isSelected ? (
+                                      <Check className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                    ) : (
+                                      <span className="text-[9px] text-slate-500 shrink-0">+</span>
+                                    )}
+                                    <span className="truncate max-w-[100px]">{m.inGameName}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
+
+                    {/* Unlinked / OCR Hunters Box (if any hunters are not in active members list) */}
+                    {unlinkedHunters.length > 0 && (
+                      <div className="p-2 rounded-lg bg-amber-950/20 border border-amber-800/40 space-y-1">
+                        <div className="flex items-center justify-between text-[10px] text-amber-300 font-semibold">
+                          <span>
+                            ⚠️ {lang === 'th' ? 'ผู้ล่าอื่น / จากสแกน OCR (ไม่ได้อยู่ในแคลน)' : 'Other / OCR Hunters (Outside Clan)'} ({unlinkedHunters.length})
+                          </span>
+                          <span className="text-slate-400 font-mono text-[9px]">
+                            {lang === 'th' ? 'กด ✕ เพื่อเอาออก' : 'Click ✕ to remove'}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {unlinkedHunters.map((uh, uIdx) => {
+                            const hunterIdx = hunters.findIndex((h) => h.name.trim().toLowerCase() === uh.name.trim().toLowerCase());
+                            return (
+                              <span
+                                key={uIdx}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#0e1628] border border-amber-700/50 text-[11px] text-amber-200"
+                              >
+                                <span className="font-semibold">{uh.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveHunter(hunterIdx)}
+                                  className="text-amber-400 hover:text-red-400 text-xs leading-none cursor-pointer pl-0.5"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Quick Copy Formats Strip */}
                     {hunters.length > 0 && (

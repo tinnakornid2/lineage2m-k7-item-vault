@@ -20,7 +20,9 @@ import {
   Loader2,
   Camera,
   ZoomIn,
-  KeyRound
+  Eye,
+  EyeOff,
+  Copy
 } from 'lucide-react';
 import { CharacterClass, Language, User, UserRole, CHARACTER_CLASSES, OFFICIAL_CLASSES, cleanClanName, ClanGroup, isUserStatsPending } from '../types';
 import { translations } from '../translations';
@@ -104,13 +106,25 @@ export const MembersView: React.FC<MembersViewProps> = ({
   const [editInGameName, setEditInGameName] = useState('');
   const [editPowerLevel, setEditPowerLevel] = useState<number>(0);
   const [editClan, setEditClan] = useState('');
-  const [editClass, setEditClass] = useState<CharacterClass>('Orb');
-  const [editClasses, setEditClasses] = useState<string[]>([]);
-  const [editLevel, setEditLevel] = useState<number>(0);
-  const [editLegendClasses, setEditLegendClasses] = useState<number>(0);
-  const [editLegendAgathions, setEditLegendAgathions] = useState<number>(0);
   const [editRole, setEditRole] = useState<UserRole>('member');
   const [isSaving, setIsSaving] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [copiedPassword, setCopiedPassword] = useState(false);
+
+  // Available clans for dropdown selection
+  const availableClanOptions = React.useMemo(() => {
+    const map = new Map<string, string>();
+    ['VoltZ', 'LevelS', 'STRONK', 'No Clan'].forEach((c) => map.set(c.toLowerCase(), c));
+    (clans || []).forEach((c) => {
+      const cleaned = cleanClanName(c.name);
+      if (cleaned) map.set(cleaned.toLowerCase(), cleaned);
+    });
+    (allMembers || []).forEach((m) => {
+      const cleaned = cleanClanName(m.clan);
+      if (cleaned) map.set(cleaned.toLowerCase(), cleaned);
+    });
+    return Array.from(map.values());
+  }, [clans, allMembers]);
 
   // View mode: Table vs 4-Column Grid
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
@@ -201,12 +215,9 @@ export const MembersView: React.FC<MembersViewProps> = ({
     setEditInGameName(user.inGameName);
     setEditPowerLevel(user.powerLevel || 0);
     setEditClan(cleanClanName(user.clan));
-    setEditClass(user.characterClass);
-    setEditClasses(user.classes || (user.characterClass ? [user.characterClass] : []));
-    setEditLevel(user.level || 0);
-    setEditLegendClasses(user.legendClasses || 0);
-    setEditLegendAgathions(user.legendAgathions || 0);
     setEditRole(user.role);
+    setShowCurrentPassword(false);
+    setCopiedPassword(false);
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -216,18 +227,12 @@ export const MembersView: React.FC<MembersViewProps> = ({
     setIsSaving(true);
     try {
       sounds.playClaim();
-      const primaryClass = editClasses.length > 0 ? editClasses[0] : editClass;
       await onUpdateMember(editingUser.id, {
         inGameName: editInGameName.trim(),
         powerLevel: Number(editPowerLevel) || 0,
         pendingPowerLevel: null,
         pendingPowerLevelRequestedAt: null,
         clan: cleanClanName(editClan.trim()) || 'VoltZ',
-        classes: editClasses,
-        characterClass: primaryClass,
-        level: Number(editLevel) || 0,
-        legendClasses: Number(editLegendClasses) || 0,
-        legendAgathions: Number(editLegendAgathions) || 0,
         role: editRole
       });
       setEditingUser(null);
@@ -638,19 +643,6 @@ export const MembersView: React.FC<MembersViewProps> = ({
                               </button>
                             )}
 
-                            {canChangePassword(currentUser, mem) && onChangePassword && (
-                              <button
-                                onClick={() => {
-                                  sounds.playClick();
-                                  onChangePassword(mem);
-                                }}
-                                className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800 transition-all cursor-pointer"
-                                title={lang === 'th' ? 'เปลี่ยนรหัสผ่าน' : 'Change Password'}
-                              >
-                                <KeyRound className="w-3 h-3" />
-                              </button>
-                            )}
-
                             {isAdminOrOwner && (
                               <button
                                 onClick={() => handleOpenEdit(mem)}
@@ -836,19 +828,6 @@ export const MembersView: React.FC<MembersViewProps> = ({
                                     <Camera className="w-3.5 h-3.5" />
                                   </button>
 
-                                  {canChangePassword(currentUser, mem) && onChangePassword && (
-                                    <button
-                                      id={`btn-pwd-member-${mem.id}`}
-                                      onClick={() => {
-                                        sounds.playClick();
-                                        onChangePassword(mem);
-                                      }}
-                                      className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 text-[#f5d77f] border border-amber-500/30 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
-                                      title={lang === 'th' ? 'เปลี่ยนรหัสผ่าน' : 'Change Password'}
-                                    >
-                                      <KeyRound className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
 
                                   {canEditMember(mem) && (
                                     <button
@@ -936,108 +915,103 @@ export const MembersView: React.FC<MembersViewProps> = ({
                 />
               </div>
 
-              {/* Clan Name */}
+              {/* Clan Selection Dropdown */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   {t.changeClan}
                 </label>
-                <input
-                  type="text"
-                  value={editClan}
+                <select
+                  value={cleanClanName(editClan)}
                   onChange={(e) => setEditClan(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none"
-                />
+                  className="w-full px-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-slate-100 focus:border-[#d4af37] focus:outline-none cursor-pointer"
+                >
+                  {availableClanOptions.map((cName) => (
+                    <option key={cName} value={cName}>
+                      🏰 {cName}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {/* Character Profile: Classes (multi) */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {lang === 'th' ? 'อาชีพของตัวละคร (Class multi):' : 'Character Classes (Class multi):'}
-                </label>
-                <div className="p-2 rounded-lg bg-[#090d16] border border-slate-700 max-h-40 overflow-y-auto space-y-1">
-                  {OFFICIAL_CLASSES.map((cls) => {
-                    const isChecked = editClasses.includes(cls.nameEn);
+              {/* Current Password Display */}
+              <div className="p-3 rounded-xl bg-[#090d16] border border-slate-700/80 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-200">
+                  <span className="flex items-center gap-1.5 text-amber-300">
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>{lang === 'th' ? 'รหัสผ่านปัจจุบัน' : 'Current Password'}</span>
+                  </span>
+                  {editingUser && canChangePassword(currentUser, editingUser) && onChangePassword && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playClick();
+                        const target = editingUser;
+                        setEditingUser(null);
+                        onChangePassword(target);
+                      }}
+                      className="text-[11px] text-amber-400 hover:text-amber-300 underline font-medium cursor-pointer"
+                    >
+                      {lang === 'th' ? 'เปลี่ยนรหัสผ่าน' : 'Change'}
+                    </button>
+                  )}
+                </div>
+                {(() => {
+                  const currentPwd =
+                    editingUser.password ||
+                    (editingUser.username?.toLowerCase() === 'eloni'
+                      ? (typeof localStorage !== 'undefined' ? localStorage.getItem('k7_owner_custom_pass') || '123456' : '123456')
+                      : '');
+
+                  if (!currentPwd) {
                     return (
-                      <label
-                        key={cls.id}
-                        className={`cursor-pointer flex items-center gap-2 px-2 py-1 rounded border text-xs transition ${
-                          isChecked
-                            ? 'border-purple-500 bg-purple-950/40 text-white'
-                            : 'border-slate-800 bg-slate-900/30 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setEditClasses([...editClasses, cls.nameEn]);
-                            } else {
-                              setEditClasses(editClasses.filter((c) => c !== cls.nameEn));
-                            }
-                          }}
-                          className="size-3.5 rounded accent-purple-500 cursor-pointer"
-                        />
-                        <img
-                          src={cls.icon}
-                          alt={cls.nameEn}
-                          className="size-4 object-contain shrink-0"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                        <span>{cls.nameEn}</span>
-                      </label>
+                      <div className="text-[11px] text-slate-500 font-mono py-1">
+                        {lang === 'th' ? '(ยังไม่มีการบันทึกรหัสผ่านในระบบ / ใช้รหัสเดิมที่เคยตั้ง)' : '(No stored password / using existing)'}
+                      </div>
                     );
-                  })}
-                </div>
-              </div>
+                  }
 
-              {/* Level, Legend Classes, Legend Agathions Grid */}
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Level
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="99"
-                    value={editLevel ? editLevel : ''}
-                    onFocus={(e) => e.target.select()}
-                    onChange={(e) => setEditLevel(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                    placeholder="0"
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-center text-slate-100 focus:border-[#d4af37] focus:outline-none font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1 truncate" title="Legend Classes">
-                    Legend Class
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={editLegendClasses ? editLegendClasses : ''}
-                    onFocus={(e) => e.target.select()}
-                    onChange={(e) => setEditLegendClasses(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                    placeholder="0"
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-center text-slate-100 focus:border-[#d4af37] focus:outline-none font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1 truncate" title="Legend Agathions">
-                    Legend Agath.
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={editLegendAgathions ? editLegendAgathions : ''}
-                    onFocus={(e) => e.target.select()}
-                    onChange={(e) => setEditLegendAgathions(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                    placeholder="0"
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-[#090d16] border border-slate-700 text-xs text-center text-slate-100 focus:border-[#d4af37] focus:outline-none font-bold"
-                  />
-                </div>
+                  return (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <div className="flex-1 flex items-center justify-between px-3 py-1.5 rounded-lg bg-[#0e1422] border border-slate-700 font-mono text-xs text-amber-200 select-all">
+                        <span>{showCurrentPassword ? currentPwd : '••••••••••••'}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sounds.playClick();
+                            setShowCurrentPassword(!showCurrentPassword);
+                          }}
+                          className="text-slate-400 hover:text-white p-0.5 cursor-pointer ml-2"
+                          title={showCurrentPassword ? (lang === 'th' ? 'ซ่อนรหัสผ่าน' : 'Hide') : (lang === 'th' ? 'แสดงรหัสผ่าน' : 'Show')}
+                        >
+                          {showCurrentPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          navigator.clipboard?.writeText(currentPwd);
+                          setCopiedPassword(true);
+                          setTimeout(() => setCopiedPassword(false), 2000);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shrink-0"
+                        title={lang === 'th' ? 'คัดลอกรหัสผ่าน' : 'Copy Password'}
+                      >
+                        {copiedPassword ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="text-emerald-400 text-[10px]">{lang === 'th' ? 'คัดลอกแล้ว' : 'Copied'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span className="text-[10px]">{lang === 'th' ? 'คัดลอก' : 'Copy'}</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Role (Owner can set role) */}
@@ -1089,27 +1063,6 @@ export const MembersView: React.FC<MembersViewProps> = ({
                       <span>{lang === 'th' ? 'คลิกดูรูปเทียบค่าพลัง' : 'Click to inspect proof vs stats'}</span>
                     </div>
                   </div>
-                </div>
-              )}
-
-              {/* Change Password Option */}
-              {editingUser && canChangePassword(currentUser, editingUser) && onChangePassword && (
-                <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
-                  <span className="text-xs text-slate-400">
-                    {lang === 'th' ? 'ความปลอดภัยของบัญชี' : 'Account Security'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      const target = editingUser;
-                      setEditingUser(null);
-                      onChangePassword(target);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 text-[#f5d77f] text-xs font-semibold transition cursor-pointer"
-                  >
-                    <span>{t.editPassword}</span>
-                  </button>
                 </div>
               )}
 
