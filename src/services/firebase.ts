@@ -189,7 +189,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.57-payment-status-sync';
+const CACHE_SCHEMA_VERSION = '2.10.58-diamond-payout-box';
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -2594,9 +2594,17 @@ export async function confirmVaultItemPayment(
     if (isPaid) {
       updatedDistributedTo.paidAt = now;
       updatedDistributedTo.paidBy = actorName;
+      // When newly marked as paid, ensure diamondDistributed is defined as false if not yet set
+      if (updatedDistributedTo.diamondDistributed === undefined) {
+        updatedDistributedTo.diamondDistributed = false;
+      }
     } else {
       delete updatedDistributedTo.paidAt;
       delete updatedDistributedTo.paidBy;
+      // When reverting back to pending, reset diamond distribution state
+      updatedDistributedTo.diamondDistributed = false;
+      delete updatedDistributedTo.diamondDistributedAt;
+      delete updatedDistributedTo.diamondDistributedBy;
     }
   }
 
@@ -2604,8 +2612,75 @@ export async function confirmVaultItemPayment(
     paymentStatus: status,
     updatedAt: now,
     ...(isPaid
-      ? { paidAt: now, paidBy: actorName }
-      : { paidAt: null as any, paidBy: null as any }),
+      ? {
+          paidAt: now,
+          paidBy: actorName,
+          diamondDistributed: currentItem?.diamondDistributed ?? false
+        }
+      : {
+          paidAt: null as any,
+          paidBy: null as any,
+          diamondDistributed: false,
+          diamondDistributedAt: null as any,
+          diamondDistributedBy: null as any
+        }),
+    ...(updatedDistributedTo ? { distributedTo: updatedDistributedTo } : {})
+  };
+
+  // Optimistically update local cache immediately
+  if (currentItem) {
+    const nextCached = currentCached.map((it) =>
+      it.id === itemId ? normalizeDistributedItem({ ...it, ...updates, distributedTo: updatedDistributedTo }) : it
+    );
+    setCachedVaultItems(nextCached);
+  }
+
+  await updateVaultItemDoc(itemId, updates);
+  bumpSystemVersion('vaultVersion').catch(() => {});
+}
+
+export async function confirmVaultItemDiamondDistribution(
+  itemId: string,
+  actorName: string,
+  isDistributed: boolean = true
+) {
+  const now = Date.now();
+  const currentCached = getCachedVaultItems();
+  const currentItem = currentCached.find((i) => i.id === itemId);
+
+  let updatedDistributedTo = currentItem?.distributedTo ? { ...currentItem.distributedTo } : undefined;
+
+  if (!updatedDistributedTo) {
+    try {
+      const snap = await safeFirestoreWrite(getDoc(doc(db, ITEMS_COLLECTION, itemId)), 1200, 'confirmVaultItemDiamondDistribution_getDoc');
+      if (snap && snap.exists()) {
+        const data = snap.data();
+        if (data.distributedTo) {
+          updatedDistributedTo = typeof data.distributedTo === 'string'
+            ? JSON.parse(data.distributedTo)
+            : { ...data.distributedTo };
+        }
+      }
+    } catch {}
+  }
+
+  if (updatedDistributedTo) {
+    updatedDistributedTo.diamondDistributed = isDistributed;
+    if (isDistributed) {
+      updatedDistributedTo.diamondDistributedAt = now;
+      updatedDistributedTo.diamondDistributedBy = actorName;
+    } else {
+      delete updatedDistributedTo.diamondDistributedAt;
+      delete updatedDistributedTo.diamondDistributedBy;
+    }
+  }
+
+  const updates: Partial<VaultItem> = {
+    diamondDistributed: isDistributed,
+    updatedAt: now,
+    ...(isDistributed
+      ? { diamondDistributedAt: now, diamondDistributedBy: actorName }
+      : { diamondDistributedAt: null as any, diamondDistributedBy: null as any }),
     ...(updatedDistributedTo ? { distributedTo: updatedDistributedTo } : {})
   };
 

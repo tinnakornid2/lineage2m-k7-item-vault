@@ -182,10 +182,23 @@ export const translations = {
     // Vault Distributed Twin Boxes
     pendingPaymentBoxTitle: '⏳ รายการค้างชำระ',
     pendingPaymentBoxDesc: 'ไอเทมที่แจกแล้วแต่ยังรอสมาชิกชำระเพชร',
-    completedPaymentBoxTitle: '✅ รายการที่ชำระแล้ว / แจกฟรี',
-    completedPaymentBoxDesc: 'ไอเทมที่ชำระเพชรเรียบร้อยแล้ว หรือแจกฟรี',
+    pendingDiamondPayoutBoxTitle: '💎 รอแจกเพชร',
+    pendingDiamondPayoutBoxDesc: 'ไอเทมที่ชำระเพชรแล้ว รอแจก/หารเพชรให้ผู้ล่า',
+    completedPaymentBoxTitle: '✅ แจกเสร็จสิ้นแล้ว',
+    completedPaymentBoxDesc: 'ไอเทมที่แจกเพชรแล้ว หรือแจกฟรี',
     noPendingPaymentItems: 'ไม่มีรายการค้างชำระ ทุกรายการชำระครบถ้วนแล้ว',
-    noCompletedPaymentItems: 'ยังไม่มีประวัติรายการที่ชำระแล้ว',
+    noDiamondPayoutItems: 'ไม่มีรายการที่รอแจกเพชร',
+    noDiamondPayoutItemsDesc: 'ไอเทมที่ชำระเพชรแล้วได้รับการแจกเพชรให้ผู้ล่าครบถ้วน',
+    noCompletedPaymentItems: 'ยังไม่มีประวัติรายการที่แจกเสร็จสิ้น',
+    btnDistributeDiamonds: 'แจกเพชร',
+    btnDistributeDiamondsToHunters: '💎 แจกเพชร',
+    distributeDiamondsConfirm: 'ยืนยันการแจกเพชรให้ผู้ล่าสำหรับไอเทมนี้ใช่หรือไม่?',
+    distributeDiamondsSuccess: 'บันทึกการแจกเพชรให้ผู้ล่าเรียบร้อยแล้ว!',
+    diamondDistributedBadge: 'แจกเพชรแล้ว',
+    revertDiamondDistributionConfirm: 'ต้องการเปลี่ยนสถานะกลับเป็นรอแจกเพชรใช่หรือไม่?',
+    diamondPayoutReverted: 'เปลี่ยนสถานะกลับเป็นรอแจกเพชรแล้ว',
+    filterDiamondPayout: 'รอแจกเพชร',
+    statusBoxesView: 'มุมมองกล่องแยกสถานะ',
 
 
     // Items Vault
@@ -800,10 +813,23 @@ export const translations = {
     // Vault Distributed Twin Boxes
     pendingPaymentBoxTitle: '⏳ Pending Payment',
     pendingPaymentBoxDesc: 'Items distributed but awaiting diamond payment from recipient',
-    completedPaymentBoxTitle: '✅ Completed & Free Distributions',
-    completedPaymentBoxDesc: 'Items with confirmed payment or free distributions',
+    pendingDiamondPayoutBoxTitle: '💎 Awaiting Diamond Payout',
+    pendingDiamondPayoutBoxDesc: 'Paid items awaiting diamond distribution to hunters',
+    completedPaymentBoxTitle: '✅ Completed Distributions',
+    completedPaymentBoxDesc: 'Items with diamonds distributed or free items',
     noPendingPaymentItems: 'No pending payments. All distributed items are paid.',
+    noDiamondPayoutItems: 'No items awaiting diamond payout',
+    noDiamondPayoutItemsDesc: 'All paid items have had diamonds distributed to hunters',
     noCompletedPaymentItems: 'No completed distributions yet.',
+    btnDistributeDiamonds: 'Distribute Diamonds',
+    btnDistributeDiamondsToHunters: '💎 Distribute Diamonds',
+    distributeDiamondsConfirm: 'Confirm diamond distribution to hunters for this item?',
+    distributeDiamondsSuccess: 'Diamonds distributed to hunters successfully!',
+    diamondDistributedBadge: 'Diamonds Distributed',
+    revertDiamondDistributionConfirm: 'Revert status to awaiting diamond payout?',
+    diamondPayoutReverted: 'Status reverted to awaiting diamond payout',
+    filterDiamondPayout: 'Awaiting Payout',
+    statusBoxesView: 'Status Boxes View',
 
 
     // Items Vault

@@ -83,6 +83,7 @@ import {
   deleteUserDoc,
   changeUserPassword,
   confirmVaultItemPayment,
+  confirmVaultItemDiamondDistribution,
   addDiamondTransactionDoc,
   updateDiamondTransactionNoteDoc,
   clearDiamondTransactionsDoc,
@@ -2883,7 +2884,10 @@ export const App: React.FC = () => {
             ...i.distributedTo,
             paymentStatus: targetStatus,
             paidAt: isPaid ? now : undefined,
-            paidBy: isPaid ? actorName : undefined
+            paidBy: isPaid ? actorName : undefined,
+            ...(isPaid
+              ? (i.distributedTo.diamondDistributed !== undefined ? {} : { diamondDistributed: false })
+              : { diamondDistributed: false, diamondDistributedAt: undefined, diamondDistributedBy: undefined })
           }
         : undefined;
       return {
@@ -2891,6 +2895,9 @@ export const App: React.FC = () => {
         paymentStatus: targetStatus,
         paidAt: isPaid ? now : undefined,
         paidBy: isPaid ? actorName : undefined,
+        ...(isPaid
+          ? (i.diamondDistributed !== undefined ? {} : { diamondDistributed: false })
+          : { diamondDistributed: false, diamondDistributedAt: undefined, diamondDistributedBy: undefined }),
         distributedTo: updatedDistributedTo,
         updatedAt: now
       };
@@ -2921,6 +2928,70 @@ export const App: React.FC = () => {
       console.error('Failed to update payment status:', err);
       showToast(
         lang === 'th' ? 'เกิดข้อผิดพลาดในการอัปเดตสถานะการชำระ' : 'Failed to update payment status',
+        'error'
+      );
+    }
+  };
+
+  // Diamond Distribution Handler for Paid Distributed Items
+  const handleConfirmDiamondDistribution = async (
+    item: VaultItem,
+    isDistributed: boolean = true
+  ) => {
+    sounds.playClick();
+    const actorName = currentUser?.inGameName || currentUser?.username || 'Admin';
+    const now = Date.now();
+
+    // Optimistic update
+    const nextVaultItems: VaultItem[] = vaultItems.map((i) => {
+      if (i.id !== item.id) return i;
+      const updatedDistributedTo = i.distributedTo
+        ? {
+            ...i.distributedTo,
+            diamondDistributed: isDistributed,
+            diamondDistributedAt: isDistributed ? now : undefined,
+            diamondDistributedBy: isDistributed ? actorName : undefined
+          }
+        : undefined;
+      return {
+        ...i,
+        diamondDistributed: isDistributed,
+        diamondDistributedAt: isDistributed ? now : undefined,
+        diamondDistributedBy: isDistributed ? actorName : undefined,
+        distributedTo: updatedDistributedTo,
+        updatedAt: now
+      };
+    });
+    setVaultItems(nextVaultItems);
+    setCachedVaultItems(nextVaultItems);
+
+    broadcastLiveState(
+      getFullBackupPayload({ vaultItems: nextVaultItems }),
+      actorName
+    );
+
+    triggerDebouncedAutoBackup(
+      getFullBackupPayload({ vaultItems: nextVaultItems }),
+      actorName,
+      false
+    );
+
+    if (isDistributed) {
+      sounds.playSuccess();
+    }
+
+    try {
+      await confirmVaultItemDiamondDistribution(item.id, actorName, isDistributed);
+      showToast(
+        isDistributed
+          ? (lang === 'th' ? `แจกเพชรสำหรับ "${item.name}" เรียบร้อยแล้ว!` : `Diamonds distributed for "${item.name}"!`)
+          : (lang === 'th' ? `เปลี่ยนสถานะ "${item.name}" กลับเป็นรอแจกเพชรแล้ว` : `Status reverted to awaiting payout for "${item.name}"`),
+        'success'
+      );
+    } catch (err) {
+      console.error('Failed to update diamond distribution status:', err);
+      showToast(
+        lang === 'th' ? 'เกิดข้อผิดพลาดในการอัปเดตสถานะการแจกเพชร' : 'Failed to update diamond distribution status',
         'error'
       );
     }
@@ -4535,6 +4606,7 @@ export const App: React.FC = () => {
             }
             onOpenOwnerResetModal={() => setShowOwnerResetModal(true)}
             onConfirmPayment={handleConfirmPayment}
+            onConfirmDiamondDistribution={handleConfirmDiamondDistribution}
           />
         )}
 

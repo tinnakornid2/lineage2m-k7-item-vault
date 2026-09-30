@@ -206,6 +206,9 @@ export interface DistributedInfo {
   paymentStatus?: 'pending' | 'paid';
   paidAt?: number;
   paidBy?: string;
+  diamondDistributed?: boolean;
+  diamondDistributedAt?: number;
+  diamondDistributedBy?: string;
   source?: 'vault' | 'item_queue';
 }
 
@@ -218,6 +221,7 @@ export interface DirectDistributionPayload {
   };
   receiptImages?: string[];
   paymentStatus?: 'pending' | 'paid';
+  diamondDistributed?: boolean;
   skipDiscordNotification?: boolean;
 }
 
@@ -238,6 +242,9 @@ export interface VaultItem {
   paymentStatus?: 'pending' | 'paid';
   paidAt?: number;
   paidBy?: string;
+  diamondDistributed?: boolean;
+  diamondDistributedAt?: number;
+  diamondDistributedBy?: string;
   source?: 'vault' | 'item_queue';
   createdAt: number;
   updatedAt?: number;
@@ -285,9 +292,42 @@ export function isDistributedItemPaymentPending<T extends Partial<VaultItem>>(it
 }
 
 /**
+ * Helper to check if a distributed item is awaiting diamond payout/distribution to hunters.
+ * Returns true only if:
+ * 1. Item has price > 0 (not free)
+ * 2. Payment from member is confirmed (paid)
+ * 3. Diamonds have NOT yet been distributed to hunters (diamondDistributed !== true)
+ */
+export function isDistributedItemDiamondPayoutPending<T extends Partial<VaultItem>>(item: T | null | undefined): boolean {
+  if (!item) return false;
+  const price = Number(item.price) || 0;
+  if (price <= 0) return false;
+  if (isDistributedItemPaymentPending(item)) return false;
+
+  let distDistributed: boolean | undefined;
+  if (item.distributedTo && typeof item.distributedTo === 'object') {
+    distDistributed = (item.distributedTo as any).diamondDistributed;
+  }
+  const effectiveDistributed = item.diamondDistributed !== undefined ? item.diamondDistributed : (distDistributed ?? false);
+  return !effectiveDistributed;
+}
+
+/**
+ * Helper to check if a distributed item is fully completed:
+ * - Free items (price <= 0) are completed immediately upon distribution.
+ * - Non-free items (price > 0) are completed only when payment is paid AND diamonds are distributed.
+ */
+export function isDistributedItemFullyCompleted<T extends Partial<VaultItem>>(item: T | null | undefined): boolean {
+  if (!item) return false;
+  const price = Number(item.price) || 0;
+  if (price <= 0) return true;
+  return !isDistributedItemPaymentPending(item) && !isDistributedItemDiamondPayoutPending(item);
+}
+
+/**
  * Ensures an item identified as distributed has its status strictly set to 'distributed',
  * parses its distributedTo payload if it was serialized as JSON string,
- * and synchronizes paymentStatus across both top-level and distributedTo object.
+ * and synchronizes paymentStatus & diamondDistributed across both top-level and distributedTo object.
  */
 export function normalizeDistributedItem<T extends Partial<VaultItem>>(item: T): T {
   if (!item) return item;
@@ -327,18 +367,36 @@ export function normalizeDistributedItem<T extends Partial<VaultItem>>(item: T):
     const paidAt = item.paidAt ?? (dist && typeof dist === 'object' ? dist.paidAt : undefined);
     const paidBy = item.paidBy ?? (dist && typeof dist === 'object' ? dist.paidBy : undefined);
 
+    // Diamond payout state synchronization
+    const effectiveDiamondDistributed = isFree
+      ? true
+      : Boolean(item.diamondDistributed ?? (dist && typeof dist === 'object' ? dist.diamondDistributed : false));
+
+    const diamondDistributedAt = item.diamondDistributedAt ?? (dist && typeof dist === 'object' ? dist.diamondDistributedAt : undefined);
+    const diamondDistributedBy = item.diamondDistributedBy ?? (dist && typeof dist === 'object' ? dist.diamondDistributedBy : undefined);
+
     if (dist && typeof dist === 'object') {
       dist = {
         ...dist,
         paymentStatus: effectivePaymentStatus,
+        diamondDistributed: effectiveDiamondDistributed,
         ...(effectivePaymentStatus === 'paid' ? {
           ...(paidAt ? { paidAt } : {}),
           ...(paidBy ? { paidBy } : {})
+        } : {}),
+        ...(effectiveDiamondDistributed ? {
+          ...(diamondDistributedAt ? { diamondDistributedAt } : {}),
+          ...(diamondDistributedBy ? { diamondDistributedBy } : {})
         } : {})
       };
       if (effectivePaymentStatus === 'pending') {
         delete dist.paidAt;
         delete dist.paidBy;
+        delete dist.diamondDistributedAt;
+        delete dist.diamondDistributedBy;
+      } else if (!effectiveDiamondDistributed) {
+        delete dist.diamondDistributedAt;
+        delete dist.diamondDistributedBy;
       }
     }
 
@@ -346,12 +404,20 @@ export function normalizeDistributedItem<T extends Partial<VaultItem>>(item: T):
       ...item,
       status: 'distributed' as const,
       paymentStatus: effectivePaymentStatus,
+      diamondDistributed: effectiveDiamondDistributed,
       ...(effectivePaymentStatus === 'paid' ? {
         ...(paidAt ? { paidAt } : {}),
         ...(paidBy ? { paidBy } : {})
       } : {
         paidAt: undefined,
         paidBy: undefined
+      }),
+      ...(effectiveDiamondDistributed ? {
+        ...(diamondDistributedAt ? { diamondDistributedAt } : {}),
+        ...(diamondDistributedBy ? { diamondDistributedBy } : {})
+      } : {
+        diamondDistributedAt: undefined,
+        diamondDistributedBy: undefined
       }),
       distributedTo: dist
     };

@@ -52,7 +52,9 @@ import {
   cleanClanName,
   DEFAULT_CLAN,
   isItemDistributed,
-  isDistributedItemPaymentPending
+  isDistributedItemPaymentPending,
+  isDistributedItemDiamondPayoutPending,
+  isDistributedItemFullyCompleted
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
@@ -88,6 +90,7 @@ interface VaultViewProps {
   ) => void;
   onOpenOwnerResetModal?: () => void;
   onConfirmPayment?: (item: VaultItem, targetStatus?: 'pending' | 'paid') => void;
+  onConfirmDiamondDistribution?: (item: VaultItem, isDistributed?: boolean) => void;
 }
 
 export const VaultView: React.FC<VaultViewProps> = ({
@@ -102,7 +105,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
   onEditItem,
   onViewImageZoom,
   onOpenOwnerResetModal,
-  onConfirmPayment
+  onConfirmPayment,
+  onConfirmDiamondDistribution
 }) => {
   const t = translations[lang];
   const isOwner = currentUser?.role === 'owner';
@@ -271,7 +275,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [distHuntersTextFormat, setDistHuntersTextFormat] = useState<'by-clan' | 'plain' | 'inline' | 'comma'>('by-clan');
   const [distHuntersClanFilter, setDistHuntersClanFilter] = useState<string>('all');
   const [copiedDistHunters, setCopiedDistHunters] = useState<boolean>(false);
-  const [distFilterStatus, setDistFilterStatus] = useState<'all' | 'incomplete' | 'complete'>('all');
+  const [distFilterStatus, setDistFilterStatus] = useState<'all' | 'incomplete' | 'payout_pending' | 'complete'>('all');
 
   // Check Gemini API status and sync from Firestore in real-time
   useEffect(() => {
@@ -1277,24 +1281,47 @@ export const VaultView: React.FC<VaultViewProps> = ({
     return distributedItems.filter(isDistributedItemPaymentPending);
   }, [distributedItems]);
 
+  const pendingDiamondPayoutItems = useMemo(() => {
+    return distributedItems.filter(isDistributedItemDiamondPayoutPending);
+  }, [distributedItems]);
+
   const completeDistributedItems = useMemo(() => {
-    return distributedItems.filter((i) => !isDistributedItemPaymentPending(i));
+    return distributedItems.filter(isDistributedItemFullyCompleted);
   }, [distributedItems]);
 
   const displayedDistributedItems = useMemo(() => {
     if (distFilterStatus === 'incomplete') return incompleteDistributedItems;
+    if (distFilterStatus === 'payout_pending') return pendingDiamondPayoutItems;
     if (distFilterStatus === 'complete') return completeDistributedItems;
     return distributedItems;
-  }, [distFilterStatus, incompleteDistributedItems, completeDistributedItems, distributedItems]);
+  }, [distFilterStatus, incompleteDistributedItems, pendingDiamondPayoutItems, completeDistributedItems, distributedItems]);
 
-  const renderDistributedCard = (item: VaultItem, forcePending?: boolean) => {
-    const isPending = forcePending !== undefined ? forcePending : isDistributedItemPaymentPending(item);
+  const renderDistributedCard = (
+    item: VaultItem,
+    forceStage?: 'pending_payment' | 'pending_payout' | 'completed' | boolean
+  ) => {
+    const isPendingPayment =
+      forceStage === true || forceStage === 'pending_payment'
+        ? true
+        : forceStage === false || forceStage === 'pending_payout' || forceStage === 'completed'
+        ? false
+        : isDistributedItemPaymentPending(item);
+
+    const isPendingPayout =
+      forceStage === 'pending_payout'
+        ? true
+        : forceStage === true || forceStage === false || forceStage === 'pending_payment' || forceStage === 'completed'
+        ? false
+        : isDistributedItemDiamondPayoutPending(item);
+
     return (
       <div
         key={item.id}
         className={`p-3 rounded-xl border transition-all ${
-          isPending
+          isPendingPayment
             ? 'bg-[#15111c] border-amber-500/40 hover:border-amber-400/70 shadow-md'
+            : isPendingPayout
+            ? 'bg-[#0b1626] border-sky-500/40 hover:border-cyan-400/70 shadow-md'
             : 'bg-[#0b1424] border-slate-800 hover:border-emerald-500/40 shadow-md'
         }`}
       >
@@ -1530,9 +1557,9 @@ export const VaultView: React.FC<VaultViewProps> = ({
             )}
           </div>
 
-          {/* Action Button: Confirm Paid / Paid Status / Revert */}
+          {/* Action Button: Confirm Paid / Distribute Diamonds / Completed / Revert */}
           <div className="flex items-center gap-1.5 ml-auto">
-            {isPending ? (
+            {isPendingPayment ? (
               onConfirmPayment && (
                 <button
                   type="button"
@@ -1547,21 +1574,57 @@ export const VaultView: React.FC<VaultViewProps> = ({
                   <span>{t.confirmPayment || (lang === 'th' ? 'ยืนยันการชำระ' : 'Confirm Payment')}</span>
                 </button>
               )
+            ) : isPendingPayout ? (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {/* Revert payment button for Admin/Owner */}
+                {isAdminOrOwner && onConfirmPayment && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      if (window.confirm(lang === 'th' ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นรอชำระใช่หรือไม่?` : `Revert "${item.name}" status to pending payment?`)) {
+                        onConfirmPayment(item, 'pending');
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 cursor-pointer hover:bg-amber-500/25 transition-all"
+                    title={lang === 'th' ? 'ชำระแล้ว - คลิกเพื่อเปลี่ยนกลับเป็นรอชำระ' : 'Paid - Click to revert to pending'}
+                  >
+                    <CheckCircle className="w-3 h-3 text-emerald-400" />
+                    <span>{t.paymentStatusPaid || (lang === 'th' ? 'ชำระแล้ว' : 'Paid')}</span>
+                  </button>
+                )}
+                {/* Distribute Diamonds button */}
+                {isAdminOrOwner && onConfirmDiamondDistribution && (
+                  <button
+                    type="button"
+                    id={`btn-card-distribute-diamonds-${item.id}`}
+                    onClick={() => {
+                      sounds.playClick();
+                      onConfirmDiamondDistribution(item, true);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-cyan-600 via-sky-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold shadow-md cursor-pointer transition-all hover:scale-105 active:scale-95 border border-cyan-400/50 flex items-center gap-1.5"
+                    title={lang === 'th' ? 'กดเพื่อแจกเพชรให้ผู้ล่า' : 'Click to distribute diamonds to hunters'}
+                  >
+                    <Gem className="w-3.5 h-3.5 text-cyan-200 animate-pulse" />
+                    <span>{t.btnDistributeDiamondsToHunters || (lang === 'th' ? '💎 แจกเพชร' : '💎 Distribute Diamonds')}</span>
+                  </button>
+                )}
+              </div>
             ) : item.price > 0 ? (
               <button
                 type="button"
                 onClick={() => {
-                  if (!onConfirmPayment) return;
+                  if (!onConfirmDiamondDistribution) return;
                   sounds.playClick();
-                  if (window.confirm(lang === 'th' ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นรอชำระใช่หรือไม่?` : `Revert "${item.name}" status to pending payment?`)) {
-                    onConfirmPayment(item, 'pending');
+                  if (window.confirm(t.revertDiamondDistributionConfirm || (lang === 'th' ? 'ต้องการเปลี่ยนสถานะกลับเป็นรอแจกเพชรใช่หรือไม่?' : 'Revert status to awaiting diamond payout?'))) {
+                    onConfirmDiamondDistribution(item, false);
                   }
                 }}
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer hover:bg-emerald-500/30 transition-all"
-                title={lang === 'th' ? 'ชำระแล้ว - คลิกเพื่อเปลี่ยนกลับเป็นรอชำระ' : 'Paid - Click to revert to pending'}
+                title={lang === 'th' ? 'แจกเพชรแล้ว - คลิกเพื่อเปลี่ยนกลับเป็นรอแจกเพชร' : 'Diamonds Distributed - Click to revert to awaiting payout'}
               >
                 <CheckCircle className="w-3 h-3 text-emerald-400" />
-                <span>{t.paymentStatusPaid || (lang === 'th' ? 'ชำระแล้ว' : 'Paid')}</span>
+                <span>{t.diamondDistributedBadge || (lang === 'th' ? 'แจกเพชรแล้ว' : 'Diamonds Distributed')}</span>
               </button>
             ) : (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/70 border border-emerald-500/40 text-emerald-300">
@@ -2890,7 +2953,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     }`}
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
-                    <span>{lang === 'th' ? 'มุมมองกล่องคู่ (แยกค้างชำระ)' : 'Dual-Box View (Split Debt)'}</span>
+                    <span>{t.statusBoxesView || (lang === 'th' ? 'มุมมองกล่องแยกสถานะ' : 'Status Boxes View')}</span>
                   </button>
                   <button
                     type="button"
@@ -2911,8 +2974,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
               </div>
 
               {distViewMode === 'boxes' ? (
-                /* Dual-Box Layout (กล่องคู่: แยกค้างชำระ กับ แจกเสร็จสิ้น) */
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
+                /* Three-Box Layout (แยก 3 กล่อง: ค้างชำระเพชร -> รอแจกเพชร -> แจกเสร็จสิ้น) */
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start">
                   
                   {/* BOX 1: ค้างชำระ (Pending Payment / Debt) */}
                   <div className="rounded-2xl bg-gradient-to-b from-[#18131d] via-[#120f18] to-[#0a0710] border border-amber-500/40 p-4 shadow-xl flex flex-col space-y-3">
@@ -2945,12 +3008,48 @@ export const VaultView: React.FC<VaultViewProps> = ({
                       </div>
                     ) : (
                       <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
-                        {incompleteDistributedItems.map((item) => renderDistributedCard(item, true))}
+                        {incompleteDistributedItems.map((item) => renderDistributedCard(item, 'pending_payment'))}
                       </div>
                     )}
                   </div>
 
-                  {/* BOX 2: แจกเสร็จสิ้น (Completed Distributions) */}
+                  {/* BOX 2: รอแจกเพชร (Awaiting Diamond Payout) - NEW! */}
+                  <div className="rounded-2xl bg-gradient-to-b from-[#0f1d2e] via-[#091524] to-[#050c17] border border-sky-500/40 p-4 shadow-xl flex flex-col space-y-3">
+                    <div className="flex items-center justify-between pb-2.5 border-b border-sky-500/20">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-sky-500/20 text-cyan-300 border border-sky-500/40 shadow-inner">
+                          <Gem className="w-4 h-4 text-cyan-300 animate-pulse" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-sky-200 font-cinzel">
+                            {lang === 'th' ? 'รอแจกเพชร' : 'Awaiting Diamond Payout'}
+                          </h3>
+                          <p className="text-[11px] text-sky-400/80">
+                            {lang === 'th' ? 'ไอเทมที่ชำระเพชรแล้ว รอแจก/หารเพชรให้ผู้ล่า' : 'Paid items awaiting diamond payout to hunters'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-sky-500/20 text-cyan-300 border border-sky-500/40">
+                          {pendingDiamondPayoutItems.length} {lang === 'th' ? 'รายการ' : 'items'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {pendingDiamondPayoutItems.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-500 border border-dashed border-slate-800/80 rounded-xl space-y-1 bg-[#090d16]/50">
+                        <CheckCircle className="w-7 h-7 mx-auto text-cyan-400/60" />
+                        <p className="text-cyan-400 font-semibold">{t.noDiamondPayoutItems || (lang === 'th' ? 'ไม่มีรายการที่รอแจกเพชร' : 'No items awaiting payout')}</p>
+                        <p className="text-[10px] text-slate-400">{t.noDiamondPayoutItemsDesc || (lang === 'th' ? 'ไอเทมที่ชำระแล้วได้รับการแจกเพชรครบถ้วน' : 'All paid items have had diamonds distributed')}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
+                        {pendingDiamondPayoutItems.map((item) => renderDistributedCard(item, 'pending_payout'))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* BOX 3: แจกเสร็จสิ้น (Completed Distributions) */}
                   <div className="rounded-2xl bg-gradient-to-b from-[#101b2b] via-[#0b1320] to-[#070b14] border border-emerald-500/40 p-4 shadow-xl flex flex-col space-y-3">
                     <div className="flex items-center justify-between pb-2.5 border-b border-emerald-500/20">
                       <div className="flex items-center gap-2">
@@ -2962,7 +3061,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                             {lang === 'th' ? 'แจกเสร็จสิ้นแล้ว' : 'Completed Distributions'}
                           </h3>
                           <p className="text-[11px] text-emerald-400/80">
-                            {lang === 'th' ? 'ไอเทมที่ชำระแล้วหรือแจกฟรี เรียงล่าสุดบนสุด' : 'Paid and free items, sorted latest first'}
+                            {lang === 'th' ? 'ไอเทมที่แจกเพชรแล้ว หรือแจกฟรี เรียงล่าสุดบนสุด' : 'Paid & distributed or free items, sorted latest first'}
                           </p>
                         </div>
                       </div>
@@ -2980,7 +3079,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                       </div>
                     ) : (
                       <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
-                        {completeDistributedItems.map((item) => renderDistributedCard(item, false))}
+                        {completeDistributedItems.map((item) => renderDistributedCard(item, 'completed'))}
                       </div>
                     )}
                   </div>
@@ -3026,6 +3125,27 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     <span>{t.boxIncompleteDist}</span>
                     <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
                       {incompleteDistributedItems.length}
+                    </span>
+                  </button>
+                )}
+
+                {pendingDiamondPayoutItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      setDistFilterStatus('payout_pending');
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      distFilterStatus === 'payout_pending'
+                        ? 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white font-black shadow-md'
+                        : 'bg-sky-950/40 hover:bg-sky-950/60 text-sky-300 border border-sky-600/40'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                    <span>{t.filterDiamondPayout || (lang === 'th' ? 'รอแจกเพชร' : 'Awaiting Payout')}</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
+                      {pendingDiamondPayoutItems.length}
                     </span>
                   </button>
                 )}
@@ -3130,31 +3250,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                             <span className="text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.3)] block text-xs">
                               {item.price.toLocaleString()} {t.diamonds}
                             </span>
-                            {!isDistributedItemPaymentPending(item) ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!onConfirmPayment) return;
-                                  sounds.playClick();
-                                  if (window.confirm(
-                                    lang === 'th'
-                                      ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นรอชำระใช่หรือไม่?`
-                                      : `Revert "${item.name}" status to pending payment?`
-                                  )) {
-                                    onConfirmPayment(item, 'pending');
-                                  }
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer hover:bg-emerald-500/30 transition-all shadow-sm"
-                                title={
-                                  lang === 'th'
-                                    ? `ชำระแล้ว ${item.paidBy ? `(ยืนยันโดย ${item.paidBy})` : ''} - คลิกเพื่อเปลี่ยนกลับเป็นรอชำระ`
-                                    : `Paid ${item.paidBy ? `(verified by ${item.paidBy})` : ''} - Click to revert to pending`
-                                }
-                              >
-                                <CheckCircle className="w-3 h-3 text-emerald-400" />
-                                <span>{t.paymentStatusPaid || (lang === 'th' ? 'ชำระแล้ว' : 'Paid')}</span>
-                              </button>
-                            ) : (
+                            {isDistributedItemPaymentPending(item) ? (
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse shadow-sm">
                                   <Clock className="w-3 h-3 text-amber-400" />
@@ -3175,6 +3271,75 @@ export const VaultView: React.FC<VaultViewProps> = ({
                                   </button>
                                 )}
                               </div>
+                            ) : isDistributedItemDiamondPayoutPending(item) ? (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!onConfirmPayment) return;
+                                      sounds.playClick();
+                                      if (window.confirm(
+                                        lang === 'th'
+                                          ? `ต้องการเปลี่ยนสถานะ "${item.name}" กลับเป็นรอชำระใช่หรือไม่?`
+                                          : `Revert "${item.name}" status to pending payment?`
+                                      )) {
+                                        onConfirmPayment(item, 'pending');
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 cursor-pointer hover:bg-amber-500/25 transition-all shadow-sm"
+                                    title={
+                                      lang === 'th'
+                                        ? `ชำระแล้ว ${item.paidBy ? `(ยืนยันโดย ${item.paidBy})` : ''} - คลิกเพื่อเปลี่ยนกลับเป็นรอชำระ`
+                                        : `Paid ${item.paidBy ? `(verified by ${item.paidBy})` : ''} - Click to revert to pending`
+                                    }
+                                  >
+                                    <CheckCircle className="w-3 h-3 text-emerald-400" />
+                                    <span>{t.paymentStatusPaid || (lang === 'th' ? 'ชำระแล้ว' : 'Paid')}</span>
+                                  </button>
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-cyan-300 border border-sky-500/40 shadow-sm">
+                                    <Gem className="w-3 h-3 text-cyan-400" />
+                                    <span>{t.filterDiamondPayout || (lang === 'th' ? 'รอแจกเพชร' : 'Awaiting Payout')}</span>
+                                  </span>
+                                </div>
+                                {isAdminOrOwner && onConfirmDiamondDistribution && (
+                                  <button
+                                    type="button"
+                                    id={`btn-table-distribute-diamonds-${item.id}`}
+                                    onClick={() => {
+                                      sounds.playClick();
+                                      onConfirmDiamondDistribution(item, true);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gradient-to-r from-cyan-600 via-sky-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-[10px] font-bold shadow cursor-pointer transition-all hover:scale-105 active:scale-95 border border-cyan-400/50"
+                                    title={lang === 'th' ? 'กดเพื่อแจกเพชรให้ผู้ล่า' : 'Click to distribute diamonds to hunters'}
+                                  >
+                                    <Gem className="w-3 h-3 text-cyan-200 animate-pulse" />
+                                    <span>{t.btnDistributeDiamondsToHunters || (lang === 'th' ? '💎 แจกเพชร' : '💎 Distribute Diamonds')}</span>
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!onConfirmDiamondDistribution) return;
+                                  sounds.playClick();
+                                  if (window.confirm(
+                                    t.revertDiamondDistributionConfirm || (lang === 'th' ? 'ต้องการเปลี่ยนสถานะกลับเป็นรอแจกเพชรใช่หรือไม่?' : 'Revert status to awaiting diamond payout?')
+                                  )) {
+                                    onConfirmDiamondDistribution(item, false);
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer hover:bg-emerald-500/30 transition-all shadow-sm"
+                                title={
+                                  lang === 'th'
+                                    ? `แจกเพชรแล้ว ${item.diamondDistributedBy ? `(ยืนยันโดย ${item.diamondDistributedBy})` : ''} - คลิกเพื่อเปลี่ยนกลับเป็นรอแจกเพชร`
+                                    : `Diamonds Distributed ${item.diamondDistributedBy ? `(by ${item.diamondDistributedBy})` : ''} - Click to revert to awaiting payout`
+                                }
+                              >
+                                <CheckCircle className="w-3 h-3 text-emerald-400" />
+                                <span>{t.diamondDistributedBadge || (lang === 'th' ? 'แจกเพชรแล้ว' : 'Diamonds Distributed')}</span>
+                              </button>
                             )}
                           </div>
                         ) : (
