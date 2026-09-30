@@ -1314,6 +1314,11 @@ export const VaultView: React.FC<VaultViewProps> = ({
     return vaultItems
       .filter((i) => isItemDistributed(i))
       .sort((a, b) => {
+        const isPendingA = isDistributedItemPaymentPending(a);
+        const isPendingB = isDistributedItemPaymentPending(b);
+        if (isPendingA !== isPendingB) {
+          return isPendingA ? -1 : 1; // Pending payment always on top until paid!
+        }
         const timeA = Number(a.distributedTo?.distributedAt || a.updatedAt || a.createdAt || 0);
         const timeB = Number(b.distributedTo?.distributedAt || b.updatedAt || b.createdAt || 0);
         return timeB - timeA;

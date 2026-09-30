@@ -284,21 +284,19 @@ export const ClaimantsModal: React.FC<ClaimantsModalProps> = ({
                         </td>
                         <td className="py-2.5 px-3">
                           <div className="flex flex-wrap items-center gap-1">
-                            {cClasses.length > 0 ? (
-                              cClasses.map((clsName, cIdx) => {
-                                const meta = getClassMeta(clsName);
-                                return (
-                                  <span
-                                    key={cIdx}
-                                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-200 border border-slate-700/60"
-                                    title={meta?.nameTh || clsName}
-                                  >
-                                    {meta && <img src={meta.icon} alt={meta.nameEn} className="w-3.5 h-3.5 object-contain" />}
-                                    <span>{meta?.nameEn || clsName}</span>
-                                  </span>
-                                );
-                              })
-                            ) : (
+                            {cClasses.length > 0 ? (() => {
+                              const primaryClass = cClasses[0];
+                              const meta = getClassMeta(primaryClass);
+                              return (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-200 border border-slate-700/60"
+                                  title={meta?.nameTh || primaryClass}
+                                >
+                                  {meta && <img src={meta.icon} alt={meta.nameEn} className="w-3.5 h-3.5 object-contain" />}
+                                  <span>{meta?.nameEn || primaryClass}</span>
+                                </span>
+                              );
+                            })() : (
                               <span className="text-slate-500 text-[11px]">-</span>
                             )}
                           </div>

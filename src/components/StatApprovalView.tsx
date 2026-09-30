@@ -302,27 +302,25 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
                             Lv. {displayLevel}
                           </span>
                         )}
-                        {displayClasses.map((clsName) => {
-                          const meta = classMap.get(clsName.toLowerCase());
+                        {displayClasses.length > 0 && (() => {
+                          const primaryClass = displayClasses[0];
+                          const meta = classMap.get(primaryClass.toLowerCase());
                           return (
-                            <span
-                              key={clsName}
-                              className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-lg bg-purple-500/20 text-purple-200 border border-purple-500/40 shadow-sm"
-                            >
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-lg bg-purple-500/20 text-purple-200 border border-purple-500/40 shadow-sm">
                               {meta?.icon && (
                                 <img
                                   src={meta.icon}
-                                  alt={clsName}
+                                  alt={primaryClass}
                                   className="size-4 object-contain shrink-0"
                                   onError={(e) => {
                                     (e.target as HTMLElement).style.display = 'none';
                                   }}
                                 />
                               )}
-                              <span>{clsName}</span>
+                              <span>{primaryClass}</span>
                             </span>
                           );
-                        })}
+                        })()}
                       </div>
                       <div className="text-xs text-slate-400 flex flex-wrap items-center gap-3">
                         <span className="flex items-center gap-1">

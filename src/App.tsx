@@ -33,6 +33,7 @@ import {
   DirectDistributionPayload,
   StatUpdateSettings,
   DEFAULT_STAT_UPDATE_SETTINGS,
+  ClassMeta,
   areUsersEqual
 } from './types';
 import { getOrGenerateStatHistory } from './utils/growthTimelineHelper';
@@ -61,6 +62,9 @@ import {
   listenToStatUpdateSettings,
   saveStatUpdateSettingsDoc,
   getCachedStatUpdateSettings,
+  listenToCharacterClasses,
+  saveCharacterClassesDoc,
+  getCachedCharacterClasses,
   addVaultItemDoc,
   updateVaultItemDoc,
   deleteVaultItemDoc,
@@ -123,6 +127,7 @@ import {
   isGeneralItemDeleted,
   isQueueItemDeleted,
   isUserDeleted,
+  isTestArtifactId,
   clearAllLocalCaches,
   markVaultItemAsDeleted,
   unmarkVaultItemAsDeleted,
@@ -319,10 +324,10 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const unsubTombstones = listenToGlobalTombstones(() => {
-      setVaultItems((prev) => prev.filter((i) => !i || !i.id || !isVaultItemDeleted(i.id, Number(i.updatedAt || i.createdAt || 0))));
-      setGeneralItems((prev) => prev.filter((i) => !i || !i.id || !isGeneralItemDeleted(i.id, Number(i.updatedAt || i.createdAt || 0))));
-      setQueueItems((prev) => prev.filter((q) => !q || !q.id || !isQueueItemDeleted(q.id, Number(q.updatedAt || q.createdAt || 0))));
-      setUsers((prev) => prev.filter((u) => !u || !u.id || (u.id === 'user_owner_eloni' || !isUserDeleted(u.id, Number(u.updatedAt || u.createdAt || 0)))));
+      setVaultItems((prev) => prev.filter((i) => !i || !i.id || (!isTestArtifactId(i.id, i.name) && !isVaultItemDeleted(i.id, Number(i.updatedAt || i.createdAt || 0)))));
+      setGeneralItems((prev) => prev.filter((i) => !i || !i.id || (!isTestArtifactId(i.id, i.name) && !isGeneralItemDeleted(i.id, Number(i.updatedAt || i.createdAt || 0)))));
+      setQueueItems((prev) => prev.filter((q) => !q || !q.id || (!isTestArtifactId(q.id, q.name) && !isQueueItemDeleted(q.id, Number(q.updatedAt || q.createdAt || 0)))));
+      setUsers((prev) => prev.filter((u) => !u || !u.id || (u.id === 'user_owner_eloni' || (!isTestArtifactId(u.id, u.username) && !isUserDeleted(u.id, Number(u.updatedAt || u.createdAt || 0))))));
     });
     setOnQuotaExceededListener((exceeded) => {
       setIsQuotaExceeded(exceeded);
@@ -345,6 +350,7 @@ export const App: React.FC = () => {
   const [queueAnnouncement, setQueueAnnouncement] = useState<QueueAnnouncementSettings | null>(null);
   const [discordSettings, setDiscordSettings] = useState<DiscordSettings | null>(null);
   const [statUpdateSettings, setStatUpdateSettings] = useState<StatUpdateSettings>(() => getCachedStatUpdateSettings());
+  const [availableClasses, setAvailableClasses] = useState<ClassMeta[]>(() => getCachedCharacterClasses());
   const [distributeTargetItem, setDistributeTargetItem] = useState<VaultItem | null>(null);
   const [distributeClaimantId, setDistributeClaimantId] = useState<string | undefined>(undefined);
   const [claimantsTargetItem, setClaimantsTargetItem] = useState<VaultItem | null>(null);
@@ -518,6 +524,12 @@ export const App: React.FC = () => {
                 return merged;
               });
             }
+            if (Array.isArray(data.customClasses) && data.customClasses.length > 0) {
+              setAvailableClasses(data.customClasses);
+              try {
+                localStorage.setItem('k7_character_classes', JSON.stringify(data.customClasses));
+              } catch (_) {}
+            }
           }
         }
       } catch (relayErr) {
@@ -638,13 +650,16 @@ export const App: React.FC = () => {
   // ─────────────────────────────────────────────────────────────
   const notifications = useMemo<AppNotification[]>(() => {
     const list: AppNotification[] = [];
+    const activeUsersMap = new Map<string, User>(users.map((u) => [u.id, u]));
 
     // 1. Claim alerts from vault items (Auto-omits distributed items)
     vaultItems.forEach((item) => {
       // Auto-remove distributed items: distributed items must not show claim notifications!
       if (isItemDistributed(item)) return;
+      if (isTestArtifactId(item.id, item.name)) return;
 
       (item.claimants || []).forEach((c) => {
+        if (c.userId && (isUserDeleted(c.userId) || !activeUsersMap.has(c.userId))) return;
         const claimantId = c.userId || c.inGameName;
         const notifId = `claim_${item.id}_${claimantId}_${c.claimedAt || 0}`;
         if (dismissedNotificationIds.includes(notifId)) return;
@@ -668,6 +683,7 @@ export const App: React.FC = () => {
 
     // 2. Pending stat verification requests
     users.forEach((u) => {
+      if (isTestArtifactId(u.id, u.username) || isUserDeleted(u.id)) return;
       if (isUserStatsPending(u)) {
         const reqTimestamp = u.pendingPowerLevelRequestedAt || u.updatedAt || 0;
         const notifId = `stat_req_${u.id}_${reqTimestamp}`;
@@ -692,8 +708,11 @@ export const App: React.FC = () => {
 
     // 3. Requests from General Item Queue (queueList pending)
     generalItems.forEach((gItem) => {
+      if (isTestArtifactId(gItem.id, gItem.name)) return;
       (gItem.queueList || []).forEach((m) => {
         if (m.status === 'received') return;
+        if (m.name === 'Hunter2' || m.name === 'MemberB' || isTestArtifactId(m.id, m.name)) return;
+        if (m.userId && (isUserDeleted(m.userId) || !activeUsersMap.has(m.userId))) return;
         const notifId = `gen_claim_${gItem.id}_${m.id}_${m.joinedAt || 0}`;
         if (dismissedNotificationIds.includes(notifId)) return;
         const th = lang === 'th';
@@ -737,6 +756,7 @@ export const App: React.FC = () => {
     // 4. Pending member registration requests (for Admin & Owner)
     if (currentUser?.role === 'admin' || currentUser?.role === 'owner') {
       users.forEach((u) => {
+        if (isTestArtifactId(u.id, u.username) || isUserDeleted(u.id)) return;
         if (u.status === 'pending_approval' || (u.status as any) === 'pending') {
           const notifId = `reg_pending_${u.id}_${u.createdAt || 0}`;
           if (dismissedNotificationIds.includes(notifId)) return;
@@ -1192,6 +1212,7 @@ export const App: React.FC = () => {
     let unsubDiscord = () => {};
     let unsubFormula = () => {};
     let unsubStatUpdates = () => {};
+    let unsubClasses = () => {};
     let unsubNotifications = () => {};
     let unsubVersionHub = () => {};
 
@@ -1335,6 +1356,11 @@ export const App: React.FC = () => {
       unsubStatUpdates = listenToStatUpdateSettings((settings) => {
         if (settings) setStatUpdateSettings(settings);
       });
+      unsubClasses = listenToCharacterClasses((clsList) => {
+        if (clsList && clsList.length > 0) {
+          setAvailableClasses(clsList);
+        }
+      });
       // Account-scoped notifications are subscribed in dedicated user effect
 
       // Ultra-fast cross-device heartbeat: reacts immediately (< 50ms) whenever any user touches vault items, general items, or queues
@@ -1422,6 +1448,7 @@ export const App: React.FC = () => {
       unsubDiscord();
       unsubFormula();
       unsubStatUpdates();
+      unsubClasses();
       unsubNotifications();
       unsubVersionHub();
     };
@@ -1510,6 +1537,7 @@ export const App: React.FC = () => {
     backgroundSettings: overrides?.backgroundSettings ?? bgConfig,
     discordSettings: overrides?.discordSettings ?? discordSettings,
     statUpdateSettings: overrides?.statUpdateSettings ?? statUpdateSettings,
+    customClasses: overrides?.customClasses ?? availableClasses,
     isReset: overrides?.isReset
   });
 
@@ -2302,6 +2330,31 @@ export const App: React.FC = () => {
       console.error('Failed to update stat settings:', err);
       showToast(lang === 'th' ? 'เกิดข้อผิดพลาดในการบันทึก' : 'Failed to update settings', 'error');
     }
+  };
+
+  const handleSaveCustomClasses = async (newClasses: ClassMeta[]) => {
+    if (currentUser?.role !== 'owner') {
+      showToast(lang === 'th' ? 'เฉพาะ Owner เท่านั้นที่สามารถตั้งค่าคลาสได้' : 'Only Owner can configure classes', 'error');
+      return;
+    }
+    setAvailableClasses(newClasses);
+    try {
+      localStorage.setItem('k7_character_classes', JSON.stringify(newClasses));
+    } catch (_) {}
+
+    // Broadcast via live-state relay
+    broadcastLiveState(
+      getFullBackupPayload({ customClasses: newClasses }),
+      currentUser?.inGameName || 'Owner'
+    );
+
+    // Save to Firestore with safe write
+    await saveCharacterClassesDoc(newClasses, currentUser?.inGameName || 'Owner');
+
+    showToast(
+      lang === 'th' ? 'บันทึกการตั้งค่าคลาสเรียบร้อยแล้ว ⚔️' : 'Character classes saved successfully ⚔️',
+      'success'
+    );
   };
 
   // Vault Items Handlers
@@ -3550,8 +3603,9 @@ export const App: React.FC = () => {
     setUsers((prev) =>
       prev.map((u) => (u.id === userId ? { ...u, clan: cleanTarget } : u))
     );
-    if (currentUser && currentUser.id === userId) {
+    if (currentUser && (currentUser.id === userId || (currentUser.role === 'owner' && userId === 'user_owner_eloni'))) {
       setCurrentUser((prev) => (prev ? { ...prev, clan: cleanTarget } : null));
+      saveLocalSessionUser({ ...currentUser, clan: cleanTarget });
     }
     try {
       await updateUserDoc(userId, { clan: cleanTarget });
@@ -3670,6 +3724,12 @@ export const App: React.FC = () => {
         return u;
       })
     );
+    if (currentUser && (currentUser.id === userId || (currentUser.role === 'owner' && userId === 'user_owner_eloni'))) {
+      const nextClan = safeUpdates.clan !== undefined ? safeUpdates.clan : currentUser.clan;
+      const updatedUser = { ...currentUser, ...safeUpdates, clan: nextClan };
+      setCurrentUser(updatedUser);
+      saveLocalSessionUser(updatedUser);
+    }
     try {
       await updateUserDoc(userId, safeUpdates);
     } catch (err) {
@@ -3722,6 +3782,16 @@ export const App: React.FC = () => {
             : u
         )
       );
+      if (
+        currentUser &&
+        (currentUser.id === targetUser.id ||
+          (targetUser.username &&
+            currentUser.username?.toLowerCase() === targetUser.username.toLowerCase()))
+      ) {
+        const updatedSelf = { ...currentUser, password: newPass, updatedAt: Date.now() };
+        setCurrentUser(updatedSelf);
+        saveLocalSessionUser(updatedSelf);
+      }
       showToast(
         lang === 'th' ? 'เปลี่ยนรหัสผ่านสำเร็จแล้ว!' : 'Password changed successfully!',
         'success'
@@ -4172,10 +4242,14 @@ export const App: React.FC = () => {
     setUsers((prev) =>
       prev.map((u) => (swapMap.has(u.id) ? { ...u, clan: swapMap.get(u.id)! } : u))
     );
-    if (currentUser && swapMap.has(currentUser.id)) {
+    const targetOwnerId = currentUser?.role === 'owner' ? 'user_owner_eloni' : '';
+    const isCurrentUserMoved = Boolean((currentUser && swapMap.has(currentUser.id)) || (targetOwnerId && swapMap.has(targetOwnerId)));
+    if (currentUser && isCurrentUserMoved) {
+      const nextClan = swapMap.get(currentUser.id) || (targetOwnerId ? swapMap.get(targetOwnerId) : '') || currentUser.clan;
       setCurrentUser((prev) =>
-        prev ? { ...prev, clan: swapMap.get(prev.id)! } : null
+        prev ? { ...prev, clan: nextClan } : null
       );
+      saveLocalSessionUser({ ...currentUser, clan: nextClan });
     }
     try {
       await Promise.all(
@@ -4725,6 +4799,8 @@ export const App: React.FC = () => {
             onSaveHistory={handleSaveUserHistory}
             onOpenChangePassword={currentUser ? () => setPasswordTargetUser(currentUser) : undefined}
             statUpdateSettings={statUpdateSettings}
+            availableClasses={availableClasses}
+            onSaveCustomClasses={handleSaveCustomClasses}
           />
         )}
 

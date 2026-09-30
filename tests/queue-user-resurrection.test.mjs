@@ -1,6 +1,12 @@
+process.env.NODE_ENV = 'test';
+process.env.ISOLATED_TEST = 'true';
+
 import assert from 'node:assert';
 import { createApp } from '../dist/server.js';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 async function runQueueUserResurrectionTests() {
   console.log('======================================================================');
@@ -8,13 +14,18 @@ async function runQueueUserResurrectionTests() {
   console.log('   Testing: Queue Member, Queue Item, General Item, and User Deletion');
   console.log('======================================================================\n');
 
-  // Start internal test server on ephemeral port
-  const app = await createApp({ serveFrontend: false });
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'l2m-test-resurrect-'));
+  const app = await createApp({
+    serveFrontend: false,
+    dataDir: tempDir,
+    isolatedTest: true,
+    testActor: { uid: 'user_owner_eloni', role: 'owner' }
+  });
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, resolve));
   const port = server.address().port;
   const baseUrl = `http://localhost:${port}`;
-  console.log(`✓ Test server running on port ${port}`);
+  console.log(`✓ Test server running on port ${port} (isolated: ${tempDir})`);
 
   try {
     // ──────────────────────────────────────────────────────────────────
@@ -266,6 +277,9 @@ async function runQueueUserResurrectionTests() {
     console.log('======================================================================\n');
   } finally {
     server.close();
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
   }
 }
 

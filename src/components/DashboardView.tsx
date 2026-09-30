@@ -254,8 +254,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [allMembers]);
 
   // Recent Distributed Items for Feed (5 by default, expandable to all)
+  // Any items awaiting payment stay on top until paid!
   const allDistributedList = React.useMemo(() => {
     return [...(distributedItems || [])].sort((a, b) => {
+      const isPendingA = isDistributedItemPaymentPending(a);
+      const isPendingB = isDistributedItemPaymentPending(b);
+      if (isPendingA !== isPendingB) {
+        return isPendingA ? -1 : 1;
+      }
       const timeA = a.distributedTo?.distributedAt || a.createdAt || 0;
       const timeB = b.distributedTo?.distributedAt || b.createdAt || 0;
       return timeB - timeA;
@@ -1178,7 +1184,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     {displayedDistributedList.map((item) => (
                       <div
                         key={item.id}
-                        className="flex items-center justify-between p-1.5 rounded-lg bg-[#090e18] border border-slate-800/80 hover:border-sky-500/30 transition-all text-xs group/item"
+                        className={`flex items-center justify-between p-1.5 rounded-lg transition-all text-xs group/item ${
+                          isDistributedItemPaymentPending(item)
+                            ? 'bg-amber-950/20 border border-amber-500/50 shadow-sm shadow-amber-950/30'
+                            : 'bg-[#090e18] border border-slate-800/80 hover:border-sky-500/30'
+                        }`}
                       >
                         <div className="flex items-center gap-2 min-w-0 pr-1">
                           <button

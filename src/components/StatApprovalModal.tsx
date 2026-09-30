@@ -234,27 +234,25 @@ export const StatApprovalModal: React.FC<StatApprovalModalProps> = ({
                               Lv. {displayLevel}
                             </span>
                           )}
-                          {displayClasses.map((clsName) => {
-                            const meta = classMap.get(clsName.toLowerCase());
+                          {displayClasses.length > 0 && (() => {
+                            const primaryClass = displayClasses[0];
+                            const meta = classMap.get(primaryClass.toLowerCase());
                             return (
-                              <span
-                                key={clsName}
-                                className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-200 border border-purple-500/40 shadow-sm"
-                              >
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-200 border border-purple-500/40 shadow-sm">
                                 {meta?.icon && (
                                   <img
                                     src={meta.icon}
-                                    alt={clsName}
+                                    alt={primaryClass}
                                     className="size-3.5 object-contain shrink-0"
                                     onError={(e) => {
                                       (e.target as HTMLElement).style.display = 'none';
                                     }}
                                   />
                                 )}
-                                <span>{clsName}</span>
+                                <span>{primaryClass}</span>
                               </span>
                             );
-                          })}
+                          })()}
                         </div>
                         <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-2">
                           <span className="flex items-center gap-1">

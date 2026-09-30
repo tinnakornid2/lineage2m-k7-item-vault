@@ -21,6 +21,30 @@ export const DEFAULT_CHARACTER_CLASSES = OFFICIAL_CLASSES.map((c) => c.nameEn);
 
 export const CHARACTER_CLASSES = DEFAULT_CHARACTER_CLASSES;
 
+export function normalizeClassMeta(item: ClassMeta | string): ClassMeta {
+  if (typeof item === 'string') {
+    const trimmed = item.trim();
+    const existing = OFFICIAL_CLASSES.find(
+      (c) =>
+        c.nameEn.toLowerCase() === trimmed.toLowerCase() ||
+        c.nameTh.toLowerCase() === trimmed.toLowerCase() ||
+        c.id.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (existing) return existing;
+    return {
+      id: trimmed.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+      nameEn: trimmed,
+      nameTh: trimmed,
+      icon: '/assets/classes/sword.png'
+    };
+  }
+  const nameEn = (item.nameEn || item.id || 'Custom Class').trim();
+  const nameTh = (item.nameTh || item.nameEn || item.id || 'Custom Class').trim();
+  const id = (item.id || nameEn.toLowerCase().replace(/[^a-z0-9]/g, '_')).trim();
+  const icon = (item.icon || '/assets/classes/sword.png').trim();
+  return { id, nameEn, nameTh, icon };
+}
+
 export type CharacterClass = string;
 
 export type ItemRarity = 'RARE' | 'EPIC' | 'LAGEND' | 'MYTHIC';

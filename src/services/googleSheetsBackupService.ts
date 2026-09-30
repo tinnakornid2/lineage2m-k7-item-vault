@@ -13,6 +13,7 @@ import {
   BackgroundSettingsData,
   DiscordSettings,
   StatUpdateSettings,
+  ClassMeta,
   isItemDistributed,
   normalizeDistributedItem
 } from '../types';
@@ -43,6 +44,7 @@ export interface BackupDataPayload {
   discordSettings?: DiscordSettings | null;
   statUpdateSettings?: StatUpdateSettings | null;
   googleBackupConfig?: Partial<GoogleBackupConfig> | null;
+  customClasses?: ClassMeta[];
   syncMeta?: {
     deletedVaultItems?: Record<string, number>;
     deletedQueueItems?: Record<string, number>;

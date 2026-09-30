@@ -32,9 +32,12 @@ const partyLeader = await createActor(`party-leader-${Date.now()}`, 'party_leade
 const admin = await createActor(`admin-${Date.now()}`, 'admin');
 const owner = await createActor(`owner-${Date.now()}`, 'owner');
 const { createApp } = await import('../server.ts');
-delete process.env.GEMINI_API_KEY;
-await db.collection('app_settings').doc('gemini_ai').set({ apiKey: 'local-persisted-test-key' });
-const expressApp = await createApp({ serveFrontend: false });
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'l2m-test-ocr-'));
+const expressApp = await createApp({ serveFrontend: false, dataDir: tempDir, isolatedTest: true });
 const server = expressApp.listen(0, '127.0.0.1');
 await new Promise((resolve) => server.once('listening', resolve));
 const address = server.address();
@@ -130,4 +133,7 @@ try {
   await deleteApp(owner.app);
   await deleteAdminApp(adminApp);
   for (const app of getAdminApps()) await deleteAdminApp(app);
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  } catch {}
 }

@@ -1,7 +1,11 @@
 import assert from 'node:assert';
-import { createApp } from '../api/_server.ts';
+import { createApp } from '../dist/server.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-const app = await createApp({ serveFrontend: false });
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'l2m-test-discord-'));
+const app = await createApp({ serveFrontend: false, dataDir: tempDir, isolatedTest: true });
 const server = app.listen(0, '127.0.0.1');
 await new Promise((resolve) => server.once('listening', resolve));
 const address = server.address();
@@ -108,4 +112,7 @@ try {
   console.log('\nAll 5 Rule 5 Discord Hard Guard tests PASSED successfully! 🛡️');
 } finally {
   server.close();
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  } catch {}
 }

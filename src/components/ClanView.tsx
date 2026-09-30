@@ -31,7 +31,7 @@ import {
   LayoutGrid,
   Columns
 } from 'lucide-react';
-import { ClanGroup, Language, User, cleanClanName, isNoClan } from '../types';
+import { ClanGroup, Language, User, cleanClanName, isNoClan, OFFICIAL_CLASSES } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 
@@ -92,14 +92,24 @@ export const ClanView: React.FC<ClanViewProps> = ({
   const isAdminOrOwner =
     currentUser?.role === 'owner' ||
     currentUser?.role === 'admin';
-  const canManageMember = (member: User) => {
+  const canMoveMember = (member: User) => {
+    if (!currentUser) return false;
+    // Owner can move anyone, including themselves!
+    if (currentUser.role === 'owner') return true;
+    // Admin can move party leaders and standard members
+    return currentUser.role === 'admin' && ['party_leader', 'member'].includes(member.role);
+  };
+
+  const canDeleteMember = (member: User) => {
+    // Immutable protection: never delete self or owner
     if (!currentUser || currentUser.id === member.id || member.role === 'owner') return false;
     if (currentUser.role === 'owner') return true;
     return currentUser.role === 'admin' && ['party_leader', 'member'].includes(member.role);
   };
 
-  // Search & Help State
+  // Search, Help & Clan Tab Filter State
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedClanTab, setSelectedClanTab] = useState<string>('all');
   const [showHelpGuide, setShowHelpGuide] = useState(false);
 
   // Layout mode for clan cards: spacious_2col (1-25 Left, 26-50 Right) vs compact_1col
@@ -199,9 +209,12 @@ export const ClanView: React.FC<ClanViewProps> = ({
   );
 
   const clansToRender = useMemo(() => {
-    if (showHiddenOnBoard) return displayClans;
-    return visibleClans.length > 0 ? visibleClans : displayClans;
-  }, [showHiddenOnBoard, displayClans, visibleClans]);
+    const base = showHiddenOnBoard ? displayClans : (visibleClans.length > 0 ? visibleClans : displayClans);
+    if (!selectedClanTab || selectedClanTab === 'all') return base;
+    if (selectedClanTab === 'unassigned') return [];
+    const match = base.filter((c) => cleanClanName(c.name).toLowerCase() === cleanClanName(selectedClanTab).toLowerCase());
+    return match.length > 0 ? match : base;
+  }, [showHiddenOnBoard, displayClans, visibleClans, selectedClanTab]);
 
   // Set of valid clan names for lookup
   const validClanNamesLower = useMemo(
@@ -385,7 +398,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
   // Batch Select Handlers
   const handleToggleSelectUser = (id: string) => {
     const member = allMembers.find((user) => user.id === id);
-    if (!member || !canManageMember(member)) return;
+    if (!member || !canMoveMember(member)) return;
     sounds.playClick();
     setSelectedUserIds((prev) =>
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
@@ -394,7 +407,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
 
   const handleSelectAllInClan = (clanMembers: User[]) => {
     sounds.playClick();
-    const ids = clanMembers.filter(canManageMember).map((m) => m.id);
+    const ids = clanMembers.filter(canMoveMember).map((m) => m.id);
     if (ids.length === 0) return;
     const allSelected = ids.every((id) => selectedUserIds.includes(id));
     if (allSelected) {
@@ -412,41 +425,73 @@ export const ClanView: React.FC<ClanViewProps> = ({
 
   const handleConfirmBatchDelete = async () => {
     sounds.playClick();
-    await onBatchDeleteMembers(selectedUserIds);
+    const deletableIds = selectedUserIds.filter((id) => {
+      const mem = allMembers.find((u) => u.id === id);
+      return mem ? canDeleteMember(mem) : false;
+    });
+    if (deletableIds.length > 0) {
+      await onBatchDeleteMembers(deletableIds);
+    }
     setSelectedUserIds([]);
     setShowBatchDeleteModal(false);
   };
 
+  const getClassMeta = (nameOrId?: string) => {
+    if (!nameOrId) return null;
+    const lower = nameOrId.toLowerCase().trim();
+    return (
+      OFFICIAL_CLASSES.find(
+        (c) =>
+          c.id.toLowerCase() === lower ||
+          c.nameEn.toLowerCase() === lower ||
+          c.nameTh.toLowerCase().includes(lower)
+      ) || null
+    );
+  };
+
   const renderMemberCard = (member: User, mIdx: number, clanName: string) => {
     const isSelected = selectedUserIds.includes(member.id);
-    const canManage = canManageMember(member);
+    const canMove = canMoveMember(member);
+    const canDelete = canDeleteMember(member);
     const primaryClass =
       member.classes && member.classes.length > 0
         ? member.classes[0]
         : member.characterClass || '';
+    const classMeta = getClassMeta(primaryClass);
     const isQuickMoveOpen = quickMoveUserId === member.id;
     const isOwner = member.role === 'owner';
     const isAdmin = member.role === 'admin';
 
+    const effectiveClanName = cleanClanName(member.clan || clanName);
+    const clanObj = displayClans.find(
+      (c) => cleanClanName(c.name).toLowerCase() === effectiveClanName.toLowerCase()
+    );
+    const badgeClanColor = clanObj?.color || CLAN_COLOR_FALLBACK[effectiveClanName.toLowerCase()] || '#d4af37';
+
     return (
       <div
         key={member.id}
-        draggable={canManage}
+        draggable={canMove}
         onDragStart={() => handleMemberDragStart(member.id)}
-        className={`relative p-2.5 rounded-xl border flex flex-col gap-1.5 transition-all ${
+        className={`relative py-1.5 px-2.5 rounded-xl border flex flex-col gap-1 transition-all group min-w-0 ${
           isSelected
-            ? 'bg-[#18263d] border-[#38bdf8] text-white shadow'
-            : 'bg-[#0a0f19] border-slate-800 hover:border-slate-700 text-slate-200'
+            ? 'bg-[#18263d] border-[#38bdf8] text-white shadow-md ring-1 ring-[#38bdf8]/50'
+            : 'bg-[#090e1a]/95 border-slate-800/80 hover:border-[#d4af37]/50 hover:bg-[#0d1527] text-slate-200 shadow-sm'
         }`}
       >
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+        {/* ROW 1: Rank, Character In-Game Name (FULL WIDTH, PROMINENT), Role, Power Level */}
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
             {/* Batch select checkbox */}
-            {canManage && (
+            {canMove && (
               <button
                 type="button"
-                onClick={() => handleToggleSelectUser(member.id)}
-                className="text-slate-400 hover:text-[#38bdf8] shrink-0 cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleSelectUser(member.id);
+                }}
+                className="text-slate-400 hover:text-[#38bdf8] shrink-0 cursor-pointer p-0.5"
+                title={isSelected ? t.unselectMember : t.selectMember}
               >
                 {isSelected ? (
                   <CheckSquare className="w-3.5 h-3.5 text-[#38bdf8]" />
@@ -457,132 +502,165 @@ export const ClanView: React.FC<ClanViewProps> = ({
             )}
 
             {/* Drag handle */}
-            {canManage && (
+            {canMove && (
               <GripVertical className="w-3.5 h-3.5 text-slate-600 hover:text-slate-300 cursor-grab active:cursor-grabbing shrink-0" />
             )}
 
-            <span className={`text-[10px] font-mono font-bold w-5 shrink-0 ${
-              mIdx < 3 ? 'text-amber-400' : 'text-slate-400'
-            }`}>
+            {/* Rank # */}
+            <span
+              className={`text-[10px] font-mono font-bold w-5 text-center shrink-0 ${
+                mIdx === 0
+                  ? 'text-amber-300 drop-shadow-[0_0_6px_rgba(245,158,11,0.6)]'
+                  : mIdx === 1
+                  ? 'text-slate-200 drop-shadow'
+                  : mIdx === 2
+                  ? 'text-amber-600 drop-shadow'
+                  : 'text-slate-400'
+              }`}
+            >
               #{mIdx + 1}
             </span>
 
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-bold text-slate-100 truncate flex items-center gap-1.5">
-                <span className="truncate">{member.inGameName}</span>
-                {Boolean(member.level && member.level > 0) && (
-                  <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono shrink-0">
-                    {member.level}
-                  </span>
-                )}
-                {isOwner && (
-                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold shrink-0 flex items-center gap-0.5">
-                    <Crown className="w-2.5 h-2.5" />
-                    <span>Owner</span>
-                  </span>
-                )}
-                {isAdmin && (
-                  <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold shrink-0 flex items-center gap-0.5">
-                    <ShieldCheck className="w-2.5 h-2.5" />
-                    <span>Admin</span>
-                  </span>
-                )}
-              </div>
-              <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate">
-                {primaryClass && (
-                  <span className="text-purple-300 font-medium truncate">
-                    {primaryClass}
-                  </span>
-                )}
-                {primaryClass && <span>•</span>}
-                <span className="text-amber-400 font-mono font-semibold shrink-0">
-                  ⚡ {(member.powerLevel || 0).toLocaleString()}
-                </span>
-              </div>
-            </div>
+            {/* ชื่อตัวละคร (Character In-Game Name) - Prominent, NEVER SQUEEZED */}
+            <span
+              className="text-xs font-bold text-slate-100 truncate group-hover:text-amber-300 transition-colors"
+              title={member.inGameName}
+            >
+              {member.inGameName}
+            </span>
+
+            {isOwner && (
+              <Crown className="w-3 h-3 text-amber-400 shrink-0" title="Owner" />
+            )}
+            {isAdmin && !isOwner && (
+              <ShieldCheck className="w-3 h-3 text-sky-400 shrink-0" title="Admin" />
+            )}
           </div>
 
-          {/* Individual Delete for Admin/Owner */}
-          {canManage && (
-            <button
-              id={`btn-delete-clan-member-${member.id}`}
-              type="button"
-              onClick={() => {
-                sounds.playClick();
-                setMemberToDelete(member);
-              }}
-              className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-all shrink-0 cursor-pointer"
-              title={t.deleteMember}
-            >
-              <Trash2 className="w-3 h-3" />
-            </button>
-          )}
+          {/* ค่าพลัง (Power Level) */}
+          <span className="text-[11px] font-mono font-bold text-amber-400 shrink-0 whitespace-nowrap pl-1 text-right">
+            ⚡ {(member.powerLevel || 0).toLocaleString()} <span className="text-[8.5px] text-slate-400 font-normal">PL</span>
+          </span>
         </div>
 
-        {/* Quick Move Button for Individual Member */}
-        {canManage && (
-          <div className="relative quick-move-popover-container pt-0.5">
-            <button
-              type="button"
-              id={`btn-quick-move-${member.id}`}
-              onClick={() => {
-                sounds.playClick();
-                setQuickMoveUserId(isQuickMoveOpen ? null : member.id);
+        {/* ROW 2: Clan Badge, Class Badge, Quick Move Button, Delete Button */}
+        <div className="flex items-center justify-between gap-1.5 pt-1 border-t border-slate-800/60 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            {/* แคลน (Clan) */}
+            <span
+              className="text-[9px] px-1.5 py-0.2 rounded font-semibold shrink-0 border uppercase tracking-wider truncate max-w-[85px]"
+              style={{
+                backgroundColor: `${badgeClanColor}18`,
+                borderColor: `${badgeClanColor}45`,
+                color: badgeClanColor
               }}
-              className="w-full flex items-center justify-between px-2 py-1 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-[10px] text-slate-300 hover:text-white transition-all cursor-pointer"
+              title={effectiveClanName}
             >
-              <div className="flex items-center gap-1">
-                <ArrowRight className="w-3 h-3 text-slate-400" />
-                <span>
-                  {clanName === 'no-clan'
-                    ? (lang === 'th' ? 'ย้ายเข้าแคลน' : 'Assign to Clan')
-                    : t.quickMoveToClan}
-                </span>
-              </div>
-              <ChevronDown className="w-2.5 h-2.5 text-slate-400" />
-            </button>
+              {effectiveClanName}
+            </span>
 
-            {/* Floating Clan Transfer Popover */}
-            {isQuickMoveOpen && (
-              <div className="absolute left-0 right-0 top-full mt-1 rounded-xl bg-[#0e1626] border border-slate-700 shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-0.5">
-                <div className="px-2 py-1 text-[9px] font-bold text-slate-400 uppercase">
-                  {t.quickMoveTitle}
-                </div>
-                {displayClans
-                  .filter((c) => cleanClanName(c.name).toLowerCase() !== cleanClanName(clanName).toLowerCase())
-                  .map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => handleQuickMove(member.id, c.name)}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-slate-200 hover:text-white hover:bg-slate-800 transition-colors text-left cursor-pointer"
-                    >
-                      <span
-                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: c.color || '#d4af37' }}
-                      />
-                      <span className="truncate font-medium">{c.name}</span>
-                    </button>
-                  ))}
-
-                {clanName !== 'no-clan' && (
-                  <>
-                    <div className="border-t border-slate-800 my-0.5" />
-                    {/* Unassign option */}
-                    <button
-                      type="button"
-                      onClick={() => handleQuickMove(member.id, 'no-clan')}
-                      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] text-amber-300 hover:text-amber-200 hover:bg-amber-950/40 transition-colors text-left cursor-pointer"
-                    >
-                      <UserX className="w-3 h-3 text-amber-400 shrink-0" />
-                      <span className="truncate">{t.unassignMemberAction}</span>
-                    </button>
-                  </>
+            {/* อาชีพ (Class) */}
+            {primaryClass && (
+              <div
+                className="flex items-center gap-1 px-1.5 py-0.2 rounded bg-purple-950/40 border border-purple-800/40 shrink-0 min-w-0 max-w-[110px]"
+                title={lang === 'th' ? (classMeta?.nameTh || primaryClass) : (classMeta?.nameEn || primaryClass)}
+              >
+                {classMeta?.icon && (
+                  <img
+                    src={classMeta.icon}
+                    alt={classMeta.nameEn}
+                    className="w-3 h-3 object-contain shrink-0"
+                  />
                 )}
+                <span className="text-[9px] text-purple-300 font-medium truncate">
+                  {lang === 'th' ? (classMeta?.nameTh || primaryClass) : (classMeta?.nameEn || primaryClass)}
+                </span>
               </div>
             )}
           </div>
-        )}
+
+          {/* Action buttons: Quick Move Popover & Delete */}
+          {(canMove || canDelete) && (
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Quick Move Popover Trigger */}
+              {canMove && (
+                <div className="relative quick-move-popover-container">
+                  <button
+                    type="button"
+                    id={`btn-quick-move-${member.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      sounds.playClick();
+                      setQuickMoveUserId(isQuickMoveOpen ? null : member.id);
+                    }}
+                    className={`p-1 rounded transition-colors text-slate-400 hover:text-white cursor-pointer ${
+                      isQuickMoveOpen ? 'bg-slate-700 text-[#38bdf8]' : 'hover:bg-slate-800'
+                    }`}
+                    title={clanName === 'no-clan' ? (lang === 'th' ? 'ย้ายเข้าแคลน' : 'Assign to Clan') : t.quickMoveToClan}
+                  >
+                    <ArrowLeftRight className="w-3 h-3" />
+                  </button>
+
+                  {/* Floating Clan Transfer Popover */}
+                  {isQuickMoveOpen && (
+                    <div className="absolute right-0 top-full mt-1 w-44 rounded-xl bg-[#0e1626] border border-slate-700 shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-0.5">
+                      <div className="px-2 py-1 text-[9px] font-bold text-slate-400 uppercase">
+                        {t.quickMoveTitle}
+                      </div>
+                      {displayClans
+                        .filter((c) => cleanClanName(c.name).toLowerCase() !== cleanClanName(clanName).toLowerCase())
+                        .map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => handleQuickMove(member.id, c.name)}
+                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-slate-200 hover:text-white hover:bg-slate-800 transition-colors text-left cursor-pointer"
+                          >
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: c.color || '#d4af37' }}
+                            />
+                            <span className="truncate font-medium">{c.name}</span>
+                          </button>
+                        ))}
+
+                      {clanName !== 'no-clan' && (
+                        <>
+                          <div className="border-t border-slate-800 my-0.5" />
+                          <button
+                            type="button"
+                            onClick={() => handleQuickMove(member.id, 'no-clan')}
+                            className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] text-amber-300 hover:text-amber-200 hover:bg-amber-950/40 transition-colors text-left cursor-pointer"
+                          >
+                            <UserX className="w-3 h-3 text-amber-400 shrink-0" />
+                            <span className="truncate">{t.unassignMemberAction}</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Delete member */}
+              {canDelete && (
+                <button
+                  id={`btn-delete-clan-member-${member.id}`}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    sounds.playClick();
+                    setMemberToDelete(member);
+                  }}
+                  className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-950/40 transition-colors shrink-0 cursor-pointer"
+                  title={t.deleteMember}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -597,10 +675,10 @@ export const ClanView: React.FC<ClanViewProps> = ({
       const rightMembers = members.slice(midPoint);
 
       return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 items-start">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 items-start">
           {/* Left Column: 1 to midPoint */}
-          <div className="space-y-1.5 sm:space-y-2">
-            <div className="flex items-center justify-between px-1.5 pb-1 border-b border-slate-800/60 mb-1">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between px-1.5 pb-0.5 border-b border-slate-800/60 mb-1">
               <span className="text-[10px] font-mono font-bold text-slate-300 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_#f59e0b]"></span>
                 <span>{lang === 'th' ? `ลำดับ 1 - ${midPoint}` : `Rank 1 - ${midPoint}`}</span>
@@ -613,8 +691,8 @@ export const ClanView: React.FC<ClanViewProps> = ({
           </div>
 
           {/* Right Column: midPoint + 1 to totalCount */}
-          <div className="space-y-1.5 sm:space-y-2">
-            <div className="flex items-center justify-between px-1.5 pb-1 border-b border-slate-800/60 mb-1">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between px-1.5 pb-0.5 border-b border-slate-800/60 mb-1">
               <span className="text-[10px] font-mono font-bold text-slate-300 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-[0_0_6px_#38bdf8]"></span>
                 <span>{lang === 'th' ? `ลำดับ ${midPoint + 1} - ${totalCount}` : `Rank ${midPoint + 1} - ${totalCount}`}</span>
@@ -631,7 +709,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
 
     // Compact 1-column list
     return (
-      <div className="space-y-2">
+      <div className="space-y-1">
         {members.map((m, idx) => renderMemberCard(m, idx, clanName))}
       </div>
     );
@@ -787,6 +865,92 @@ export const ClanView: React.FC<ClanViewProps> = ({
             </button>
           )}
         </div>
+      </div>
+
+      {/* ─────────────────────────────────────────────────────────────
+          1.5. QUICK CLAN SCOPE FILTER TABS
+         ───────────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar">
+        {/* All Clans Tab */}
+        <button
+          type="button"
+          onClick={() => {
+            sounds.playClick();
+            setSelectedClanTab('all');
+          }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+            selectedClanTab === 'all'
+              ? 'bg-[#d4af37]/20 border border-[#d4af37]/60 text-[#f5d77f] shadow'
+              : 'bg-[#0d1424] border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+          }`}
+        >
+          <Shield className="w-3.5 h-3.5" />
+          <span>{lang === 'th' ? 'ทุกแคลน' : 'All Clans'}</span>
+          <span className="px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] font-mono font-bold text-slate-300">
+            {activeMembers.length}
+          </span>
+        </button>
+
+        {/* Individual Clans Tabs */}
+        {displayClans.map((c) => {
+          const isSelected = selectedClanTab.toLowerCase() === c.name.toLowerCase();
+          const cMembers = activeMembers.filter(
+            (m) => cleanClanName(m.clan).toLowerCase() === cleanClanName(c.name).toLowerCase()
+          );
+          const cColor = c.color || CLAN_COLOR_FALLBACK[c.name.toLowerCase()] || '#d4af37';
+
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => {
+                sounds.playClick();
+                setSelectedClanTab(c.name);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+                isSelected
+                  ? 'border shadow text-white font-bold'
+                  : 'bg-[#0d1424] border border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+              }`}
+              style={{
+                backgroundColor: isSelected ? `${cColor}25` : undefined,
+                borderColor: isSelected ? `${cColor}80` : undefined,
+                boxShadow: isSelected ? `0 0 12px ${cColor}30` : undefined
+              }}
+            >
+              <div
+                className="w-3.5 h-3.5 rounded text-[8px] font-bold flex items-center justify-center font-mono text-white shrink-0"
+                style={{ backgroundColor: cColor }}
+              >
+                {c.name.substring(0, 1).toUpperCase()}
+              </div>
+              <span className={isSelected ? 'text-white' : ''}>{c.name}</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-slate-800/80 text-[10px] font-mono font-bold text-slate-300">
+                {cMembers.length}/50
+              </span>
+            </button>
+          );
+        })}
+
+        {/* Unassigned Tab */}
+        <button
+          type="button"
+          onClick={() => {
+            sounds.playClick();
+            setSelectedClanTab('unassigned');
+          }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+            selectedClanTab === 'unassigned'
+              ? 'bg-amber-500/20 border border-amber-500/60 text-amber-300 shadow'
+              : 'bg-[#0d1424] border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+          }`}
+        >
+          <UserX className="w-3.5 h-3.5 text-amber-400" />
+          <span>{lang === 'th' ? 'ไม่มีแคลน / รอจัดสรร' : 'Unassigned'}</span>
+          <span className="px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] font-mono font-bold text-amber-400">
+            {unassignedMembers.length}
+          </span>
+        </button>
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
@@ -1027,7 +1191,9 @@ export const ClanView: React.FC<ClanViewProps> = ({
           4. CLAN COLUMNS GRID (OFFICIAL CLANS + NO-CLAN BOX)
          ───────────────────────────────────────────────────────────── */}
       <div className={`grid gap-4 sm:gap-5 ${
-        cardLayoutMode === 'spacious_2col'
+        selectedClanTab !== 'all'
+          ? 'grid-cols-1'
+          : cardLayoutMode === 'spacious_2col'
           ? 'grid-cols-1 xl:grid-cols-2'
           : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-4'
       }`}>
@@ -1253,7 +1419,7 @@ export const ClanView: React.FC<ClanViewProps> = ({
               </div>
 
               {/* Clan Members Drop Zone & List */}
-              <div className="p-3 flex-1 min-h-[160px] max-h-[640px] overflow-y-auto custom-scrollbar">
+              <div className="p-2 sm:p-2.5 flex-1 min-h-[160px] overflow-y-auto custom-scrollbar">
                 {clanMembers.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center py-8 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
                     <p>
@@ -1292,120 +1458,122 @@ export const ClanView: React.FC<ClanViewProps> = ({
         {/* ─────────────────────────────────────────────────────────────
             กล่องโนแคลน (NO-CLAN COLUMN CARD) - ออกแบบและทำงานเหมือนกล่องแคลนทุกประการ
            ───────────────────────────────────────────────────────────── */}
-        <div
-          id="card-clan-unassigned"
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (draggedUserId) setDragOverClanId('unassigned');
-          }}
-          onDragLeave={() => {
-            if (dragOverClanId === 'unassigned') setDragOverClanId(null);
-          }}
-          onDrop={() => {
-            if (draggedUserId) handleMemberDropOnTarget('no-clan');
-          }}
-          className={`rounded-2xl bg-gradient-to-b from-[#111726] to-[#0a0f19] border transition-all duration-200 shadow-xl flex flex-col justify-between overflow-hidden ${
-            dragOverClanId === 'unassigned'
-              ? 'border-amber-400 ring-2 ring-amber-400/40 bg-[#1f1912]'
-              : draggedUserId !== null
-              ? 'border-amber-400/70 border-dashed hover:bg-[#142036]'
-              : 'border-slate-800'
-          }`}
-        >
-          {/* Clan Header (เหมือนหัวกล่องแคลนทุกประการ) */}
-          <div className="p-3 bg-[#0d1422] border-b border-slate-800 flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-              {/* Left: Tag / Badge */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800/90 text-slate-400 border border-slate-700/60 font-semibold flex items-center gap-1">
-                  <UserX className="w-3 h-3 text-slate-400" />
-                  <span>{lang === 'th' ? 'รอจัดสรร' : 'Unassigned'}</span>
-                </span>
-                {draggedUserId && (
-                  <span className="text-[10px] text-amber-300 font-semibold animate-pulse">
-                    {lang === 'th' ? 'วางเพื่อปลดแคลน' : 'Drop to unassign'}
-                  </span>
-                )}
-              </div>
-
-              {/* Right: Select All button */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                {isAdminOrOwner && unassignedMembers.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => handleSelectAllInClan(unassignedMembers)}
-                    className="text-[10px] text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800/60 hover:bg-slate-800 cursor-pointer border border-slate-700/50 transition-colors"
-                  >
-                    <span>{t.selectAll}</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Clan Info & Avatar */}
-            <div className="flex items-center gap-2.5 min-w-0 pt-1">
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white font-mono text-xs shrink-0 shadow-md border border-white/10"
-                style={{ backgroundColor: '#64748b' }}
-              >
-                NC
-              </div>
-              <div className="min-w-0 flex-1">
+        {(selectedClanTab === 'all' || selectedClanTab === 'unassigned') && (
+          <div
+            id="card-clan-unassigned"
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (draggedUserId) setDragOverClanId('unassigned');
+            }}
+            onDragLeave={() => {
+              if (dragOverClanId === 'unassigned') setDragOverClanId(null);
+            }}
+            onDrop={() => {
+              if (draggedUserId) handleMemberDropOnTarget('no-clan');
+            }}
+            className={`rounded-2xl bg-gradient-to-b from-[#111726] to-[#0a0f19] border transition-all duration-200 shadow-xl flex flex-col justify-between overflow-hidden ${
+              dragOverClanId === 'unassigned'
+                ? 'border-amber-400 ring-2 ring-amber-400/40 bg-[#1f1912]'
+                : draggedUserId !== null
+                ? 'border-amber-400/70 border-dashed hover:bg-[#142036]'
+                : 'border-slate-800'
+            }`}
+          >
+            {/* Clan Header (เหมือนหัวกล่องแคลนทุกประการ) */}
+            <div className="p-3 bg-[#0d1422] border-b border-slate-800 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                {/* Left: Tag / Badge */}
                 <div className="flex items-center gap-1.5">
-                  <h3 className="text-sm font-bold font-cinzel text-slate-100 truncate">
-                    {lang === 'th' ? 'ไม่มีแคลน' : 'No Clan'}
-                  </h3>
-                  <span className="text-[10px] font-mono text-slate-500">
-                    #{clansToRender.length + 1}
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800/90 text-slate-400 border border-slate-700/60 font-semibold flex items-center gap-1">
+                    <UserX className="w-3 h-3 text-slate-400" />
+                    <span>{lang === 'th' ? 'รอจัดสรร' : 'Unassigned'}</span>
                   </span>
+                  {draggedUserId && (
+                    <span className="text-[10px] text-amber-300 font-semibold animate-pulse">
+                      {lang === 'th' ? 'วางเพื่อปลดแคลน' : 'Drop to unassign'}
+                    </span>
+                  )}
                 </div>
-                <div className="text-[10px] text-slate-400 flex items-center gap-1.5 truncate">
-                  <span className="text-slate-300 font-medium">
-                    {unassignedMembers.length} {lang === 'th' ? 'คน' : 'members'}
-                  </span>
-                  <span>•</span>
-                  <span className="text-amber-400 font-mono font-bold">
-                    ⚡ {unassignedTotalPower.toLocaleString()} PL
-                  </span>
+
+                {/* Right: Select All button */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {isAdminOrOwner && unassignedMembers.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectAllInClan(unassignedMembers)}
+                      className="text-[10px] text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800/60 hover:bg-slate-800 cursor-pointer border border-slate-700/50 transition-colors"
+                    >
+                      <span>{t.selectAll}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Clan Info & Avatar */}
+              <div className="flex items-center gap-2.5 min-w-0 pt-1">
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white font-mono text-xs shrink-0 shadow-md border border-white/10"
+                  style={{ backgroundColor: '#64748b' }}
+                >
+                  NC
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm font-bold font-cinzel text-slate-100 truncate">
+                      {lang === 'th' ? 'ไม่มีแคลน' : 'No Clan'}
+                    </h3>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      #{clansToRender.length + 1}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 flex items-center gap-1.5 truncate">
+                    <span className="text-slate-300 font-medium">
+                      {unassignedMembers.length} {lang === 'th' ? 'คน' : 'members'}
+                    </span>
+                    <span>•</span>
+                    <span className="text-amber-400 font-mono font-bold">
+                      ⚡ {unassignedTotalPower.toLocaleString()} PL
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Clan Members Drop Zone & List */}
-          <div className="p-3 flex-1 space-y-2 min-h-[160px] max-h-[620px] overflow-y-auto">
-            {unassignedMembers.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center py-8 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
-                <p>
-                  {lang === 'th' ? 'ไม่มีสมาชิกตกค้าง (ทุกคนมีแคลนแล้ว)' : 'No unassigned members'}
-                </p>
-                {isAdminOrOwner && (
-                  <p className="text-[10px] text-slate-600 mt-1">
-                    {lang === 'th' ? 'ลากการ์ดมาวางที่นี่เพื่อปลดแคลน' : 'Drag member cards here to unassign'}
+            {/* Clan Members Drop Zone & List */}
+            <div className="p-2 sm:p-2.5 flex-1 min-h-[160px] overflow-y-auto custom-scrollbar">
+              {unassignedMembers.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center py-8 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
+                  <p>
+                    {lang === 'th' ? 'ไม่มีสมาชิกตกค้าง (ทุกคนมีแคลนแล้ว)' : 'No unassigned members'}
                   </p>
-                )}
-              </div>
-            ) : filteredUnassignedMembers.length === 0 ? (
-              <div className="py-6 text-center text-xs text-slate-500">
-                {lang === 'th' ? 'ไม่พบสมาชิกที่ตรงกับการค้นหา' : 'No members match search query'}
-              </div>
-            ) : (
-              renderMemberList(filteredUnassignedMembers, 'no-clan')
-            )}
-          </div>
+                  {isAdminOrOwner && (
+                    <p className="text-[10px] text-slate-600 mt-1">
+                      {lang === 'th' ? 'ลากการ์ดมาวางที่นี่เพื่อปลดแคลน' : 'Drag member cards here to unassign'}
+                    </p>
+                  )}
+                </div>
+              ) : filteredUnassignedMembers.length === 0 ? (
+                <div className="py-6 text-center text-xs text-slate-500">
+                  {lang === 'th' ? 'ไม่พบสมาชิกที่ตรงกับการค้นหา' : 'No members match search query'}
+                </div>
+              ) : (
+                renderMemberList(filteredUnassignedMembers, 'no-clan')
+              )}
+            </div>
 
-          {/* Clan Footer Info */}
-          <div className="p-3 bg-[#090d16] border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between">
-            <span>
-              {t.avgPower}: ⚡ {avgUnassignedPower.toLocaleString()} PL
-            </span>
-            {isAdminOrOwner && (
-              <span className="text-[10px] text-slate-500 italic">
-                {lang === 'th' ? 'ลากการ์ดมาเพื่อปลดแคลน' : 'Drag to unassign'}
+            {/* Clan Footer Info */}
+            <div className="p-3 bg-[#090d16] border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between">
+              <span>
+                {t.avgPower}: ⚡ {avgUnassignedPower.toLocaleString()} PL
               </span>
-            )}
+              {isAdminOrOwner && (
+                <span className="text-[10px] text-slate-500 italic">
+                  {lang === 'th' ? 'ลากการ์ดมาเพื่อปลดแคลน' : 'Drag to unassign'}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* ─────────────────────────────────────────────────────────────

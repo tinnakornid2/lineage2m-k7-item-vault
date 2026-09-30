@@ -16,9 +16,10 @@ import {
   Image as ImageIcon,
   RotateCcw,
   TrendingUp,
-  ArrowRight
+  ArrowRight,
+  Check
 } from 'lucide-react';
-import { User, StatDefinition, FormulaSettings, OFFICIAL_CLASSES, isUserStatsPending } from '../types';
+import { User, StatDefinition, FormulaSettings, OFFICIAL_CLASSES, ClassMeta, isUserStatsPending } from '../types';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
@@ -29,6 +30,7 @@ interface MyStatsModalProps {
   onClose: () => void;
   currentUser: User | null;
   lang: 'th' | 'en';
+  availableClasses?: ClassMeta[];
   onRequestStatUpdate: (
     userId: string,
     newStats: Record<string, number>,
@@ -52,6 +54,7 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
   onClose,
   currentUser,
   lang,
+  availableClasses,
   onRequestStatUpdate,
   onCancelPendingRequest,
   showToast,
@@ -69,7 +72,11 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
   const [spiritEnhancements, setSpiritEnhancements] = useState<Record<string, number>>({});
   const [screenshotUrl, setScreenshotUrl] = useState<string>('');
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
+  const [mainClass, setMainClass] = useState<string>('');
+  const [subClasses, setSubClasses] = useState<string[]>([]);
   const [charLevel, setCharLevel] = useState<number>(0);
+
+  const effectiveClasses: ClassMeta[] = availableClasses && availableClasses.length > 0 ? availableClasses : OFFICIAL_CLASSES;
   const [charLegendClasses, setCharLegendClasses] = useState<number>(0);
   const [charLegendAgathions, setCharLegendAgathions] = useState<number>(0);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -111,6 +118,8 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
           ? currentUser.pendingClasses
           : (currentUser.classes || (currentUser.characterClass ? [currentUser.characterClass] : []));
         setSelectedClasses(initialClasses);
+        setMainClass(initialClasses[0] || '');
+        setSubClasses(initialClasses.slice(1));
 
         const initialLevel = currentUser.pendingLevel !== undefined && currentUser.pendingLevel !== null
           ? currentUser.pendingLevel
@@ -207,12 +216,39 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
     }));
   };
 
-  const handleToggleClass = (classNameEn: string) => {
+  const handleMainClassChange = (newMain: string) => {
     sounds.playClick();
-    setSelectedClasses((prev) =>
-      prev.includes(classNameEn)
-        ? prev.filter((c) => c !== classNameEn)
-        : [...prev, classNameEn]
+    setMainClass(newMain);
+    const updatedSubs = subClasses.filter((c) => c !== newMain);
+    setSubClasses(updatedSubs);
+    const combined = newMain ? [newMain, ...updatedSubs] : updatedSubs;
+    setSelectedClasses(combined);
+  };
+
+  const handleToggleSubClass = (subName: string) => {
+    sounds.playClick();
+    const nextSubs = subClasses.includes(subName)
+      ? subClasses.filter((c) => c !== subName)
+      : [...subClasses, subName];
+    setSubClasses(nextSubs);
+    const combined = mainClass ? [mainClass, ...nextSubs] : nextSubs;
+    setSelectedClasses(combined);
+  };
+
+  const handleClearSubClasses = () => {
+    sounds.playClick();
+    setSubClasses([]);
+    const combined = mainClass ? [mainClass] : [];
+    setSelectedClasses(combined);
+  };
+
+  const getClassMeta = (name: string): ClassMeta | undefined => {
+    if (!name) return undefined;
+    return effectiveClasses.find(
+      (c) =>
+        c.nameEn.toLowerCase() === name.toLowerCase() ||
+        c.nameTh.toLowerCase() === name.toLowerCase() ||
+        c.id.toLowerCase() === name.toLowerCase()
     );
   };
 
@@ -437,44 +473,126 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
 
             {/* Content Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              {/* Class Picker (Multi-Select) */}
-              <div className="lg:col-span-5 space-y-2">
+              {/* Main & Sub Class Pickers */}
+              <div className="lg:col-span-5 space-y-3">
                 <label className="block text-xs font-semibold text-white">
-                  Class <span className="font-normal text-slate-400">(multi)</span>
+                  {lang === 'th' ? 'เลือกคลาสตัวละคร (คลาสหลัก / คลาสรอง)' : 'Character Classes (Main & Sub)'}
                 </label>
-                <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-750 max-h-48 overflow-y-auto space-y-1.5">
-                  {OFFICIAL_CLASSES.map((cls) => {
-                    const isChecked = selectedClasses.includes(cls.nameEn);
-                    return (
-                      <div
-                        key={cls.id}
-                        onClick={() => handleToggleClass(cls.nameEn)}
-                        className={`cursor-pointer flex items-center gap-2.5 px-2.5 py-2 rounded-lg border transition select-none ${
-                          isChecked
-                            ? 'border-purple-500 bg-purple-950/40 text-white shadow-[0_0_12px_rgba(168,85,247,0.25)]'
-                            : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:border-slate-700 hover:text-slate-300'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {}}
-                          className="size-4 rounded accent-purple-500 cursor-pointer shrink-0"
-                        />
-                        <img
-                          src={cls.icon}
-                          alt={cls.nameEn}
-                          className="size-5 shrink-0 object-contain"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                        <span className="text-xs font-medium truncate">
-                          {cls.nameEn}
+                <div className="p-3 bg-slate-900/90 border border-slate-750 rounded-xl space-y-3">
+                  {/* Main Class */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-purple-300">
+                        {lang === 'th' ? '⚔️ คลาสหลัก (Main Class)' : '⚔️ Main Class'}
+                      </span>
+                      <span className="text-[10px] text-amber-400 font-bold px-1.5 py-0.2 rounded bg-amber-500/10 border border-amber-500/30">
+                        {lang === 'th' ? 'จำเป็น' : 'Required'}
+                      </span>
+                    </div>
+                    <select
+                      value={mainClass}
+                      onChange={(e) => handleMainClassChange(e.target.value)}
+                      className="w-full bg-slate-850 border border-slate-700 hover:border-purple-500 focus:border-purple-500 rounded-lg px-2.5 py-2 text-xs text-white outline-none cursor-pointer transition"
+                    >
+                      <option value="">{lang === 'th' ? '-- เลือกคลาสหลัก --' : '-- Select Main Class --'}</option>
+                      {effectiveClasses.map((cls) => (
+                        <option key={cls.id} value={cls.nameEn}>
+                          {lang === 'th' ? cls.nameTh : cls.nameEn}
+                        </option>
+                      ))}
+                    </select>
+                    {mainClass && (() => {
+                      const meta = getClassMeta(mainClass);
+                      return meta ? (
+                        <div className="flex items-center gap-2 p-1.5 rounded-lg bg-purple-950/40 border border-purple-500/40 text-purple-200">
+                          <img
+                            src={meta.icon}
+                            alt={meta.nameEn}
+                            className="size-4 object-contain shrink-0"
+                            onError={(e) => ((e.target as HTMLElement).style.display = 'none')}
+                          />
+                          <span className="text-xs font-semibold truncate">
+                            {lang === 'th' ? meta.nameTh : meta.nameEn}
+                          </span>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+
+                  {/* Sub Classes (Multi-Select) */}
+                  <div className="space-y-2 pt-2.5 border-t border-slate-800">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-blue-300 flex items-center gap-1.5">
+                        <Shield className="size-3.5 text-blue-400" />
+                        <span>{lang === 'th' ? 'คลาสรอง (Sub Classes)' : 'Sub Classes'}</span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-blue-300 font-bold px-1.5 py-0.2 rounded bg-blue-500/10 border border-blue-500/30">
+                          {lang === 'th' ? `เลือกแล้ว ${subClasses.length} คลาส` : `${subClasses.length} selected`}
                         </span>
+                        {subClasses.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleClearSubClasses}
+                            className="text-[10px] text-slate-400 hover:text-rose-400 transition underline cursor-pointer"
+                          >
+                            {lang === 'th' ? 'ล้าง' : 'Clear'}
+                          </button>
+                        )}
                       </div>
-                    );
-                  })}
+                    </div>
+
+                    <div className="p-1.5 bg-slate-950/60 rounded-xl border border-slate-800 max-h-48 overflow-y-auto custom-scrollbar space-y-1">
+                      {effectiveClasses
+                        .filter((cls) => cls.nameEn !== mainClass)
+                        .map((cls) => {
+                          const isChecked = subClasses.includes(cls.nameEn);
+                          return (
+                            <label
+                              key={cls.id}
+                              onClick={() => handleToggleSubClass(cls.nameEn)}
+                              className={`cursor-pointer flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg border transition select-none ${
+                                isChecked
+                                  ? 'bg-blue-950/40 border-blue-500/80 text-white shadow-[0_0_10px_rgba(59,130,246,0.25)]'
+                                  : 'border-transparent bg-slate-900/40 text-slate-300 hover:bg-slate-800/80 hover:border-slate-750'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div
+                                  className={`size-4 rounded flex items-center justify-center shrink-0 border transition ${
+                                    isChecked
+                                      ? 'bg-blue-600 border-blue-500 text-white'
+                                      : 'border-slate-650 bg-slate-800'
+                                  }`}
+                                >
+                                  {isChecked && <Check className="size-3 stroke-[3]" />}
+                                </div>
+                                <img
+                                  src={cls.icon}
+                                  alt={cls.nameEn}
+                                  className="size-4 object-contain shrink-0"
+                                  onError={(e) => {
+                                    (e.target as HTMLElement).style.display = 'none';
+                                  }}
+                                />
+                                <span className="text-xs font-semibold truncate">
+                                  {lang === 'th' ? cls.nameTh : cls.nameEn}
+                                </span>
+                              </div>
+                              <span className={`text-[10px] font-mono shrink-0 ${isChecked ? 'text-blue-300 font-bold' : 'text-slate-500'}`}>
+                                {isChecked ? (lang === 'th' ? 'เลือกแล้ว' : 'Active') : '+'}
+                              </span>
+                            </label>
+                          );
+                        })}
+                    </div>
+
+                    {subClasses.length === 0 && (
+                      <div className="text-[10px] text-slate-500 italic px-1">
+                        {lang === 'th' ? '(สามารถคลิกเลือกคลาสรองได้หลายคลาสตามต้องการ)' : '(You can select multiple sub classes)'}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

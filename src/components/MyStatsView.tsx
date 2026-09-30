@@ -26,18 +26,22 @@ import {
   Lock,
   Unlock
 } from 'lucide-react';
-import { User, FormulaSettings, OFFICIAL_CLASSES, ActiveTab, StatHistoryPoint, StatUpdateSettings, isUserStatsPending } from '../types';
+import { User, FormulaSettings, OFFICIAL_CLASSES, ClassMeta, ClanGroup, ActiveTab, StatHistoryPoint, StatUpdateSettings, isUserStatsPending } from '../types';
 import { translations } from '../translations';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
 import { ScreenshotGuideModal } from './ScreenshotGuideModal';
 import { GrowthTimelineChart } from './GrowthTimelineChart';
+import { ClassManagementModal } from './ClassManagementModal';
 
 interface MyStatsViewProps {
   currentUser: User | null;
   lang: 'th' | 'en';
+  clans?: ClanGroup[];
   statUpdateSettings?: StatUpdateSettings;
+  availableClasses?: ClassMeta[];
+  onSaveCustomClasses?: (classes: ClassMeta[]) => Promise<void>;
   onUpdateMember?: (userId: string, updates: Partial<User>) => Promise<void>;
   onRequestStatUpdate: (
     userId: string,
@@ -64,7 +68,10 @@ interface MyStatsViewProps {
 export const MyStatsView: React.FC<MyStatsViewProps> = ({
   currentUser,
   lang,
+  clans,
   statUpdateSettings,
+  availableClasses,
+  onSaveCustomClasses,
   onUpdateMember,
   onRequestStatUpdate,
   onCancelPendingRequest,
@@ -75,7 +82,7 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   onOpenChangePassword
 }) => {
   const t = translations[lang];
-  const isOwner = currentUser?.role === 'owner';
+  const isOwner = currentUser?.role === 'owner' || currentUser?.username?.toLowerCase() === 'eloni' || currentUser?.inGameName?.toLowerCase() === 'eloni';
   const isAdmin = currentUser?.role === 'admin';
   const isStatLocked = Boolean(
     statUpdateSettings &&
@@ -111,6 +118,14 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
   const [pinnedProofSize, setPinnedProofSize] = useState<'normal' | 'large' | 'split'>('normal');
   const [pinnedProofZoom, setPinnedProofZoom] = useState<number>(1);
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
+  const [mainClass, setMainClass] = useState<string>('');
+  const [subClasses, setSubClasses] = useState<string[]>([]);
+  const [isClassManagementOpen, setIsClassManagementOpen] = useState(false);
+
+  const effectiveClasses = useMemo(() => {
+    return availableClasses && availableClasses.length > 0 ? availableClasses : OFFICIAL_CLASSES;
+  }, [availableClasses]);
+
   const [charLevel, setCharLevel] = useState<number>(0);
   const [charLegendClasses, setCharLegendClasses] = useState<number>(0);
   const [charLegendAgathions, setCharLegendAgathions] = useState<number>(0);
@@ -178,6 +193,8 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
         ? currentUser.pendingClasses
         : (currentUser.classes || (currentUser.characterClass ? [currentUser.characterClass] : []));
       setSelectedClasses(initialClasses);
+      setMainClass(initialClasses[0] || '');
+      setSubClasses(initialClasses.slice(1));
 
       const initialLevel = currentUser.pendingLevel !== undefined && currentUser.pendingLevel !== null
         ? currentUser.pendingLevel
@@ -323,13 +340,42 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
     }));
   };
 
-  const handleToggleClass = (classNameEn: string) => {
-    sounds.playClick();
+  const handleMainClassChange = (newMain: string) => {
     markAsEdited();
-    setSelectedClasses((prev) =>
-      prev.includes(classNameEn)
-        ? prev.filter((c) => c !== classNameEn)
-        : [...prev, classNameEn]
+    sounds.playClick();
+    setMainClass(newMain);
+    const updatedSubs = subClasses.filter((c) => c !== newMain);
+    setSubClasses(updatedSubs);
+    const combined = newMain ? [newMain, ...updatedSubs] : updatedSubs;
+    setSelectedClasses(combined);
+  };
+
+  const handleToggleSubClass = (subName: string) => {
+    markAsEdited();
+    sounds.playClick();
+    const nextSubs = subClasses.includes(subName)
+      ? subClasses.filter((c) => c !== subName)
+      : [...subClasses, subName];
+    setSubClasses(nextSubs);
+    const combined = mainClass ? [mainClass, ...nextSubs] : nextSubs;
+    setSelectedClasses(combined);
+  };
+
+  const handleClearSubClasses = () => {
+    markAsEdited();
+    sounds.playClick();
+    setSubClasses([]);
+    const combined = mainClass ? [mainClass] : [];
+    setSelectedClasses(combined);
+  };
+
+  const getClassMeta = (name: string): ClassMeta | undefined => {
+    if (!name) return undefined;
+    return effectiveClasses.find(
+      (c) =>
+        c.nameEn.toLowerCase() === name.toLowerCase() ||
+        c.nameTh.toLowerCase() === name.toLowerCase() ||
+        c.id.toLowerCase() === name.toLowerCase()
     );
   };
 
@@ -1103,47 +1149,147 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
 
               {/* Grid: Multi-Class Box + 3 Stat inputs */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5">
-                {/* Left: Class (multi) scrollable list */}
-                <div className="md:col-span-5 space-y-1.5">
-                  <label className="block font-semibold text-zinc-200 text-xs">
-                    <span>Class</span>{' '}
-                    <span className="text-zinc-400 font-normal text-[11px] opacity-80">{lang === 'th' ? '(คลาส)' : '(Class)'}</span>{' '}
-                    <span className="font-normal text-zinc-400">(multi)</span>
-                  </label>
-                  <div className="space-y-1.5 bg-zinc-900/70 p-2 border border-zinc-700 rounded-xl max-h-48 overflow-y-auto custom-scrollbar">
-                    {OFFICIAL_CLASSES.map((cls) => {
-                      const isChecked = selectedClasses.includes(cls.nameEn);
-                      return (
-                        <label
-                          key={cls.id}
-                          onClick={() => handleToggleClass(cls.nameEn)}
-                          className={`cursor-pointer flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg transition border select-none ${
-                            isChecked
-                              ? 'bg-purple-900/30 border-purple-500 text-white'
-                              : 'border-transparent hover:bg-zinc-800 text-zinc-300'
-                          }`}
-                        >
-                          <div className={`size-4 rounded flex items-center justify-center shrink-0 border ${
-                            isChecked
-                              ? 'bg-purple-600 border-purple-500 text-white'
-                              : 'border-zinc-600 bg-zinc-800'
-                          }`}>
-                            {isChecked && <Check className="size-3 stroke-[3]" />}
+                {/* Left: Main Class & Sub Class Selection */}
+                <div className="md:col-span-5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block font-semibold text-zinc-200 text-xs">
+                      <span>{lang === 'th' ? 'เลือกคลาสตัวละคร' : 'Character Classes'}</span>{' '}
+                      <span className="text-zinc-400 font-normal text-[11px] opacity-80">
+                        {lang === 'th' ? '(คลาสหลัก / คลาสรอง)' : '(Main & Sub Class)'}
+                      </span>
+                    </label>
+                    {isOwner && onSaveCustomClasses && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setIsClassManagementOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[10px] font-bold transition cursor-pointer"
+                        title={lang === 'th' ? 'ตั้งค่าคลาส (สำหรับ Owner)' : 'Configure Classes (Owner Only)'}
+                      >
+                        <Crown className="size-3 text-amber-400" />
+                        <span>{lang === 'th' ? 'ตั้งค่าคลาส' : 'Manage'}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="p-3 bg-zinc-900/80 border border-zinc-700/80 rounded-xl space-y-3">
+                    {/* Main Class */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-purple-300 flex items-center gap-1.5">
+                          <Swords className="size-3.5 text-purple-400" />
+                          <span>{lang === 'th' ? 'คลาสหลัก (Main Class)' : 'Main Class'}</span>
+                        </span>
+                        <span className="text-[10px] text-amber-400 font-bold px-1.5 py-0.2 rounded bg-amber-500/10 border border-amber-500/30">
+                          {lang === 'th' ? 'จำเป็น' : 'Required'}
+                        </span>
+                      </div>
+                      <select
+                        value={mainClass}
+                        onChange={(e) => handleMainClassChange(e.target.value)}
+                        className="w-full bg-zinc-800 border border-zinc-600 hover:border-purple-500 focus:border-purple-500 rounded-lg px-2.5 py-2 text-xs text-white outline-none cursor-pointer transition"
+                      >
+                        <option value="">{lang === 'th' ? '-- เลือกคลาสหลัก --' : '-- Select Main Class --'}</option>
+                        {effectiveClasses.map((cls) => (
+                          <option key={cls.id} value={cls.nameEn}>
+                            {lang === 'th' ? cls.nameTh : cls.nameEn}
+                          </option>
+                        ))}
+                      </select>
+                      {mainClass && (() => {
+                        const meta = getClassMeta(mainClass);
+                        return meta ? (
+                          <div className="flex items-center gap-2 p-1.5 rounded-lg bg-purple-950/40 border border-purple-500/40 text-purple-200">
+                            <img
+                              src={meta.icon}
+                              alt={meta.nameEn}
+                              className="size-4 object-contain shrink-0"
+                              onError={(e) => ((e.target as HTMLElement).style.display = 'none')}
+                            />
+                            <span className="text-xs font-semibold truncate">
+                              {lang === 'th' ? meta.nameTh : meta.nameEn}
+                            </span>
                           </div>
-                          <img
-                            src={cls.icon}
-                            alt={cls.nameEn}
-                            className="size-4 object-contain shrink-0"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = 'none';
-                            }}
-                          />
-                          <span className="text-xs font-semibold truncate">
-                            {cls.nameEn}
+                        ) : null;
+                      })()}
+                    </div>
+
+                    {/* Sub Classes (Multi-Select) */}
+                    <div className="space-y-2 pt-2.5 border-t border-zinc-800">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-blue-300 flex items-center gap-1.5">
+                          <Shield className="size-3.5 text-blue-400" />
+                          <span>{lang === 'th' ? 'คลาสรอง (Sub Classes)' : 'Sub Classes'}</span>
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-blue-300 font-bold px-1.5 py-0.2 rounded bg-blue-500/10 border border-blue-500/30">
+                            {lang === 'th' ? `เลือกแล้ว ${subClasses.length} คลาส` : `${subClasses.length} selected`}
                           </span>
-                        </label>
-                      );
-                    })}
+                          {subClasses.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleClearSubClasses}
+                              className="text-[10px] text-slate-400 hover:text-rose-400 transition underline cursor-pointer"
+                            >
+                              {lang === 'th' ? 'ล้าง' : 'Clear'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-1.5 bg-zinc-950/60 rounded-xl border border-zinc-800 max-h-48 overflow-y-auto custom-scrollbar space-y-1">
+                        {effectiveClasses
+                          .filter((cls) => cls.nameEn !== mainClass)
+                          .map((cls) => {
+                            const isChecked = subClasses.includes(cls.nameEn);
+                            return (
+                              <label
+                                key={cls.id}
+                                onClick={() => handleToggleSubClass(cls.nameEn)}
+                                className={`cursor-pointer flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg border transition select-none ${
+                                  isChecked
+                                    ? 'bg-blue-950/40 border-blue-500/80 text-white shadow-[0_0_10px_rgba(59,130,246,0.25)]'
+                                    : 'border-transparent bg-zinc-900/40 text-zinc-300 hover:bg-zinc-800/80 hover:border-zinc-700'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div
+                                    className={`size-4 rounded flex items-center justify-center shrink-0 border transition ${
+                                      isChecked
+                                        ? 'bg-blue-600 border-blue-500 text-white'
+                                        : 'border-zinc-600 bg-zinc-800'
+                                    }`}
+                                  >
+                                    {isChecked && <Check className="size-3 stroke-[3]" />}
+                                  </div>
+                                  <img
+                                    src={cls.icon}
+                                    alt={cls.nameEn}
+                                    className="size-4 object-contain shrink-0"
+                                    onError={(e) => {
+                                      (e.target as HTMLElement).style.display = 'none';
+                                    }}
+                                  />
+                                  <span className="text-xs font-semibold truncate">
+                                    {lang === 'th' ? cls.nameTh : cls.nameEn}
+                                  </span>
+                                </div>
+                                <span className={`text-[10px] font-mono shrink-0 ${isChecked ? 'text-blue-300 font-bold' : 'text-zinc-500'}`}>
+                                  {isChecked ? (lang === 'th' ? 'เลือกแล้ว' : 'Active') : '+'}
+                                </span>
+                              </label>
+                            );
+                          })}
+                      </div>
+
+                      {subClasses.length === 0 && (
+                        <div className="text-[10px] text-zinc-500 italic px-1">
+                          {lang === 'th' ? '(สามารถคลิกเลือกคลาสรองได้หลายคลาสตามต้องการ)' : '(You can select multiple sub classes)'}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1654,6 +1800,19 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
         onClose={() => setIsGuideOpen(false)}
         lang={lang}
       />
+
+      {/* Owner Class Management Modal */}
+      {isOwner && onSaveCustomClasses && (
+        <ClassManagementModal
+          isOpen={isClassManagementOpen}
+          onClose={() => setIsClassManagementOpen(false)}
+          lang={lang}
+          isOwner={isOwner}
+          classes={effectiveClasses}
+          onSaveClasses={onSaveCustomClasses}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 };

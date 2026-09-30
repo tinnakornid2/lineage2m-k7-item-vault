@@ -95,8 +95,10 @@ export const MembersView: React.FC<MembersViewProps> = ({
   };
 
   const canEditMember = (mem: User) => {
-    if (!currentUser || mem.id === currentUser.id || mem.role === 'owner') return false;
+    if (!currentUser) return false;
+    // Owner can edit all members including themselves (for moving clan and changing password)
     if (currentUser.role === 'owner') return true;
+    if (mem.id === currentUser.id || mem.role === 'owner') return false;
     return currentUser.role === 'admin' && (mem.role === 'party_leader' || mem.role === 'member');
   };
 
@@ -252,7 +254,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
         pendingPowerLevel: null,
         pendingPowerLevelRequestedAt: null,
         clan: cleanClanName(editClan.trim()) || 'VoltZ',
-        role: editRole
+        role: editingUser.role === 'owner' ? 'owner' : editRole
       });
       setEditingUser(null);
     } catch (err) {
@@ -1035,8 +1037,8 @@ export const MembersView: React.FC<MembersViewProps> = ({
                 })()}
               </div>
 
-              {/* Role (Owner can set role) */}
-              {isOwner && (
+              {/* Role (Owner can set role for other members, immutable for owner account) */}
+              {isOwner && editingUser.role !== 'owner' && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
                     {t.changeRole}

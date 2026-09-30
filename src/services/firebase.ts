@@ -57,7 +57,10 @@ import {
   isItemDistributed,
   normalizeDistributedItem,
   isDistributedItemPaymentPending,
-  isNoClan
+  isNoClan,
+  ClassMeta,
+  normalizeClassMeta,
+  OFFICIAL_CLASSES
 } from '../types';
 // Production data comes primarily from Firebase Firestore with Google Sheets & Live Relay dual-write resilience (v2.10.1)
 const REAL_BACKUP_MEMBERS: User[] = [];
@@ -189,7 +192,33 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.62-real-clans-only';
+const CACHE_SCHEMA_VERSION = '2.10.68-owner-clan-pass-unpaid-top';
+
+export function isTestArtifactId(id?: string, name?: string): boolean {
+  if (!id && !name) return false;
+  const sId = String(id || '');
+  const sName = String(name || '');
+  if (
+    sId.includes('_test_') ||
+    sId.startsWith('gi_test_') ||
+    sId.startsWith('queue_test_') ||
+    sId.startsWith('item_test_') ||
+    sId.startsWith('gi_old_rule_test_') ||
+    sId.startsWith('user_del_test_') ||
+    sId.startsWith('item_sim_') ||
+    sId.startsWith('gi_sim_')
+  ) {
+    return true;
+  }
+  if (
+    sName.includes('Test Persistent Item') ||
+    sName.includes('Old Rule Format Test')
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export const CACHE_KEYS = {
   USERS: 'l2m_cached_users_v21032',
   VAULT_ITEMS: 'l2m_cached_vault_items_v21032',
@@ -1218,25 +1247,38 @@ export function isGeneralItemDeleted(id: string, updatedAt?: number): boolean {
 
 export function getCachedGeneralItems(): GeneralItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
+  const deletedUsers = getDeletedUserIds();
   let pool = inMemoryGeneralItems;
   if (!pool || pool.length === 0) {
     pool = getCachedData<GeneralItem[]>(CACHE_KEYS.GENERAL_ITEMS, []);
     inMemoryGeneralItems = pool;
   }
-  return pool.filter((item) => item && item.id && !deletedMap[item.id]);
+  return pool
+    .filter((item) => item && item.id && !deletedMap[item.id] && !isTestArtifactId(item.id, item.name))
+    .map((item) => ({
+      ...item,
+      queueList: (item.queueList || []).filter((m) => !isQueueMemberRemoved(item.id, m) && (!m.userId || !deletedUsers.has(m.userId)) && m.name !== 'Hunter2' && !isTestArtifactId(m.id, m.name))
+    }));
 }
 
 export function setCachedGeneralItems(items: GeneralItem[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
-  const clean = (items || []).filter((item) => item && item.id && !deletedMap[item.id]);
+  const deletedUsers = getDeletedUserIds();
+  const clean = (items || [])
+    .filter((item) => item && item.id && !deletedMap[item.id] && !isTestArtifactId(item.id, item.name))
+    .map((item) => ({
+      ...item,
+      queueList: (item.queueList || []).filter((m) => !isQueueMemberRemoved(item.id, m) && (!m.userId || !deletedUsers.has(m.userId)) && m.name !== 'Hunter2' && !isTestArtifactId(m.id, m.name))
+    }));
   inMemoryGeneralItems = clean;
   setCachedData(CACHE_KEYS.GENERAL_ITEMS, clean);
 }
 
 export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: GeneralItem[]): GeneralItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_GENERAL_ITEMS_KEY);
+  const deletedUsers = getDeletedUserIds();
   const isDeleted = (item: GeneralItem) => {
-    if (!item || !item.id) return true;
+    if (!item || !item.id || isTestArtifactId(item.id, item.name)) return true;
     const deletedAt = deletedMap[item.id];
     if (!deletedAt) return false;
     const rev = Number(item.updatedAt || item.createdAt || 0);
@@ -1269,10 +1311,10 @@ export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: Ge
     const incoming = incomingMap.get(id);
 
     if (local && !incoming) {
-      const filteredQueue = (local.queueList || []).filter((m) => !isQueueMemberRemoved(id, m));
+      const filteredQueue = (local.queueList || []).filter((m) => !isQueueMemberRemoved(id, m) && (!m.userId || !deletedUsers.has(m.userId)) && m.name !== 'Hunter2' && !isTestArtifactId(m.id, m.name));
       result.push({ ...local, queueList: filteredQueue });
     } else if (!local && incoming) {
-      const filteredQueue = (incoming.queueList || []).filter((m) => !isQueueMemberRemoved(id, m));
+      const filteredQueue = (incoming.queueList || []).filter((m) => !isQueueMemberRemoved(id, m) && (!m.userId || !deletedUsers.has(m.userId)) && m.name !== 'Hunter2' && !isTestArtifactId(m.id, m.name));
       result.push({ ...incoming, queueList: filteredQueue });
     } else if (local && incoming) {
       const localRevision = Number(local.updatedAt || local.createdAt || 0);
@@ -1287,14 +1329,14 @@ export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: Ge
 
       // 1. Authoritative entries from newest
       for (const m of (newest.queueList || [])) {
-        if (!m || isQueueMemberRemoved(id, m)) continue;
+        if (!m || isQueueMemberRemoved(id, m) || (m.userId && deletedUsers.has(m.userId)) || m.name === 'Hunter2' || isTestArtifactId(m.id, m.name)) continue;
         const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
         if (key) queueMap.set(key, m);
       }
 
       // 2. Only concurrent new joins from older (joined within last 10s of both revisions)
       for (const m of (older.queueList || [])) {
-        if (!m || isQueueMemberRemoved(id, m)) continue;
+        if (!m || isQueueMemberRemoved(id, m) || (m.userId && deletedUsers.has(m.userId)) || m.name === 'Hunter2' || isTestArtifactId(m.id, m.name)) continue;
         const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
         if (key && !queueMap.has(key)) {
           const joinedAt = Number(m.joinedAt || 0);
@@ -1464,8 +1506,9 @@ export function isClaimCancelled(itemId: string, claimant: Claimant): boolean {
  */
 export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultItem[]): VaultItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
+  const deletedUsers = getDeletedUserIds();
   const isDeleted = (item: VaultItem) => {
-    if (!item || !item.id) return true;
+    if (!item || !item.id || isTestArtifactId(item.id, item.name)) return true;
     const deletedAt = deletedMap[item.id];
     if (!deletedAt) return false;
     const rev = Number(item.updatedAt || item.createdAt || 0);
@@ -1500,13 +1543,13 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
       const norm = normalizeDistributedItem(local);
       result.push({
         ...norm,
-        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(id, c))
+        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(id, c) && (!c.userId || !deletedUsers.has(c.userId)))
       });
     } else if (!local && incoming) {
       const norm = normalizeDistributedItem(incoming);
       result.push({
         ...norm,
-        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(id, c))
+        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(id, c) && (!c.userId || !deletedUsers.has(c.userId)))
       });
     } else if (local && incoming) {
       const localRevision = local.updatedAt || local.createdAt || 0;
@@ -1565,7 +1608,7 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
         ...(Array.isArray(newest.claimants) ? newest.claimants : [])
       ];
       for (const c of allSourceClaimants) {
-        if (!c || isClaimCancelled(id, c)) continue;
+        if (!c || isClaimCancelled(id, c) || (c.userId && deletedUsers.has(c.userId))) continue;
         const key = c.userId || (c.inGameName ? c.inGameName.trim().toLowerCase() : '') || Math.random().toString();
         const existing = claimantsMap.get(key);
         if (!existing) {
@@ -1578,7 +1621,7 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
           }
         }
       }
-      const mergedClaimants = Array.from(claimantsMap.values()).filter((c) => !isClaimCancelled(id, c));
+      const mergedClaimants = Array.from(claimantsMap.values()).filter((c) => !isClaimCancelled(id, c) && (!c.userId || !deletedUsers.has(c.userId)));
 
       const hunterScreenshots = (newest.hunterScreenshots && newest.hunterScreenshots.length > 0)
         ? newest.hunterScreenshots
@@ -1612,8 +1655,9 @@ export function mergeVaultItems(currentItems: VaultItem[], incomingItems: VaultI
 
 export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: QueueItem[]): QueueItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
+  const deletedUsers = getDeletedUserIds();
   const isDeleted = (item: QueueItem) => {
-    if (!item || !item.id) return true;
+    if (!item || !item.id || isTestArtifactId(item.id, item.name)) return true;
     const deletedAt = deletedMap[item.id];
     if (!deletedAt) return false;
     const rev = Number(item.updatedAt || item.createdAt || 0);
@@ -1645,10 +1689,10 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
     const incoming = incomingMap.get(id);
 
     if (local && !incoming) {
-      const filteredQueue = (local.queueList || []).filter((m) => !isQueueMemberRemoved(id, m));
+      const filteredQueue = (local.queueList || []).filter((m) => !isQueueMemberRemoved(id, m) && (!m.userId || !deletedUsers.has(m.userId)) && m.name !== 'MemberB' && !isTestArtifactId(m.id, m.name));
       result.push({ ...local, queueList: filteredQueue });
     } else if (!local && incoming) {
-      const filteredQueue = (incoming.queueList || []).filter((m) => !isQueueMemberRemoved(id, m));
+      const filteredQueue = (incoming.queueList || []).filter((m) => !isQueueMemberRemoved(id, m) && (!m.userId || !deletedUsers.has(m.userId)) && m.name !== 'MemberB' && !isTestArtifactId(m.id, m.name));
       result.push({ ...incoming, queueList: filteredQueue });
     } else if (local && incoming) {
       const localRevision = local.updatedAt || local.createdAt || 0;
@@ -1659,12 +1703,12 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
       // Smart merge queueList: newest is authoritative, filter removed members
       const queueMap = new Map<string, QueueMember>();
       for (const m of (newest.queueList || [])) {
-        if (!m || isQueueMemberRemoved(id, m)) continue;
+        if (!m || isQueueMemberRemoved(id, m) || (m.userId && deletedUsers.has(m.userId)) || m.name === 'MemberB' || isTestArtifactId(m.id, m.name)) continue;
         const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
         if (key) queueMap.set(key, m);
       }
       for (const m of (older.queueList || [])) {
-        if (!m || isQueueMemberRemoved(id, m)) continue;
+        if (!m || isQueueMemberRemoved(id, m) || (m.userId && deletedUsers.has(m.userId)) || m.name === 'MemberB' || isTestArtifactId(m.id, m.name)) continue;
         const key = m.id || m.userId || String(m.name || '').trim().toLowerCase();
         if (key && !queueMap.has(key)) {
           const joinedAt = Number(m.joinedAt || 0);
@@ -1688,31 +1732,33 @@ export function mergeQueueItems(currentQueues: QueueItem[], incomingQueues: Queu
 
 export function getCachedVaultItems(): VaultItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
+  const deletedUsers = getDeletedUserIds();
   let pool = inMemoryVaultItems;
   if (!pool || pool.length === 0) {
     pool = getCachedData<VaultItem[]>(CACHE_KEYS.VAULT_ITEMS, []);
     inMemoryVaultItems = pool;
   }
   return pool
-    .filter((item) => item && item.id && !deletedMap[item.id])
+    .filter((item) => item && item.id && !deletedMap[item.id] && !isTestArtifactId(item.id, item.name))
     .map((item) => {
       const norm = normalizeDistributedItem(item);
       return {
         ...norm,
-        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(item.id, c))
+        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(item.id, c) && (!c.userId || !deletedUsers.has(c.userId)))
       };
     });
 }
 
 export function setCachedVaultItems(items: VaultItem[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_VAULT_ITEMS_KEY);
+  const deletedUsers = getDeletedUserIds();
   const clean = (items || [])
-    .filter((i) => i && i.id && !deletedMap[i.id])
+    .filter((i) => i && i.id && !deletedMap[i.id] && !isTestArtifactId(i.id, i.name))
     .map((i) => {
       const norm = normalizeDistributedItem(i);
       return {
         ...norm,
-        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(i.id, c))
+        claimants: (norm.claimants || []).filter((c) => !isClaimCancelled(i.id, c) && (!c.userId || !deletedUsers.has(c.userId)))
       };
     });
   inMemoryVaultItems = clean;
@@ -1733,27 +1779,39 @@ export function setCachedClans(clans: ClanGroup[]): void {
 
 export function getCachedQueues(): QueueItem[] {
   const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
+  const deletedUsers = getDeletedUserIds();
   let pool = inMemoryQueues;
   if (!pool || pool.length === 0) {
     pool = getCachedData<QueueItem[]>(CACHE_KEYS.QUEUES, []);
     inMemoryQueues = pool;
   }
-  return pool.filter((q) => {
-    if (!q || !q.id) return false;
-    const delAt = deletedMap[q.id];
-    if (!delAt) return true;
-    return (q.updatedAt || q.createdAt || 0) > delAt;
-  });
+  return pool
+    .filter((q) => {
+      if (!q || !q.id || isTestArtifactId(q.id, q.name)) return false;
+      const delAt = deletedMap[q.id];
+      if (!delAt) return true;
+      return (q.updatedAt || q.createdAt || 0) > delAt;
+    })
+    .map((q) => ({
+      ...q,
+      queueList: (q.queueList || []).filter((m) => !isQueueMemberRemoved(q.id, m) && (!m.userId || !deletedUsers.has(m.userId)) && m.name !== 'MemberB' && !isTestArtifactId(m.id, m.name))
+    }));
 }
 
 export function setCachedQueues(queues: QueueItem[]): void {
   const deletedMap = getDeletedIdsMap(DELETED_QUEUE_ITEMS_KEY);
-  const clean = (queues || []).filter((q) => {
-    if (!q || !q.id) return false;
-    const delAt = deletedMap[q.id];
-    if (!delAt) return true;
-    return (q.updatedAt || q.createdAt || 0) > delAt;
-  });
+  const deletedUsers = getDeletedUserIds();
+  const clean = (queues || [])
+    .filter((q) => {
+      if (!q || !q.id || isTestArtifactId(q.id, q.name)) return false;
+      const delAt = deletedMap[q.id];
+      if (!delAt) return true;
+      return (q.updatedAt || q.createdAt || 0) > delAt;
+    })
+    .map((q) => ({
+      ...q,
+      queueList: (q.queueList || []).filter((m) => !isQueueMemberRemoved(q.id, m) && (!m.userId || !deletedUsers.has(m.userId)) && m.name !== 'MemberB' && !isTestArtifactId(m.id, m.name))
+    }));
   inMemoryQueues = clean;
   setCachedData(CACHE_KEYS.QUEUES, clean);
 }
@@ -3821,8 +3879,23 @@ export const DEFAULT_CHARACTER_CLASSES: string[] = [
   'Soul Breaker'
 ];
 
+export function getCachedCharacterClasses(): ClassMeta[] {
+  try {
+    const raw = localStorage.getItem('k7_character_classes');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map(normalizeClassMeta);
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to read cached character classes:', e);
+  }
+  return OFFICIAL_CLASSES;
+}
+
 export function listenToCharacterClasses(
-  callback: (classes: string[]) => void
+  callback: (classes: ClassMeta[]) => void
 ) {
   const ref = doc(db, APP_SETTINGS_COLLECTION, 'character_classes');
   return onSnapshot(
@@ -3831,23 +3904,35 @@ export function listenToCharacterClasses(
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (Array.isArray(data?.classes) && data.classes.length > 0) {
-          callback(data.classes);
+          const normalized = data.classes.map(normalizeClassMeta);
+          try {
+            localStorage.setItem('k7_character_classes', JSON.stringify(normalized));
+          } catch (_) {}
+          callback(normalized);
           return;
         }
       }
-      callback(DEFAULT_CHARACTER_CLASSES);
+      callback(getCachedCharacterClasses());
     },
     (err) => {
       console.warn('Firestore character classes sync notice:', err);
-      callback(DEFAULT_CHARACTER_CLASSES);
+      callback(getCachedCharacterClasses());
     }
   );
 }
 
-export async function saveCharacterClassesDoc(classes: string[], updatedBy?: string) {
-  const cleanClasses = Array.from(
-    new Set(classes.map((c) => (typeof c === 'string' ? c.trim() : '')).filter((c) => c.length > 0))
-  );
+export async function saveCharacterClassesDoc(classes: ClassMeta[], updatedBy?: string) {
+  const cleanClasses = classes.map((c) => ({
+    id: (c.id || c.nameEn.toLowerCase().replace(/[^a-z0-9]/g, '_')).trim(),
+    nameEn: c.nameEn.trim(),
+    nameTh: (c.nameTh || c.nameEn).trim(),
+    icon: (c.icon || '/assets/classes/sword.png').trim()
+  }));
+
+  try {
+    localStorage.setItem('k7_character_classes', JSON.stringify(cleanClasses));
+  } catch (_) {}
+
   const cleanData = sanitizeForFirestore({
     classes: cleanClasses,
     updatedAt: Date.now(),
