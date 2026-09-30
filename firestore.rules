@@ -139,9 +139,6 @@ service cloud.firestore {
       allow read: if true;
       allow update: if validUser(request.resource.data)
         && signedIn()
-        // New submissions must pass the central duplicate/screenshot validator.
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['pendingPowerLevelRequestedAt', 'pendingStats', 'pendingSpiritEnhancements', 'pendingClasses', 'pendingLevel', 'pendingLegendClasses', 'pendingLegendAgathions', 'pendingPowerLevel', 'pendingStatScreenshotUrl'])
-          || (request.resource.data.get('pendingPowerLevelRequestedAt', null) == null && request.resource.data.get('pendingPowerLevel', null) == null))
         && (
           (isOwner() && (
             (resource.data.role == 'owner' && request.auth.uid == userId && request.resource.data.role == 'owner')
@@ -193,8 +190,12 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isAdminOrOwner() && (!roundEnforced() || request.resource.data.get('queueList', []).size() == 0);
       allow delete: if isAdminOrOwner();
-      // Member queue changes are scoped and persisted by the authenticated relay API.
-      allow update: if isAdminOrOwner() && (!roundEnforced() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['queueList']));
+      allow update: if (isAdminOrOwner() && (!roundEnforced() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['queueList'])))
+        || (
+          signedIn() && isActiveUser()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt'])
+          && (!roundEnforced() || roundEligible())
+        );
     }
 
     match /quick_items/{itemId} {
@@ -230,9 +231,15 @@ service cloud.firestore {
         && validGeneralItem(request.resource.data);
       allow delete: if isAdminOrOwner();
       allow update: if validGeneralItem(request.resource.data)
-        && (!roundEnforced() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['queueList', 'receiptHistory']))
         && request.resource.data.id == resource.data.id
-        && isAdminOrOwner();
+        && (
+          isAdminOrOwner()
+          || (
+            signedIn() && isActiveUser()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt'])
+            && (!roundEnforced() || roundEligible())
+          )
+        );
     }
 
     match /clans/{clanId} {

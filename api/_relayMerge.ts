@@ -55,18 +55,14 @@ export const sanitizeAndDeduplicateUsers = (users: any[], deletedUsers?: Record<
       } else {
         if (!seen.has(u.id)) {
           seen.add(u.id);
-          // If member has no verified statApprovalAt timestamp in the new CLAN-HUB system, ensure stats are fresh/zeroed
+          // If member has no verified statApprovalAt timestamp in the new CLAN-HUB system, ensure verified stats are zeroed but keep pending requests
           if (!u.statApprovalAt && u.powerLevel && u.powerLevel > 0) {
             u = {
               ...u,
               powerLevel: 0,
-              stats: {},
-              statHistory: [],
-              statApprovalAt: null,
-              statRejectionAt: null,
-              pendingPowerLevel: null,
-              pendingPowerLevelRequestedAt: null,
-              pendingStats: null
+              stats: u.stats || {},
+              statHistory: u.statHistory || [],
+              statApprovalAt: null
             };
           }
           cleanUsers.push(u);

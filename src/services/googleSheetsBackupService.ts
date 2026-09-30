@@ -198,8 +198,8 @@ export async function initSharedGoogleBackupConfig(): Promise<void> {
   try {
     const res = await fetch('/api/google-backup-config');
     if (res.ok) {
-      const data = await res.json().catch(() => null);
-      if (data?.webAppUrl) {
+      const data = await res.json();
+      if (data.webAppUrl) {
         saveGoogleBackupConfig(
           {
             webAppUrl: data.webAppUrl,
@@ -242,8 +242,8 @@ export async function testGoogleSheetsConnection(webAppUrl: string): Promise<{
       throw new Error(`HTTP Error: ${response.status} ${response.statusText}`);
     }
 
-    const json = await response.json().catch(() => null);
-    if (json?.status === 'success') {
+    const json = await response.json();
+    if (json.status === 'success') {
       saveGoogleBackupConfig({
         webAppUrl: webAppUrl.trim(),
         sheetUrl: json.sheetUrl,
@@ -463,10 +463,10 @@ export async function broadcastLiveState(
       // A write acknowledgement does NOT advance the read cursor: its merged snapshot
       // may contain another member's change that this browser has not read yet.
       const res = await centralApi('/api/live-state', { method: 'POST', body });
-      const result = await res.json().catch(() => ({ success: true, version: 0 }));
+      const result = await res.json();
       lastBroadcastString = JSON.stringify(clean);
       if (key && localStorage.getItem(key) === body) localStorage.removeItem(key);
-      return { success: true, version: result?.version || 0 };
+      return { success: true, version: result.version };
     } catch (error) {
       console.warn('Central sync pending:', error);
       return { success: false };
@@ -506,8 +506,8 @@ export function startGoogleRealtimeSync(onDataChanged: (data: BackupDataPayload)
             signal: abortController.signal, cache: 'no-store'
           });
           if (!res.ok) throw new Error('CENTRAL_READ_FAILED');
-          const json = await res.json().catch(() => null);
-          if (json && json.modified && json.data && generation === syncGeneration) {
+          const json = await res.json();
+          if (json.modified && json.data && generation === syncGeneration) {
             // Reject delayed responses, but allow a server restart with a new snapshot.
             currentLocalVersion = json.version;
             lastBroadcastString = JSON.stringify(json.data);
@@ -521,9 +521,7 @@ export function startGoogleRealtimeSync(onDataChanged: (data: BackupDataPayload)
         if (!realtimeActive || generation !== syncGeneration) break;
         console.warn('Central read will retry:', error);
       }
-      const isHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
-      const delayMs = isHidden ? 20000 : 5000;
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+      await new Promise(resolve => setTimeout(resolve, 2500));
     }
   };
   void pollLoop();

@@ -14,6 +14,7 @@ scratch/
 backups/*
 /data/
 src/data/offlineMembersData.ts
+api/index.js
 work/
 firebase-service-account*.json
 *.k7backup

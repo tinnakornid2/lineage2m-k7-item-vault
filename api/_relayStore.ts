@@ -23,7 +23,7 @@ export function publicRelayData(value: any): any {
     .map(([key, val]) => [key, publicRelayData(val)]));
 }
 
-export async function withRelayTimeout<T>(operation: Promise<T>, ms = 8000): Promise<T> {
+export async function withRelayTimeout<T>(operation: Promise<T>, ms = 1500): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   try {
     return await Promise.race([operation, new Promise<never>((_, reject) => {
@@ -45,12 +45,7 @@ export function decodeSnapshot(parts: string[]): any {
 }
 
 export class FirestoreRelayStore {
-  private db: any;
-  private cachedSnapshot: RelaySnapshot | null = null;
-  private lastReadTime = 0;
-  constructor(db: any) {
-    this.db = db;
-  }
+  constructor(private db: any) {}
 
   private async readTransaction(tx: any): Promise<RelaySnapshot | null> {
     const ref = this.db.collection('system_meta').doc('live_state');
@@ -66,19 +61,11 @@ export class FirestoreRelayStore {
         const row = await tx.get(this.db.collection('app_settings').doc(id));
         if (row.exists) data[key] = row.data();
       }));
-      const initial = { data: publicRelayData(data), version: 0, updatedAt: 0 };
-      this.cachedSnapshot = initial;
-      return initial;
+      return { data: publicRelayData(data), version: 0, updatedAt: 0 };
     }
     const manifest = snap.data();
     if (manifest.format !== 'gzip-parts-v1') {
-      const legacy = manifest.data ? { ...manifest, data: publicRelayData(manifest.data) } : null;
-      this.cachedSnapshot = legacy;
-      return legacy;
-    }
-    // High-performance cache hit: If version matches our cached snapshot, skip fetching multi-megabyte chunks
-    if (this.cachedSnapshot && this.cachedSnapshot.version === manifest.version && this.cachedSnapshot.data) {
-      return this.cachedSnapshot;
+      return manifest.data ? { ...manifest, data: publicRelayData(manifest.data) } : null;
     }
     if (!Number.isInteger(manifest.parts) || manifest.parts < 1 || manifest.parts > 64) {
       throw new Error('INVALID_CENTRAL_MANIFEST');
@@ -86,23 +73,12 @@ export class FirestoreRelayStore {
     const chunks = await Promise.all(Array.from({ length: manifest.parts }, (_, i) =>
       tx.get(this.db.collection('system_live_parts').doc(String(i)))));
     if (chunks.some(chunk => !chunk.exists)) throw new Error('INCOMPLETE_CENTRAL_STATE');
-    const decoded: RelaySnapshot = {
-      version: manifest.version,
-      updatedAt: manifest.updatedAt,
-      data: decodeSnapshot(chunks.map(chunk => chunk.data().payload))
-    };
-    this.cachedSnapshot = decoded;
-    return decoded;
+    return { version: manifest.version, updatedAt: manifest.updatedAt,
+      data: decodeSnapshot(chunks.map(chunk => chunk.data().payload)) };
   }
 
   async read(): Promise<RelaySnapshot | null> {
-    const now = Date.now();
-    if (this.cachedSnapshot && (now - this.lastReadTime < 2500)) {
-      return this.cachedSnapshot;
-    }
-    const result = await this.db.runTransaction((tx: any) => this.readTransaction(tx), { readOnly: true });
-    this.lastReadTime = Date.now();
-    return result;
+    return this.db.runTransaction((tx: any) => this.readTransaction(tx), { readOnly: true });
   }
 
   async commit(incoming: any, mutate?: (current: any) => any): Promise<RelaySnapshot> {
@@ -154,10 +130,7 @@ export class FirestoreRelayStore {
         quickItemsVersion: version, clansVersion: version, diamondsVersion: version, settingsVersion: version,
         lastUpdatedAt: updatedAt, lastChangeType: 'liveState'
       }, { merge: true });
-      const result: RelaySnapshot = { data, version, updatedAt };
-      this.cachedSnapshot = result;
-      this.lastReadTime = Date.now();
-      return result;
+      return { data, version, updatedAt };
     });
   }
 }
