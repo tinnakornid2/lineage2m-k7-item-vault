@@ -343,7 +343,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
 
               <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-mono font-semibold px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>v2.10.59</span>
+                <span>v2.10.60</span>
               </div>
             </div>
 
@@ -352,11 +352,11 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
               <Info className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
               <div>
                 <span className="font-semibold text-emerald-300">
-                  {lang === 'th' ? 'นโยบายความเสถียรสูงสุด:' : 'High Resilience Architecture:'}{' '}
+                  {lang === 'th' ? 'สถาปัตยกรรมฐานข้อมูลเสถียรภาพสูง:' : 'High Resilience Database Architecture:'}{' '}
                 </span>
                 {lang === 'th'
-                  ? 'ระบบตัดการเชื่อมต่ออัตโนมัติกับ Google Sheets ออก เพื่อตัดต้นตอปัญหาข้อมูลสเตตัสเก่าตีกลับและอาการจอกระพริบ โดยเปลี่ยนมาใช้ Firebase Cloud ร่วมกับ Live Relay Server เป็นศูนย์กลางเดียว และให้ Owner สามารถสำรองไฟล์ JSON เก็บไว้ในคอมพิวเตอร์ได้ตลอดเวลา'
-                  : 'Google Sheets auto-sync has been decoupled to eliminate ghost stat regressions and background flickering. The hub operates strictly on Firebase Cloud + Live State Relay, with instant 1-click JSON backup file capabilities for the Owner.'}
+                  ? 'ระบบทำงานโดยตรงบน Firebase Cloud และ Live State Relay เป็นศูนย์กลางเดียว 100% ไร้การพึ่งพา Google Sheets ตัดต้นตอปัญหาข้อมูลตีกลับและอาการกระพริบอย่างถาวร โดย Owner สามารถสำรองไฟล์ JSON เก็บไว้ในคอมพิวเตอร์และกู้คืนได้ตลอดเวลา'
+                  : 'The system operates 100% directly on Firebase Cloud and Live State Relay as the single source of truth without external Google Sheets dependency, permanently eliminating ghost data regressions and flickering. The Owner can export and restore full JSON database backups at any time.'}
               </div>
             </div>
           </div>
@@ -508,7 +508,7 @@ export const GoogleDriveBackupModal: React.FC<GoogleDriveBackupModalProps> = ({
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-t border-white/10 bg-[#0c1424]">
           <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Lineage2M Clan Hub &bull; Owner Database Protection (v2.10.59)</span>
+            <span>Lineage2M Clan Hub &bull; Owner Database Protection (v2.10.60)</span>
           </div>
           <button
             onClick={() => {

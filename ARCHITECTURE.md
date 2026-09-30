@@ -22,7 +22,7 @@ flowchart TD
 
     Tier3 --> Tier4["☁️ Tier 4: Firestore Cloud with safeFirestoreWrite\n• ครอบด้วย Timeout Guard 1,200ms - 2,500ms\n• บันทึกแบบ Background Async ไม่บล็อก UI\n• หากโควต้าเต็ม (RESOURCE_EXHAUSTED) จะ Resolve ทันที ไม่ค้างปุ่มหมุน"]
 
-    Tier3 --> Tier5["🛡️ Tier 5: Google Drive & Local JSON Snapshots\n• 1-Click Full JSON Backup สำหรับ Owner\n• สำรองและกู้คืนโครงสร้างกิลด์ทั้งระบบได้ 100%"]
+    Tier3 --> Tier5["🛡️ Tier 5: 1-Click Full JSON Database Backup & Restore\n• สำรองไฟล์ JSON ทั้งระบบสำหรับ Owner\n• กู้คืนโครงสร้างกิลด์ได้ 100% ปราศจากข้อจำกัดของชีต"]
 
     style UserAction fill:#d4af37,stroke:#fff,stroke-width:2px,color:#000
     style Tier1 fill:#10b981,stroke:#fff,stroke-width:1.5px,color:#fff
@@ -68,7 +68,7 @@ flowchart TD
   ```
 - หากโควต้า Firestore เต็ม (`RESOURCE_EXHAUSTED`) ซึ่งปกติ Firebase SDK จะค้างรอ Retry เป็นนาที ตัว Timeout Guard จะตัดการรอภายใน 1.5 วินาที ทำให้การทำงานของหน้าเว็บไม่สะดุด
 
-#### 5. Tier 5: 1-Click Local JSON & Google Drive Protection
+#### 5. Tier 5: 1-Click Full JSON Database Backup & Restore
 - มีศูนย์กลางการสำรองข้อมูลสำหรับ Owner ผ่าน [`GoogleDriveBackupModal.tsx`](file:///d:/lineage2m-k7-item-vault/src/components/GoogleDriveBackupModal.tsx)
 - สามารถกด **"ดาวน์โหลดไฟล์สำรอง (Download Backup)"** เพื่อเซฟไฟล์ `.json` ที่บรรจุข้อมูลทั้งหมด (Users, Items, Queues, Clans, Diamond Logs, Settings) เก็บไว้ในเครื่องคอมพิวเตอร์
 - สามารถกู้คืนข้อมูลทั้งระบบกลับมาได้ 100% ภายในคลิกเดียวผ่านปุ่ม **"กู้คืนจากไฟล์ (Restore Backup)"**

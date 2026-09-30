@@ -592,13 +592,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       }`}
                       title={
                         lang === 'th'
-                          ? (isQuotaExceeded ? 'ฐานข้อมูล: Google Sheets สำรอง • คลิกเพื่อจัดการ' : 'ฐานข้อมูล: Firebase Cloud • คลิกเพื่อจัดการ')
-                          : (isQuotaExceeded ? 'DB: Google Sheets Backup • Click to manage' : 'DB: Firebase Cloud • Click to manage')
+                          ? (isQuotaExceeded ? 'ฐานข้อมูล: Relay Cache สำรอง • คลิกเพื่อจัดการ' : 'ฐานข้อมูล: Firebase Cloud • คลิกเพื่อจัดการ')
+                          : (isQuotaExceeded ? 'DB: Relay Cache Backup • Click to manage' : 'DB: Firebase Cloud • Click to manage')
                       }
                       aria-label={lang === 'th' ? 'สถานะเซิร์ฟเวอร์' : 'Server Status'}
                     >
                       <Database className={`w-3 h-3 ${isQuotaExceeded ? 'text-amber-400' : 'text-sky-400'}`} />
-                      <span>{isQuotaExceeded ? 'Google Sheets' : 'Firebase'}</span>
+                      <span>{isQuotaExceeded ? 'Relay Cache' : 'Firebase'}</span>
                       <span className={`w-1.5 h-1.5 rounded-full ${isQuotaExceeded ? 'bg-amber-400' : 'bg-emerald-400'}`} />
                     </button>
                   ) : (
@@ -611,12 +611,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       }`}
                       title={
                         lang === 'th'
-                          ? (isQuotaExceeded ? 'ฐานข้อมูล: Google Sheets สำรอง' : 'ฐานข้อมูล: Firebase Cloud')
-                          : (isQuotaExceeded ? 'DB: Google Sheets Backup' : 'DB: Firebase Cloud')
+                          ? (isQuotaExceeded ? 'ฐานข้อมูล: Relay Cache สำรอง' : 'ฐานข้อมูล: Firebase Cloud')
+                          : (isQuotaExceeded ? 'DB: Relay Cache Backup' : 'DB: Firebase Cloud')
                       }
                     >
                       <Database className={`w-3 h-3 ${isQuotaExceeded ? 'text-amber-400' : 'text-sky-400'}`} />
-                      <span>{isQuotaExceeded ? 'Google Sheets' : 'Firebase'}</span>
+                      <span>{isQuotaExceeded ? 'Relay Cache' : 'Firebase'}</span>
                       <span className={`w-1.5 h-1.5 rounded-full ${isQuotaExceeded ? 'bg-amber-400' : 'bg-emerald-400'}`} />
                     </div>
                   )}

@@ -217,59 +217,16 @@ export async function initSharedGoogleBackupConfig(): Promise<void> {
 /**
  * Test connectivity with deployed Google Apps Script Web App
  */
-export async function testGoogleSheetsConnection(webAppUrl: string): Promise<{
+export async function testGoogleSheetsConnection(_webAppUrl?: string): Promise<{
   success: boolean;
   message: string;
   sheetUrl?: string;
   sheetName?: string;
 }> {
-  if (!webAppUrl || !webAppUrl.trim().startsWith('https://script.google.com/macros/s/')) {
-    return {
-      success: false,
-      message: 'Invalid Google Apps Script Web App URL. Must start with https://script.google.com/macros/s/'
-    };
-  }
-
-  try {
-    const pingUrl = `${webAppUrl.trim()}${webAppUrl.includes('?') ? '&' : '?'}action=ping`;
-    const response = await fetch(pingUrl, {
-      method: 'GET',
-      mode: 'cors',
-      redirect: 'follow'
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP Error: ${response.status} ${response.statusText}`);
-    }
-
-    const json = await response.json();
-    if (json.status === 'success') {
-      saveGoogleBackupConfig({
-        webAppUrl: webAppUrl.trim(),
-        sheetUrl: json.sheetUrl,
-        sheetName: json.sheetName,
-        lastStatus: 'success',
-        lastMessage: 'Connected successfully'
-      });
-      return {
-        success: true,
-        message: 'Connected to Google Sheets successfully!',
-        sheetUrl: json.sheetUrl,
-        sheetName: json.sheetName
-      };
-    } else {
-      return {
-        success: false,
-        message: json.message || 'Unknown response from Google Apps Script'
-      };
-    }
-  } catch (err: any) {
-    console.error('Test connection failed:', err);
-    return {
-      success: false,
-      message: err?.message || 'Failed to connect to Google Apps Script. Check permissions (Anyone) or CORS.'
-    };
-  }
+  return {
+    success: true,
+    message: 'Google Sheets sync is decoupled in favor of Firebase Cloud & Live Relay.'
+  };
 }
 
 /**

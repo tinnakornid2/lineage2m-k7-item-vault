@@ -441,8 +441,8 @@ export const App: React.FC = () => {
         setIsQuotaExceeded(true);
         showToast(
           lang === 'th'
-            ? '⚠️ ตรวจพบ Firebase ยังติดโควต้าอ่านรายวัน — ระบบกำลังทำงานผ่าน Google Sheets & Drive สำรอง'
-            : '⚠️ Firebase daily read quota is still exceeded — running via Google Sheets & Drive failover.',
+            ? '⚠️ ตรวจพบ Firebase ยังติดโควต้าอ่านรายวัน — ระบบกำลังทำงานผ่าน Live Relay & Local Cache สำรอง'
+            : '⚠️ Firebase daily read quota is still exceeded — running via Live Relay & Local Cache failover.',
           'warning'
         );
       }
@@ -1717,7 +1717,7 @@ export const App: React.FC = () => {
           if (isPendingFirebaseSync()) {
             showToast(
               lang === 'th'
-                ? '🔄 ตรวจพบ Firebase กลับมาออนไลน์แล้ว! กำลังซิงค์ข้อมูลล่าสุดจาก Google Sheets ขึ้น Cloud อัตโนมัติ...'
+                ? '🔄 ตรวจพบ Firebase กลับมาออนไลน์แล้ว! กำลังซิงค์ข้อมูลขึ้น Cloud อัตโนมัติ...'
                 : '🔄 Firebase is back online! Automatically syncing latest changes to Cloud...',
               'info'
             );
