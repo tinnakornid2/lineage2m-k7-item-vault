@@ -16,6 +16,7 @@ import {
 import { ItemRarity, Language, QuickItem, User } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { prepareImageFile as compressImageFile } from '../services/imageUpload';
 
 interface QuickItemModalProps {
   isOpen: boolean;
@@ -31,41 +32,7 @@ interface QuickItemModalProps {
 }
 
 const compressImage = (file: File): Promise<string> => {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const maxDim = 256;
-        let width = img.width;
-        let height = img.height;
-        if (width > height) {
-          if (width > maxDim) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          }
-        } else {
-          if (height > maxDim) {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.85));
-        } else {
-          resolve(e.target?.result as string);
-        }
-      };
-      img.onerror = () => resolve(e.target?.result as string);
-      img.src = e.target?.result as string;
-    };
-    reader.readAsDataURL(file);
-  });
+  return compressImageFile(file, { maxWidth: 256, maxHeight: 256, quality: 0.85, maxDataUrlChars: 50000 });
 };
 
 export const QuickItemModal: React.FC<QuickItemModalProps> = ({

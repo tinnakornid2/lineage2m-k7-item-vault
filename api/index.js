@@ -779,7 +779,7 @@ import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 
 // api/_firebaseAdmin.ts
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 var PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "clan-hub-7645f";
 var DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || "(default)";
 function hasAdminCredentials() {
@@ -923,7 +923,7 @@ async function uploadBackgroundImage(buffer, contentType) {
   if (!sdk) {
     throw new Error("Firebase Admin credentials not configured for image upload.");
   }
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "k7-item.firebasestorage.app";
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "clan-hub-7645f.firebasestorage.app";
   const bucket = sdk.storage.bucket(bucketName);
   const objectName = `app-backgrounds/current-${Date.now()}.${contentType === "image/png" ? "png" : "jpg"}`;
   const downloadToken = randomUUID();
@@ -937,6 +937,36 @@ async function uploadBackgroundImage(buffer, contentType) {
     }
   });
   return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(objectName)}?alt=media&token=${downloadToken}`;
+}
+async function uploadAppImage(buffer, contentType, uid) {
+  const sdk = await getAdminSdk();
+  if (!sdk) throw new Error("STORAGE_UNAVAILABLE");
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "clan-hub-7645f.firebasestorage.app";
+  const hash = createHash("sha256").update(buffer).digest("hex");
+  const name = `app-images/${encodeURIComponent(uid)}/${hash}`;
+  const file = sdk.storage.bucket(bucketName).file(name);
+  let metadata;
+  try {
+    [metadata] = await file.getMetadata();
+  } catch (error) {
+    if (Number(error.code) !== 404) throw error;
+  }
+  if (!metadata) {
+    try {
+      await file.save(buffer, {
+        resumable: false,
+        contentType,
+        preconditionOpts: { ifGenerationMatch: 0 },
+        metadata: { metadata: { firebaseStorageDownloadTokens: randomUUID() } }
+      });
+    } catch (error) {
+      if (Number(error.code) !== 412) throw error;
+    }
+    [metadata] = await file.getMetadata();
+  }
+  const token = metadata?.metadata?.firebaseStorageDownloadTokens?.split(",")[0];
+  if (!token) throw new Error("STORAGE_TOKEN_MISSING");
+  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(name)}?alt=media&token=${encodeURIComponent(token)}`;
 }
 async function verifyRoleToken(authorization, allowedRoles) {
   const token = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
@@ -2255,6 +2285,33 @@ Do not include markdown or explanations. Return pure JSON only.`;
     }
   });
   app.use(express.static(path.join(process.cwd(), "public")));
+  const imageRateLimits = /* @__PURE__ */ new Map();
+  app.post("/api/upload-image", requireRoles(["owner", "admin", "manager", "party_leader", "member"]), async (req, res) => {
+    if (!consumeRateLimit(imageRateLimits, res.locals.actor.uid, 60, 6e4)) {
+      return res.status(429).json({ error: "IMAGE_RATE_LIMIT", message: "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E2D\u0E2A\u0E31\u0E01\u0E04\u0E23\u0E39\u0E48 / Please wait a moment" });
+    }
+    const data = req.body?.imageBase64;
+    const match = typeof data === "string" && data.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/);
+    if (!match) return res.status(400).json({ error: "INVALID_IMAGE", message: "\u0E23\u0E39\u0E1B\u0E20\u0E32\u0E1E\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 / Invalid image" });
+    const buffer = Buffer.from(match[2], "base64");
+    const valid = match[1] === "image/jpeg" ? buffer.subarray(0, 3).equals(Buffer.from([255, 216, 255])) : match[1] === "image/png" ? buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) : buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP";
+    if (!valid || buffer.length > 2 * 1024 * 1024) return res.status(400).json({ error: "INVALID_IMAGE", message: "\u0E23\u0E39\u0E1B\u0E20\u0E32\u0E1E\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07\u0E2B\u0E23\u0E37\u0E2D\u0E43\u0E2B\u0E0D\u0E48\u0E40\u0E01\u0E34\u0E19\u0E44\u0E1B / Invalid or oversized image" });
+    let timer;
+    try {
+      const url = await Promise.race([
+        uploadAppImage(buffer, match[1], res.locals.actor.uid),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("STORAGE_TIMEOUT")), 12e3);
+        })
+      ]);
+      return res.json({ success: true, url });
+    } catch (error) {
+      console.error("Image upload failed", error);
+      return res.status(503).json({ error: "STORAGE_UNAVAILABLE", message: "\u0E2D\u0E31\u0E1B\u0E42\u0E2B\u0E25\u0E14\u0E23\u0E39\u0E1B\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48 / Image upload unavailable, please retry" });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  });
   app.post("/api/save-background", requireRoles(["owner"]), async (req, res) => {
     try {
       const { imageBase64 } = req.body;

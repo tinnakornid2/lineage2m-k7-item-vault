@@ -1,6 +1,6 @@
 # 🚀 คู่มือการเตรียมงานและ Deploy ขึ้น Production (Deployment Guide)
 
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.10.71)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.10.80)**  
 > เอกสารฉบับนี้รวบรวมขั้นตอนการเตรียมความพร้อม (Pre-flight Checklist), การตั้งค่า Environment Variables, ขั้นตอนการ Deploy สู่ Vercel, และแผนรับมือเหตุฉุกเฉิน (Disaster Recovery Runbook)
 
 ---
@@ -14,7 +14,7 @@
 ```
 
 คำสั่งนี้จะทำการตรวจสอบและรันการคอมไพล์ครบทั้ง 7 ด่าน:
-1. **Version Synchronization:** ตรวจสอบเลขเวอร์ชัน **`v2.10.71`** ตรงกันครบทั้ง 6 ไฟล์
+1. **Version Synchronization:** ตรวจสอบเลขเวอร์ชัน **`v2.10.80`** ตรงกันครบทั้ง 6 ไฟล์
 2. **TypeScript Typecheck:** `tsc --noEmit` 0 error
 3. **Frontend Build:** `vite build` สร้างไฟล์หน้าบ้านใน `dist/` สำเร็จ
 4. **Backend Serverless Bundling:** `esbuild api/_entry.ts` สร้าง `api/index.js` ล่าสุด
@@ -32,7 +32,7 @@
 | **2. คำสั่ง Build Backend** | รันผ่าน `tsx server.ts` คอมไพล์ TypeScript สดตลอด | หากตั้งค่า Build Command บน Vercel เป็นแค่ `vite build` จะทำให้ `api/index.js` **ไม่ถูกอัปเดต** กลายเป็นโค้ดเก่า | **บังคับใช้ Build Command:** `npm run build` ในการตั้งค่า Vercel Dashboard เสมอ |
 | **3. ตัวแปร Environment Variables** | อ่านจากไฟล์ `.env` ในเครื่องโดยตรง | หากใน Vercel Dashboard ใส่ตัวแปรไม่ครบ หรือขาดตัวแปร `VITE_` หน้าเว็บจะกลายเป็น `undefined` | เช็คค่าใน **Vercel Dashboard > Project Settings > Environment Variables** ให้ตรงกับ `.env` 100% |
 | **4. โดเมนที่อนุญาตใน Firebase** | มี `localhost` เป็นค่าเริ่มต้นอยู่แล้ว | หากไม่ได้นำโดเมนของ Vercel ไปใส่ใน Firebase Authentication สมาชิกจะ **ล็อกอินไม่ได้เด็ดขาด** (`auth/unauthorized-domain`) | เพิ่มโดเมน `xxx.vercel.app` ใน **Firebase Console > Authentication > Settings > Authorized Domains** |
-| **5. แคชเบราว์เซอร์ผู้ใช้จริง** | มักทดสอบในหน้าต่างใหม่ LocalStorage ว่าง 5 MB | สมาชิกเดิมมีประวัติรูปภาพ Base64 สะสม จนชนเพดาน 5 MB ทำให้เกิด `QuotaExceededError` บันทึกไม่เข้า | ใน v2.10.71 มี **Auto-Pruning Quota Shield** สแกนและลดขนาดแคชเหลือ < 200 KB อัตโนมัติ |
+| **5. แคชเบราว์เซอร์ผู้ใช้จริง** | มักทดสอบในหน้าต่างใหม่ LocalStorage ว่าง 5 MB | สมาชิกเดิมมีประวัติรูปภาพ Base64 สะสม จนชนเพดาน 5 MB ทำให้เกิด `QuotaExceededError` บันทึกไม่เข้า | ใน v2.10.80 มี **Auto-Pruning Quota Shield** สแกนและลดขนาดแคชเหลือ < 200 KB อัตโนมัติ |
 | **6. กฎความปลอดภัย Firestore Cloud** | บางครั้งทดสอบผ่าน Relay หรือสิทธิ์ Admin | Cloud จริงจะตรวจ `firestore.rules` เข้มงวด หากมีฟิลด์ใหม่ที่ไม่อยู่ใน `hasOnly(...)` จะโดน `PERMISSION_DENIED` | อัปเดต whitelist ใน `firestore.rules` ทุกครั้งที่มีการเพิ่มฟิลด์ใหม่ใน TypeScript |
 | **7. แคชของ CDN / Edge Network** | ไม่มี CDN แคชหน้าเว็บ | Vercel มี Edge Caching อาจเสิร์ฟไฟล์ API หรือ JS เก่า | มีการตั้ง `Cache-Control: no-store` และ `v=${version}` ในการดึง API เสมอ |
 
@@ -79,9 +79,9 @@
 ## 🔍 การทดสอบหลัง Deploy (Post-Deployment Smoke Tests)
 
 เมื่อ Deploy เสร็จสิ้น ให้เข้าไปที่ Live Production URL แล้วตรวจสอบรายการต่อไปนี้:
-1. **แถบเวอร์ชัน:** หน้าจอ Login, Navbar และ Sidebar ต้องแสดงป้าย `v2.10.71` ชัดเจน
+1. **แถบเวอร์ชัน:** หน้าจอ Login, Navbar และ Sidebar ต้องแสดงป้าย `v2.10.80` ชัดเจน
 2. **การเข้าสู่ระบบ:** ล็อกอินด้วยบัญชี Owner (`eloni`) และตรวจสอบว่าเมนูและปุ่มตั้งค่าแสดงครบ
-3. **การลากสลับคิวไอเทม (v2.10.71):** ทดสอบคลิกลากกล่องไอเทมในหน้า Item Queue สลับตำแหน่ง แล้วรีเฟรชหน้าจอเพื่อตรวจเช็กว่าตำแหน่งใหม่อยู่คงเดิม
+3. **การลากสลับคิวไอเทม (v2.10.80):** ทดสอบคลิกลากกล่องไอเทมในหน้า Item Queue สลับตำแหน่ง แล้วรีเฟรชหน้าจอเพื่อตรวจเช็กว่าตำแหน่งใหม่อยู่คงเดิม
 4. **ระบบสองภาษา:** กดสลับภาษา TH และ EN ตรวจสอบว่าปุ่มและคำอธิบายเปลี่ยนภาษาถูกต้อง 100%
 5. **ทดสอบ Discord Webhook:** เข้าหน้าต่างตั้งค่า Discord แล้วกดปุ่ม "ทดสอบส่งการแจ้งเตือน" เพื่อตรวจเช็กการเชื่อมต่อห้องแชท
 

@@ -51,7 +51,7 @@ import {
 } from '../types';
 import { addDiamondTransactionDoc, markQueueMemberAsRemoved, unmarkQueueMemberAsRemoved } from '../services/firebase';
 import { uploadImageToGoogleDrive } from '../services/googleSheetsBackupService';
-import { compressImageFile } from '../utils/imageCompressor';
+import { prepareImageFile as compressImageFile } from '../services/imageUpload';
 import { sounds } from '../utils/sound';
 
 interface Props {
@@ -827,7 +827,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
   // Confirm Delivery Submit
   const handleConfirmDelivery = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!deliveryModalData) return;
+    if (!deliveryModalData || isDelivering) return;
     const { item, member, quantity, price, billingType, sendDiscordNotification, note, receiptFile, keepInQueue } = deliveryModalData;
     if (!member.name) {
       if (showToast) showToast(th ? 'กรุณาระบุหรือเลือกผู้รับไอเทม' : 'Please select a recipient', 'warning');
@@ -894,8 +894,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
       const receiptHistory = [...(item.receiptHistory || []), newReceipt];
       await onUpdate(item.id, { queueList, receiptHistory });
 
-      // Unify with "ไอเทมที่แจกแล้ว" (Centralized Distributed Archive)
-      // Free items are immediately marked as 'paid' with zero receipt required ("ถ้าเป็นไอเทมฟรี ไม่ต้องแนบและไม่ต้องยืนยันชำระ แจกฟรี")
+      // onUpdate commits queue + deterministic archive together. The optional
+      // callback sends Discord only; notification failure never recreates items.
       if (onAddDistributedVaultItem) {
         try {
           await onAddDistributedVaultItem(
@@ -911,6 +911,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
               source: 'item_queue'
             },
             {
+              receiptId: newReceipt.id,
               recipient: {
                 name: member.name,
                 inGameName: member.name,
@@ -923,7 +924,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
             }
           );
         } catch (distErr) {
-          console.warn('Failed to mirror to distributed archive:', distErr);
+          console.warn('Queue distribution notification failed:', distErr);
+          if (showToast) showToast(th ? 'บันทึกการแจกแล้ว แต่ส่งแจ้งเตือน Discord ไม่สำเร็จ' : 'Delivery saved, but the Discord notification failed', 'warning');
         }
       }
 

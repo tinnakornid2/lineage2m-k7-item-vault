@@ -21,6 +21,7 @@ import {
   saveStoredDiscordWebhookUrls,
   saveStoredDiscordWebhookUrl,
   uploadBackgroundImage,
+  uploadAppImage,
   verifyRoleToken,
   purgeOrphanAuthUsers,
   claimOrphanAuthUser
@@ -1224,7 +1225,31 @@ Do not include markdown or explanations. Return pure JSON only.`;
   // Serve static assets in public folder (including fantasy-original.png and wallpapers)
   app.use(express.static(path.join(process.cwd(), "public")));
 
-  // Background upload endpoint - saves to public/fantasy-original.png
+  const imageRateLimits = new Map<string, { count: number; resetAt: number }>();
+  app.post('/api/upload-image', requireRoles(['owner', 'admin', 'manager', 'party_leader', 'member']), async (req, res) => {
+    if (!consumeRateLimit(imageRateLimits, res.locals.actor.uid, 60, 60_000)) {
+      return res.status(429).json({ error: 'IMAGE_RATE_LIMIT', message: 'กรุณารอสักครู่ / Please wait a moment' });
+    }
+    const data = req.body?.imageBase64;
+    const match = typeof data === 'string' && data.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/);
+    if (!match) return res.status(400).json({ error: 'INVALID_IMAGE', message: 'รูปภาพไม่ถูกต้อง / Invalid image' });
+    const buffer = Buffer.from(match[2], 'base64');
+    const valid = match[1] === 'image/jpeg' ? buffer.subarray(0, 3).equals(Buffer.from([255,216,255]))
+      : match[1] === 'image/png' ? buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+      : buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+    if (!valid || buffer.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'INVALID_IMAGE', message: 'รูปภาพไม่ถูกต้องหรือใหญ่เกินไป / Invalid or oversized image' });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const url = await Promise.race([uploadAppImage(buffer, match[1], res.locals.actor.uid),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('STORAGE_TIMEOUT')), 12000); })]);
+      return res.json({ success: true, url });
+    } catch (error) {
+      console.error('Image upload failed', error);
+      return res.status(503).json({ error: 'STORAGE_UNAVAILABLE', message: 'อัปโหลดรูปไม่ได้ กรุณาลองใหม่ / Image upload unavailable, please retry' });
+    } finally { if (timer) clearTimeout(timer); }
+  });
+
+  // Background upload endpoint
   app.post("/api/save-background", requireRoles(['owner']), async (req, res) => {
     try {
       const { imageBase64 } = req.body;

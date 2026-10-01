@@ -149,7 +149,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   CLAN HUB
                 </span>
                 <span className="text-[9px] sm:text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300">
-                  v2.10.75
+                  v2.10.80
                 </span>
                 {/* Live Sync Status Badge (Rule 1: Bilingual 100%) */}
                 <span
@@ -163,7 +163,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                       : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
                   }`}
                   title={
-                    lang === 'th'
+                    syncStatus.error === 'PAYLOAD_TOO_LARGE' || syncStatus.error === 'HTTP_413'
+                      ? (lang === 'th' ? 'ข้อมูลใหญ่เกินขนาดที่ส่งได้ แม้บีบอัดแล้ว กรุณาลดขนาดรูปภาพหรือแบ่งข้อมูลก่อนส่งใหม่' : 'Data exceeds the upload limit, even after compression. Reduce image sizes or split the data before resending.')
+                      : lang === 'th'
                       ? (syncStatus.state === 'synced' ? 'ข้อมูลซิงค์กับระบบคลาวด์สมบูรณ์' : syncStatus.state === 'syncing' ? 'กำลังส่งข้อมูลขึ้นระบบคลาวด์...' : syncStatus.state === 'local' ? 'บันทึกในเครื่องแล้ว รอส่งขึ้นคลาวด์' : `การซิงค์ขัดข้อง: ${syncStatus.error || 'รอส่งใหม่'}`)
                       : (syncStatus.state === 'synced' ? 'Fully synced with cloud' : syncStatus.state === 'syncing' ? 'Syncing changes to cloud...' : syncStatus.state === 'local' ? 'Saved locally, pending cloud sync' : `Sync interrupted: ${syncStatus.error || 'Retry needed'}`)
                   }
@@ -181,7 +183,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block" />
                   )}
                   <span>
-                    {lang === 'th'
+                    {syncStatus.error === 'PAYLOAD_TOO_LARGE' || syncStatus.error === 'HTTP_413'
+                      ? (lang === 'th' ? 'ข้อมูลใหญ่เกินไป' : 'Data too large')
+                      : lang === 'th'
                       ? (syncStatus.state === 'synced' ? 'ซิงค์แล้ว' : syncStatus.state === 'syncing' ? 'กำลังซิงค์' : syncStatus.state === 'local' ? 'ในเครื่อง' : 'รอส่งใหม่')
                       : (syncStatus.state === 'synced' ? 'Synced' : syncStatus.state === 'syncing' ? 'Syncing' : syncStatus.state === 'local' ? 'Local' : 'Retry')}
                   </span>

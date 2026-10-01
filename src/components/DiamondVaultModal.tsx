@@ -29,7 +29,7 @@ import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { clearDiamondTransactionsDoc } from '../services/firebase';
 import { calculateDiamondNetChange } from '../utils/diamondHelper';
-import { compressImageFile } from '../utils/imageCompressor';
+import { prepareImageFile as compressImageFile } from '../services/imageUpload';
 
 interface DiamondVaultModalProps {
   isOpen: boolean;

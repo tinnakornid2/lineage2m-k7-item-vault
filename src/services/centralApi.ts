@@ -6,6 +6,8 @@
  * and robust error classification (Business Rejections vs 503/Transient/Timeouts).
  */
 
+import { prepareApiPayload } from './apiPayload';
+
 export type SyncStatusState = 'synced' | 'syncing' | 'local' | 'retry';
 
 export interface SyncStatusInfo {
@@ -66,7 +68,7 @@ export function setSyncStatus(state: SyncStatusState, error?: string): void {
   currentSyncStatus = {
     state,
     lastSyncedAt: state === 'synced' ? Date.now() : currentSyncStatus.lastSyncedAt,
-    pendingCount: state === 'syncing' ? Math.max(1, activeRequestsCount) : (state === 'local' ? getOutboxCount() : 0),
+    pendingCount: state === 'syncing' ? Math.max(1, activeRequestsCount) : getOutboxCount(),
     error
   };
 
@@ -182,14 +184,12 @@ function notifyOutboxPermanentFailure(item: OutboxItem, reason: string): void {
  * Stored in headers so retries keep the EXACT same ID across the entire lifecycle.
  */
 export function getOrGenerateClientOpId(init: RequestInit): string {
-  const headers = (init.headers || {}) as Record<string, string>;
-  const existing = headers['X-Client-Op-Id'] || headers['x-client-op-id'];
+  const headers = new Headers(init.headers);
+  const existing = headers.get('X-Client-Op-Id');
   if (existing) return existing;
   const generated = `op_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  init.headers = {
-    ...headers,
-    'X-Client-Op-Id': generated
-  };
+  headers.set('X-Client-Op-Id', generated);
+  init.headers = headers;
   return generated;
 }
 
@@ -408,6 +408,7 @@ export async function drainOutbox(): Promise<void> {
 
       const completedIds = new Set<string>();
       const failedRetryUpdates = new Map<string, { retries: number; error?: string }>();
+      let payloadBlocked = false;
 
       for (const item of itemsToDrain) {
         // SECURITY: Verify session before EACH item to prevent cross-account token misuse!
@@ -438,7 +439,11 @@ export async function drainOutbox(): Promise<void> {
           );
           completedIds.add(item.id);
         } catch (err: any) {
-          if (err?.isBusinessError) {
+          if (err?.code === 'PAYLOAD_TOO_LARGE' || err?.code === 'IMAGE_STORAGE_PENDING') {
+            // Keep unsent data intact. A size failure is not a retryable network
+            // failure and must never exhaust retries or silently delete the job.
+            payloadBlocked = true;
+          } else if (err?.isBusinessError) {
             // Authoritative business rejection permanently rejects this item
             completedIds.add(item.id);
             notifyOutboxPermanentFailure(item, err.message || 'Business logic rejection');
@@ -481,6 +486,8 @@ export async function drainOutbox(): Promise<void> {
 
       if (saveFailed) {
         setSyncStatus('retry', 'Failed to update local storage queue');
+      } else if (payloadBlocked) {
+        setSyncStatus('retry', 'PAYLOAD_TOO_LARGE');
       } else if (queueCount === 0 && activeRequestsCount === 0) {
         setSyncStatus('synced');
       } else if (queueCount > 0) {
@@ -684,7 +691,7 @@ export async function centralApi(
   // SESSION-SWITCH RACE GUARD:
   // Verify that the active session user did NOT switch while awaiting token!
   const activeSessionNow = getActiveUserSession();
-  if (originUserId && activeSessionNow.id !== originUserId) {
+  if (!tokenOverride && originUserId && activeSessionNow.id !== originUserId) {
     console.warn(
       `Session switch race detected: Expected user ${originUserId}, but active session is now ${activeSessionNow.id}. Aborting request.`
     );
@@ -698,14 +705,36 @@ export async function centralApi(
   setSyncStatus('syncing');
 
   try {
+    let preparedInit = init;
+    // Durable URL migration also covers old queued snapshots, without touching their operation ID.
+    if (typeof window !== 'undefined' && typeof init.body === 'string' &&
+        /^\/api\/(?:live-state|claim-vault-item|unclaim-vault-item|update-.*|request-stat-update)$/.test(path) &&
+        /data:image\/(?:jpeg|png|webp);base64,/i.test(init.body)) {
+      try {
+        const { uploadImagesInPayload } = await import('./imageUpload');
+        preparedInit = { ...init, body: JSON.stringify(await uploadImagesInPayload(JSON.parse(init.body), originUserId)) };
+      } catch {
+        const pending: CentralApiError = new Error('IMAGE_STORAGE_PENDING');
+        pending.code = 'IMAGE_STORAGE_PENDING';
+        pending.isNetworkError = true;
+        throw pending;
+      }
+    }
+    const wireInit = await prepareApiPayload(preparedInit);
+    // Compression is asynchronous: recheck identity immediately before sending.
+    if (!tokenOverride && originUserId && getActiveUserSession().id !== originUserId) {
+      const switched: CentralApiError = new Error('SESSION_SWITCHED_ABORT');
+      switched.code = 'SESSION_SWITCHED';
+      switched.isBusinessError = true;
+      throw switched;
+    }
+    const headers = new Headers(wireInit.headers);
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+    headers.set('X-Client-Op-Id', clientOpId);
+    headers.set('Authorization', `Bearer ${token}`);
     const response = await fetch(path, {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Client-Op-Id': clientOpId,
-        ...init.headers,
-        Authorization: `Bearer ${token}`
-      },
+      ...wireInit,
+      headers,
       signal: init.signal || AbortSignal.timeout(18000)
     });
 
@@ -713,7 +742,9 @@ export async function centralApi(
 
     // Server-side status or response checks
     if (!response.ok || (result && result.success === false)) {
-      const classified = classifyApiError(response.status, result);
+      const classified = classifyApiError(response.status, response.status === 413
+        ? { ...result, error: 'PAYLOAD_TOO_LARGE', message: 'PAYLOAD_TOO_LARGE' }
+        : result);
 
       if (classified.isBusinessError) {
         // Authoritative business rejection: NEVER put in outbox, throw for immediate rollback

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { PageErrorBoundary } from './components/PageErrorBoundary';
+import { mergeDistributionArchive, queueReceiptToVaultItem } from './utils/queueDistribution';
 import { AlertCircle, CheckCircle, Sparkles, X, FileSpreadsheet, Database, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
 import {
   ActiveTab,
@@ -216,8 +218,10 @@ import { StatApprovalView } from './components/StatApprovalView';
 export const App: React.FC = () => {
   // 1. App-wide Language & Sound
   const [lang, setLang] = useState<Language>(() => {
-    const saved = localStorage.getItem('k7_lang');
-    return (saved === 'en' || saved === 'th' ? saved : 'th') as Language;
+    try {
+      const saved = localStorage.getItem('k7_lang');
+      return saved === 'en' || saved === 'th' ? saved : 'th';
+    } catch { return 'th'; }
   });
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
@@ -1970,24 +1974,14 @@ export const App: React.FC = () => {
       setUsers(updatedUsers);
       setCachedUsers(updatedUsers);
 
-      // Broadcast to live-state relay so other clients see new pending member
-      broadcastLiveState(
-        getFullBackupPayload({ users: updatedUsers }),
-        registered.inGameName
-      ).catch(() => {});
-
-      // Trigger debounced auto-backup to Google Sheets
+      // Trigger debounced auto-backup to Google Sheets in background (if configured)
       const googleConfig = getGoogleBackupConfig();
       if (googleConfig.webAppUrl) {
         triggerDebouncedAutoBackup(
           getFullBackupPayload({ users: updatedUsers }),
-          'New Member Registration',
-          true
+          'New Member Registration'
         );
       }
-
-      // Clear session so pending member stays on login screen until approved
-      await logoutAuthenticatedUser().catch(() => {});
 
       return {
         success: true,
@@ -1999,10 +1993,13 @@ export const App: React.FC = () => {
     } catch (err: any) {
       console.error('Registration failed:', err);
       const isAlreadyInUse = err?.message?.includes('already-in-use');
+      const isTimeout = err?.message?.includes('firestore-timeout');
       return {
         success: false,
         message: isAlreadyInUse
           ? (lang === 'th' ? 'ชื่อผู้ใช้นี้มีในระบบแล้ว กรุณาใช้ชื่ออื่น' : 'Username is already taken.')
+          : isTimeout
+          ? (lang === 'th' ? 'ไม่สามารถยืนยันการบันทึกข้อมูลสมาชิกไปยังเซิร์ฟเวอร์ได้ทันเวลา กรุณาลองใหม่อีกครั้ง' : 'Could not verify member registration to server in time. Please try again.')
           : (err?.message || (lang === 'th' ? 'การลงทะเบียนล้มเหลว' : 'Registration failed'))
       };
     }
@@ -3290,9 +3287,19 @@ export const App: React.FC = () => {
     // Member is strictly permitted to update queueList only.
     // Modifying item metadata or receiptHistory (distribution receipts) requires Admin/Owner!
     const isQueueOnly = Object.keys(updates).every((key) => key === 'queueList');
-    if (!isQueueOnly && !ensurePrivileged('แก้ไขข้อมูลไอเทมทั่วไป', 'update general item details')) return;
+    if (!isQueueOnly && !ensurePrivileged('แก้ไขข้อมูลไอเทมทั่วไป', 'update general item details')) {
+      throw new Error(lang === 'th' ? 'ไม่มีสิทธิ์แก้ไขประวัติการส่งมอบ' : 'Not authorized to update delivery history');
+    }
     const now = Date.now();
     const fullUpdates = { ...updates, updatedAt: now };
+
+    const currentItem = generalItems.find(entry => entry.id === itemId);
+    if (!currentItem) throw new Error(lang === 'th' ? 'ไม่พบไอเทมในคิว' : 'Queue item not found');
+    const existingReceiptIds = new Set((currentItem.receiptHistory || []).map(receipt => receipt.id));
+    const newArchives = (updates.receiptHistory || [])
+      .filter(receipt => !existingReceiptIds.has(receipt.id))
+      .map(receipt => queueReceiptToVaultItem(currentItem, receipt));
+    const nextVaultItems = mergeDistributionArchive(vaultItems, newArchives);
 
     // 1. Instant Optimistic React State update (<1ms)
     const nextItems = generalItems.map((entry) => entry.id === itemId ? { ...entry, ...fullUpdates } : entry);
@@ -3300,11 +3307,16 @@ export const App: React.FC = () => {
 
     // 2. Instant LocalStorage caching
     setCachedGeneralItems(nextItems);
+    if (newArchives.length > 0) {
+      setVaultItems(prev => mergeDistributionArchive(prev, newArchives));
+      setCachedVaultItems(nextVaultItems);
+      setPendingFirebaseSync(true);
+    }
     recordLocalMutation();
 
     // 3. Instant Live State Relay Broadcast to peers
     broadcastLiveState(
-      getFullBackupPayload({ generalItems: nextItems }),
+      getFullBackupPayload({ generalItems: nextItems, vaultItems: nextVaultItems }),
       currentUser?.inGameName || 'Member'
     );
 
@@ -3319,6 +3331,31 @@ export const App: React.FC = () => {
     // 5. Safe Firestore persistence (non-blocking in background)
     updateGeneralItemDoc(itemId, fullUpdates).catch((err) => {
       console.warn('General item updated locally/relay/sheets; firestore update deferred:', err);
+    });
+    // Persist the deterministic archive records independently of UI rendering.
+    for (const archive of newArchives) {
+      updateVaultItemDoc(archive.id, archive).catch(err => {
+        console.warn('Queue archive persistence deferred:', err);
+      });
+    }
+  };
+
+  // Receipt creation already updates the queue and archive together. This
+  // callback is now only an optional Discord notification, never a second write.
+  const handleQueueDistributionNotification = async (
+    _itemData: unknown,
+    distribution?: DirectDistributionPayload & { receiptId?: string }
+  ) => {
+    if (!isAdminOrOwner || !distribution?.receiptId || distribution.skipDiscordNotification) return;
+    const archive = getCachedVaultItems().find(item => item.id === `queue_receipt_${distribution.receiptId}`);
+    const settings = discordSettings || getCachedDiscordSettings();
+    const webhookUrl = settings?.distributeWebhookUrl || settings?.webhookUrl;
+    if (!archive || !settings?.enabled || settings.notifyOnDistribute === false || !webhookUrl) return;
+    await sendDiscordNotification(settings, 'distribute', {
+      item: archive,
+      distributeInfo: archive.distributedTo,
+      actorName: currentUser?.inGameName || currentUser?.username || 'Admin',
+      webhookUrl
     });
   };
 
@@ -4565,6 +4602,7 @@ export const App: React.FC = () => {
         />
 
         <main className="flex-1 w-full max-w-full 2xl:max-w-[1920px] mx-auto px-2.5 sm:px-4 md:px-6 lg:px-7 py-3 sm:py-5 min-w-0 transition-all">
+          <PageErrorBoundary key={activeTab} lang={lang} onHome={() => setActiveTab('dashboard')}>
           {activeTab === 'dashboard' && (
           <DashboardView
             lang={lang}
@@ -4581,7 +4619,7 @@ export const App: React.FC = () => {
             onReorderGeneralItem={handleReorderGeneralItems}
             onDeleteGeneralItem={handleDeleteGeneralItem}
             onRecordDiamondLog={handleRecordDiamondLog}
-            onAddDistributedVaultItem={handleCreateVaultItem}
+            onAddDistributedVaultItem={handleQueueDistributionNotification}
             onClaimItem={handleClaimItem}
             onUnclaimItem={handleUnclaimItem}
             onViewClaimants={(item) => setClaimantsTargetItem(item)}
@@ -4645,7 +4683,7 @@ export const App: React.FC = () => {
             onReorderGeneralItem={handleReorderGeneralItems}
             onDeleteGeneralItem={handleDeleteGeneralItem}
             onRecordDiamondLog={handleRecordDiamondLog}
-            onAddDistributedVaultItem={handleCreateVaultItem}
+            onAddDistributedVaultItem={handleQueueDistributionNotification}
             onOpenQuickItemsModal={() => setShowQuickItemsModal(true)}
             onCreateQueueItem={handleCreateQueueItem}
             onDeleteQueueItem={handleDeleteQueueItem}
@@ -4779,6 +4817,7 @@ export const App: React.FC = () => {
             </button>
           </div>
         )}
+          </PageErrorBoundary>
       </main>
 
       {/* 3. FOOTER */}

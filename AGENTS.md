@@ -1,4 +1,4 @@
-# 🛡️ Workspace Rules & Engineering Guidelines (v2.10.75)
+# 🛡️ Workspace Rules & Engineering Guidelines (v2.10.80)
 
 > **Lineage 2M Clan Hub & Boss Item Vault**  
 > เอกสารฉบับนี้กำหนด **กฎเหล็กภาคบังคับ 8 ข้อ** สำหรับนักพัฒนาและ AI Agent ทุกตัวที่เข้ามารับช่วงงานต่อในโปรเจกต์นี้ เพื่อรักษามาตรฐานความเสถียร ความปลอดภัย และป้องกันโค้ดเสียหาย 100%

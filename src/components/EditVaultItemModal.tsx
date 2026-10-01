@@ -30,7 +30,7 @@ import {
 } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
-import { compressImageFile } from '../utils/imageCompressor';
+import { prepareImageFile as compressImageFile } from '../services/imageUpload';
 
 interface EditVaultItemModalProps {
   isOpen: boolean;

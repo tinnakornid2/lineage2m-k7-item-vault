@@ -1,6 +1,6 @@
 # 🏗️ สถาปัตยกรรมระบบและความเสถียร (System Architecture & Resilience)
 
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.10.50)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.10.80)**  
 > เอกสารฉบับนี้อธิบายโครงสร้างระบบ, สถาปัตยกรรมความเสถียร 5 ชั้น (5-Tier Zero-Downtime Resilience), กลไกการซิงก์ข้อมูลแบบเรียลไทม์ และโครงสร้างข้อมูล (Data Schemas) ทั้งหมดในโปรเจกต์ เพื่อให้ผู้รับช่วงงานต่อเข้าใจ 100% โดยไม่ต้องอ่านซอร์สโค้ด
 
 ---

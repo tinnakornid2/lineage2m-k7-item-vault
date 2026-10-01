@@ -16,7 +16,7 @@ import {
   Receipt
 } from 'lucide-react';
 import { Language, User, VaultItem, OFFICIAL_CLASSES } from '../types';
-import { compressImageFile } from '../utils/imageCompressor';
+import { prepareImageFile as compressImageFile } from '../services/imageUpload';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 

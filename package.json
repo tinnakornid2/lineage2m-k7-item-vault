@@ -1,7 +1,7 @@
 {
   "name": "lineage2m-k7-item-vault",
   "private": true,
-  "version": "2.10.75",
+  "version": "2.10.80",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -9,6 +9,7 @@
     "dev:emulator": "node scripts/dev-emulator.mjs",
     "emulators": "firebase emulators:start --only auth,firestore",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/firestore.rules.test.mjs\"",
+    "test:registration": "firebase emulators:exec --only auth,firestore --project demo-k7-vault \"node node_modules/tsx/dist/cli.mjs --test tests/registration-resilience-regression.test.mjs\"",
     "migrate:auth:dry-run": "node scripts/migrate-firebase-auth.mjs",
     "backup:firestore": "node scripts/backup-firestore-encrypted.mjs",
     "restore:firestore": "node scripts/restore-firestore-encrypted.mjs",

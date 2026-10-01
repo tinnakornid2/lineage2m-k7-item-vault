@@ -59,7 +59,7 @@ import {
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
 import { scanHuntersLocally } from '../services/localOcrService';
-import { compressImageFile } from '../utils/imageCompressor';
+import { prepareImageFile as compressImageFile, imageForOcr } from '../services/imageUpload';
 import { DistributionStatsModal } from './DistributionStatsModal';
 import { GeminiKeyModal } from './GeminiKeyModal';
 import {
@@ -725,14 +725,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
         );
       }
     } catch {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        setItemImagePreview(result);
-        setItemImageUrl(result);
-        sounds.playClaim();
-      };
-      reader.readAsDataURL(file);
+      setFormError(lang === 'th' ? 'อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่' : 'Image upload failed. Please retry.');
     }
   };
 
@@ -754,14 +747,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
         );
       }
     } catch {
-      files.forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          setHunterScreenshots((prev) => [...prev, result]);
-        };
-        reader.readAsDataURL(file);
-      });
+      setFormError(lang === 'th' ? 'อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่' : 'Image upload failed. Please retry.');
     }
   };
 
@@ -782,6 +768,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
     );
 
     try {
+      base64Images = await Promise.all(base64Images.map(imageForOcr));
       const knownMemberList = allMembers.map((m) => ({
         inGameName: m.inGameName,
         clan: cleanClanName(m.clan) || 'VoltZ',
