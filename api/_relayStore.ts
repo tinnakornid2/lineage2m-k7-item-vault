@@ -54,12 +54,18 @@ export class FirestoreRelayStore {
       // Bootstrap from live collections, never from a bundled historical export.
       const data: any = {};
       await Promise.all(Object.entries(COLLECTIONS).map(async ([key, collection]) => {
-        const rows = await tx.get(this.db.collection(collection));
-        data[key] = rows.docs.map((row: any) => ({ ...row.data(), id: row.id }));
+        try {
+          const rows = await this.db.collection(collection).get();
+          data[key] = rows.docs.map((row: any) => ({ ...row.data(), id: row.id }));
+        } catch {
+          data[key] = [];
+        }
       }));
       await Promise.all(Object.entries(SETTINGS).map(async ([key, id]) => {
-        const row = await tx.get(this.db.collection('app_settings').doc(id));
-        if (row.exists) data[key] = row.data();
+        try {
+          const row = await this.db.collection('app_settings').doc(id).get();
+          if (row.exists) data[key] = row.data();
+        } catch {}
       }));
       return { data: publicRelayData(data), version: 0, updatedAt: 0 };
     }
@@ -78,7 +84,41 @@ export class FirestoreRelayStore {
   }
 
   async read(): Promise<RelaySnapshot | null> {
-    return this.db.runTransaction((tx: any) => this.readTransaction(tx), { readOnly: true });
+    const ref = this.db.collection('system_meta').doc('live_state');
+    const snap = await ref.get();
+    if (!snap.exists) {
+      const data: any = {};
+      await Promise.all(Object.entries(COLLECTIONS).map(async ([key, collection]) => {
+        try {
+          const rows = await this.db.collection(collection).get();
+          data[key] = rows.docs.map((row: any) => ({ ...row.data(), id: row.id }));
+        } catch {
+          data[key] = [];
+        }
+      }));
+      await Promise.all(Object.entries(SETTINGS).map(async ([key, id]) => {
+        try {
+          const row = await this.db.collection('app_settings').doc(id).get();
+          if (row.exists) data[key] = row.data();
+        } catch {}
+      }));
+      return { data: publicRelayData(data), version: 0, updatedAt: 0 };
+    }
+    const manifest = snap.data();
+    if (manifest.format !== 'gzip-parts-v1') {
+      return manifest.data ? { ...manifest, data: publicRelayData(manifest.data) } : null;
+    }
+    if (!Number.isInteger(manifest.parts) || manifest.parts < 1 || manifest.parts > 64) {
+      throw new Error('INVALID_CENTRAL_MANIFEST');
+    }
+    const chunks = await Promise.all(Array.from({ length: manifest.parts }, (_, i) =>
+      this.db.collection('system_live_parts').doc(String(i)).get()));
+    if (chunks.some((chunk: any) => !chunk.exists)) throw new Error('INCOMPLETE_CENTRAL_STATE');
+    return {
+      version: manifest.version,
+      updatedAt: manifest.updatedAt,
+      data: decodeSnapshot(chunks.map((chunk: any) => chunk.data().payload))
+    };
   }
 
   async commit(incoming: any, mutate?: (current: any) => any): Promise<RelaySnapshot> {

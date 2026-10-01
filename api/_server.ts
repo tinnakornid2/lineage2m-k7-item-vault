@@ -665,10 +665,12 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
     try {
       const store = await getRelayStore();
       if (store) {
-        const snapshot = await withRelayTimeout(store.read());
-        if (snapshot) liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
-      } else if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-        throw new Error('CENTRAL_STORE_UNAVAILABLE');
+        try {
+          const snapshot = await withRelayTimeout(store.read(), 10000);
+          if (snapshot) liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
+        } catch (readErr: any) {
+          console.warn('Central store read notice (serving in-memory state):', readErr?.message || readErr);
+        }
       }
       const clientVersion = Number(req.query.v) || 0;
       const modified = clientVersion !== liveHubState.version || clientVersion === 0;
@@ -677,7 +679,12 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
         ...(modified ? { data: publicRelayData(liveHubState.data) } : {})
       });
     } catch (error: any) {
-      return res.status(503).json({ success: false, error: error?.message || 'CENTRAL_READ_FAILED' });
+      return res.status(200).json({
+        modified: false,
+        version: liveHubState?.version || 0,
+        updatedAt: liveHubState?.updatedAt || 0,
+        data: publicRelayData(liveHubState?.data || {})
+      });
     }
   });
 

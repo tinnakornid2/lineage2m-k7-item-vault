@@ -475,12 +475,19 @@ var FirestoreRelayStore = class {
     if (!snap.exists) {
       const data = {};
       await Promise.all(Object.entries(COLLECTIONS).map(async ([key, collection]) => {
-        const rows = await tx.get(this.db.collection(collection));
-        data[key] = rows.docs.map((row) => ({ ...row.data(), id: row.id }));
+        try {
+          const rows = await this.db.collection(collection).get();
+          data[key] = rows.docs.map((row) => ({ ...row.data(), id: row.id }));
+        } catch {
+          data[key] = [];
+        }
       }));
       await Promise.all(Object.entries(SETTINGS).map(async ([key, id]) => {
-        const row = await tx.get(this.db.collection("app_settings").doc(id));
-        if (row.exists) data[key] = row.data();
+        try {
+          const row = await this.db.collection("app_settings").doc(id).get();
+          if (row.exists) data[key] = row.data();
+        } catch {
+        }
       }));
       return { data: publicRelayData(data), version: 0, updatedAt: 0 };
     }
@@ -500,7 +507,41 @@ var FirestoreRelayStore = class {
     };
   }
   async read() {
-    return this.db.runTransaction((tx) => this.readTransaction(tx), { readOnly: true });
+    const ref = this.db.collection("system_meta").doc("live_state");
+    const snap = await ref.get();
+    if (!snap.exists) {
+      const data = {};
+      await Promise.all(Object.entries(COLLECTIONS).map(async ([key, collection]) => {
+        try {
+          const rows = await this.db.collection(collection).get();
+          data[key] = rows.docs.map((row) => ({ ...row.data(), id: row.id }));
+        } catch {
+          data[key] = [];
+        }
+      }));
+      await Promise.all(Object.entries(SETTINGS).map(async ([key, id]) => {
+        try {
+          const row = await this.db.collection("app_settings").doc(id).get();
+          if (row.exists) data[key] = row.data();
+        } catch {
+        }
+      }));
+      return { data: publicRelayData(data), version: 0, updatedAt: 0 };
+    }
+    const manifest = snap.data();
+    if (manifest.format !== "gzip-parts-v1") {
+      return manifest.data ? { ...manifest, data: publicRelayData(manifest.data) } : null;
+    }
+    if (!Number.isInteger(manifest.parts) || manifest.parts < 1 || manifest.parts > 64) {
+      throw new Error("INVALID_CENTRAL_MANIFEST");
+    }
+    const chunks = await Promise.all(Array.from({ length: manifest.parts }, (_, i) => this.db.collection("system_live_parts").doc(String(i)).get()));
+    if (chunks.some((chunk) => !chunk.exists)) throw new Error("INCOMPLETE_CENTRAL_STATE");
+    return {
+      version: manifest.version,
+      updatedAt: manifest.updatedAt,
+      data: decodeSnapshot(chunks.map((chunk) => chunk.data().payload))
+    };
   }
   async commit(incoming, mutate) {
     return this.db.runTransaction(async (tx) => {
@@ -1650,10 +1691,12 @@ async function createApp(options = {}) {
     try {
       const store = await getRelayStore();
       if (store) {
-        const snapshot = await withRelayTimeout(store.read());
-        if (snapshot) liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
-      } else if (process.env.VERCEL || process.env.NODE_ENV === "production") {
-        throw new Error("CENTRAL_STORE_UNAVAILABLE");
+        try {
+          const snapshot = await withRelayTimeout(store.read(), 1e4);
+          if (snapshot) liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
+        } catch (readErr) {
+          console.warn("Central store read notice (serving in-memory state):", readErr?.message || readErr);
+        }
       }
       const clientVersion = Number(req.query.v) || 0;
       const modified = clientVersion !== liveHubState.version || clientVersion === 0;
@@ -1664,7 +1707,12 @@ async function createApp(options = {}) {
         ...modified ? { data: publicRelayData(liveHubState.data) } : {}
       });
     } catch (error) {
-      return res.status(503).json({ success: false, error: error?.message || "CENTRAL_READ_FAILED" });
+      return res.status(200).json({
+        modified: false,
+        version: liveHubState?.version || 0,
+        updatedAt: liveHubState?.updatedAt || 0,
+        data: publicRelayData(liveHubState?.data || {})
+      });
     }
   });
   app.post("/api/live-state", requireRoles(["owner", "admin", "manager", "party_leader", "member"]), async (req, res) => {
