@@ -23,7 +23,7 @@ export function publicRelayData(value: any): any {
     .map(([key, val]) => [key, publicRelayData(val)]));
 }
 
-export async function withRelayTimeout<T>(operation: Promise<T>, ms = 1500): Promise<T> {
+export async function withRelayTimeout<T>(operation: Promise<T>, ms = 8000): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   try {
     return await Promise.race([operation, new Promise<never>((_, reject) => {

@@ -134,7 +134,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         setRegError(result.message || t.error);
       }
     } catch (err: any) {
-      setRegError(err?.message || (lang === 'th' ? 'เกิดข้อผิดพลาดในการลงทะเบียน' : 'Registration failed. Please try again.'));
+      const rawMsg = String(err?.message || '');
+      let friendlyMsg = rawMsg;
+      if (rawMsg.includes('CENTRAL_STORE_TIMEOUT') || rawMsg.includes('timeout')) {
+        friendlyMsg = lang === 'th' ? 'การเชื่อมต่อเซิร์ฟเวอร์ล่าช้า กรุณาลองใหม่อีกครั้ง' : 'Server connection timed out. Please try again.';
+      } else if (!friendlyMsg) {
+        friendlyMsg = lang === 'th' ? 'เกิดข้อผิดพลาดในการลงทะเบียน' : 'Registration failed. Please try again.';
+      }
+      setRegError(friendlyMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -209,7 +216,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 CLAN HUB SYSTEM
               </span>
               <span className="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/35 text-[10px] font-mono font-bold text-sky-300">
-                v2.10.68
+                v2.10.69
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-2 font-prompt">

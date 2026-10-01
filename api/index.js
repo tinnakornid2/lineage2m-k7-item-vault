@@ -446,7 +446,7 @@ function publicRelayData(value) {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).filter(([key, val]) => val !== void 0 && !["apiKey", "webhookUrl", "distributeWebhookUrl"].includes(key)).map(([key, val]) => [key, publicRelayData(val)]));
 }
-async function withRelayTimeout(operation, ms = 1500) {
+async function withRelayTimeout(operation, ms = 8e3) {
   let timer;
   try {
     return await Promise.race([operation, new Promise((_, reject) => {

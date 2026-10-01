@@ -192,7 +192,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.68-owner-clan-pass-unpaid-top';
+const CACHE_SCHEMA_VERSION = '2.10.69-registration-timeout-fix';
 
 export function isTestArtifactId(id?: string, name?: string): boolean {
   if (!id && !name) return false;
@@ -2232,10 +2232,12 @@ export async function registerUserDoc(data: {
       'registerUserDoc_firestore'
     );
 
-    // 2. Broadcast to Central Live Relay
-    await centralApi('/api/live-state', {
+    // 2. Broadcast to Central Live Relay (background fire-and-forget, zero wait time for user)
+    centralApi('/api/live-state', {
       method: 'POST', body: JSON.stringify({ data: { users: [newUser] }, performedBy: inGameName })
-    }, token);
+    }, token).catch((relayErr: any) => {
+      console.warn('Central live relay notification deferred during registration:', relayErr?.message || relayErr);
+    });
 
     unmarkUserAsDeleted(newUser.id);
     return newUser;
