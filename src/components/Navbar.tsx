@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Shield,
   Gem,
@@ -14,11 +14,13 @@ import {
   Bell,
   KeyRound,
   Lock,
-  Unlock
+  Unlock,
+  RefreshCw
 } from 'lucide-react';
 import { ActiveTab, Language, User, cleanClanName, StatUpdateSettings, isUserStatsPending } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
+import { subscribeSyncStatus, SyncStatusInfo, getSyncStatus } from '../services/centralApi';
 
 interface NavbarProps {
   currentTab?: ActiveTab;
@@ -72,6 +74,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   const t = translations[lang];
   const isOwner = currentUser?.role === 'owner';
   const effectiveCurrentTab = currentTab || activeTab || 'dashboard';
+
+  const [syncStatus, setSyncStatus] = useState<SyncStatusInfo>(() => getSyncStatus());
+  useEffect(() => {
+    return subscribeSyncStatus((s) => setSyncStatus(s));
+  }, []);
 
   const handleTabSelect = (tab: ActiveTab) => {
     if (setCurrentTab) setCurrentTab(tab);
@@ -142,7 +149,42 @@ export const Navbar: React.FC<NavbarProps> = ({
                   CLAN HUB
                 </span>
                 <span className="text-[9px] sm:text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-sky-500/20 border border-sky-400/40 text-sky-300">
-                  v2.10.72
+                  v2.10.75
+                </span>
+                {/* Live Sync Status Badge (Rule 1: Bilingual 100%) */}
+                <span
+                  className={`inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-medium px-1.5 py-0.5 rounded border transition-colors select-none ${
+                    syncStatus.state === 'synced'
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                      : syncStatus.state === 'syncing'
+                      ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                      : syncStatus.state === 'local'
+                      ? 'bg-yellow-500/15 border-yellow-500/30 text-yellow-300'
+                      : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                  }`}
+                  title={
+                    lang === 'th'
+                      ? (syncStatus.state === 'synced' ? 'ข้อมูลซิงค์กับระบบคลาวด์สมบูรณ์' : syncStatus.state === 'syncing' ? 'กำลังส่งข้อมูลขึ้นระบบคลาวด์...' : syncStatus.state === 'local' ? 'บันทึกในเครื่องแล้ว รอส่งขึ้นคลาวด์' : `การซิงค์ขัดข้อง: ${syncStatus.error || 'รอส่งใหม่'}`)
+                      : (syncStatus.state === 'synced' ? 'Fully synced with cloud' : syncStatus.state === 'syncing' ? 'Syncing changes to cloud...' : syncStatus.state === 'local' ? 'Saved locally, pending cloud sync' : `Sync interrupted: ${syncStatus.error || 'Retry needed'}`)
+                  }
+                >
+                  {syncStatus.state === 'syncing' && (
+                    <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                  )}
+                  {syncStatus.state === 'synced' && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                  )}
+                  {syncStatus.state === 'local' && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 inline-block" />
+                  )}
+                  {syncStatus.state === 'retry' && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block" />
+                  )}
+                  <span>
+                    {lang === 'th'
+                      ? (syncStatus.state === 'synced' ? 'ซิงค์แล้ว' : syncStatus.state === 'syncing' ? 'กำลังซิงค์' : syncStatus.state === 'local' ? 'ในเครื่อง' : 'รอส่งใหม่')
+                      : (syncStatus.state === 'synced' ? 'Synced' : syncStatus.state === 'syncing' ? 'Syncing' : syncStatus.state === 'local' ? 'Local' : 'Retry')}
+                  </span>
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 truncate max-w-[190px] sm:max-w-none">

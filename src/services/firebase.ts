@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { centralApi } from './centralApi';
+import { centralApi, setTokenProvider, setSessionProvider } from './centralApi';
 import {
   createUserWithEmailAndPassword,
   connectAuthEmulator,
@@ -194,7 +194,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.72-registration-owner-notify-sync';
+const CACHE_SCHEMA_VERSION = '2.10.75-performance-coalesce-engine';
 
 export function isTestArtifactId(id?: string, name?: string): boolean {
   if (!id && !name) return false;
@@ -412,8 +412,53 @@ if (typeof localStorage !== 'undefined') {
   } catch {}
 }
 
+const pendingCacheWrites = new Map<string, any>();
+let cacheFlushTimer: any = null;
+
+function flushPendingCacheWrites(): void {
+  cacheFlushTimer = null;
+  if (typeof localStorage === 'undefined') return;
+  for (const [key, data] of pendingCacheWrites.entries()) {
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (err: any) {
+      if (
+        err?.name === 'QuotaExceededError' ||
+        err?.code === 22 ||
+        err?.number === -2147024882 ||
+        String(err).includes('quota') ||
+        String(err).includes('QuotaExceeded')
+      ) {
+        console.warn(`[LocalStorage] QuotaExceededError writing ${key}. Pruning bloated caches to recover space...`);
+        try {
+          const rawUsers = localStorage.getItem(CACHE_KEYS.USERS);
+          if (rawUsers && rawUsers.length > 50000) {
+            const parsed = JSON.parse(rawUsers);
+            if (Array.isArray(parsed)) {
+              const lean = sanitizeUsersForStorage(parsed);
+              localStorage.setItem(CACHE_KEYS.USERS, JSON.stringify(lean));
+            }
+          }
+          localStorage.setItem(key, JSON.stringify(data));
+        } catch (retryErr) {
+          console.error(`[LocalStorage] Critical write failure on ${key}:`, retryErr);
+        }
+      }
+    }
+  }
+  pendingCacheWrites.clear();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => flushPendingCacheWrites());
+  window.addEventListener('pagehide', () => flushPendingCacheWrites());
+}
+
 function getCachedData<T>(key: string, fallback: T): T {
   try {
+    if (pendingCacheWrites.has(key)) {
+      return pendingCacheWrites.get(key) as T;
+    }
     if (typeof localStorage === 'undefined') return fallback;
     const raw = localStorage.getItem(key);
     if (raw) {
@@ -427,32 +472,9 @@ function getCachedData<T>(key: string, fallback: T): T {
 }
 
 function setCachedData<T>(key: string, data: T): void {
-  try {
-    if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (err: any) {
-    if (
-      err?.name === 'QuotaExceededError' ||
-      err?.code === 22 ||
-      err?.number === -2147024882 ||
-      String(err).includes('quota') ||
-      String(err).includes('QuotaExceeded')
-    ) {
-      console.warn(`[LocalStorage] QuotaExceededError writing ${key}. Pruning bloated caches to recover space...`);
-      try {
-        const rawUsers = localStorage.getItem(CACHE_KEYS.USERS);
-        if (rawUsers && rawUsers.length > 50000) {
-          const parsed = JSON.parse(rawUsers);
-          if (Array.isArray(parsed)) {
-            const lean = sanitizeUsersForStorage(parsed);
-            localStorage.setItem(CACHE_KEYS.USERS, JSON.stringify(lean));
-          }
-        }
-        localStorage.setItem(key, JSON.stringify(data));
-      } catch (retryErr) {
-        console.error(`[LocalStorage] Critical write failure on ${key}:`, retryErr);
-      }
-    }
+  pendingCacheWrites.set(key, data);
+  if (!cacheFlushTimer) {
+    cacheFlushTimer = setTimeout(flushPendingCacheWrites, 30);
   }
 }
 
@@ -2074,14 +2096,11 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
     notifyQuotaExceeded(err);
   }
 
-  // 2. Serverless fallback: notify /api/update-user-stats in background (Admin SDK persistence & live relay)
-  try {
-    fetch('/api/update-user-stats', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, updates: cleanUpdates })
-    }).catch(() => {});
-  } catch {}
+  // 2. Serverless fallback: notify /api/update-user-stats in background via centralApi (Admin SDK persistence & live relay)
+  centralApi('/api/update-user-stats', {
+    method: 'POST',
+    body: JSON.stringify({ userId, updates: cleanUpdates })
+  }).catch(() => {});
 }
 
 export async function deleteUserDoc(userId: string) {
@@ -2583,16 +2602,25 @@ export async function logoutAuthenticatedUser() {
 
 export async function getCurrentUserIdToken() {
   await auth.authStateReady();
-  if (!auth.currentUser) return null;
-  const local = getLocalSessionUser();
-  if (local) {
-    const isMatch = auth.currentUser.uid === local.id ||
-      (local.username && usernameToAuthEmail(local.username) === auth.currentUser.email) ||
-      (local.id === 'user_owner_eloni' && auth.currentUser.email === usernameToAuthEmail('eloni'));
-    if (!isMatch) return null;
+  if (auth.currentUser) {
+    const local = getLocalSessionUser();
+    if (local) {
+      const isMatch = auth.currentUser.uid === local.id ||
+        (local.username && usernameToAuthEmail(local.username) === auth.currentUser.email) ||
+        (local.id === 'user_owner_eloni' && auth.currentUser.email === usernameToAuthEmail('eloni'));
+      if (!isMatch) return null;
+    }
+    return auth.currentUser.getIdToken();
   }
-  return auth.currentUser.getIdToken();
+  const local = getLocalSessionUser();
+  if (local && (import.meta as any).env?.DEV) {
+    return `local-dev-${local.id}-${local.role || 'member'}`;
+  }
+  return null;
 }
+
+setTokenProvider(getCurrentUserIdToken);
+setSessionProvider(getLocalSessionUser);
 
 // 2. Vault Items Firestore functions
 export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
@@ -2840,10 +2868,7 @@ export async function updateVaultItemDoc(itemId: string, updates: Partial<VaultI
     }
     const ref = doc(db, ITEMS_COLLECTION, itemId);
     const cleanUpdates = sanitizeForFirestore(updates);
-    const updateRes = await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateVaultItemDoc_updateDoc');
-    if (updateRes === null) {
-      await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1200, 'updateVaultItemDoc_setDoc');
-    }
+    await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1200, 'updateVaultItemDoc');
     bumpSystemVersion('vaultVersion').catch(() => {});
   } catch (err: any) {
     console.warn('Notice: Failed to update vault item doc in Firestore (failover mode):', err);
@@ -3407,11 +3432,7 @@ export async function updateGeneralItemDoc(itemId: string, updates: Partial<Omit
 
   const cleanUpdates = sanitizeForFirestore(updatesWithTime);
   const ref = doc(db, GENERAL_ITEMS_COLLECTION, itemId);
-  try {
-    await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1500, 'updateGeneralItemDoc');
-  } catch {
-    await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1500, 'updateGeneralItemDoc_merge');
-  }
+  await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1200, 'updateGeneralItemDoc').catch(() => {});
   bumpSystemVersion('generalItemsVersion').catch(() => {});
 }
 
@@ -3537,6 +3558,45 @@ export async function updateClanDoc(clanId: string, updates: Partial<ClanGroup>)
     bumpSystemVersion('clansVersion').catch(() => {});
   } catch (err) {
     console.error('Failed to update clan doc:', err);
+  }
+}
+
+export async function batchUpdateClansOrder(orderedClans: ClanGroup[]) {
+  try {
+    const batch = writeBatch(db);
+    orderedClans.forEach((c, idx) => {
+      const ref = doc(db, CLANS_COLLECTION, c.id);
+      const sanitized = sanitizeForFirestore({
+        order: idx,
+        name: cleanClanName(c.name),
+        color: c.color
+      });
+      batch.set(ref, sanitized, { merge: true });
+    });
+    await safeFirestoreWrite(batch.commit(), 2000, 'batchUpdateClansOrder');
+    bumpSystemVersion('clansVersion').catch(() => {});
+  } catch (err) {
+    console.error('Failed to batch update clans order:', err);
+  }
+}
+
+export async function batchUpdateUserClans(swaps: { memberId: string; toClan: string }[]) {
+  try {
+    const chunkSize = 400;
+    const now = Date.now();
+    for (let i = 0; i < swaps.length; i += chunkSize) {
+      const chunk = swaps.slice(i, i + chunkSize);
+      const batch = writeBatch(db);
+      chunk.forEach(({ memberId, toClan }) => {
+        const ref = doc(db, USERS_COLLECTION, memberId);
+        const cleanClan = isNoClan(toClan) ? 'no-clan' : (cleanClanName(toClan) || 'no-clan');
+        batch.set(ref, sanitizeForFirestore({ clan: cleanClan, updatedAt: now }), { merge: true });
+      });
+      await safeFirestoreWrite(batch.commit(), 2500, 'batchUpdateUserClans');
+    }
+    bumpSystemVersion('usersVersion').catch(() => {});
+  } catch (err) {
+    console.error('Failed to batch update member clans:', err);
   }
 }
 

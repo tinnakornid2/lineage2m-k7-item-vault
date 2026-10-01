@@ -305,6 +305,7 @@ let debounceTimer: any = null;
 
 /**
  * Auto-backup trigger with debounce (broadcasts directly to Live State Relay)
+ * Note: If caller already dispatched an immediate broadcastLiveState, skip redundant immediate call.
  */
 export function triggerDebouncedAutoBackup(
   payload: BackupDataPayload,
@@ -312,21 +313,17 @@ export function triggerDebouncedAutoBackup(
   immediate: boolean = false
 ) {
   if (isApplyingRemoteUpdate) return;
+  // If immediate: true was passed, the calling handler already called broadcastLiveState directly
+  if (immediate) return;
 
   if (debounceTimer) {
     clearTimeout(debounceTimer);
     debounceTimer = null;
   }
 
-  const runBackup = () => {
+  debounceTimer = setTimeout(() => {
     broadcastLiveState(payload, performedBy).catch(() => {});
-  };
-
-  if (immediate) {
-    runBackup();
-  } else {
-    debounceTimer = setTimeout(runBackup, 1500);
-  }
+  }, 2000);
 }
 
 /**
@@ -397,90 +394,183 @@ export function setLastBroadcastPayload(payload: BackupDataPayload) {
  * to propagate to all other active clan members
  */
 const OUTBOX_PREFIX = 'k7_relay_outbox_';
-let sendChain: Promise<any> = Promise.resolve();
 let syncGeneration = 0;
 let retrying = false;
+let isTransmitting = false;
+let pendingSnapshot: {
+  payload: BackupDataPayload;
+  performedBy: string;
+  resolvers: Array<(res: { success: boolean; version?: number }) => void>;
+} | null = null;
 
 function outboxKey(): string | null {
   const session = getLocalSessionUser();
   return session?.id ? OUTBOX_PREFIX + session.id : null;
 }
 
+/**
+ * High-Performance Coalesced Live Relay Dispatcher (Latest Snapshot Wins)
+ * Collapses concurrent / rapid sync requests into at most 1 in-flight + 1 pending transmission.
+ * Avoids main-thread JSON.stringify / LocalStorage overhead on discarded intermediate snapshots.
+ */
 export async function broadcastLiveState(
   payload: BackupDataPayload,
   performedBy: string = 'User'
 ): Promise<{ success: boolean; version?: number }> {
   if (!liveRelayEnabled) return { success: false };
-  const clean = sanitizePayloadForGoogle(withLocalSyncMeta(payload));
-  const body = JSON.stringify({ data: clean, performedBy });
-  const key = outboxKey();
-  if (key) {
-    try { localStorage.setItem(key, body); } catch {}
+
+  // If a transmission is currently in flight: coalesce into pending snapshot!
+  if (isTransmitting) {
+    return new Promise<{ success: boolean; version?: number }>((resolve) => {
+      if (pendingSnapshot) {
+        pendingSnapshot.payload = payload;
+        pendingSnapshot.performedBy = performedBy;
+        pendingSnapshot.resolvers.push(resolve);
+      } else {
+        pendingSnapshot = {
+          payload,
+          performedBy,
+          resolvers: [resolve]
+        };
+      }
+    });
   }
-  const send = async () => {
-    try {
-      // A write acknowledgement does NOT advance the read cursor: its merged snapshot
-      // may contain another member's change that this browser has not read yet.
-      const res = await centralApi('/api/live-state', { method: 'POST', body });
-      const result = await res.json();
-      lastBroadcastString = JSON.stringify(clean);
-      if (key && localStorage.getItem(key) === body) localStorage.removeItem(key);
-      return { success: true, version: result.version };
-    } catch (error) {
-      console.warn('Central sync pending:', error);
-      return { success: false };
-    }
-  };
-  const result = sendChain.then(send, send);
-  sendChain = result;
-  return result;
+
+  return dispatchBroadcastLoop(payload, performedBy);
 }
+
+async function dispatchBroadcastLoop(
+  initialPayload: BackupDataPayload,
+  initialActor: string
+): Promise<{ success: boolean; version?: number }> {
+  isTransmitting = true;
+  let currentPayload = initialPayload;
+  let currentActor = initialActor;
+  let currentResolvers: Array<(res: { success: boolean; version?: number }) => void> = [];
+  let lastResult: { success: boolean; version?: number } = { success: false };
+
+  try {
+    while (true) {
+      // 1. Sanitize & stringify only when actively transmitting (offload from callers)
+      const clean = sanitizePayloadForGoogle(withLocalSyncMeta(currentPayload));
+      const body = JSON.stringify({ data: clean, performedBy: currentActor });
+
+      // 2. Dedup: if exact payload was already broadcasted, skip redundant network roundtrip
+      if (body === lastBroadcastString) {
+        lastResult = { success: true };
+      } else {
+        const key = outboxKey();
+        if (key) {
+          try { localStorage.setItem(key, body); } catch {}
+        }
+        try {
+          const res = await centralApi('/api/live-state', { method: 'POST', body });
+          const result = await res.json();
+          lastBroadcastString = body;
+          if (key && localStorage.getItem(key) === body) localStorage.removeItem(key);
+          lastResult = { success: true, version: result.version };
+        } catch (error) {
+          console.warn('Central sync pending:', error);
+          lastResult = { success: false };
+        }
+      }
+
+      // Resolve all callers that contributed to or waited for this transmission
+      for (const resolve of currentResolvers) {
+        resolve(lastResult);
+      }
+      currentResolvers = [];
+
+      // 3. Check if newer snapshot arrived while network call was in flight
+      if (pendingSnapshot) {
+        currentPayload = pendingSnapshot.payload;
+        currentActor = pendingSnapshot.performedBy;
+        currentResolvers = pendingSnapshot.resolvers;
+        pendingSnapshot = null;
+        // Loop continues immediately with the newest snapshot
+      } else {
+        break;
+      }
+    }
+  } finally {
+    isTransmitting = false;
+  }
+
+  return lastResult;
+}
+
+let lastRetryAttempt = 0;
+let retryBackoffMs = 5000;
 
 async function retryOutbox() {
   const key = outboxKey();
-  if (!key || retrying) return;
+  if (!key || retrying || isTransmitting) return;
   const body = localStorage.getItem(key);
   if (!body) return;
+  const now = Date.now();
+  if (now - lastRetryAttempt < retryBackoffMs) return;
+  lastRetryAttempt = now;
   retrying = true;
   try {
-    await sendChain;
     if (localStorage.getItem(key) !== body) return;
-    await centralApi('/api/live-state', { method: 'POST', body });
-    if (localStorage.getItem(key) === body) localStorage.removeItem(key);
-  } catch {} finally { retrying = false; }
+    const res = await centralApi('/api/live-state', { method: 'POST', body });
+    if (res.ok) {
+      if (localStorage.getItem(key) === body) localStorage.removeItem(key);
+      retryBackoffMs = 5000;
+    } else {
+      retryBackoffMs = Math.min(30000, retryBackoffMs * 1.5);
+    }
+  } catch {
+    retryBackoffMs = Math.min(30000, retryBackoffMs * 1.5);
+  } finally {
+    retrying = false;
+  }
 }
 
 export function startGoogleRealtimeSync(onDataChanged: (data: BackupDataPayload) => void) {
   if (!liveRelayEnabled || realtimeActive) return;
   realtimeActive = true;
   const generation = ++syncGeneration;
+  let consecutiveErrors = 0;
+
   const pollLoop = async () => {
     while (realtimeActive && generation === syncGeneration) {
+      let cycleDelay = 2500;
       try {
         await retryOutbox();
         abortController = new AbortController();
-        const timer = setTimeout(() => abortController?.abort(), 8000);
+        const timer = setTimeout(() => abortController?.abort(), 12000);
         try {
           const res = await fetch(`/api/live-state?v=${currentLocalVersion}&_t=${Date.now()}`, {
             signal: abortController.signal, cache: 'no-store'
           });
-          if (!res.ok) throw new Error('CENTRAL_READ_FAILED');
+          if (!res.ok) throw new Error(`CENTRAL_READ_FAILED_${res.status}`);
           const json = await res.json();
+          consecutiveErrors = 0;
+
           if (json.modified && json.data && generation === syncGeneration) {
-            // Reject delayed responses, but allow a server restart with a new snapshot.
-            currentLocalVersion = json.version;
-            lastBroadcastString = JSON.stringify(json.data);
-            isApplyingRemoteUpdate = true;
-            applyIncomingSyncMeta(json.data);
-            onDataChanged(json.data);
-            setTimeout(() => { isApplyingRemoteUpdate = false; }, 500);
+            // Staleness guard: only apply if version >= local or local is 0
+            if (currentLocalVersion === 0 || Number(json.version || 0) >= currentLocalVersion) {
+              currentLocalVersion = json.version;
+              lastBroadcastString = JSON.stringify(json.data);
+              isApplyingRemoteUpdate = true;
+              applyIncomingSyncMeta(json.data);
+              onDataChanged(json.data);
+              setTimeout(() => { isApplyingRemoteUpdate = false; }, 500);
+            }
+          } else if (!json.modified && json.version) {
+            if (Number(json.version) > currentLocalVersion) {
+              currentLocalVersion = json.version;
+            }
           }
         } finally { clearTimeout(timer); }
       } catch (error) {
         if (!realtimeActive || generation !== syncGeneration) break;
-        console.warn('Central read will retry:', error);
+        consecutiveErrors++;
+        cycleDelay = Math.min(20000, 2500 * Math.pow(1.4, Math.min(consecutiveErrors, 5)) + Math.random() * 1000);
+        console.warn(`Central read will retry in ${Math.round(cycleDelay)}ms:`, error);
       }
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      await new Promise(resolve => setTimeout(resolve, cycleDelay));
     }
   };
   void pollLoop();

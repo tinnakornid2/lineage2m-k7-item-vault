@@ -174,13 +174,23 @@ export function mergeRelayData(previousData: any, incoming: any): any {
           }
           return merged;
         };
+        // Preserve processedOps strictly and exclusively from authoritative server state (previousData) across all merges
+        const mergedProcessedOps: Record<string, any> = {};
+        const opCutoff = Date.now() - 2 * 60 * 60 * 1000;
+        for (const [key, val] of Object.entries(previousData.syncMeta?.processedOps || {})) {
+          if (val && typeof val === 'object' && Number((val as any).timestamp || 0) > opCutoff) {
+            mergedProcessedOps[key] = val;
+          }
+        }
+
         const syncMeta = {
           deletedVaultItems: mergeTimestampMaps(previousData.syncMeta?.deletedVaultItems, data.syncMeta?.deletedVaultItems),
           deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
           deletedGeneralItems: mergeTimestampMaps(previousData.syncMeta?.deletedGeneralItems, data.syncMeta?.deletedGeneralItems),
           deletedUsers: mergeTimestampMaps(previousData.syncMeta?.deletedUsers, data.syncMeta?.deletedUsers),
           cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims),
-          removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers)
+          removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers),
+          processedOps: mergedProcessedOps
         };
 
         const mergeVersionedRecords = (previous: any[], incoming: any[], deleted: Record<string, number>, mergeClaims = false, mergeQueue = false) => {

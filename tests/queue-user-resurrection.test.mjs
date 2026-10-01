@@ -2,7 +2,7 @@ process.env.NODE_ENV = 'test';
 process.env.ISOLATED_TEST = 'true';
 
 import assert from 'node:assert';
-import { createApp } from '../dist/server.js';
+import { createApp } from '../api/_server.ts';
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -280,6 +280,7 @@ async function runQueueUserResurrectionTests() {
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}
+    process.exit(0);
   }
 }
 

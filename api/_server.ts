@@ -178,31 +178,43 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
 
   let storePromise: Promise<FirestoreRelayStore | null> | null = null;
   const getRelayStore = () => {
-    if (!storePromise) storePromise = options.relayStore
+    if (!storePromise) storePromise = (options.relayStore
       ? Promise.resolve(options.relayStore)
       : options.isolatedTest ? Promise.resolve(null)
-      : getAdminSdk().then(sdk => sdk?.db ? new FirestoreRelayStore(sdk.db) : null);
+      : getAdminSdk().then(sdk => sdk?.db ? new FirestoreRelayStore(sdk.db) : null)
+    ).then(store => {
+      if (store && liveHubState.data && liveHubState.version > 0) {
+        store.setCachedSnapshot(liveHubState);
+      }
+      return store;
+    });
     return storePromise;
   };
   const acceptSnapshot = (snapshot: typeof liveHubState) => {
     liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
+    if (storePromise) {
+      storePromise.then(s => { if (s) s.setCachedSnapshot(liveHubState); }).catch(() => {});
+    }
     // The disk copy is an extra cache, never the production source of truth.
     if (!process.env.VERCEL) fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8');
     liveStateEmitter.emit('update');
   };
   let localCommit: Promise<any> = Promise.resolve();
-  const commitRelay = async (incoming: any, mutate?: (current: any) => any) => {
+  const commitRelay = async (incoming: any, mutate?: (current: any, version: number) => any) => {
     const store = await getRelayStore();
     if (store) {
-      const snapshot = await withRelayTimeout(store.commit(incoming, mutate));
+      const snapshot = await withRelayTimeout(store.commit(incoming, mutate), 15000);
       if (snapshot.version >= liveHubState.version) acceptSnapshot(snapshot);
       return snapshot;
     }
     if (process.env.VERCEL || process.env.NODE_ENV === 'production') throw new Error('CENTRAL_STORE_UNAVAILABLE');
     const next = localCommit.catch(() => {}).then(() => {
-      const data = publicRelayData(mutate ? mutate(structuredClone(liveHubState.data || {}))
+      const version = Math.max(Number(liveHubState.version || 0) + 1, Date.now());
+      const currentData = structuredClone(liveHubState.data || {});
+      currentData.version = version;
+      const data = publicRelayData(mutate ? mutate(currentData, version)
         : mergeRelayData(liveHubState.data || {}, incoming));
-      const snapshot = { data, version: Math.max(liveHubState.version + 1, Date.now()), updatedAt: Date.now() };
+      const snapshot = { data, version, updatedAt: Date.now() };
       acceptSnapshot(snapshot);
       return snapshot;
     });
@@ -663,16 +675,27 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
   app.get("/api/live-state", async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try {
+      const clientVersion = Number(req.query.v) || 0;
       const store = await getRelayStore();
       if (store) {
         try {
-          const snapshot = await withRelayTimeout(store.read(), 10000);
-          if (snapshot) liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
+          const result = await withRelayTimeout(store.readConditional(clientVersion), 8000);
+          if (result) {
+            if (result.notModified) {
+              return res.json({
+                modified: false,
+                version: result.version,
+                updatedAt: result.updatedAt
+              });
+            }
+            if (result.version >= liveHubState.version) {
+              acceptSnapshot(result);
+            }
+          }
         } catch (readErr: any) {
           console.warn('Central store read notice (serving in-memory state):', readErr?.message || readErr);
         }
       }
-      const clientVersion = Number(req.query.v) || 0;
       const modified = clientVersion !== liveHubState.version || clientVersion === 0;
       return res.json({
         modified, version: liveHubState.version, updatedAt: liveHubState.updatedAt,
@@ -717,13 +740,88 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
     /NOT_FOUND|DISTRIBUTED|INVALID/.test(error?.message || '') ? 400 : 503
   ).json({ success: false, persisted: false, error: error?.message || 'CENTRAL_WRITE_FAILED' });
 
+  // Persistent Transaction-Level Idempotency Store (Atomic inside commitRelay)
+  const processedClientOps = new Map<string, { result: any; timestamp: number }>();
+  const idempotencyInterval = setInterval(() => {
+    const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+    for (const [opKey, data] of processedClientOps.entries()) {
+      if (data.timestamp < cutoff) processedClientOps.delete(opKey);
+    }
+  }, 60000);
+  idempotencyInterval.unref?.();
+
+  const getScopedOpKey = (req: express.Request, actor: RelayActor): string => {
+    const opId = (req.headers['x-client-op-id'] as string) || req.body?.clientOpId;
+    if (!opId || !actor?.uid) return '';
+    return `${actor.uid}:::${req.path}:::${opId}`;
+  };
+
+  const checkPreFlightIdempotency = (req: express.Request, res: express.Response, actor: RelayActor): boolean => {
+    const opKey = getScopedOpKey(req, actor);
+    if (!opKey) return false;
+
+    // Fast in-memory check
+    if (processedClientOps.has(opKey)) {
+      const cached = processedClientOps.get(opKey)!;
+      res.json({ ...cached.result, deduplicated: true });
+      return true;
+    }
+
+    // Persistent live hub check
+    const persistentOp = liveHubState.data?.syncMeta?.processedOps?.[opKey];
+    if (persistentOp?.result) {
+      processedClientOps.set(opKey, persistentOp);
+      res.json({ ...persistentOp.result, deduplicated: true });
+      return true;
+    }
+
+    return false;
+  };
+
+  const recordPersistentIdempotency = (
+    current: any,
+    opKey: string,
+    responsePayload: any
+  ) => {
+    if (!opKey) return;
+    current.syncMeta ||= {};
+    current.syncMeta.processedOps ||= {};
+    current.syncMeta.processedOps[opKey] = {
+      result: responsePayload,
+      timestamp: Date.now()
+    };
+
+    // Prune entries older than 2 hours to keep size optimal
+    const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+    for (const [k, v] of Object.entries(current.syncMeta.processedOps)) {
+      if ((v as any)?.timestamp < cutoff) delete current.syncMeta.processedOps[k];
+    }
+  };
+
+  // Only update in-memory RAM cache after cloud commit transaction successfully resolves!
+  const commitSuccessToRamCache = (opKey: string, responsePayload: any) => {
+    if (!opKey) return;
+    processedClientOps.set(opKey, { result: responsePayload, timestamp: Date.now() });
+  };
+
   app.post("/api/claim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
+      const actor: RelayActor = res.locals.actor;
+      if (checkPreFlightIdempotency(req, res, actor)) return;
+
       const { itemId, claimant } = req.body;
       if (!itemId || !claimant?.userId) throw new Error('INVALID_CLAIM_PAYLOAD');
-      const actor: RelayActor = res.locals.actor;
       if (!['owner', 'admin'].includes(actor.role) && claimant.userId !== actor.uid) throw new Error('FORBIDDEN');
-      const snapshot = await commitRelay(null, current => {
+
+      const opKey = getScopedOpKey(req, actor);
+      let duplicateResult: any = null;
+
+      const snapshot = await commitRelay(null, (current, targetVersion) => {
+        if (opKey && current.syncMeta?.processedOps?.[opKey]) {
+          duplicateResult = current.syncMeta.processedOps[opKey].result;
+          return current;
+        }
+
         const member = (current.users || []).find((u: any) => u.id === claimant.userId);
         if (!member || member.status !== 'active') throw new Error('NOT_ACTIVE');
         const item = (current.vaultItems || []).find((i: any) => i.id === itemId);
@@ -731,7 +829,12 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
         if (item.status === 'distributed' || item.distributedTo) throw new Error('ITEM_DISTRIBUTED');
         if (!['owner', 'admin'].includes(actor.role) && Number(member.powerLevel || 0) < Number(item.minPowerLevel || 0)) throw new Error('POWER_REQUIRED');
         const previous = (item.claimants || []).find((c: any) => c.userId === member.id);
-        if (previous) return current;
+        if (previous) {
+          const resObj = { success: true, persisted: true, version: targetVersion, itemId };
+          recordPersistentIdempotency(current, opKey, resObj);
+          return current;
+        }
+
         item.claimants = [...(item.claimants || []), {
           userId: member.id, inGameName: member.inGameName, clan: member.clan,
           powerLevel: member.powerLevel || 0, claimedAt: Date.now()
@@ -741,19 +844,40 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
         current.syncMeta.cancelledClaims ||= {};
         delete current.syncMeta.cancelledClaims[itemId + ':::' + member.id.toLowerCase()];
         delete current.syncMeta.cancelledClaims[itemId + ':::' + member.inGameName.toLowerCase()];
+
+        const responsePayload = { success: true, persisted: true, version: targetVersion, itemId };
+        recordPersistentIdempotency(current, opKey, responsePayload);
         return current;
       });
-      res.json({ success: true, persisted: true, version: snapshot.version, itemId });
+
+      if (duplicateResult) {
+        commitSuccessToRamCache(opKey, duplicateResult);
+        return res.json({ ...duplicateResult, deduplicated: true });
+      }
+      const finalPayload = { success: true, persisted: true, version: snapshot.version, itemId };
+      commitSuccessToRamCache(opKey, finalPayload);
+      res.json(finalPayload);
     } catch (error) { failWrite(res, error); }
   });
 
   app.post("/api/unclaim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
+      const actor: RelayActor = res.locals.actor;
+      if (checkPreFlightIdempotency(req, res, actor)) return;
+
       const { itemId, userId, inGameName } = req.body;
       if (!itemId || (!userId && !inGameName)) throw new Error('INVALID_UNCLAIM_PAYLOAD');
-      const actor: RelayActor = res.locals.actor;
       if (!['owner', 'admin'].includes(actor.role) && userId !== actor.uid) throw new Error('FORBIDDEN');
-      const snapshot = await commitRelay(null, current => {
+
+      const opKey = getScopedOpKey(req, actor);
+      let duplicateResult: any = null;
+
+      const snapshot = await commitRelay(null, (current, targetVersion) => {
+        if (opKey && current.syncMeta?.processedOps?.[opKey]) {
+          duplicateResult = current.syncMeta.processedOps[opKey].result;
+          return current;
+        }
+
         const item = (current.vaultItems || []).find((i: any) => i.id === itemId);
         if (!item) throw new Error('ITEM_NOT_FOUND');
         const now = Date.now();
@@ -765,9 +889,19 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
         for (const c of removed) for (const identity of [c.userId, c.inGameName]) {
           if (identity) current.syncMeta.cancelledClaims[itemId + ':::' + identity.toLowerCase()] = now;
         }
+
+        const responsePayload = { success: true, persisted: true, version: targetVersion, itemId };
+        recordPersistentIdempotency(current, opKey, responsePayload);
         return current;
       });
-      res.json({ success: true, persisted: true, version: snapshot.version, itemId });
+
+      if (duplicateResult) {
+        commitSuccessToRamCache(opKey, duplicateResult);
+        return res.json({ ...duplicateResult, deduplicated: true });
+      }
+      const finalPayload = { success: true, persisted: true, version: snapshot.version, itemId };
+      commitSuccessToRamCache(opKey, finalPayload);
+      res.json(finalPayload);
     } catch (error) { failWrite(res, error); }
   });
 
@@ -777,16 +911,39 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
   ]) {
     app.post(route, requireRoles(writeRoles), async (req, res) => {
       try {
+        const actor: RelayActor = res.locals.actor;
+        if (checkPreFlightIdempotency(req, res, actor)) return;
+
         const id = req.body[idField];
         if (!id || !Array.isArray(req.body.queueList)) throw new Error('INVALID_PAYLOAD');
-        const snapshot = await commitRelay(null, current => {
+
+        const opKey = getScopedOpKey(req, actor);
+        let duplicateResult: any = null;
+
+        const snapshot = await commitRelay(null, (current, targetVersion) => {
+          if (opKey && current.syncMeta?.processedOps?.[opKey]) {
+            duplicateResult = current.syncMeta.processedOps[opKey].result;
+            return current;
+          }
+
           const item = (current[field] || []).find((i: any) => i.id === id);
           if (!item) throw new Error('ITEM_NOT_FOUND');
-          return mergeRelayData(current, scopeRelayInput(current, {
+          const merged = mergeRelayData(current, scopeRelayInput(current, {
             [field]: [{ ...item, queueList: req.body.queueList, updatedAt: Date.now() }]
-          }, res.locals.actor));
+          }, actor));
+
+          const responsePayload = { success: true, persisted: true, version: targetVersion };
+          recordPersistentIdempotency(merged, opKey, responsePayload);
+          return merged;
         });
-        res.json({ success: true, persisted: true, version: snapshot.version });
+
+        if (duplicateResult) {
+          commitSuccessToRamCache(opKey, duplicateResult);
+          return res.json({ ...duplicateResult, deduplicated: true });
+        }
+        const finalPayload = { success: true, persisted: true, version: snapshot.version };
+        commitSuccessToRamCache(opKey, finalPayload);
+        res.json(finalPayload);
       } catch (error) { failWrite(res, error); }
     });
   }
@@ -794,18 +951,40 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
   for (const route of ['/api/request-stat-update', '/api/update-user-stats']) {
     app.post(route, requireRoles(writeRoles), async (req, res) => {
       try {
-        const { userId, updates } = req.body;
         const actor: RelayActor = res.locals.actor;
+        if (checkPreFlightIdempotency(req, res, actor)) return;
+
+        const { userId, updates } = req.body;
         if (!userId || !updates || typeof updates !== 'object') throw new Error('INVALID_PAYLOAD');
         if (!['owner', 'admin'].includes(actor.role) && userId !== actor.uid) throw new Error('FORBIDDEN');
-        const snapshot = await commitRelay(null, current => {
+
+        const opKey = getScopedOpKey(req, actor);
+        let duplicateResult: any = null;
+
+        const snapshot = await commitRelay(null, (current, targetVersion) => {
+          if (opKey && current.syncMeta?.processedOps?.[opKey]) {
+            duplicateResult = current.syncMeta.processedOps[opKey].result;
+            return current;
+          }
+
           const user = (current.users || []).find((u: any) => u.id === userId);
           if (!user) throw new Error('USER_NOT_FOUND');
-          return mergeRelayData(current, scopeRelayInput(current, {
+          const merged = mergeRelayData(current, scopeRelayInput(current, {
             users: [{ ...user, ...updates, id: user.id, updatedAt: Date.now() }]
           }, actor));
+
+          const responsePayload = { success: true, persisted: true, version: targetVersion, userId };
+          recordPersistentIdempotency(merged, opKey, responsePayload);
+          return merged;
         });
-        res.json({ success: true, persisted: true, version: snapshot.version, userId });
+
+        if (duplicateResult) {
+          commitSuccessToRamCache(opKey, duplicateResult);
+          return res.json({ ...duplicateResult, deduplicated: true });
+        }
+        const finalPayload = { success: true, persisted: true, version: snapshot.version, userId };
+        commitSuccessToRamCache(opKey, finalPayload);
+        res.json(finalPayload);
       } catch (error) { failWrite(res, error); }
     });
   }

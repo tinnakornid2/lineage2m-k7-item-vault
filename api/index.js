@@ -152,13 +152,21 @@ function mergeRelayData(previousData, incoming) {
     }
     return merged;
   };
+  const mergedProcessedOps = {};
+  const opCutoff = Date.now() - 2 * 60 * 60 * 1e3;
+  for (const [key, val] of Object.entries(previousData.syncMeta?.processedOps || {})) {
+    if (val && typeof val === "object" && Number(val.timestamp || 0) > opCutoff) {
+      mergedProcessedOps[key] = val;
+    }
+  }
   const syncMeta = {
     deletedVaultItems: mergeTimestampMaps(previousData.syncMeta?.deletedVaultItems, data.syncMeta?.deletedVaultItems),
     deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
     deletedGeneralItems: mergeTimestampMaps(previousData.syncMeta?.deletedGeneralItems, data.syncMeta?.deletedGeneralItems),
     deletedUsers: mergeTimestampMaps(previousData.syncMeta?.deletedUsers, data.syncMeta?.deletedUsers),
     cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims),
-    removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers)
+    removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers),
+    processedOps: mergedProcessedOps
   };
   const mergeVersionedRecords = (previous, incoming2, deleted, mergeClaims = false, mergeQueue = false) => {
     const records = /* @__PURE__ */ new Map();
@@ -446,7 +454,7 @@ function publicRelayData(value) {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).filter(([key, val]) => val !== void 0 && !["apiKey", "webhookUrl", "distributeWebhookUrl"].includes(key)).map(([key, val]) => [key, publicRelayData(val)]));
 }
-async function withRelayTimeout(operation, ms = 8e3) {
+async function withRelayTimeout(operation, ms = 15e3) {
   let timer;
   try {
     return await Promise.race([operation, new Promise((_, reject) => {
@@ -468,28 +476,118 @@ function decodeSnapshot(parts) {
 var FirestoreRelayStore = class {
   constructor(db) {
     this.db = db;
+    this.cachedSnapshot = null;
+    this.inFlightManifest = null;
+    this.inFlightFullRead = null;
+  }
+  setCachedSnapshot(snapshot) {
+    if (snapshot && (!this.cachedSnapshot || snapshot.version >= this.cachedSnapshot.version)) {
+      this.cachedSnapshot = {
+        version: snapshot.version,
+        updatedAt: snapshot.updatedAt,
+        data: publicRelayData(snapshot.data)
+      };
+    }
+  }
+  getCachedSnapshot() {
+    return this.cachedSnapshot;
+  }
+  // Single-flight manifest reader: 1 single document read from system_meta/live_state
+  async readManifest() {
+    if (this.inFlightManifest) return this.inFlightManifest;
+    this.inFlightManifest = (async () => {
+      const ref = this.db.collection("system_meta").doc("live_state");
+      const snap = await ref.get();
+      if (!snap.exists) return null;
+      const manifest = snap.data();
+      return {
+        format: manifest.format || "unknown",
+        parts: Number(manifest.parts || 0),
+        version: Number(manifest.version || 0),
+        updatedAt: Number(manifest.updatedAt || 0)
+      };
+    })().finally(() => {
+      this.inFlightManifest = null;
+    });
+    return this.inFlightManifest;
+  }
+  // Single-flight full reader with decode & safe cache update
+  async readFull() {
+    if (this.inFlightFullRead) return this.inFlightFullRead;
+    this.inFlightFullRead = (async () => {
+      const ref = this.db.collection("system_meta").doc("live_state");
+      const snap = await ref.get();
+      if (!snap.exists) {
+        const data = {};
+        await Promise.all(Object.entries(COLLECTIONS).map(async ([key, collection]) => {
+          try {
+            const rows = await this.db.collection(collection).get();
+            data[key] = rows.docs.map((row) => ({ ...row.data(), id: row.id }));
+          } catch {
+            data[key] = [];
+          }
+        }));
+        await Promise.all(Object.entries(SETTINGS).map(async ([key, id]) => {
+          try {
+            const row = await this.db.collection("app_settings").doc(id).get();
+            if (row.exists) data[key] = row.data();
+          } catch {
+          }
+        }));
+        const initial = { data: publicRelayData(data), version: 0, updatedAt: 0 };
+        this.setCachedSnapshot(initial);
+        return initial;
+      }
+      const manifest = snap.data();
+      if (manifest.format !== "gzip-parts-v1") {
+        const legacy = manifest.data ? { ...manifest, data: publicRelayData(manifest.data) } : null;
+        if (legacy) this.setCachedSnapshot(legacy);
+        return legacy;
+      }
+      if (!Number.isInteger(manifest.parts) || manifest.parts < 1 || manifest.parts > 64) {
+        throw new Error("INVALID_CENTRAL_MANIFEST");
+      }
+      const chunks = await Promise.all(Array.from({ length: manifest.parts }, (_, i) => this.db.collection("system_live_parts").doc(String(i)).get()));
+      if (chunks.some((chunk) => !chunk.exists)) throw new Error("INCOMPLETE_CENTRAL_STATE");
+      const decoded = {
+        version: Number(manifest.version || 0),
+        updatedAt: Number(manifest.updatedAt || 0),
+        data: decodeSnapshot(chunks.map((chunk) => chunk.data().payload))
+      };
+      this.setCachedSnapshot(decoded);
+      return decoded;
+    })().finally(() => {
+      this.inFlightFullRead = null;
+    });
+    return this.inFlightFullRead;
+  }
+  // Fast-path conditional read: avoids downloading snapshot chunks when client is already updated
+  async readConditional(clientVersion) {
+    const manifest = await this.readManifest();
+    if (!manifest) {
+      return this.readFull();
+    }
+    if (clientVersion && clientVersion !== 0 && clientVersion === manifest.version) {
+      return {
+        notModified: true,
+        version: manifest.version,
+        updatedAt: manifest.updatedAt,
+        data: null
+      };
+    }
+    if (this.cachedSnapshot && this.cachedSnapshot.version === manifest.version && this.cachedSnapshot.data) {
+      return this.cachedSnapshot;
+    }
+    return this.readFull();
+  }
+  async read() {
+    return this.readFull();
   }
   async readTransaction(tx) {
     const ref = this.db.collection("system_meta").doc("live_state");
     const snap = await tx.get(ref);
     if (!snap.exists) {
-      const data = {};
-      await Promise.all(Object.entries(COLLECTIONS).map(async ([key, collection]) => {
-        try {
-          const rows = await this.db.collection(collection).get();
-          data[key] = rows.docs.map((row) => ({ ...row.data(), id: row.id }));
-        } catch {
-          data[key] = [];
-        }
-      }));
-      await Promise.all(Object.entries(SETTINGS).map(async ([key, id]) => {
-        try {
-          const row = await this.db.collection("app_settings").doc(id).get();
-          if (row.exists) data[key] = row.data();
-        } catch {
-        }
-      }));
-      return { data: publicRelayData(data), version: 0, updatedAt: 0 };
+      return this.readFull();
     }
     const manifest = snap.data();
     if (manifest.format !== "gzip-parts-v1") {
@@ -497,58 +595,27 @@ var FirestoreRelayStore = class {
     }
     if (!Number.isInteger(manifest.parts) || manifest.parts < 1 || manifest.parts > 64) {
       throw new Error("INVALID_CENTRAL_MANIFEST");
+    }
+    if (this.cachedSnapshot && this.cachedSnapshot.version === Number(manifest.version) && this.cachedSnapshot.data) {
+      return this.cachedSnapshot;
     }
     const chunks = await Promise.all(Array.from({ length: manifest.parts }, (_, i) => tx.get(this.db.collection("system_live_parts").doc(String(i)))));
     if (chunks.some((chunk) => !chunk.exists)) throw new Error("INCOMPLETE_CENTRAL_STATE");
-    return {
-      version: manifest.version,
-      updatedAt: manifest.updatedAt,
+    const decoded = {
+      version: Number(manifest.version || 0),
+      updatedAt: Number(manifest.updatedAt || 0),
       data: decodeSnapshot(chunks.map((chunk) => chunk.data().payload))
     };
-  }
-  async read() {
-    const ref = this.db.collection("system_meta").doc("live_state");
-    const snap = await ref.get();
-    if (!snap.exists) {
-      const data = {};
-      await Promise.all(Object.entries(COLLECTIONS).map(async ([key, collection]) => {
-        try {
-          const rows = await this.db.collection(collection).get();
-          data[key] = rows.docs.map((row) => ({ ...row.data(), id: row.id }));
-        } catch {
-          data[key] = [];
-        }
-      }));
-      await Promise.all(Object.entries(SETTINGS).map(async ([key, id]) => {
-        try {
-          const row = await this.db.collection("app_settings").doc(id).get();
-          if (row.exists) data[key] = row.data();
-        } catch {
-        }
-      }));
-      return { data: publicRelayData(data), version: 0, updatedAt: 0 };
-    }
-    const manifest = snap.data();
-    if (manifest.format !== "gzip-parts-v1") {
-      return manifest.data ? { ...manifest, data: publicRelayData(manifest.data) } : null;
-    }
-    if (!Number.isInteger(manifest.parts) || manifest.parts < 1 || manifest.parts > 64) {
-      throw new Error("INVALID_CENTRAL_MANIFEST");
-    }
-    const chunks = await Promise.all(Array.from({ length: manifest.parts }, (_, i) => this.db.collection("system_live_parts").doc(String(i)).get()));
-    if (chunks.some((chunk) => !chunk.exists)) throw new Error("INCOMPLETE_CENTRAL_STATE");
-    return {
-      version: manifest.version,
-      updatedAt: manifest.updatedAt,
-      data: decodeSnapshot(chunks.map((chunk) => chunk.data().payload))
-    };
+    this.setCachedSnapshot(decoded);
+    return decoded;
   }
   async commit(incoming, mutate) {
     return this.db.runTransaction(async (tx) => {
       const previous = await this.readTransaction(tx);
       const base = previous?.data || {};
-      const data = publicRelayData(mutate ? mutate(structuredClone(base)) : mergeRelayData(base, incoming));
       const version = Math.max(Number(previous?.version || 0) + 1, Date.now());
+      base.version = version;
+      const data = publicRelayData(mutate ? mutate(structuredClone(base), version) : mergeRelayData(base, incoming));
       const updatedAt = Date.now();
       const parts = encodeSnapshot(data);
       const writes = [];
@@ -599,7 +666,9 @@ var FirestoreRelayStore = class {
         lastUpdatedAt: updatedAt,
         lastChangeType: "liveState"
       }, { merge: true });
-      return { data, version, updatedAt };
+      const result = { data, version, updatedAt };
+      this.setCachedSnapshot(result);
+      return result;
     });
   }
 };
@@ -1273,11 +1342,22 @@ async function createApp(options = {}) {
   }
   let storePromise = null;
   const getRelayStore = () => {
-    if (!storePromise) storePromise = options.relayStore ? Promise.resolve(options.relayStore) : options.isolatedTest ? Promise.resolve(null) : getAdminSdk().then((sdk) => sdk?.db ? new FirestoreRelayStore(sdk.db) : null);
+    if (!storePromise) storePromise = (options.relayStore ? Promise.resolve(options.relayStore) : options.isolatedTest ? Promise.resolve(null) : getAdminSdk().then((sdk) => sdk?.db ? new FirestoreRelayStore(sdk.db) : null)).then((store) => {
+      if (store && liveHubState.data && liveHubState.version > 0) {
+        store.setCachedSnapshot(liveHubState);
+      }
+      return store;
+    });
     return storePromise;
   };
   const acceptSnapshot = (snapshot) => {
     liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
+    if (storePromise) {
+      storePromise.then((s) => {
+        if (s) s.setCachedSnapshot(liveHubState);
+      }).catch(() => {
+      });
+    }
     if (!process.env.VERCEL) fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
     liveStateEmitter.emit("update");
   };
@@ -1285,15 +1365,18 @@ async function createApp(options = {}) {
   const commitRelay = async (incoming, mutate) => {
     const store = await getRelayStore();
     if (store) {
-      const snapshot = await withRelayTimeout(store.commit(incoming, mutate));
+      const snapshot = await withRelayTimeout(store.commit(incoming, mutate), 15e3);
       if (snapshot.version >= liveHubState.version) acceptSnapshot(snapshot);
       return snapshot;
     }
     if (process.env.VERCEL || process.env.NODE_ENV === "production") throw new Error("CENTRAL_STORE_UNAVAILABLE");
     const next = localCommit.catch(() => {
     }).then(() => {
-      const data = publicRelayData(mutate ? mutate(structuredClone(liveHubState.data || {})) : mergeRelayData(liveHubState.data || {}, incoming));
-      const snapshot = { data, version: Math.max(liveHubState.version + 1, Date.now()), updatedAt: Date.now() };
+      const version = Math.max(Number(liveHubState.version || 0) + 1, Date.now());
+      const currentData = structuredClone(liveHubState.data || {});
+      currentData.version = version;
+      const data = publicRelayData(mutate ? mutate(currentData, version) : mergeRelayData(liveHubState.data || {}, incoming));
+      const snapshot = { data, version, updatedAt: Date.now() };
       acceptSnapshot(snapshot);
       return snapshot;
     });
@@ -1689,16 +1772,27 @@ async function createApp(options = {}) {
   app.get("/api/live-state", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     try {
+      const clientVersion = Number(req.query.v) || 0;
       const store = await getRelayStore();
       if (store) {
         try {
-          const snapshot = await withRelayTimeout(store.read(), 1e4);
-          if (snapshot) liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
+          const result = await withRelayTimeout(store.readConditional(clientVersion), 8e3);
+          if (result) {
+            if (result.notModified) {
+              return res.json({
+                modified: false,
+                version: result.version,
+                updatedAt: result.updatedAt
+              });
+            }
+            if (result.version >= liveHubState.version) {
+              acceptSnapshot(result);
+            }
+          }
         } catch (readErr) {
           console.warn("Central store read notice (serving in-memory state):", readErr?.message || readErr);
         }
       }
-      const clientVersion = Number(req.query.v) || 0;
       const modified = clientVersion !== liveHubState.version || clientVersion === 0;
       return res.json({
         modified,
@@ -1742,13 +1836,66 @@ async function createApp(options = {}) {
   const failWrite = (res, error) => res.status(
     /FORBIDDEN|NOT_ACTIVE|POWER_REQUIRED/.test(error?.message || "") ? 403 : /NOT_FOUND|DISTRIBUTED|INVALID/.test(error?.message || "") ? 400 : 503
   ).json({ success: false, persisted: false, error: error?.message || "CENTRAL_WRITE_FAILED" });
+  const processedClientOps = /* @__PURE__ */ new Map();
+  const idempotencyInterval = setInterval(() => {
+    const cutoff = Date.now() - 2 * 60 * 60 * 1e3;
+    for (const [opKey, data] of processedClientOps.entries()) {
+      if (data.timestamp < cutoff) processedClientOps.delete(opKey);
+    }
+  }, 6e4);
+  idempotencyInterval.unref?.();
+  const getScopedOpKey = (req, actor) => {
+    const opId = req.headers["x-client-op-id"] || req.body?.clientOpId;
+    if (!opId || !actor?.uid) return "";
+    return `${actor.uid}:::${req.path}:::${opId}`;
+  };
+  const checkPreFlightIdempotency = (req, res, actor) => {
+    const opKey = getScopedOpKey(req, actor);
+    if (!opKey) return false;
+    if (processedClientOps.has(opKey)) {
+      const cached = processedClientOps.get(opKey);
+      res.json({ ...cached.result, deduplicated: true });
+      return true;
+    }
+    const persistentOp = liveHubState.data?.syncMeta?.processedOps?.[opKey];
+    if (persistentOp?.result) {
+      processedClientOps.set(opKey, persistentOp);
+      res.json({ ...persistentOp.result, deduplicated: true });
+      return true;
+    }
+    return false;
+  };
+  const recordPersistentIdempotency = (current, opKey, responsePayload) => {
+    if (!opKey) return;
+    current.syncMeta ||= {};
+    current.syncMeta.processedOps ||= {};
+    current.syncMeta.processedOps[opKey] = {
+      result: responsePayload,
+      timestamp: Date.now()
+    };
+    const cutoff = Date.now() - 2 * 60 * 60 * 1e3;
+    for (const [k, v] of Object.entries(current.syncMeta.processedOps)) {
+      if (v?.timestamp < cutoff) delete current.syncMeta.processedOps[k];
+    }
+  };
+  const commitSuccessToRamCache = (opKey, responsePayload) => {
+    if (!opKey) return;
+    processedClientOps.set(opKey, { result: responsePayload, timestamp: Date.now() });
+  };
   app.post("/api/claim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
+      const actor = res.locals.actor;
+      if (checkPreFlightIdempotency(req, res, actor)) return;
       const { itemId, claimant } = req.body;
       if (!itemId || !claimant?.userId) throw new Error("INVALID_CLAIM_PAYLOAD");
-      const actor = res.locals.actor;
       if (!["owner", "admin"].includes(actor.role) && claimant.userId !== actor.uid) throw new Error("FORBIDDEN");
-      const snapshot = await commitRelay(null, (current) => {
+      const opKey = getScopedOpKey(req, actor);
+      let duplicateResult = null;
+      const snapshot = await commitRelay(null, (current, targetVersion) => {
+        if (opKey && current.syncMeta?.processedOps?.[opKey]) {
+          duplicateResult = current.syncMeta.processedOps[opKey].result;
+          return current;
+        }
         const member = (current.users || []).find((u) => u.id === claimant.userId);
         if (!member || member.status !== "active") throw new Error("NOT_ACTIVE");
         const item = (current.vaultItems || []).find((i) => i.id === itemId);
@@ -1756,7 +1903,11 @@ async function createApp(options = {}) {
         if (item.status === "distributed" || item.distributedTo) throw new Error("ITEM_DISTRIBUTED");
         if (!["owner", "admin"].includes(actor.role) && Number(member.powerLevel || 0) < Number(item.minPowerLevel || 0)) throw new Error("POWER_REQUIRED");
         const previous = (item.claimants || []).find((c) => c.userId === member.id);
-        if (previous) return current;
+        if (previous) {
+          const resObj = { success: true, persisted: true, version: targetVersion, itemId };
+          recordPersistentIdempotency(current, opKey, resObj);
+          return current;
+        }
         item.claimants = [...item.claimants || [], {
           userId: member.id,
           inGameName: member.inGameName,
@@ -1769,20 +1920,35 @@ async function createApp(options = {}) {
         current.syncMeta.cancelledClaims ||= {};
         delete current.syncMeta.cancelledClaims[itemId + ":::" + member.id.toLowerCase()];
         delete current.syncMeta.cancelledClaims[itemId + ":::" + member.inGameName.toLowerCase()];
+        const responsePayload = { success: true, persisted: true, version: targetVersion, itemId };
+        recordPersistentIdempotency(current, opKey, responsePayload);
         return current;
       });
-      res.json({ success: true, persisted: true, version: snapshot.version, itemId });
+      if (duplicateResult) {
+        commitSuccessToRamCache(opKey, duplicateResult);
+        return res.json({ ...duplicateResult, deduplicated: true });
+      }
+      const finalPayload = { success: true, persisted: true, version: snapshot.version, itemId };
+      commitSuccessToRamCache(opKey, finalPayload);
+      res.json(finalPayload);
     } catch (error) {
       failWrite(res, error);
     }
   });
   app.post("/api/unclaim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
+      const actor = res.locals.actor;
+      if (checkPreFlightIdempotency(req, res, actor)) return;
       const { itemId, userId, inGameName } = req.body;
       if (!itemId || !userId && !inGameName) throw new Error("INVALID_UNCLAIM_PAYLOAD");
-      const actor = res.locals.actor;
       if (!["owner", "admin"].includes(actor.role) && userId !== actor.uid) throw new Error("FORBIDDEN");
-      const snapshot = await commitRelay(null, (current) => {
+      const opKey = getScopedOpKey(req, actor);
+      let duplicateResult = null;
+      const snapshot = await commitRelay(null, (current, targetVersion) => {
+        if (opKey && current.syncMeta?.processedOps?.[opKey]) {
+          duplicateResult = current.syncMeta.processedOps[opKey].result;
+          return current;
+        }
         const item = (current.vaultItems || []).find((i) => i.id === itemId);
         if (!item) throw new Error("ITEM_NOT_FOUND");
         const now = Date.now();
@@ -1794,9 +1960,17 @@ async function createApp(options = {}) {
         for (const c of removed) for (const identity of [c.userId, c.inGameName]) {
           if (identity) current.syncMeta.cancelledClaims[itemId + ":::" + identity.toLowerCase()] = now;
         }
+        const responsePayload = { success: true, persisted: true, version: targetVersion, itemId };
+        recordPersistentIdempotency(current, opKey, responsePayload);
         return current;
       });
-      res.json({ success: true, persisted: true, version: snapshot.version, itemId });
+      if (duplicateResult) {
+        commitSuccessToRamCache(opKey, duplicateResult);
+        return res.json({ ...duplicateResult, deduplicated: true });
+      }
+      const finalPayload = { success: true, persisted: true, version: snapshot.version, itemId };
+      commitSuccessToRamCache(opKey, finalPayload);
+      res.json(finalPayload);
     } catch (error) {
       failWrite(res, error);
     }
@@ -1807,16 +1981,33 @@ async function createApp(options = {}) {
   ]) {
     app.post(route, requireRoles(writeRoles), async (req, res) => {
       try {
+        const actor = res.locals.actor;
+        if (checkPreFlightIdempotency(req, res, actor)) return;
         const id = req.body[idField];
         if (!id || !Array.isArray(req.body.queueList)) throw new Error("INVALID_PAYLOAD");
-        const snapshot = await commitRelay(null, (current) => {
+        const opKey = getScopedOpKey(req, actor);
+        let duplicateResult = null;
+        const snapshot = await commitRelay(null, (current, targetVersion) => {
+          if (opKey && current.syncMeta?.processedOps?.[opKey]) {
+            duplicateResult = current.syncMeta.processedOps[opKey].result;
+            return current;
+          }
           const item = (current[field] || []).find((i) => i.id === id);
           if (!item) throw new Error("ITEM_NOT_FOUND");
-          return mergeRelayData(current, scopeRelayInput(current, {
+          const merged = mergeRelayData(current, scopeRelayInput(current, {
             [field]: [{ ...item, queueList: req.body.queueList, updatedAt: Date.now() }]
-          }, res.locals.actor));
+          }, actor));
+          const responsePayload = { success: true, persisted: true, version: targetVersion };
+          recordPersistentIdempotency(merged, opKey, responsePayload);
+          return merged;
         });
-        res.json({ success: true, persisted: true, version: snapshot.version });
+        if (duplicateResult) {
+          commitSuccessToRamCache(opKey, duplicateResult);
+          return res.json({ ...duplicateResult, deduplicated: true });
+        }
+        const finalPayload = { success: true, persisted: true, version: snapshot.version };
+        commitSuccessToRamCache(opKey, finalPayload);
+        res.json(finalPayload);
       } catch (error) {
         failWrite(res, error);
       }
@@ -1825,18 +2016,34 @@ async function createApp(options = {}) {
   for (const route of ["/api/request-stat-update", "/api/update-user-stats"]) {
     app.post(route, requireRoles(writeRoles), async (req, res) => {
       try {
-        const { userId, updates } = req.body;
         const actor = res.locals.actor;
+        if (checkPreFlightIdempotency(req, res, actor)) return;
+        const { userId, updates } = req.body;
         if (!userId || !updates || typeof updates !== "object") throw new Error("INVALID_PAYLOAD");
         if (!["owner", "admin"].includes(actor.role) && userId !== actor.uid) throw new Error("FORBIDDEN");
-        const snapshot = await commitRelay(null, (current) => {
+        const opKey = getScopedOpKey(req, actor);
+        let duplicateResult = null;
+        const snapshot = await commitRelay(null, (current, targetVersion) => {
+          if (opKey && current.syncMeta?.processedOps?.[opKey]) {
+            duplicateResult = current.syncMeta.processedOps[opKey].result;
+            return current;
+          }
           const user = (current.users || []).find((u) => u.id === userId);
           if (!user) throw new Error("USER_NOT_FOUND");
-          return mergeRelayData(current, scopeRelayInput(current, {
+          const merged = mergeRelayData(current, scopeRelayInput(current, {
             users: [{ ...user, ...updates, id: user.id, updatedAt: Date.now() }]
           }, actor));
+          const responsePayload = { success: true, persisted: true, version: targetVersion, userId };
+          recordPersistentIdempotency(merged, opKey, responsePayload);
+          return merged;
         });
-        res.json({ success: true, persisted: true, version: snapshot.version, userId });
+        if (duplicateResult) {
+          commitSuccessToRamCache(opKey, duplicateResult);
+          return res.json({ ...duplicateResult, deduplicated: true });
+        }
+        const finalPayload = { success: true, persisted: true, version: snapshot.version, userId };
+        commitSuccessToRamCache(opKey, finalPayload);
+        res.json(finalPayload);
       } catch (error) {
         failWrite(res, error);
       }
