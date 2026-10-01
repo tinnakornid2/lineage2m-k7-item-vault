@@ -192,7 +192,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.70-central-relay-resilience';
+const CACHE_SCHEMA_VERSION = '2.10.71-queue-persistence-quota-shield';
 
 export function isTestArtifactId(id?: string, name?: string): boolean {
   if (!id && !name) return false;
@@ -340,6 +340,76 @@ if (typeof localStorage !== 'undefined') {
   } catch (e) {}
 }
 
+export function sanitizeUsersForStorage(users: User[]): User[] {
+  if (!Array.isArray(users)) return [];
+  return users.map((u) => {
+    if (!u) return u;
+    const copy = { ...u };
+    // Strip raw base64 screenshots (>2KB or data:image/) from local browser storage to prevent hitting 5MB quota
+    if (typeof copy.statScreenshotUrl === 'string' && (copy.statScreenshotUrl.startsWith('data:image/') || copy.statScreenshotUrl.length > 2048)) {
+      delete copy.statScreenshotUrl;
+    }
+    if (typeof copy.pendingStatScreenshotUrl === 'string' && (copy.pendingStatScreenshotUrl.startsWith('data:image/') && copy.pendingStatScreenshotUrl.length > 150000)) {
+      delete copy.pendingStatScreenshotUrl;
+    }
+    if (typeof copy.screenshotUrl === 'string' && (copy.screenshotUrl.startsWith('data:image/') || copy.screenshotUrl.length > 2048)) {
+      delete copy.screenshotUrl;
+    }
+    if (Array.isArray(copy.screenshots)) {
+      copy.screenshots = copy.screenshots.filter((s) => typeof s === 'string' && (!s.startsWith('data:image/') || s.length <= 2048));
+    }
+    return copy;
+  });
+}
+
+export function sanitizeGeneralItemsForStorage(items: GeneralItem[]): GeneralItem[] {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => {
+    if (!item) return item;
+    const copy = { ...item };
+    if (Array.isArray(copy.receiptHistory)) {
+      copy.receiptHistory = copy.receiptHistory.map((r) => {
+        if (!r) return r;
+        const rCopy = { ...r };
+        if (Array.isArray(rCopy.receiptImages)) {
+          rCopy.receiptImages = rCopy.receiptImages.filter((img) => typeof img === 'string' && (!img.startsWith('data:image/') || img.length <= 2048));
+        }
+        if (Array.isArray(rCopy.hunterScreenshots)) {
+          rCopy.hunterScreenshots = rCopy.hunterScreenshots.filter((img) => typeof img === 'string' && (!img.startsWith('data:image/') || img.length <= 2048));
+        }
+        return rCopy;
+      });
+    }
+    return copy;
+  });
+}
+
+export function sanitizeVaultItemsForStorage(items: VaultItem[]): VaultItem[] {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => {
+    if (!item) return item;
+    const copy = { ...item };
+    if (Array.isArray(copy.hunterScreenshots)) {
+      copy.hunterScreenshots = copy.hunterScreenshots.filter((img) => typeof img === 'string' && (!img.startsWith('data:image/') || img.length <= 2048));
+    }
+    return copy;
+  });
+}
+
+// Auto-prune bloated users cache from base64 if present in localStorage to reclaim 4.8MB
+if (typeof localStorage !== 'undefined') {
+  try {
+    const rawUsers = localStorage.getItem(CACHE_KEYS.USERS);
+    if (rawUsers && rawUsers.length > 100000) {
+      const parsed = JSON.parse(rawUsers);
+      if (Array.isArray(parsed)) {
+        const lean = sanitizeUsersForStorage(parsed);
+        localStorage.setItem(CACHE_KEYS.USERS, JSON.stringify(lean));
+      }
+    }
+  } catch {}
+}
+
 function getCachedData<T>(key: string, fallback: T): T {
   try {
     if (typeof localStorage === 'undefined') return fallback;
@@ -358,7 +428,30 @@ function setCachedData<T>(key: string, data: T): void {
   try {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(key, JSON.stringify(data));
-  } catch {}
+  } catch (err: any) {
+    if (
+      err?.name === 'QuotaExceededError' ||
+      err?.code === 22 ||
+      err?.number === -2147024882 ||
+      String(err).includes('quota') ||
+      String(err).includes('QuotaExceeded')
+    ) {
+      console.warn(`[LocalStorage] QuotaExceededError writing ${key}. Pruning bloated caches to recover space...`);
+      try {
+        const rawUsers = localStorage.getItem(CACHE_KEYS.USERS);
+        if (rawUsers && rawUsers.length > 50000) {
+          const parsed = JSON.parse(rawUsers);
+          if (Array.isArray(parsed)) {
+            const lean = sanitizeUsersForStorage(parsed);
+            localStorage.setItem(CACHE_KEYS.USERS, JSON.stringify(lean));
+          }
+        }
+        localStorage.setItem(key, JSON.stringify(data));
+      } catch (retryErr) {
+        console.error(`[LocalStorage] Critical write failure on ${key}:`, retryErr);
+      }
+    }
+  }
 }
 
 // Resilient Hybrid In-Memory + LocalStorage Collections (Survives F5 Reloads & Zero-Downtime)
@@ -1007,7 +1100,7 @@ export function setCachedUsers(users: User[]): void {
   });
   const deduped = deduplicateUsers(clean);
   inMemoryUsers = deduped;
-  setCachedData(CACHE_KEYS.USERS, deduped);
+  setCachedData(CACHE_KEYS.USERS, sanitizeUsersForStorage(deduped));
 }
 
 /**
@@ -1271,7 +1364,7 @@ export function setCachedGeneralItems(items: GeneralItem[]): void {
       queueList: (item.queueList || []).filter((m) => !isQueueMemberRemoved(item.id, m) && (!m.userId || !deletedUsers.has(m.userId)) && m.name !== 'Hunter2' && !isTestArtifactId(m.id, m.name))
     }));
   inMemoryGeneralItems = clean;
-  setCachedData(CACHE_KEYS.GENERAL_ITEMS, clean);
+  setCachedData(CACHE_KEYS.GENERAL_ITEMS, sanitizeGeneralItemsForStorage(clean));
 }
 
 export function mergeGeneralItems(currentItems: GeneralItem[], incomingItems: GeneralItem[]): GeneralItem[] {
@@ -1762,7 +1855,7 @@ export function setCachedVaultItems(items: VaultItem[]): void {
       };
     });
   inMemoryVaultItems = clean;
-  setCachedData(CACHE_KEYS.VAULT_ITEMS, clean);
+  setCachedData(CACHE_KEYS.VAULT_ITEMS, sanitizeVaultItemsForStorage(clean));
 }
 
 export function getCachedClans(): ClanGroup[] {

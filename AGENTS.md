@@ -1,7 +1,7 @@
-# 🛡️ Workspace Rules & Engineering Guidelines (v2.10.50)
+# 🛡️ Workspace Rules & Engineering Guidelines (v2.10.71)
 
 > **Lineage 2M Clan Hub & Boss Item Vault**  
-> เอกสารฉบับนี้กำหนด **กฎเหล็กภาคบังคับ 7 ข้อ** สำหรับนักพัฒนาและ AI Agent ทุกตัวที่เข้ามารับช่วงงานต่อในโปรเจกต์นี้ เพื่อรักษามาตรฐานความเสถียร ความปลอดภัย และป้องกันโค้ดเสียหาย 100%
+> เอกสารฉบับนี้กำหนด **กฎเหล็กภาคบังคับ 8 ข้อ** สำหรับนักพัฒนาและ AI Agent ทุกตัวที่เข้ามารับช่วงงานต่อในโปรเจกต์นี้ เพื่อรักษามาตรฐานความเสถียร ความปลอดภัย และป้องกันโค้ดเสียหาย 100%
 
 ---
 
@@ -123,6 +123,39 @@
   5. `src/components/LoginScreen.tsx`
   6. `src/components/GoogleDriveBackupModal.tsx`
 - ผู้รับช่วงงานต้องตรวจว่าเลขเวอร์ชันทุกจุดตรงกันและ Build ผ่านก่อนถือว่างานเสร็จสิ้น
+
+---
+
+## 8. กฎเหล็กป้องกันความผิดพลาด Local vs Production และการ Deploy (Production Parity Rule)
+
+**สำคัญมากสำหรับ AI ทุกตัวและนักพัฒนาทุกคน:** ห้ามถือว่า "เทสผ่านใน Local แล้วจะทำงานได้บน Production" จนกว่าจะตรวจสอบ 7 จุดนี้ครบถ้วน:
+
+1. **ห้ามรันแค่ `vite build` ก่อน Deploy เด็ดขาด (Mandatory Full Bundle):**
+   - โปรเจกต์นี้มี Backend Serverless API อยู่ใน `api/index.js`
+   - หากรันเพียง `vite build` ตัว Vercel จะคอมไพล์เฉพาะหน้าบ้าน ทำให้ API หลังบ้านยังเป็นโค้ดเก่า
+   - ต้องมั่นใจว่าคำสั่ง Build บน Vercel คือ `npm run build` หรือรัน:
+     ```powershell
+     & 'C:\Program Files\nodejs\node.exe' 'node_modules/esbuild/bin/esbuild' api/_entry.ts --bundle --platform=node --format=esm --packages=external --outfile=api/index.js
+     ```
+2. **กฎคุ้มครองโควต้า LocalStorage (LocalStorage Quota Shield):**
+   - ห้ามเก็บรูปภาพ Base64 ขนาดยาว (`data:image/...` หรือ string > 2,048 chars) ลงใน LocalStorage เด็ดขาด
+   - ข้อมูลผู้ใช้และไอเทมก่อนลงแคช ต้องผ่าน `sanitizeUsersForStorage()`, `sanitizeGeneralItemsForStorage()`, และ `sanitizeVaultItemsForStorage()` เสมอ
+   - รักษาขนาด LocalStorage รวมให้ต่ำกว่า 2.0 MB เสมอ เพื่อให้มี Headroom เหลือ > 3.0 MB ป้องกันเบราว์เซอร์ผู้ใช้จริงค้างบันทึกไม่เข้า (`QuotaExceededError`)
+3. **ความตระหนักเรื่อง Serverless เป็น Stateless (Ephemeral Container Awareness):**
+   - บน Vercel Production ไม่มีฮาร์ดดิสก์ถาวรและไม่มี RAM ค้างไว้ (Cold Start ทุก 5-15 นาที)
+   - ห้ามออกแบบฟีเจอร์ที่พึ่งพาไฟล์ Local (`data/hub-live-state.json`) หรือ RAM เพียงอย่างเดียว
+   - ทุกข้อมูลสำคัญต้อง Dual-Write ไปยัง **Cloud Firestore และ/หรือ Google Sheets** เสมอ
+4. **ความสอดคล้องของตัวแปรสภาพแวดล้อม (Environment Variables Parity):**
+   - ก่อนขึ้น Production ต้องตรวจว่าตัวแปร `VITE_FIREBASE_*`, `FIREBASE_SERVICE_ACCOUNT_KEY`, และ `GEMINI_API_KEY` ถูกตั้งค่าใน Vercel Dashboard ครบ 100%
+5. **การอนุญาตโดเมนใน Firebase (Authorized Domains):**
+   - โดเมนของ Vercel (เช่น `xxx.vercel.app`) ต้องถูกเพิ่มใน **Firebase Console > Authentication > Settings > Authorized Domains** เสมอ มิฉะนั้นสมาชิกจะล็อกอินไม่ได้
+6. **ความเข้ากันได้กับ Firestore Security Rules (`firestore.rules`):**
+   - หากมีการเพิ่มฟิลด์ใหม่ใน TypeScript Object ของ `User`, `GeneralItem` หรือ `VaultItem` ต้องเพิ่มชื่อฟิลด์นั้นใน whitelist `hasOnly([...])` ของ `firestore.rules` เสมอ มิฉะนั้น Cloud จริงจะปฏิเสธคำสั่งเขียน (`PERMISSION_DENIED`)
+7. **คำสั่งตรวจสอบอัตโนมัติภาคบังคับก่อนส่งงาน (Mandatory Pre-Flight Check):**
+   - ก่อนส่งต่องานหรือขออนุญาต Deploy ทุกครั้ง **ต้องรันคำสั่งนี้และผ่าน 7/7 ข้อ 100%:**
+     ```powershell
+     & 'C:\Program Files\nodejs\node.exe' 'scripts/pre-flight-check.mjs'
+     ```
 
 ---
 

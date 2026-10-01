@@ -1007,6 +1007,9 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     return (
       <div
         key={item.id}
+        id={`general-item-card-${item.id}`}
+        data-item-id={item.id}
+        data-item-name={item.name}
         draggable={isAdminOrOwner}
         onDragStart={(e) => {
           if (draggedMemberId) return;
@@ -1197,6 +1200,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
             {isAdminOrOwner && (
               <button
                 type="button"
+                id={`btn-queue-distribute-${item.id}`}
                 onClick={() => openDeliverModal(item)}
                 className="px-2 py-1 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white text-[11px] font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1 shrink-0"
                 title={th ? 'แจกไอเทม' : 'Distribute item'}
@@ -1210,6 +1214,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
             {item.allowMemberQueue !== false || isUserInQueue ? (
               <button
                 type="button"
+                id={`btn-queue-request-${item.id}`}
                 disabled={!currentUser || busyItemId === item.id || (!meetsPowerReq && !isUserInQueue)}
                 onClick={() => handleInitiateRequest(item)}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 ${
@@ -1336,7 +1341,7 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
         )}
 
         {/* Row 3: Waiting Members Queue List (Directly connects below actions) */}
-        <div className="p-2.5 rounded-xl bg-[#060a12] border border-slate-800/80 space-y-1.5">
+        <div id={`queue-members-list-${item.id}`} className="p-2.5 rounded-xl bg-[#060a12] border border-slate-800/80 space-y-1.5">
           <div className="flex items-center justify-between text-[11px] font-bold text-slate-400">
             <span className="flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-sky-400" />
@@ -1547,6 +1552,8 @@ export const GeneralItemQueueCard: React.FC<Props> = ({
     return (
       <tr
         key={item.id}
+        id={`general-item-row-${item.id}`}
+        data-item-name={item.name}
         draggable={isAdminOrOwner}
         onDragStart={(e) => {
           if (draggedMemberId) return;

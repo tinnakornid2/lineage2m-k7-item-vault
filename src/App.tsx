@@ -179,6 +179,7 @@ import { RequestPowerLevelModal } from './components/RequestPowerLevelModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { GeminiKeyModal } from './components/GeminiKeyModal';
 import { GoogleDriveBackupModal } from './components/GoogleDriveBackupModal';
+import { centralApi } from './services/centralApi';
 import {
   triggerDebouncedAutoBackup,
   backupAllDataToGoogleSheets,
@@ -3286,9 +3287,8 @@ export const App: React.FC = () => {
 
     // 5. Background serverless endpoint if queueList was modified
     if (updates.queueList) {
-      fetch('/api/update-general-item-queue', {
+      centralApi('/api/update-general-item-queue', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemId, queueList: updates.queueList })
       }).catch(() => {});
     }

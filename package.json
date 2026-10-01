@@ -1,7 +1,7 @@
 {
   "name": "lineage2m-k7-item-vault",
   "private": true,
-  "version": "2.10.70",
+  "version": "2.10.71",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -16,6 +16,7 @@
     "start": "node server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.cjs",
+    "pre-flight": "node scripts/pre-flight-check.mjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

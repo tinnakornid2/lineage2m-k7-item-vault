@@ -1,28 +1,40 @@
 # 🚀 คู่มือการเตรียมงานและ Deploy ขึ้น Production (Deployment Guide)
 
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.10.50)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.10.71)**  
 > เอกสารฉบับนี้รวบรวมขั้นตอนการเตรียมความพร้อม (Pre-flight Checklist), การตั้งค่า Environment Variables, ขั้นตอนการ Deploy สู่ Vercel, และแผนรับมือเหตุฉุกเฉิน (Disaster Recovery Runbook)
 
 ---
 
 ## 📋 เช็คลิสต์ก่อน Deploy (Pre-Flight Verification Checklist)
 
-ก่อนทำการอัปโหลดหรือสั่ง Deploy ขึ้น Production **ต้องผ่านการตรวจสอบทั้ง 4 ข้อนี้ 100%**:
+ก่อนทำการอัปโหลดหรือสั่ง Deploy ขึ้น Production **ต้องรันคำสั่งตรวจสอบอัตโนมัติภาคบังคับ (Automated Pre-Flight Check)**:
 
-| ลำดับ | รายการตรวจสอบ | คำสั่ง / วิธีตรวจสอบ | เกณฑ์ที่ต้องผ่าน |
-| :---: | :--- | :--- | :--- |
-| **1** | **TypeScript Typecheck** | `& 'C:\Program Files\nodejs\node.exe' 'node_modules\typescript\bin\tsc' --noEmit` | **0 Error** (ห้ามมี Type error แม้แต่จุดเดียว) |
-| **2** | **Vite Production Build** | `& 'C:\Program Files\nodejs\node.exe' 'node_modules\vite\bin\vite.js' build` | **Build ผ่านสมบูรณ์** ได้โฟลเดอร์ `dist/` ภายในเวลา ~10-15 วินาที |
-| **3** | **การทดสอบบนเครื่อง Local** | ทดสอบบน `http://localhost:3000` | • ลากสลับตำแหน่งกล่องไอเทม (Drag & Drop) ได้ลื่นไหล<br>• สลับภาษา TH/EN แล้วข้อความเปลี่ยน 100%<br>• ไม่มีภาษาผสมกันหรือ Console Error ร้ายแรง |
-| **4** | **ตรวจสอบเลขเวอร์ชัน SemVer** | ตรวจสอบ 6 ไฟล์สำคัญ (ดูตารางด้านล่าง) | ทุกไฟล์ต้องมีเลขเวอร์ชัน **`v2.10.50`** ตรงกัน 100% |
+```powershell
+& 'C:\Program Files\nodejs\node.exe' 'scripts/pre-flight-check.mjs'
+```
 
-### จุดที่ต้องตรวจเช็กเลขเวอร์ชัน (6 Files Version Synchronization):
-1. [`package.json`](file:///d:/lineage2m-k7-item-vault/package.json) ➔ `"version": "2.10.50"`
-2. [`src/services/firebase.ts`](file:///d:/lineage2m-k7-item-vault/src/services/firebase.ts) ➔ `CACHE_SCHEMA_VERSION = '2.10.50-draggable-item-queue-cards'`
-3. [`src/components/Sidebar.tsx`](file:///d:/lineage2m-k7-item-vault/src/components/Sidebar.tsx) ➔ `v2.10.50`
-4. [`src/components/Navbar.tsx`](file:///d:/lineage2m-k7-item-vault/src/components/Navbar.tsx) ➔ `v2.10.50`
-5. [`src/components/LoginScreen.tsx`](file:///d:/lineage2m-k7-item-vault/src/components/LoginScreen.tsx) ➔ `v2.10.50`
-6. [`src/components/GoogleDriveBackupModal.tsx`](file:///d:/lineage2m-k7-item-vault/src/components/GoogleDriveBackupModal.tsx) ➔ `schemaVersion: '2.10.50'` และ `v2.10.50`
+คำสั่งนี้จะทำการตรวจสอบและรันการคอมไพล์ครบทั้ง 7 ด่าน:
+1. **Version Synchronization:** ตรวจสอบเลขเวอร์ชัน **`v2.10.71`** ตรงกันครบทั้ง 6 ไฟล์
+2. **TypeScript Typecheck:** `tsc --noEmit` 0 error
+3. **Frontend Build:** `vite build` สร้างไฟล์หน้าบ้านใน `dist/` สำเร็จ
+4. **Backend Serverless Bundling:** `esbuild api/_entry.ts` สร้าง `api/index.js` ล่าสุด
+5. **Server Bundling:** `esbuild server.ts` สร้าง `dist/server.js`
+6. **Environment Variables (.env):** ตรวจเช็กตัวแปรจำเป็น
+7. **LocalStorage Quota Shield & Security Rules:** ตรวจสอบระบบดักจับโควต้าและโครงสร้าง `firestore.rules`
+
+---
+
+## ⚠️ 7 ข้อแตกต่างสำคัญระหว่าง Localhost กับ Production บน Vercel
+
+| ปัจจัยความต่าง | บนเครื่อง Local (ทำงานได้) | บน Vercel Production (จุดที่มักมีปัญหา) | วิธีป้องกัน / แนวทางปฏิบัติ |
+| :--- | :--- | :--- | :--- |
+| **1. ลักษณะการรันเซิร์ฟเวอร์** | เซิร์ฟเวอร์ Node.js เปิดค้างตลอดเวลา มี RAM ต่อเนื่อง | **Serverless Function (AWS Lambda)** มี Cold Start ทุก 5-15 นาที ไฟล์ใน `/tmp` และ RAM หายหมดเมื่อหยุดทำงาน | **ห้ามพึ่งพา RAM หรือไฟล์ชั่วคราวเพียงอย่างเดียว** ทุกข้อมูลต้อง Dual-Write ลง Firestore หรือ Google Sheets เสมอ |
+| **2. คำสั่ง Build Backend** | รันผ่าน `tsx server.ts` คอมไพล์ TypeScript สดตลอด | หากตั้งค่า Build Command บน Vercel เป็นแค่ `vite build` จะทำให้ `api/index.js` **ไม่ถูกอัปเดต** กลายเป็นโค้ดเก่า | **บังคับใช้ Build Command:** `npm run build` ในการตั้งค่า Vercel Dashboard เสมอ |
+| **3. ตัวแปร Environment Variables** | อ่านจากไฟล์ `.env` ในเครื่องโดยตรง | หากใน Vercel Dashboard ใส่ตัวแปรไม่ครบ หรือขาดตัวแปร `VITE_` หน้าเว็บจะกลายเป็น `undefined` | เช็คค่าใน **Vercel Dashboard > Project Settings > Environment Variables** ให้ตรงกับ `.env` 100% |
+| **4. โดเมนที่อนุญาตใน Firebase** | มี `localhost` เป็นค่าเริ่มต้นอยู่แล้ว | หากไม่ได้นำโดเมนของ Vercel ไปใส่ใน Firebase Authentication สมาชิกจะ **ล็อกอินไม่ได้เด็ดขาด** (`auth/unauthorized-domain`) | เพิ่มโดเมน `xxx.vercel.app` ใน **Firebase Console > Authentication > Settings > Authorized Domains** |
+| **5. แคชเบราว์เซอร์ผู้ใช้จริง** | มักทดสอบในหน้าต่างใหม่ LocalStorage ว่าง 5 MB | สมาชิกเดิมมีประวัติรูปภาพ Base64 สะสม จนชนเพดาน 5 MB ทำให้เกิด `QuotaExceededError` บันทึกไม่เข้า | ใน v2.10.71 มี **Auto-Pruning Quota Shield** สแกนและลดขนาดแคชเหลือ < 200 KB อัตโนมัติ |
+| **6. กฎความปลอดภัย Firestore Cloud** | บางครั้งทดสอบผ่าน Relay หรือสิทธิ์ Admin | Cloud จริงจะตรวจ `firestore.rules` เข้มงวด หากมีฟิลด์ใหม่ที่ไม่อยู่ใน `hasOnly(...)` จะโดน `PERMISSION_DENIED` | อัปเดต whitelist ใน `firestore.rules` ทุกครั้งที่มีการเพิ่มฟิลด์ใหม่ใน TypeScript |
+| **7. แคชของ CDN / Edge Network** | ไม่มี CDN แคชหน้าเว็บ | Vercel มี Edge Caching อาจเสิร์ฟไฟล์ API หรือ JS เก่า | มีการตั้ง `Cache-Control: no-store` และ `v=${version}` ในการดึง API เสมอ |
 
 ---
 
@@ -48,42 +60,28 @@
 > [!WARNING]
 > ตาม **กฎเหล็กข้อที่ 2 (Local First Rule)**: ห้ามรันคำสั่ง `git push` หรือ `vercel --prod` จนกว่าผู้ใช้งานจะพิมพ์คำสั่งยืนยันให้อัปโหลดอย่างชัดเจน
 
-### ทางเลือกที่ 1: Deploy ผ่าน Vercel CLI (แนะนำ)
-เมื่อผู้ใช้งานสั่งให้อัปโหลด ให้เปิด Terminal และรัน:
-
+### การเตรียมความพร้อมก่อน Deploy:
 ```powershell
-# 1. รันตรวจสอบความพร้อมครั้งสุดท้าย
-& 'C:\Program Files\nodejs\node.exe' 'node_modules\typescript\bin\tsc' --noEmit
-& 'C:\Program Files\nodejs\node.exe' 'node_modules\vite\bin\vite.js' build
-
-# 2. ทำการ Deploy ขึ้น Production โดยตรง
-vercel --prod
+# รันตรวจสอบอัตโนมัติครบ 7 ด่าน (ต้องได้ PASS 7/7)
+& 'C:\Program Files\nodejs\node.exe' 'scripts/pre-flight-check.mjs'
 ```
 
-### ทางเลือกที่ 2: Deploy ผ่าน Git Push
-```powershell
-git add .
-git commit -m "release: v2.10.50 - draggable item queue cards & unified documentation"
-git push origin main
-```
-ระบบ CI/CD ของ Vercel จะตรวจจับ Commit และเริ่มกระบวนการ Build อัตโนมัติ
-
-### การตั้งค่าโปรเจกต์บน Vercel (Project Build Settings):
+### การตั้งค่าโปรเจกต์บน Vercel (Project Build Settings - สำคัญมาก):
 - **Framework Preset:** `Vite`
 - **Root Directory:** `./`
-- **Build Command:** `vite build`
+- **Build Command:** `npm run build` *(ห้ามใช้ vite build เพียงอย่างเดียว เพราะจะไม่ Bundle `api/index.js`)*
 - **Output Directory:** `dist`
-- **Install Command:** `npm install` (หรือคำสั่ง install เริ่มต้นของ Vercel)
-- **Node.js Version:** `18.x` หรือ `20.x`
+- **Install Command:** `npm install`
+- **Node.js Version:** `20.x` หรือ `22.x`
 
 ---
 
 ## 🔍 การทดสอบหลัง Deploy (Post-Deployment Smoke Tests)
 
 เมื่อ Deploy เสร็จสิ้น ให้เข้าไปที่ Live Production URL แล้วตรวจสอบรายการต่อไปนี้:
-1. **แถบเวอร์ชัน:** หน้าจอ Login, Navbar และ Sidebar ต้องแสดงป้าย `v2.10.50` ชัดเจน
+1. **แถบเวอร์ชัน:** หน้าจอ Login, Navbar และ Sidebar ต้องแสดงป้าย `v2.10.71` ชัดเจน
 2. **การเข้าสู่ระบบ:** ล็อกอินด้วยบัญชี Owner (`eloni`) และตรวจสอบว่าเมนูและปุ่มตั้งค่าแสดงครบ
-3. **การลากสลับคิวไอเทม (v2.10.50):** ทดสอบคลิกลากกล่องไอเทมในหน้า Item Queue สลับตำแหน่ง แล้วรีเฟรชหน้าจอเพื่อตรวจเช็กว่าตำแหน่งใหม่อยู่คงเดิม
+3. **การลากสลับคิวไอเทม (v2.10.71):** ทดสอบคลิกลากกล่องไอเทมในหน้า Item Queue สลับตำแหน่ง แล้วรีเฟรชหน้าจอเพื่อตรวจเช็กว่าตำแหน่งใหม่อยู่คงเดิม
 4. **ระบบสองภาษา:** กดสลับภาษา TH และ EN ตรวจสอบว่าปุ่มและคำอธิบายเปลี่ยนภาษาถูกต้อง 100%
 5. **ทดสอบ Discord Webhook:** เข้าหน้าต่างตั้งค่า Discord แล้วกดปุ่ม "ทดสอบส่งการแจ้งเตือน" เพื่อตรวจเช็กการเชื่อมต่อห้องแชท
 
