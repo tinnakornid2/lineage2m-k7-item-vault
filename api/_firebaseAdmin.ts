@@ -223,6 +223,13 @@ export async function uploadAppImage(buffer: Buffer, contentType: string, uid: s
   }
   const token = metadata?.metadata?.firebaseStorageDownloadTokens?.split(',')[0];
   if (!token) throw new Error('STORAGE_TOKEN_MISSING');
+  const retentionRef = sdk.db.collection('image_retention').doc(createHash('sha256').update(`${bucketName}/${name}`).digest('hex'));
+  await sdk.db.runTransaction(async (tx: any) => {
+    const current = (await tx.get(retentionRef)).data();
+    if (current?.deletingUntil > Date.now()) throw new Error('IMAGE_RETIRING_RETRY');
+    if (current?.deletedAt && current.generation === String(metadata.generation)) throw new Error('IMAGE_REUPLOAD_REQUIRED');
+    tx.set(retentionRef, { generation: String(metadata.generation), orphanSince: null, deletedAt: null, lastUsedAt: Date.now() }, { merge: true });
+  });
   return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(name)}?alt=media&token=${encodeURIComponent(token)}`;
 }
 

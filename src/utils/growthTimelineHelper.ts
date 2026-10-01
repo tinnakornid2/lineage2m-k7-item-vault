@@ -105,7 +105,10 @@ export function getOrGenerateStatHistory(user: User): StatHistoryPoint[] {
   const currentAcc = user.stats?.['accuracy'] || 300;
   const currentDef = user.stats?.['defense'] || 280;
   const currentRed = user.stats?.['damage_reduction'] || 45;
-  const primaryClass = user.characterClass || (user.classes && user.classes[0]) || 'Dual Blades';
+  const rawClass = (user.characterClass && typeof user.characterClass === 'string' && user.characterClass.trim())
+    || (Array.isArray(user.classes) && user.classes.find((c) => typeof c === 'string' && c.trim()))
+    || 'Dual Blades';
+  const primaryClass = typeof rawClass === 'string' ? rawClass : 'Dual Blades';
 
   const now = Date.now();
   const dayMs = 86400000;
@@ -168,7 +171,9 @@ export function getOrGenerateStatHistory(user: User): StatHistoryPoint[] {
       date: now - s.daysAgo * dayMs,
       powerLevel: pl,
       level: lv,
-      classes: user.classes || [primaryClass],
+      classes: (Array.isArray(user.classes) && user.classes.length > 0)
+        ? user.classes.filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+        : [primaryClass],
       damage: dmg,
       accuracy: acc,
       defense: def,

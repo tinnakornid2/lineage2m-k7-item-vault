@@ -1,6 +1,9 @@
 // api/_server.ts
 import express from "express";
 
+// api/_imageRetention.ts
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+
 // api/_relayStore.ts
 import { gzipSync, gunzipSync } from "node:zlib";
 
@@ -63,19 +66,6 @@ var sanitizeAndDeduplicateUsers = (users, deletedUsers) => {
     } else {
       if (!seen.has(u.id)) {
         seen.add(u.id);
-        if (!u.statApprovalAt && u.powerLevel && u.powerLevel > 0) {
-          u = {
-            ...u,
-            powerLevel: 0,
-            stats: {},
-            statHistory: [],
-            statApprovalAt: null,
-            statRejectionAt: null,
-            pendingPowerLevel: null,
-            pendingPowerLevelRequestedAt: null,
-            pendingStats: null
-          };
-        }
         cleanUsers.push(u);
       }
     }
@@ -673,6 +663,163 @@ var FirestoreRelayStore = class {
   }
 };
 
+// api/_imageRetention.ts
+var IMAGE_RETENTION_MS = 60 * 24 * 60 * 60 * 1e3;
+var MANAGED_IMAGE_PREFIXES = ["app-images/", "app-backgrounds/"];
+function managedImage(name) {
+  return MANAGED_IMAGE_PREFIXES.some((prefix) => name.startsWith(prefix)) && !name.includes("..");
+}
+function collectImageReferences(value, bucket, result = /* @__PURE__ */ new Set()) {
+  if (typeof value === "string") {
+    for (const match of value.matchAll(/(?:https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[^\s"<>]+|gs:\/\/[^\s"<>]+)/g)) {
+      try {
+        const url = new URL(match[0]);
+        if (url.protocol === "gs:" && url.hostname === bucket) result.add(decodeURIComponent(url.pathname.slice(1)));
+        if (url.hostname === "firebasestorage.googleapis.com") {
+          const parts = url.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+          if (parts && decodeURIComponent(parts[1]) === bucket) result.add(decodeURIComponent(parts[2]));
+        }
+      } catch {
+      }
+    }
+  } else if (Array.isArray(value)) {
+    for (const entry of value) collectImageReferences(entry, bucket, result);
+  } else if (value && typeof value === "object") {
+    for (const entry of Object.values(value)) collectImageReferences(entry, bucket, result);
+  }
+  return result;
+}
+function retentionDecision(referenced, generation, previous, now) {
+  if (referenced) return { orphanSince: null, deleteEligible: false };
+  const existing = previous?.generation === generation && Number.isFinite(previous?.orphanSince) && previous.orphanSince > 0 && previous.orphanSince <= now && (!previous.lastUsedAt || previous.lastUsedAt <= previous.orphanSince);
+  const orphanSince = existing ? previous.orphanSince : now;
+  return { orphanSince, deleteEligible: now - orphanSince >= IMAGE_RETENTION_MS };
+}
+function authorizedCron(header, secret) {
+  if (!secret || !header) return false;
+  const expected = Buffer.from(`Bearer ${secret}`), actual = Buffer.from(header);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+async function readAllImageReferences(db, bucket, deadline) {
+  const refs = /* @__PURE__ */ new Set();
+  let count = 0;
+  const assertBudget = () => {
+    if (Date.now() > deadline || count > 1e4) throw new Error("REFERENCE_SCAN_INCOMPLETE");
+  };
+  const manifest = await db.collection("system_meta").doc("live_state").get();
+  if (!manifest.exists) throw new Error("REFERENCE_MANIFEST_MISSING");
+  const state = manifest.data();
+  if (state.format === "gzip-parts-v1") {
+    if (!Number.isInteger(state.parts) || state.parts < 1 || state.parts > 64) throw new Error("REFERENCE_MANIFEST_INVALID");
+    const chunks = await Promise.all(Array.from({ length: state.parts }, (_, i) => db.collection("system_live_parts").doc(String(i)).get()));
+    if (chunks.some((chunk) => !chunk.exists)) throw new Error("REFERENCE_SCAN_INCOMPLETE");
+    collectImageReferences(decodeSnapshot(chunks.map((chunk) => chunk.data().payload)), bucket, refs);
+  } else {
+    if (!state.data || typeof state.data !== "object") throw new Error("REFERENCE_MANIFEST_INVALID");
+    collectImageReferences(state.data, bucket, refs);
+  }
+  async function scan(collection) {
+    assertBudget();
+    const rows = await collection.limit(10001).get();
+    count += rows.size;
+    assertBudget();
+    for (const doc of rows.docs) {
+      collectImageReferences(doc.data(), bucket, refs);
+      const nested = await doc.ref.listCollections();
+      for (const child of nested) await scan(child);
+      assertBudget();
+    }
+  }
+  for (const collection of await db.listCollections()) {
+    if (["system_live_parts", "image_retention"].includes(collection.id)) continue;
+    await scan(collection);
+  }
+  assertBudget();
+  return refs;
+}
+async function runImageRetention(sdk, bucketName, now = Date.now()) {
+  const deadline = Date.now() + 2e4;
+  const control = sdk.db.collection("system_meta").doc("image_retention_control");
+  const lease = randomUUID();
+  const acquired = await sdk.db.runTransaction(async (tx) => {
+    const snap = await tx.get(control), previous = snap.data() || {};
+    if (previous.leaseUntil > Date.now()) return null;
+    tx.set(control, { lease, leaseUntil: Date.now() + 12e4 }, { merge: true });
+    return { cursor: previous.cursor || void 0, prefixIndex: Number(previous.prefixIndex || 0) };
+  });
+  if (!acquired) return { skipped: "LOCKED" };
+  let checked = 0, marked = 0, cleared = 0, deleted = 0;
+  try {
+    const refs = await readAllImageReferences(sdk.db, bucketName, deadline);
+    const bucket = sdk.storage.bucket(bucketName);
+    const prefixIndex = acquired.prefixIndex % MANAGED_IMAGE_PREFIXES.length;
+    const [files, next] = await bucket.getFiles({
+      prefix: MANAGED_IMAGE_PREFIXES[prefixIndex],
+      maxResults: 100,
+      autoPaginate: false,
+      pageToken: acquired.cursor
+    });
+    for (const file of files) {
+      if (Date.now() > deadline) throw new Error("RETENTION_PASS_TIMEOUT");
+      if (!managedImage(file.name)) continue;
+      const [metadata] = await file.getMetadata();
+      const generation = String(metadata.generation);
+      if (!generation || generation === "undefined") throw new Error("IMAGE_GENERATION_MISSING");
+      const record = sdk.db.collection("image_retention").doc(createHash("sha256").update(`${bucketName}/${file.name}`).digest("hex"));
+      const previous = (await record.get()).data();
+      const decision = retentionDecision(refs.has(file.name), generation, previous, now);
+      checked++;
+      if (decision.orphanSince === null) {
+        if (previous?.orphanSince != null) {
+          await record.set({ generation, orphanSince: null, lastCheckedAt: now }, { merge: true });
+          cleared++;
+        }
+      } else if (decision.deleteEligible) {
+        const freshRefs = await readAllImageReferences(sdk.db, bucketName, deadline);
+        if (freshRefs.has(file.name)) {
+          await record.set({ generation, orphanSince: null, lastCheckedAt: now }, { merge: true });
+          cleared++;
+          continue;
+        }
+        if (Date.now() > deadline) throw new Error("RETENTION_PASS_TIMEOUT");
+        const reserved = await sdk.db.runTransaction(async (tx) => {
+          const latest = (await tx.get(record)).data();
+          if (!retentionDecision(false, generation, latest, now).deleteEligible || latest?.deletingUntil > Date.now()) return false;
+          tx.set(record, { deletingUntil: Date.now() + 12e4 }, { merge: true });
+          return true;
+        });
+        if (!reserved) continue;
+        if (Date.now() > deadline) throw new Error("RETENTION_PASS_TIMEOUT");
+        await file.delete({ ifGenerationMatch: generation });
+        await record.set({ generation, orphanSince: decision.orphanSince, deletedAt: now, lastCheckedAt: now, deletingUntil: 0 }, { merge: true });
+        deleted++;
+      } else {
+        await sdk.db.runTransaction(async (tx) => {
+          const latest = (await tx.get(record)).data();
+          const freshDecision = retentionDecision(false, generation, latest, now);
+          tx.set(record, { generation, orphanSince: freshDecision.orphanSince, lastCheckedAt: now }, { merge: true });
+        });
+        marked++;
+      }
+    }
+    await control.set({
+      cursor: next?.pageToken || null,
+      prefixIndex: next?.pageToken ? prefixIndex : (prefixIndex + 1) % MANAGED_IMAGE_PREFIXES.length,
+      lastCompletedAt: now,
+      checked,
+      marked,
+      cleared,
+      deleted
+    }, { merge: true });
+    return { checked, marked, cleared, deleted, retentionDays: 60 };
+  } finally {
+    await sdk.db.runTransaction(async (tx) => {
+      const snap = await tx.get(control);
+      if (snap.data()?.lease === lease) tx.set(control, { leaseUntil: 0, lease: null }, { merge: true });
+    });
+  }
+}
+
 // api/_relayAccess.ts
 var ADMIN = ["owner", "admin"];
 var PENDING_FIELDS = [
@@ -779,7 +926,7 @@ import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 
 // api/_firebaseAdmin.ts
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID as randomUUID2, createHash as createHash2 } from "node:crypto";
 var PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "clan-hub-7645f";
 var DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || "(default)";
 function hasAdminCredentials() {
@@ -926,7 +1073,7 @@ async function uploadBackgroundImage(buffer, contentType) {
   const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "clan-hub-7645f.firebasestorage.app";
   const bucket = sdk.storage.bucket(bucketName);
   const objectName = `app-backgrounds/current-${Date.now()}.${contentType === "image/png" ? "png" : "jpg"}`;
-  const downloadToken = randomUUID();
+  const downloadToken = randomUUID2();
   const file = bucket.file(objectName);
   await file.save(buffer, {
     resumable: false,
@@ -942,7 +1089,7 @@ async function uploadAppImage(buffer, contentType, uid) {
   const sdk = await getAdminSdk();
   if (!sdk) throw new Error("STORAGE_UNAVAILABLE");
   const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "clan-hub-7645f.firebasestorage.app";
-  const hash = createHash("sha256").update(buffer).digest("hex");
+  const hash = createHash2("sha256").update(buffer).digest("hex");
   const name = `app-images/${encodeURIComponent(uid)}/${hash}`;
   const file = sdk.storage.bucket(bucketName).file(name);
   let metadata;
@@ -957,7 +1104,7 @@ async function uploadAppImage(buffer, contentType, uid) {
         resumable: false,
         contentType,
         preconditionOpts: { ifGenerationMatch: 0 },
-        metadata: { metadata: { firebaseStorageDownloadTokens: randomUUID() } }
+        metadata: { metadata: { firebaseStorageDownloadTokens: randomUUID2() } }
       });
     } catch (error) {
       if (Number(error.code) !== 412) throw error;
@@ -966,6 +1113,13 @@ async function uploadAppImage(buffer, contentType, uid) {
   }
   const token = metadata?.metadata?.firebaseStorageDownloadTokens?.split(",")[0];
   if (!token) throw new Error("STORAGE_TOKEN_MISSING");
+  const retentionRef = sdk.db.collection("image_retention").doc(createHash2("sha256").update(`${bucketName}/${name}`).digest("hex"));
+  await sdk.db.runTransaction(async (tx) => {
+    const current = (await tx.get(retentionRef)).data();
+    if (current?.deletingUntil > Date.now()) throw new Error("IMAGE_RETIRING_RETRY");
+    if (current?.deletedAt && current.generation === String(metadata.generation)) throw new Error("IMAGE_REUPLOAD_REQUIRED");
+    tx.set(retentionRef, { generation: String(metadata.generation), orphanSince: null, deletedAt: null, lastUsedAt: Date.now() }, { merge: true });
+  });
   return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(name)}?alt=media&token=${encodeURIComponent(token)}`;
 }
 async function verifyRoleToken(authorization, allowedRoles) {
@@ -1295,6 +1449,20 @@ async function generateWithModelFallback(ai, request) {
 }
 async function createApp(options = {}) {
   const app = express();
+  app.get("/api/cron/image-retention", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!authorizedCron(req.headers.authorization, process.env.CRON_SECRET)) return res.status(401).json({ error: "UNAUTHORIZED" });
+    if (process.env.STORAGE_CLEANUP_ENABLED !== "true") return res.json({ skipped: "DISABLED", retentionDays: 60 });
+    try {
+      const sdk = await getAdminSdk();
+      if (!sdk) throw new Error("STORAGE_UNAVAILABLE");
+      const result = await runImageRetention(sdk, process.env.FIREBASE_STORAGE_BUCKET || "clan-hub-7645f.firebasestorage.app");
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      console.error("Image retention aborted safely:", error);
+      return res.status(503).json({ error: "RETENTION_CHECK_FAILED", message: "\u0E15\u0E23\u0E27\u0E08\u0E23\u0E39\u0E1B\u0E44\u0E21\u0E48\u0E04\u0E23\u0E1A \u0E22\u0E01\u0E40\u0E25\u0E34\u0E01\u0E01\u0E32\u0E23\u0E15\u0E23\u0E27\u0E08\u0E23\u0E2D\u0E1A\u0E19\u0E35\u0E49 / Incomplete image check; this pass was aborted" });
+    }
+  });
   const getGeminiApiKey = async () => {
     const environmentKey = process.env.GEMINI_API_KEY?.trim();
     if (environmentKey) return environmentKey;

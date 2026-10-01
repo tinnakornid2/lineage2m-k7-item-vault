@@ -1,4 +1,5 @@
 import express from "express";
+import { authorizedCron, runImageRetention } from './_imageRetention.ts';
 import { FirestoreRelayStore, publicRelayData, withRelayTimeout } from "./_relayStore.ts";
 import { mergeRelayData, sanitizeAndDeduplicateUsers } from "./_relayMerge.ts";
 import { scopeRelayInput, type RelayActor } from "./_relayAccess.ts";
@@ -84,6 +85,21 @@ async function generateWithModelFallback(ai: GoogleGenAI, request: { contents: a
 
 export async function createApp(options: { serveFrontend?: boolean; dataDir?: string; relayStore?: FirestoreRelayStore; isolatedTest?: boolean; testActor?: RelayActor } = {}) {
   const app = express();
+
+  app.get('/api/cron/image-retention', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!authorizedCron(req.headers.authorization, process.env.CRON_SECRET)) return res.status(401).json({ error: 'UNAUTHORIZED' });
+    if (process.env.STORAGE_CLEANUP_ENABLED !== 'true') return res.json({ skipped: 'DISABLED', retentionDays: 60 });
+    try {
+      const sdk = await getAdminSdk();
+      if (!sdk) throw new Error('STORAGE_UNAVAILABLE');
+      const result = await runImageRetention(sdk, process.env.FIREBASE_STORAGE_BUCKET || 'clan-hub-7645f.firebasestorage.app');
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      console.error('Image retention aborted safely:', error);
+      return res.status(503).json({ error: 'RETENTION_CHECK_FAILED', message: 'ตรวจรูปไม่ครบ ยกเลิกการตรวจรอบนี้ / Incomplete image check; this pass was aborted' });
+    }
+  });
 
   const getGeminiApiKey = async () => {
     const environmentKey = process.env.GEMINI_API_KEY?.trim();

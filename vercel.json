@@ -1,4 +1,7 @@
 {
+  "crons": [
+    { "path": "/api/cron/image-retention", "schedule": "0 19 * * *" }
+  ],
   "functions": {
     "api/index.js": {
       "maxDuration": 30

@@ -180,7 +180,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
       const inClan = m.clan.toLowerCase().includes(q);
       const inUser = m.username.toLowerCase().includes(q);
       const inClass = m.characterClass && m.characterClass.toLowerCase().includes(q);
-      const inClasses = m.classes && m.classes.some((c) => c.toLowerCase().includes(q));
+      const inClasses = m.classes && m.classes.some((c) => c && typeof c === 'string' && c.toLowerCase().includes(q));
       if (!inIgn && !inClan && !inUser && !inClass && !inClasses) return false;
     }
     return true;
@@ -593,7 +593,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                   <div className="p-3 flex-1 space-y-2 min-h-[160px] max-h-[620px] overflow-y-auto">
                     {members.map((mem, idx) => {
                       const primaryClass = (mem.classes && mem.classes.length > 0) ? mem.classes[0] : (mem.characterClass || '');
-                      const meta = primaryClass ? classMap.get(primaryClass.toLowerCase()) : undefined;
+                      const meta = (primaryClass && typeof primaryClass === 'string') ? classMap.get(primaryClass.trim().toLowerCase()) : undefined;
 
                       return (
                         <div
@@ -742,7 +742,7 @@ export const MembersView: React.FC<MembersViewProps> = ({
                     <tbody className="divide-y divide-slate-800/40">
                       {members.map((mem, idx) => {
                         const primaryClass = (mem.classes && mem.classes.length > 0) ? mem.classes[0] : (mem.characterClass || '');
-                        const meta = primaryClass ? classMap.get(primaryClass.toLowerCase()) : undefined;
+                        const meta = (primaryClass && typeof primaryClass === 'string') ? classMap.get(primaryClass.trim().toLowerCase()) : undefined;
 
                         return (
                           <tr key={mem.id} className="hover:bg-[#121c2e]/50 transition-colors">

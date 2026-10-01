@@ -3977,9 +3977,12 @@ export const App: React.FC = () => {
     const approvedStats = target.pendingStats || target.stats;
     const approvedSpirits = target.pendingSpiritEnhancements || target.spiritEnhancements;
 
-    const approvedClasses = target.pendingClasses !== undefined && target.pendingClasses !== null
+    const rawApprovedClasses = target.pendingClasses !== undefined && target.pendingClasses !== null
       ? target.pendingClasses
       : (target.classes || (target.characterClass ? [target.characterClass] : []));
+    const approvedClasses = Array.isArray(rawApprovedClasses)
+      ? rawApprovedClasses.filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+      : [];
     const approvedLevel = target.pendingLevel !== undefined && target.pendingLevel !== null
       ? target.pendingLevel
       : (target.level || 0);
@@ -3989,7 +3992,10 @@ export const App: React.FC = () => {
     const approvedLegendAgathions = target.pendingLegendAgathions !== undefined && target.pendingLegendAgathions !== null
       ? target.pendingLegendAgathions
       : (target.legendAgathions || 0);
-    const primaryClass = approvedClasses.length > 0 ? approvedClasses[0] : (target.characterClass || '');
+    const primaryClass = approvedClasses.length > 0
+      ? approvedClasses[0]
+      : (typeof target.characterClass === 'string' && target.characterClass.trim().length > 0 ? target.characterClass.trim() : '');
+    const finalClasses = approvedClasses.length > 0 ? approvedClasses : (primaryClass ? [primaryClass] : []);
     const approvedScreenshot = target.pendingStatScreenshotUrl || target.statScreenshotUrl || null;
 
     const now = Date.now();
@@ -3998,17 +4004,17 @@ export const App: React.FC = () => {
       date: now,
       powerLevel: approvedPower,
       level: approvedLevel,
-      classes: approvedClasses,
+      classes: finalClasses,
       damage: approvedStats?.['damage'] || 0,
       accuracy: approvedStats?.['accuracy'] || 0,
       defense: approvedStats?.['defense'] || 0,
       damageReduction: approvedStats?.['damage_reduction'] || 0,
       skillDamageBoost: approvedStats?.['skill_damage_boost_percent'] || 0,
       weaponDamageBoost: approvedStats?.['weapon_damage_boost_percent'] || 0,
-      note: `อนุมัติสเตตัสโดย ${currentUser?.inGameName || 'Admin'}`,
+      note: lang === 'th' ? `อนุมัติสเตตัสโดย ${currentUser?.inGameName || 'Admin'}` : `Approved by ${currentUser?.inGameName || 'Admin'}`,
       type: 'approval',
       verifiedBy: currentUser?.inGameName || 'Admin',
-      statsSnapshot: approvedStats
+      statsSnapshot: approvedStats || {}
     };
     const targetHistory = target.statHistory && target.statHistory.length > 0
       ? target.statHistory
@@ -4022,7 +4028,7 @@ export const App: React.FC = () => {
             powerLevel: approvedPower,
             stats: approvedStats,
             spiritEnhancements: approvedSpirits,
-            classes: approvedClasses,
+            classes: finalClasses,
             characterClass: primaryClass,
             level: approvedLevel,
             legendClasses: approvedLegendClasses,
@@ -4056,7 +4062,7 @@ export const App: React.FC = () => {
               powerLevel: approvedPower,
               stats: approvedStats,
               spiritEnhancements: approvedSpirits,
-              classes: approvedClasses,
+              classes: finalClasses,
               characterClass: primaryClass,
               level: approvedLevel,
               legendClasses: approvedLegendClasses,
@@ -4090,7 +4096,7 @@ export const App: React.FC = () => {
       powerLevel: approvedPower,
       stats: approvedStats,
       spiritEnhancements: approvedSpirits,
-      classes: approvedClasses,
+      classes: finalClasses,
       characterClass: primaryClass,
       level: approvedLevel,
       legendClasses: approvedLegendClasses,
@@ -4126,9 +4132,13 @@ export const App: React.FC = () => {
     centralApi('/api/update-user-stats', {
       method: 'POST',
       body: JSON.stringify({ userId, updates: approveUpdates })
-    }).catch((err) => {
-      console.warn('centralApi update-user-stats notice:', err);
-    });
+    })
+      .then(() => {
+        setSyncStatus('synced');
+      })
+      .catch((err) => {
+        console.warn('centralApi update-user-stats notice:', err);
+      });
   };
 
   const handleRejectStatUpdate = async (userId: string, reason?: string) => {
@@ -4215,9 +4225,13 @@ export const App: React.FC = () => {
     centralApi('/api/update-user-stats', {
       method: 'POST',
       body: JSON.stringify({ userId, updates: rejectUpdates })
-    }).catch((err) => {
-      console.warn('centralApi update-user-stats reject notice:', err);
-    });
+    })
+      .then(() => {
+        setSyncStatus('synced');
+      })
+      .catch((err) => {
+        console.warn('centralApi update-user-stats reject notice:', err);
+      });
   };
 
   const handleSaveUserHistory = async (newHistory: StatHistoryPoint[]) => {

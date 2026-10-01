@@ -265,20 +265,22 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
               )}
               {displayClasses.length > 0 && (() => {
                 const primaryClass = displayClasses[0];
-                const meta = classMap.get(primaryClass.toLowerCase());
+                const meta = (primaryClass && typeof primaryClass === 'string')
+                  ? classMap.get(primaryClass.trim().toLowerCase())
+                  : undefined;
                 return (
                   <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded bg-purple-500/20 text-purple-200 border border-purple-500/40">
                     {meta?.icon && (
                       <img
                         src={meta.icon}
-                        alt={primaryClass}
+                        alt={typeof primaryClass === 'string' ? primaryClass : ''}
                         className="size-3.5 object-contain shrink-0"
                         onError={(e) => {
                           (e.target as HTMLElement).style.display = 'none';
                         }}
                       />
                     )}
-                    <span>{primaryClass}</span>
+                    <span>{typeof primaryClass === 'string' ? primaryClass : ''}</span>
                   </span>
                 );
               })()}
@@ -304,19 +306,19 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
           <div className="hidden sm:flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl bg-slate-950 border border-slate-750">
             {isPendingNew ? (
               <>
-                <span className="text-xs text-slate-400 font-mono">{prevPL.toLocaleString()} PL</span>
+                <span className="text-xs text-slate-400 font-mono">{(prevPL || 0).toLocaleString()} PL</span>
                 <ArrowRight className="size-3.5 text-slate-500" />
-                <span className="text-sm font-black text-amber-400 font-mono">⚡ {nextPL.toLocaleString()} PL</span>
+                <span className="text-sm font-black text-amber-400 font-mono">⚡ {(nextPL || 0).toLocaleString()} PL</span>
                 {diffPL > 0 && (
                   <span className="text-xs font-bold text-emerald-400 font-mono bg-emerald-500/15 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                    (+{diffPL.toLocaleString()})
+                    (+{(diffPL || 0).toLocaleString()})
                   </span>
                 )}
               </>
             ) : (
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-slate-400">{lang === 'th' ? 'ค่าพลังปัจจุบัน:' : 'Power Level:'}</span>
-                <span className="text-sm font-black text-amber-400 font-mono">⚡ {prevPL.toLocaleString()} PL</span>
+                <span className="text-sm font-black text-amber-400 font-mono">⚡ {(prevPL || 0).toLocaleString()} PL</span>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                   VERIFIED
                 </span>
@@ -742,8 +744,10 @@ export const StatComparisonModal: React.FC<StatComparisonModalProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
-                    await onApprove(user);
                     onClose();
+                    if (onApprove) {
+                      await onApprove(user);
+                    }
                   }}
                   disabled={isProcessing}
                   className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:brightness-110 text-white text-xs font-bold shadow-xl shadow-emerald-600/30 transition cursor-pointer"
