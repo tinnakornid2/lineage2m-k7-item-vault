@@ -904,7 +904,7 @@ export const App: React.FC = () => {
       (u) =>
         !previousPendingUserIdsRef.current!.has(u.id) &&
         u.id !== currentUser?.id &&
-        (u.createdAt ? u.createdAt >= pageLoadedAtRef.current : false)
+        (Number(u.createdAt || Date.now()) >= pageLoadedAtRef.current - 120000)
     );
 
     if (newlyRegistered.length > 0) {
@@ -1946,7 +1946,7 @@ export const App: React.FC = () => {
       broadcastLiveState(
         getFullBackupPayload({ users: updatedUsers }),
         registered.inGameName
-      );
+      ).catch(() => {});
 
       // Trigger debounced auto-backup to Google Sheets
       const googleConfig = getGoogleBackupConfig();

@@ -130,13 +130,15 @@ if (useFirebaseEmulators && !emulatorState.__k7FirebaseEmulatorsConnected) {
 }
 
 // Collection references
-// Helper to recursively remove undefined fields for Firestore safety
+// Helper to recursively remove undefined fields and sensitive fields (password) for Firestore safety
 export function sanitizeForFirestore(obj: any): any {
   if (obj === null || obj === undefined) return null;
   if (typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
   const clean: any = {};
   for (const [key, value] of Object.entries(obj)) {
+    // Passwords must never be stored in Cloud Firestore documents (Rule 8 & firestore.rules parity)
+    if (key === 'password') continue;
     if (value !== undefined) {
       clean[key] = sanitizeForFirestore(value);
     }
@@ -192,7 +194,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.71-queue-persistence-quota-shield';
+const CACHE_SCHEMA_VERSION = '2.10.72-registration-owner-notify-sync';
 
 export function isTestArtifactId(id?: string, name?: string): boolean {
   if (!id && !name) return false;
@@ -2311,23 +2313,35 @@ export async function registerUserDoc(data: {
     }
     const token = await credential.user.getIdToken();
     const newUser: User = {
-      id: credential.user.uid, username, inGameName, clan: 'no-clan', characterClass: '',
-      role: 'member', status: 'pending_approval', powerLevel: 0,
-      password: data.password,
-      pendingPowerLevel: null, pendingPowerLevelRequestedAt: null, createdAt: Date.now(), updatedAt: Date.now()
+      id: credential.user.uid,
+      username,
+      inGameName,
+      clan: 'no-clan',
+      characterClass: '',
+      role: 'member',
+      status: 'pending_approval',
+      powerLevel: 0,
+      pendingPowerLevel: null,
+      pendingPowerLevelRequestedAt: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
     };
 
-    // 1. Write user document directly to Firestore Cloud under active auth credentials
+    // 1. Write user document directly to Firestore Cloud under active auth credentials (without password!)
     const userDocRef = doc(db, USERS_COLLECTION, newUser.id);
     await safeFirestoreWrite(
       setDoc(userDocRef, sanitizeForFirestore(newUser)),
-      2000,
+      2500,
       'registerUserDoc_firestore'
     );
 
-    // 2. Broadcast to Central Live Relay (background fire-and-forget, zero wait time for user)
-    centralApi('/api/live-state', {
-      method: 'POST', body: JSON.stringify({ data: { users: [newUser] }, performedBy: inGameName })
+    // 2. Notify all connected clients immediately via Heartbeat Version Hub (triggers Owner's browser to fetch pending member)
+    await bumpSystemVersion('usersVersion', inGameName).catch(() => {});
+
+    // 3. Broadcast to Central Live Relay under active registration token before session ends
+    await centralApi('/api/live-state', {
+      method: 'POST',
+      body: JSON.stringify({ data: { users: [newUser] }, performedBy: inGameName })
     }, token).catch((relayErr: any) => {
       console.warn('Central live relay notification deferred during registration:', relayErr?.message || relayErr);
     });
