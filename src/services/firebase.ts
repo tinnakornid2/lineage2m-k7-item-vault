@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { centralApi, setTokenProvider, setSessionProvider } from './centralApi';
+import { centralApi } from './centralApi';
 import {
   createUserWithEmailAndPassword,
   connectAuthEmulator,
@@ -123,21 +123,10 @@ export const db = createFirestoreInstance();
 
 // Opt-in local emulators. Production never connects unless this explicit flag is set.
 const emulatorState = globalThis as typeof globalThis & { __k7FirebaseEmulatorsConnected?: boolean };
-
-export function connectFirebaseEmulators(
-  authUrl = 'http://127.0.0.1:9099',
-  firestoreHost = '127.0.0.1',
-  firestorePort = 8080
-) {
-  if (!emulatorState.__k7FirebaseEmulatorsConnected) {
-    connectAuthEmulator(auth, authUrl, { disableWarnings: true });
-    connectFirestoreEmulator(db, firestoreHost, firestorePort);
-    emulatorState.__k7FirebaseEmulatorsConnected = true;
-  }
-}
-
 if (useFirebaseEmulators && !emulatorState.__k7FirebaseEmulatorsConnected) {
-  connectFirebaseEmulators('http://localhost:9099', 'localhost', 8080);
+  connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, 'localhost', 8080);
+  emulatorState.__k7FirebaseEmulatorsConnected = true;
 }
 
 // Collection references
@@ -205,7 +194,7 @@ export const REMOVED_QUEUE_MEMBERS_KEY = 'k7_removed_queue_members';
 export const CANCELLED_CLAIMS_KEY = 'l2m_cancelled_claims_map';
 
 const CACHE_SCHEMA_KEY = 'l2m_cache_schema_version';
-const CACHE_SCHEMA_VERSION = '2.10.82-performance-coalesce-engine';
+const CACHE_SCHEMA_VERSION = '2.10.72-registration-owner-notify-sync';
 
 export function isTestArtifactId(id?: string, name?: string): boolean {
   if (!id && !name) return false;
@@ -423,53 +412,8 @@ if (typeof localStorage !== 'undefined') {
   } catch {}
 }
 
-const pendingCacheWrites = new Map<string, any>();
-let cacheFlushTimer: any = null;
-
-function flushPendingCacheWrites(): void {
-  cacheFlushTimer = null;
-  if (typeof localStorage === 'undefined') return;
-  for (const [key, data] of pendingCacheWrites.entries()) {
-    try {
-      localStorage.setItem(key, JSON.stringify(data));
-    } catch (err: any) {
-      if (
-        err?.name === 'QuotaExceededError' ||
-        err?.code === 22 ||
-        err?.number === -2147024882 ||
-        String(err).includes('quota') ||
-        String(err).includes('QuotaExceeded')
-      ) {
-        console.warn(`[LocalStorage] QuotaExceededError writing ${key}. Pruning bloated caches to recover space...`);
-        try {
-          const rawUsers = localStorage.getItem(CACHE_KEYS.USERS);
-          if (rawUsers && rawUsers.length > 50000) {
-            const parsed = JSON.parse(rawUsers);
-            if (Array.isArray(parsed)) {
-              const lean = sanitizeUsersForStorage(parsed);
-              localStorage.setItem(CACHE_KEYS.USERS, JSON.stringify(lean));
-            }
-          }
-          localStorage.setItem(key, JSON.stringify(data));
-        } catch (retryErr) {
-          console.error(`[LocalStorage] Critical write failure on ${key}:`, retryErr);
-        }
-      }
-    }
-  }
-  pendingCacheWrites.clear();
-}
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => flushPendingCacheWrites());
-  window.addEventListener('pagehide', () => flushPendingCacheWrites());
-}
-
 function getCachedData<T>(key: string, fallback: T): T {
   try {
-    if (pendingCacheWrites.has(key)) {
-      return pendingCacheWrites.get(key) as T;
-    }
     if (typeof localStorage === 'undefined') return fallback;
     const raw = localStorage.getItem(key);
     if (raw) {
@@ -483,9 +427,32 @@ function getCachedData<T>(key: string, fallback: T): T {
 }
 
 function setCachedData<T>(key: string, data: T): void {
-  pendingCacheWrites.set(key, data);
-  if (!cacheFlushTimer) {
-    cacheFlushTimer = setTimeout(flushPendingCacheWrites, 30);
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (err: any) {
+    if (
+      err?.name === 'QuotaExceededError' ||
+      err?.code === 22 ||
+      err?.number === -2147024882 ||
+      String(err).includes('quota') ||
+      String(err).includes('QuotaExceeded')
+    ) {
+      console.warn(`[LocalStorage] QuotaExceededError writing ${key}. Pruning bloated caches to recover space...`);
+      try {
+        const rawUsers = localStorage.getItem(CACHE_KEYS.USERS);
+        if (rawUsers && rawUsers.length > 50000) {
+          const parsed = JSON.parse(rawUsers);
+          if (Array.isArray(parsed)) {
+            const lean = sanitizeUsersForStorage(parsed);
+            localStorage.setItem(CACHE_KEYS.USERS, JSON.stringify(lean));
+          }
+        }
+        localStorage.setItem(key, JSON.stringify(data));
+      } catch (retryErr) {
+        console.error(`[LocalStorage] Critical write failure on ${key}:`, retryErr);
+      }
+    }
   }
 }
 
@@ -2107,11 +2074,14 @@ export async function updateUserDoc(userId: string, updates: Partial<User>) {
     notifyQuotaExceeded(err);
   }
 
-  // 2. Serverless fallback: notify /api/update-user-stats in background via centralApi (Admin SDK persistence & live relay)
-  centralApi('/api/update-user-stats', {
-    method: 'POST',
-    body: JSON.stringify({ userId, updates: cleanUpdates })
-  }).catch(() => {});
+  // 2. Serverless fallback: notify /api/update-user-stats in background (Admin SDK persistence & live relay)
+  try {
+    fetch('/api/update-user-stats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, updates: cleanUpdates })
+    }).catch(() => {});
+  } catch {}
 }
 
 export async function deleteUserDoc(userId: string) {
@@ -2323,61 +2293,6 @@ export function clearLocalSessionUser() {
   } catch {}
 }
 
-// -------------------------------------------------------------
-// Concurrency mutex lock & Session Generation state machine
-// Strictly serializes Auth operations (signIn / signOut) and protects against races during background registration teardown.
-// -------------------------------------------------------------
-let authOperationLock: Promise<void> = Promise.resolve();
-let globalSessionGeneration = 0;
-let activeLoginInProgress = false;
-
-export function getSessionGeneration(): number {
-  return globalSessionGeneration;
-}
-
-export function isLoginInProgress(): boolean {
-  return activeLoginInProgress;
-}
-
-export async function withAuthLock<T>(op: () => Promise<T>): Promise<T> {
-  const previous = authOperationLock;
-  let release: () => void = () => {};
-  authOperationLock = new Promise<void>((resolve) => { release = resolve; });
-  try {
-    await previous.catch(() => {});
-    return await op();
-  } finally {
-    release();
-  }
-}
-
-export async function executeRegistrationTeardown(
-  registrationGen: number,
-  expectedUid?: string
-): Promise<boolean> {
-  return await withAuthLock(async () => {
-    try {
-      if (globalSessionGeneration !== registrationGen) {
-        return false;
-      }
-      if (activeLoginInProgress) {
-        return false;
-      }
-      const activeLocal = getLocalSessionUser();
-      if (activeLocal) {
-        return false;
-      }
-      if (auth.currentUser && (!expectedUid || auth.currentUser.uid === expectedUid)) {
-        await signOut(auth).catch(() => {});
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  });
-}
-
 let registrationInProgress = false;
 export async function registerUserDoc(data: {
   username: string; password: string; inGameName: string;
@@ -2387,23 +2302,15 @@ export async function registerUserDoc(data: {
   const invalidField = validateRegistration(username, data.password, inGameName);
   if (invalidField) throw new Error(`invalid-registration-${invalidField}`);
   registrationInProgress = true;
-  let backgroundTeardownHandled = false;
-  let credential: any = null;
-
-  // Pin session generation at registration start
-  const thisRegistrationGeneration = ++globalSessionGeneration;
-
   try {
-    await withAuthLock(async () => {
-      try {
-        credential = await createUserWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
-      } catch (error: any) {
-        if (error?.code !== 'auth/email-already-in-use') throw error;
-        // Recover an interrupted registration only by proving the same password.
-        credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
-      }
-    });
-
+    let credential;
+    try {
+      credential = await createUserWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
+    } catch (error: any) {
+      if (error?.code !== 'auth/email-already-in-use') throw error;
+      // Recover an interrupted registration only by proving the same password.
+      credential = await signInWithEmailAndPassword(auth, usernameToAuthEmail(username), data.password);
+    }
     const token = await credential.user.getIdToken();
     const newUser: User = {
       id: credential.user.uid,
@@ -2421,56 +2328,31 @@ export async function registerUserDoc(data: {
     };
 
     // 1. Write user document directly to Firestore Cloud under active auth credentials (without password!)
-    // Using safeFirestoreWriteOrThrow to guarantee verified persistence before telling the user registration succeeded.
     const userDocRef = doc(db, USERS_COLLECTION, newUser.id);
-    await safeFirestoreWriteOrThrow(
+    await safeFirestoreWrite(
       setDoc(userDocRef, sanitizeForFirestore(newUser)),
-      4000,
+      2500,
       'registerUserDoc_firestore'
     );
 
+    // 2. Notify all connected clients immediately via Heartbeat Version Hub (triggers Owner's browser to fetch pending member)
+    await bumpSystemVersion('usersVersion', inGameName).catch(() => {});
+
+    // 3. Broadcast to Central Live Relay under active registration token before session ends
+    await centralApi('/api/live-state', {
+      method: 'POST',
+      body: JSON.stringify({ data: { users: [newUser] }, performedBy: inGameName })
+    }, token).catch((relayErr: any) => {
+      console.warn('Central live relay notification deferred during registration:', relayErr?.message || relayErr);
+    });
+
     unmarkUserAsDeleted(newUser.id);
-
-    // 2. Preserve active registration token and delegate notification/session teardown to background
-    const registrationToken = token;
-    backgroundTeardownHandled = true;
-
-    void (async () => {
-      try {
-        // Notify all connected clients via Heartbeat Version Hub (triggers Owner's browser to fetch pending member)
-        await bumpSystemVersion('usersVersion', inGameName).catch(() => {});
-
-        // Broadcast to Central Live Relay under preserved registration token before session teardown
-        await centralApi(
-          '/api/live-state',
-          {
-            method: 'POST',
-            body: JSON.stringify({ data: { users: [newUser] }, performedBy: inGameName })
-          },
-          registrationToken,
-          false
-        ).catch((relayErr: any) => {
-          console.warn('Central live relay notification deferred during registration:', relayErr?.message || relayErr);
-        });
-      } catch (bgErr: any) {
-        console.warn('Background registration notification notice:', bgErr?.message || bgErr);
-      } finally {
-        // Session Generation Guard:
-        // Only terminate temporary auth session if:
-        // 1. No new session generation has been started (globalSessionGeneration === thisRegistrationGeneration)
-        // 2. No login is currently in progress (!activeLoginInProgress)
-        // 3. No active local session exists in localStorage (!getLocalSessionUser())
-        // 4. auth.currentUser is still strictly this temporary registration account
-        await executeRegistrationTeardown(thisRegistrationGeneration, newUser.id);
-      }
-    })();
-
     return newUser;
   } finally {
     registrationInProgress = false;
-    if (!backgroundTeardownHandled) {
-      await executeRegistrationTeardown(thisRegistrationGeneration, credential?.user?.uid);
-    }
+    // New accounts require Central Admin/Owner approval before they can log in: immediately end temp registration session
+    await signOut(auth).catch(() => {});
+    clearLocalSessionUser();
   }
 }
 
@@ -2484,116 +2366,98 @@ export async function loginUserQuery(username: string, pass: string, availableUs
   const authEmail = usernameToAuthEmail(authUsername);
   const isOwner = authUsername.toLowerCase() === 'eloni' || clean.toLowerCase() === 'owner';
 
-  // Increment session generation and flag login in progress BEFORE entering lock
-  const currentLoginGen = ++globalSessionGeneration;
-  activeLoginInProgress = true;
-
   try {
-    return await withAuthLock(async () => {
-      let credential: any = null;
+    let credential: any = null;
 
-      try {
-        credential = await signInWithEmailAndPassword(auth, authEmail, pass);
-      } catch (authErr: any) {
-        console.warn('Firebase Auth signIn notice:', authErr?.code || authErr?.message);
-        
-        // If user exists with known password in local cache or Firestore, try auto-repairing / registering auth credential
-        const fallbackPassword = isOwner ? (localStorage.getItem('k7_owner_custom_pass') || '123456') : known?.password;
-        if (fallbackPassword && fallbackPassword === pass) {
-          try {
-            credential = await createUserWithEmailAndPassword(auth, authEmail, pass);
-          } catch (createErr: any) {
-            if (createErr?.code === 'auth/email-already-in-use') {
-              // Backend password might have been updated; if we have backend change-password API, continue
-            }
-          }
-        }
-      }
-
-      // Find profile across all sources:
-      // 1. Live State Relay snapshot
-      let profile: User | undefined;
-      try {
-        const response = await fetch('/api/live-state?v=0', { cache: 'no-store', signal: AbortSignal.timeout(6000) });
-        if (response.ok) {
-          const snapshot = await response.json();
-          const usersList: User[] = snapshot.data?.users || [];
-          profile = usersList.find((u: User) =>
-            (credential && u.id === credential.user.uid) ||
-            (isOwner && (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni')) ||
-            (known && (u.id === known.id || u.username?.toLowerCase() === known.username?.toLowerCase())) ||
-            (u.username && u.username.toLowerCase() === clean.toLowerCase()) ||
-            (u.inGameName && u.inGameName.toLowerCase() === clean.toLowerCase())
-          );
-        }
-      } catch (e) {
-        console.warn('Central live relay read deferred during login:', e);
-      }
-
-      // 2. Direct Firestore fallback
-      if (!profile) {
+    try {
+      credential = await signInWithEmailAndPassword(auth, authEmail, pass);
+    } catch (authErr: any) {
+      console.warn('Firebase Auth signIn notice:', authErr?.code || authErr?.message);
+      
+      // If user exists with known password in local cache or Firestore, try auto-repairing / registering auth credential
+      const fallbackPassword = isOwner ? (localStorage.getItem('k7_owner_custom_pass') || '123456') : known?.password;
+      if (fallbackPassword && fallbackPassword === pass) {
         try {
-          if (credential) {
-            const userDoc = await getDoc(doc(db, USERS_COLLECTION, credential.user.uid));
-            if (userDoc.exists()) {
-              profile = { ...userDoc.data(), id: userDoc.id } as User;
-            }
+          credential = await createUserWithEmailAndPassword(auth, authEmail, pass);
+        } catch (createErr: any) {
+          if (createErr?.code === 'auth/email-already-in-use') {
+            // Backend password might have been updated; if we have backend change-password API, continue
           }
-          if (!profile && known?.id) {
-            const userDoc = await getDoc(doc(db, USERS_COLLECTION, known.id));
-            if (userDoc.exists()) {
-              profile = { ...userDoc.data(), id: userDoc.id } as User;
-            }
-          }
-        } catch (err) {
-          console.warn('Firestore user fetch notice during login:', err);
         }
       }
+    }
 
-      // 3. Fallback to known local cache profile
-      if (!profile && known) {
-        profile = known;
+    // Find profile across all sources:
+    // 1. Live State Relay snapshot
+    let profile: User | undefined;
+    try {
+      const response = await fetch('/api/live-state?v=0', { cache: 'no-store', signal: AbortSignal.timeout(6000) });
+      if (response.ok) {
+        const snapshot = await response.json();
+        const usersList: User[] = snapshot.data?.users || [];
+        profile = usersList.find((u: User) =>
+          (credential && u.id === credential.user.uid) ||
+          (isOwner && (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni')) ||
+          (known && (u.id === known.id || u.username?.toLowerCase() === known.username?.toLowerCase())) ||
+          (u.username && u.username.toLowerCase() === clean.toLowerCase()) ||
+          (u.inGameName && u.inGameName.toLowerCase() === clean.toLowerCase())
+        );
       }
+    } catch (e) {
+      console.warn('Central live relay read deferred during login:', e);
+    }
 
-      // If still not found and isOwner
-      if (!profile && isOwner) {
-        profile = DEFAULT_OWNER;
+    // 2. Direct Firestore fallback
+    if (!profile) {
+      try {
+        if (credential) {
+          const userDoc = await getDoc(doc(db, USERS_COLLECTION, credential.user.uid));
+          if (userDoc.exists()) {
+            profile = { ...userDoc.data(), id: userDoc.id } as User;
+          }
+        }
+        if (!profile && known?.id) {
+          const userDoc = await getDoc(doc(db, USERS_COLLECTION, known.id));
+          if (userDoc.exists()) {
+            profile = { ...userDoc.data(), id: userDoc.id } as User;
+          }
+        }
+      } catch (err) {
+        console.warn('Firestore user fetch notice during login:', err);
       }
+    }
 
-      if (!profile) {
-        if (credential) await signOut(auth).catch(() => {});
-        clearLocalSessionUser();
-        return null;
-      }
+    // 3. Fallback to known local cache profile
+    if (!profile && known) {
+      profile = known;
+    }
 
-      // Strict Central Confirmation Check: If member is pending approval, reject login!
-      if (!isOwner && profile.status !== 'active') {
-        await signOut(auth).catch(() => {});
-        clearLocalSessionUser();
-        return profile; // Return profile with pending_approval so caller alerts user
-      }
+    // If still not found and isOwner
+    if (!profile && isOwner) {
+      profile = DEFAULT_OWNER;
+    }
 
-      // Strict Session Generation Invariant:
-      // If session generation changed while login was in-flight (e.g. logout was triggered or another login was initiated), abort!
-      if (globalSessionGeneration !== currentLoginGen) {
-        if (credential) await signOut(auth).catch(() => {});
-        clearLocalSessionUser();
-        return null;
-      }
+    if (!profile) {
+      if (credential) await signOut(auth).catch(() => {});
+      clearLocalSessionUser();
+      return null;
+    }
 
-      // Save session
-      saveLocalSessionUser(profile);
-      return profile;
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    await withAuthLock(async () => {
+    // Strict Central Confirmation Check: If member is pending approval, reject login!
+    if (!isOwner && profile.status !== 'active') {
       await signOut(auth).catch(() => {});
       clearLocalSessionUser();
-    });
+      return profile; // Return profile with pending_approval so caller alerts user
+    }
+
+    // Save session
+    saveLocalSessionUser(profile);
+    return profile;
+  } catch (error) {
+    console.error('Login error:', error);
+    await signOut(auth).catch(() => {});
+    clearLocalSessionUser();
     return null;
-  } finally {
-    activeLoginInProgress = false;
   }
 }
 
@@ -2615,31 +2479,6 @@ export async function ensureFirebaseAuthSession(currentUser: User | null): Promi
     (currentUser.id === 'user_owner_eloni' && auth.currentUser.email === usernameToAuthEmail('eloni'));
 }
 
-export type ProfileResolutionInterceptor = (
-  uid: string,
-  resolveProfile: () => Promise<User | null>
-) => Promise<User | null>;
-
-let profileResolutionInterceptor: ProfileResolutionInterceptor | null = null;
-
-export function setProfileResolutionInterceptor(interceptor: ProfileResolutionInterceptor | null) {
-  profileResolutionInterceptor = interceptor;
-}
-
-export type ListenerCompletionObserver = (
-  uid: string | undefined,
-  result: { discarded: boolean; userProfile: User | null }
-) => void;
-
-let listenerCompletionObserver: ListenerCompletionObserver | null = null;
-
-export function setListenerCompletionObserver(observer: ListenerCompletionObserver | null) {
-  listenerCompletionObserver = observer;
-}
-
-export { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-export { doc, setDoc } from 'firebase/firestore';
-
 export function listenToAuthenticatedUser(callback: (profile: User | null) => void) {
   // Emit local session user if available and valid to prevent UI flicker
   const initialLocal = getLocalSessionUser();
@@ -2650,179 +2489,110 @@ export function listenToAuthenticatedUser(callback: (profile: User | null) => vo
 
   return onAuthStateChanged(auth, async (firebaseUser) => {
     if (registrationInProgress) return;
-    const listenerGen = globalSessionGeneration;
-    const targetUid = firebaseUser?.uid;
-
     if (!firebaseUser) {
-      let discarded = false;
-      await withAuthLock(async () => {
-        if (globalSessionGeneration !== listenerGen || activeLoginInProgress) {
-          discarded = true;
+      const currentLocal = getLocalSessionUser();
+      if (currentLocal) {
+        if (currentLocal.id === 'user_owner_eloni' || currentLocal.username?.toLowerCase() === 'eloni' || currentLocal.status === 'active') {
+          callback(currentLocal);
+          ensureFirebaseAuthSession(currentLocal).catch(() => {});
           return;
         }
-        if (auth.currentUser) {
-          discarded = true;
-          return;
-        }
-        const currentLocal = getLocalSessionUser();
-        if (currentLocal) {
-          if (currentLocal.id === 'user_owner_eloni' || currentLocal.username?.toLowerCase() === 'eloni' || currentLocal.status === 'active') {
-            callback(currentLocal);
-            ensureFirebaseAuthSession(currentLocal).catch(() => {});
-            return;
-          }
-          clearLocalSessionUser();
-        }
+        clearLocalSessionUser();
         callback(null);
-      });
-      if (listenerCompletionObserver) {
-        listenerCompletionObserver(undefined, { discarded, userProfile: null });
+        return;
       }
+      callback(null);
       return;
     }
 
     try {
-      const resolveProfile = async (): Promise<User | null> => {
-        let userProfile: User | null = null;
-        // 1. Try Firestore direct doc by UID
-        try {
-          const profile = await getDoc(doc(db, USERS_COLLECTION, firebaseUser.uid));
-          if (profile.exists()) {
-            userProfile = { ...profile.data(), id: profile.id } as User;
-          }
-        } catch (e) {
-          notifyQuotaExceeded(e);
+      let userProfile: User | null = null;
+      // 1. Try Firestore direct doc by UID
+      try {
+        const profile = await getDoc(doc(db, USERS_COLLECTION, firebaseUser.uid));
+        if (profile.exists()) {
+          userProfile = { ...profile.data(), id: profile.id } as User;
         }
-
-        // 2. If not found by doc UID, match by session or cached users
-        if (!userProfile) {
-          const currentLocal = getLocalSessionUser();
-          if (currentLocal && (
-            currentLocal.id === firebaseUser.uid ||
-            (currentLocal.username && usernameToAuthEmail(currentLocal.username) === firebaseUser.email) ||
-            (firebaseUser.email === usernameToAuthEmail('eloni') && (currentLocal.id === 'user_owner_eloni' || currentLocal.username?.toLowerCase() === 'eloni'))
-          )) {
-            userProfile = currentLocal;
-          }
-        }
-
-        if (!userProfile) {
-          const cached = getCachedUsers();
-          const found = cached.find(u =>
-            u.id === firebaseUser.uid ||
-            (u.username && usernameToAuthEmail(u.username) === firebaseUser.email) ||
-            (firebaseUser.email === usernameToAuthEmail('eloni') && (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni'))
-          );
-          if (found) {
-            userProfile = found;
-          }
-        }
-
-        if (!userProfile) {
-          // If owner auth email matches
-          if (firebaseUser.email === usernameToAuthEmail('eloni')) {
-            userProfile = DEFAULT_OWNER;
-          }
-        }
-
-        return userProfile;
-      };
-
-      const userProfile = profileResolutionInterceptor
-        ? await profileResolutionInterceptor(firebaseUser.uid, resolveProfile)
-        : await resolveProfile();
-
-      let discarded = false;
-      await withAuthLock(async () => {
-        // Stale Profile & Session Generation Guards:
-        // Discard stale listener resolution if session generation changed, login is active, or auth user switched
-        if (globalSessionGeneration !== listenerGen || activeLoginInProgress) {
-          discarded = true;
-          return;
-        }
-        if (!auth.currentUser || auth.currentUser.uid !== targetUid) {
-          discarded = true;
-          return;
-        }
-
-        if (!userProfile) {
-          // Only if absolutely not found anywhere, clear
-          clearLocalSessionUser();
-          callback(null);
-          return;
-        }
-
-        if (userProfile.status !== 'active' && userProfile.id !== 'user_owner_eloni' && userProfile.username?.toLowerCase() !== 'eloni') {
-          if (auth.currentUser && auth.currentUser.uid === targetUid) {
-            await signOut(auth).catch(() => {});
-          }
-          clearLocalSessionUser();
-          callback(null);
-          return;
-        }
-
-        saveLocalSessionUser(userProfile);
-        callback(userProfile);
-      });
-
-      if (listenerCompletionObserver) {
-        listenerCompletionObserver(targetUid, { discarded, userProfile });
+      } catch (e) {
+        notifyQuotaExceeded(e);
       }
+
+      // 2. If not found by doc UID, match by session or cached users
+      if (!userProfile) {
+        const currentLocal = getLocalSessionUser();
+        if (currentLocal && (
+          currentLocal.id === firebaseUser.uid ||
+          (currentLocal.username && usernameToAuthEmail(currentLocal.username) === firebaseUser.email) ||
+          (firebaseUser.email === usernameToAuthEmail('eloni') && (currentLocal.id === 'user_owner_eloni' || currentLocal.username?.toLowerCase() === 'eloni'))
+        )) {
+          userProfile = currentLocal;
+        }
+      }
+
+      if (!userProfile) {
+        const cached = getCachedUsers();
+        const found = cached.find(u =>
+          u.id === firebaseUser.uid ||
+          (u.username && usernameToAuthEmail(u.username) === firebaseUser.email) ||
+          (firebaseUser.email === usernameToAuthEmail('eloni') && (u.id === 'user_owner_eloni' || u.username?.toLowerCase() === 'eloni'))
+        );
+        if (found) {
+          userProfile = found;
+        }
+      }
+
+      if (!userProfile) {
+        // If owner auth email matches
+        if (firebaseUser.email === usernameToAuthEmail('eloni')) {
+          userProfile = DEFAULT_OWNER;
+        }
+      }
+
+      if (!userProfile) {
+        // Only if absolutely not found anywhere, clear
+        clearLocalSessionUser();
+        callback(null);
+        return;
+      }
+
+      if (userProfile.status !== 'active' && userProfile.id !== 'user_owner_eloni' && userProfile.username?.toLowerCase() !== 'eloni') {
+        await signOut(auth).catch(() => {});
+        clearLocalSessionUser();
+        callback(null);
+        return;
+      }
+
+      saveLocalSessionUser(userProfile);
+      callback(userProfile);
     } catch (err) {
       notifyQuotaExceeded(err);
-      let discarded = false;
-      await withAuthLock(async () => {
-        if (globalSessionGeneration !== listenerGen || activeLoginInProgress) {
-          discarded = true;
-          return;
-        }
-        if (!auth.currentUser || auth.currentUser.uid !== targetUid) {
-          discarded = true;
-          return;
-        }
-        const currentLocal = getLocalSessionUser();
-        if (currentLocal && currentLocal.status === 'active') {
-          callback(currentLocal);
-        } else {
-          callback(null);
-        }
-      });
-      if (listenerCompletionObserver) {
-        listenerCompletionObserver(targetUid, { discarded, userProfile: null });
+      const currentLocal = getLocalSessionUser();
+      if (currentLocal && currentLocal.status === 'active') {
+        callback(currentLocal);
+      } else {
+        callback(null);
       }
     }
   });
 }
 
 export async function logoutAuthenticatedUser() {
-  await withAuthLock(async () => {
-    ++globalSessionGeneration;
-    clearLocalSessionUser();
-    await signOut(auth).catch(() => undefined);
-  });
+  clearLocalSessionUser();
+  await signOut(auth).catch(() => undefined);
 }
 
 export async function getCurrentUserIdToken() {
   await auth.authStateReady();
-  if (auth.currentUser) {
-    const local = getLocalSessionUser();
-    if (local) {
-      const isMatch = auth.currentUser.uid === local.id ||
-        (local.username && usernameToAuthEmail(local.username) === auth.currentUser.email) ||
-        (local.id === 'user_owner_eloni' && auth.currentUser.email === usernameToAuthEmail('eloni'));
-      if (!isMatch) return null;
-    }
-    return auth.currentUser.getIdToken();
-  }
+  if (!auth.currentUser) return null;
   const local = getLocalSessionUser();
-  if (local && (import.meta as any).env?.DEV) {
-    return `local-dev-${local.id}-${local.role || 'member'}`;
+  if (local) {
+    const isMatch = auth.currentUser.uid === local.id ||
+      (local.username && usernameToAuthEmail(local.username) === auth.currentUser.email) ||
+      (local.id === 'user_owner_eloni' && auth.currentUser.email === usernameToAuthEmail('eloni'));
+    if (!isMatch) return null;
   }
-  return null;
+  return auth.currentUser.getIdToken();
 }
-
-setTokenProvider(getCurrentUserIdToken);
-setSessionProvider(getLocalSessionUser);
 
 // 2. Vault Items Firestore functions
 export function listenToVaultItems(callback: (items: VaultItem[]) => void) {
@@ -3070,7 +2840,10 @@ export async function updateVaultItemDoc(itemId: string, updates: Partial<VaultI
     }
     const ref = doc(db, ITEMS_COLLECTION, itemId);
     const cleanUpdates = sanitizeForFirestore(updates);
-    await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1200, 'updateVaultItemDoc');
+    const updateRes = await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1200, 'updateVaultItemDoc_updateDoc');
+    if (updateRes === null) {
+      await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1200, 'updateVaultItemDoc_setDoc');
+    }
     bumpSystemVersion('vaultVersion').catch(() => {});
   } catch (err: any) {
     console.warn('Notice: Failed to update vault item doc in Firestore (failover mode):', err);
@@ -3634,7 +3407,11 @@ export async function updateGeneralItemDoc(itemId: string, updates: Partial<Omit
 
   const cleanUpdates = sanitizeForFirestore(updatesWithTime);
   const ref = doc(db, GENERAL_ITEMS_COLLECTION, itemId);
-  await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1200, 'updateGeneralItemDoc').catch(() => {});
+  try {
+    await safeFirestoreWrite(updateDoc(ref, cleanUpdates), 1500, 'updateGeneralItemDoc');
+  } catch {
+    await safeFirestoreWrite(setDoc(ref, cleanUpdates, { merge: true }), 1500, 'updateGeneralItemDoc_merge');
+  }
   bumpSystemVersion('generalItemsVersion').catch(() => {});
 }
 
@@ -3760,45 +3537,6 @@ export async function updateClanDoc(clanId: string, updates: Partial<ClanGroup>)
     bumpSystemVersion('clansVersion').catch(() => {});
   } catch (err) {
     console.error('Failed to update clan doc:', err);
-  }
-}
-
-export async function batchUpdateClansOrder(orderedClans: ClanGroup[]) {
-  try {
-    const batch = writeBatch(db);
-    orderedClans.forEach((c, idx) => {
-      const ref = doc(db, CLANS_COLLECTION, c.id);
-      const sanitized = sanitizeForFirestore({
-        order: idx,
-        name: cleanClanName(c.name),
-        color: c.color
-      });
-      batch.set(ref, sanitized, { merge: true });
-    });
-    await safeFirestoreWrite(batch.commit(), 2000, 'batchUpdateClansOrder');
-    bumpSystemVersion('clansVersion').catch(() => {});
-  } catch (err) {
-    console.error('Failed to batch update clans order:', err);
-  }
-}
-
-export async function batchUpdateUserClans(swaps: { memberId: string; toClan: string }[]) {
-  try {
-    const chunkSize = 400;
-    const now = Date.now();
-    for (let i = 0; i < swaps.length; i += chunkSize) {
-      const chunk = swaps.slice(i, i + chunkSize);
-      const batch = writeBatch(db);
-      chunk.forEach(({ memberId, toClan }) => {
-        const ref = doc(db, USERS_COLLECTION, memberId);
-        const cleanClan = isNoClan(toClan) ? 'no-clan' : (cleanClanName(toClan) || 'no-clan');
-        batch.set(ref, sanitizeForFirestore({ clan: cleanClan, updatedAt: now }), { merge: true });
-      });
-      await safeFirestoreWrite(batch.commit(), 2500, 'batchUpdateUserClans');
-    }
-    bumpSystemVersion('usersVersion').catch(() => {});
-  } catch (err) {
-    console.error('Failed to batch update member clans:', err);
   }
 }
 

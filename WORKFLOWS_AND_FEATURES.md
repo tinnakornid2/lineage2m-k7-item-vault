@@ -1,6 +1,6 @@
 # 🎮 ระบบการทำงาน, UI/UX และเวิร์กโฟลว์ (Workflows & Features Guide)
 
-> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.10.80)**  
+> **Lineage 2M Clan Hub & Boss Item Vault (Version: v2.10.50)**  
 > เอกสารฉบับนี้อธิบายรายละเอียดการทำงานของทุกหน้าจอ, ลอจิกการคำนวณ, เวิร์กโฟลว์ทางธุรกิจ (Business Workflows) และพฤติกรรม UI/UX ทั้งหมด เพื่อให้ผู้ดูแลระบบและนักพัฒนาเข้าใจระบบทั้งโปรเจกต์ได้ 100% โดยไม่ต้องอ่านโค้ด
 
 ---

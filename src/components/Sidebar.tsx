@@ -35,7 +35,6 @@ import {
 import { ActiveTab, Language, User, ClanGroup, cleanClanName, StatUpdateSettings, isUserStatsPending } from '../types';
 import { translations } from '../translations';
 import { sounds } from '../utils/sound';
-import { subscribeSyncStatus, SyncStatusInfo, getSyncStatus } from '../services/centralApi';
 
 export interface SidebarProps {
   currentTab?: ActiveTab;
@@ -130,11 +129,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const t = translations[lang];
   const effectiveCurrentTab = currentTab || activeTab || 'dashboard';
-
-  const [syncStatus, setSyncStatus] = React.useState<SyncStatusInfo>(() => getSyncStatus());
-  React.useEffect(() => {
-    return subscribeSyncStatus((s) => setSyncStatus(s));
-  }, []);
 
   const handleTabSelect = (tab: ActiveTab) => {
     sounds.playClick();
@@ -981,49 +975,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* System Version & Status Indicator */}
           <div className="pt-2 pb-0.5 flex items-center justify-between gap-1.5 px-1">
-            {/* Live Sync Status Badge (Rule 1: Bilingual 100%) */}
-            <div
-              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-medium border transition-colors select-none ${
-                syncStatus.state === 'synced'
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                  : syncStatus.state === 'syncing'
-                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                  : syncStatus.state === 'local'
-                  ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-300'
-                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-              }`}
-              title={
-                syncStatus.error === 'PAYLOAD_TOO_LARGE' || syncStatus.error === 'HTTP_413'
-                  ? (lang === 'th' ? 'ข้อมูลใหญ่เกินขนาดที่ส่งได้ แม้บีบอัดแล้ว กรุณาลดขนาดรูปภาพหรือแบ่งข้อมูลก่อนส่งใหม่' : 'Data exceeds the upload limit, even after compression. Reduce image sizes or split the data before resending.')
-                  : lang === 'th'
-                  ? (syncStatus.state === 'synced' ? 'สถานะ: ซิงค์คลาวด์แล้ว' : syncStatus.state === 'syncing' ? 'สถานะ: กำลังส่งข้อมูลขึ้นคลาวด์...' : syncStatus.state === 'local' ? 'สถานะ: บันทึกในเครื่อง' : `สถานะ: การซิงค์ขัดข้อง (${syncStatus.error || 'รอส่งใหม่'})`)
-                  : (syncStatus.state === 'synced' ? 'Status: Synced with cloud' : syncStatus.state === 'syncing' ? 'Status: Syncing changes...' : syncStatus.state === 'local' ? 'Status: Local only' : `Status: Sync interrupted (${syncStatus.error || 'Retry'})`)
-              }
+            <span
+              className="text-[9px] font-mono font-medium text-emerald-400 animate-pulse tracking-tight truncate drop-shadow-[0_0_8px_rgba(52,211,153,0.35)]"
+              title="Lineage2M Clan Hub Made By Elon"
             >
-              {syncStatus.state === 'syncing' ? (
-                <RefreshCw className="w-2.5 h-2.5 animate-spin text-amber-300" />
-              ) : (
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    syncStatus.state === 'synced'
-                      ? 'bg-emerald-400'
-                      : syncStatus.state === 'local'
-                      ? 'bg-yellow-400'
-                      : 'bg-rose-400'
-                  }`}
-                />
-              )}
-              <span>
-                {syncStatus.error === 'PAYLOAD_TOO_LARGE' || syncStatus.error === 'HTTP_413'
-                  ? (lang === 'th' ? 'ข้อมูลใหญ่เกินไป' : 'Data too large')
-                  : lang === 'th'
-                  ? (syncStatus.state === 'synced' ? 'ซิงค์แล้ว' : syncStatus.state === 'syncing' ? 'กำลังซิงค์' : syncStatus.state === 'local' ? 'ในเครื่อง' : 'รอส่งใหม่')
-                  : (syncStatus.state === 'synced' ? 'Synced' : syncStatus.state === 'syncing' ? 'Syncing' : syncStatus.state === 'local' ? 'Local' : 'Retry')}
-              </span>
-            </div>
+              Lineage2M Clan Hub Made By Elon
+            </span>
             <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[9.5px] font-mono text-emerald-300 font-bold shrink-0 shadow-[0_0_10px_rgba(52,211,153,0.15)]">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>v2.10.82</span>
+              <span>v2.10.72</span>
             </div>
           </div>
 

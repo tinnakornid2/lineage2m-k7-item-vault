@@ -1,4 +1,4 @@
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'clan-hub-7645f';
 const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || '(default)';
@@ -186,7 +186,7 @@ export async function uploadBackgroundImage(buffer: Buffer, contentType: string)
   if (!sdk) {
     throw new Error('Firebase Admin credentials not configured for image upload.');
   }
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'clan-hub-7645f.firebasestorage.app';
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'k7-item.firebasestorage.app';
   const bucket = sdk.storage.bucket(bucketName);
   const objectName = `app-backgrounds/current-${Date.now()}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
   const downloadToken = randomUUID();
@@ -200,37 +200,6 @@ export async function uploadBackgroundImage(buffer: Buffer, contentType: string)
     }
   });
   return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(objectName)}?alt=media&token=${downloadToken}`;
-}
-
-/** Content-addressed objects make retries safe without overwriting another user. */
-export async function uploadAppImage(buffer: Buffer, contentType: string, uid: string): Promise<string> {
-  const sdk = await getAdminSdk();
-  if (!sdk) throw new Error('STORAGE_UNAVAILABLE');
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'clan-hub-7645f.firebasestorage.app';
-  const hash = createHash('sha256').update(buffer).digest('hex');
-  const name = `app-images/${encodeURIComponent(uid)}/${hash}`;
-  const file = sdk.storage.bucket(bucketName).file(name);
-  let metadata: any;
-  try { [metadata] = await file.getMetadata(); }
-  catch (error: any) { if (Number(error.code) !== 404) throw error; }
-  if (!metadata) {
-    try {
-      await file.save(buffer, { resumable: false, contentType,
-        preconditionOpts: { ifGenerationMatch: 0 },
-        metadata: { metadata: { firebaseStorageDownloadTokens: randomUUID() } } });
-    } catch (error: any) { if (Number(error.code) !== 412) throw error; }
-    [metadata] = await file.getMetadata();
-  }
-  const token = metadata?.metadata?.firebaseStorageDownloadTokens?.split(',')[0];
-  if (!token) throw new Error('STORAGE_TOKEN_MISSING');
-  const retentionRef = sdk.db.collection('image_retention').doc(createHash('sha256').update(`${bucketName}/${name}`).digest('hex'));
-  await sdk.db.runTransaction(async (tx: any) => {
-    const current = (await tx.get(retentionRef)).data();
-    if (current?.deletingUntil > Date.now()) throw new Error('IMAGE_RETIRING_RETRY');
-    if (current?.deletedAt && current.generation === String(metadata.generation)) throw new Error('IMAGE_REUPLOAD_REQUIRED');
-    tx.set(retentionRef, { generation: String(metadata.generation), orphanSince: null, deletedAt: null, lastUsedAt: Date.now() }, { merge: true });
-  });
-  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(name)}?alt=media&token=${encodeURIComponent(token)}`;
 }
 
 export async function verifyRoleToken(

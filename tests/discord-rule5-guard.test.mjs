@@ -1,30 +1,22 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { createApp } from '../api/_server.ts';
+import assert from 'node:assert';
+import { createApp } from '../dist/server.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-test('Rule 5 Discord Hard Guard on /api/discord-webhook', async (t) => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'l2m-test-discord-'));
-  const app = await createApp({ serveFrontend: false, dataDir: tempDir, isolatedTest: true });
-  const server = app.listen(0, '127.0.0.1');
-  await new Promise((resolve) => server.once('listening', resolve));
-  const address = server.address();
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-  const authHeader = {
-    Authorization: 'Bearer local-dev-user_owner_eloni-owner',
-    'Content-Type': 'application/json',
-    Connection: 'close'
-  };
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'l2m-test-discord-'));
+const app = await createApp({ serveFrontend: false, dataDir: tempDir, isolatedTest: true });
+const server = app.listen(0, '127.0.0.1');
+await new Promise((resolve) => server.once('listening', resolve));
+const address = server.address();
+const baseUrl = `http://127.0.0.1:${address.port}`;
+const authHeader = {
+  Authorization: 'Bearer local-dev-user_owner_eloni-owner',
+  'Content-Type': 'application/json'
+};
 
-  t.after(async () => {
-    server.closeAllConnections?.();
-    await new Promise((resolve) => server.close(resolve));
-    try {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    } catch {}
-  });
+try {
+  console.log('Testing Rule 5 Discord Hard Guard on /api/discord-webhook...');
 
   // Test Case 1: Legacy stat request embed title
   const res1 = await fetch(`${baseUrl}/api/discord-webhook`, {
@@ -43,6 +35,7 @@ test('Rule 5 Discord Hard Guard on /api/discord-webhook', async (t) => {
   const data1 = await res1.json();
   assert.strictEqual(data1.success, true);
   assert.strictEqual(data1.dropped, true);
+  console.log('✓ Test Case 1 passed: Legacy stat request title was dropped.');
 
   // Test Case 2: Explicit event === 'stat_request'
   const res2 = await fetch(`${baseUrl}/api/discord-webhook`, {
@@ -59,6 +52,7 @@ test('Rule 5 Discord Hard Guard on /api/discord-webhook', async (t) => {
   const data2 = await res2.json();
   assert.strictEqual(data2.success, true);
   assert.strictEqual(data2.dropped, true);
+  console.log('✓ Test Case 2 passed: event=stat_request was dropped.');
 
   // Test Case 3: Explicit event === 'stat_approval'
   const res3 = await fetch(`${baseUrl}/api/discord-webhook`, {
@@ -67,7 +61,7 @@ test('Rule 5 Discord Hard Guard on /api/discord-webhook', async (t) => {
     body: JSON.stringify({
       event: 'stat_approval',
       payload: {
-        embeds: [{ title: 'Some Title', description: 'Some description' }]
+        embeds: [{ title: 'Approval Title', description: 'Approved stats' }]
       }
     })
   });
@@ -75,8 +69,9 @@ test('Rule 5 Discord Hard Guard on /api/discord-webhook', async (t) => {
   const data3 = await res3.json();
   assert.strictEqual(data3.success, true);
   assert.strictEqual(data3.dropped, true);
+  console.log('✓ Test Case 3 passed: event=stat_approval was dropped.');
 
-  // Test Case 4: Footer containing Stat Verification
+  // Test Case 4: Footer containing 'Stat Verification'
   const res4 = await fetch(`${baseUrl}/api/discord-webhook`, {
     method: 'POST',
     headers: authHeader,
@@ -93,6 +88,7 @@ test('Rule 5 Discord Hard Guard on /api/discord-webhook', async (t) => {
   const data4 = await res4.json();
   assert.strictEqual(data4.success, true);
   assert.strictEqual(data4.dropped, true);
+  console.log('✓ Test Case 4 passed: Footer containing Stat Verification was dropped.');
 
   // Test Case 5: Power Level Update Request in description
   const res5 = await fetch(`${baseUrl}/api/discord-webhook`, {
@@ -111,4 +107,12 @@ test('Rule 5 Discord Hard Guard on /api/discord-webhook', async (t) => {
   const data5 = await res5.json();
   assert.strictEqual(data5.success, true);
   assert.strictEqual(data5.dropped, true);
-});
+  console.log('✓ Test Case 5 passed: Description with power level calculation was dropped.');
+
+  console.log('\nAll 5 Rule 5 Discord Hard Guard tests PASSED successfully! 🛡️');
+} finally {
+  server.close();
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  } catch {}
+}

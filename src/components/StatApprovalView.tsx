@@ -85,20 +85,19 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
   const handleApprove = async (user: User) => {
     setIsProcessing(true);
     setProcessingUserId(user.id);
-    setInspectingUser(null);
     try {
       sounds.playSuccess();
       await onApproveStatUpdate(user.id);
       if (showToast) {
         showToast(
           lang === 'th'
-            ? `อนุมัติสเตตัสใหม่ของ ${user.inGameName} สำเร็จ (⚡ ${(user.pendingPowerLevel || 0).toLocaleString()} PL) 🎉`
-            : `Approved ${user.inGameName}'s stat update (⚡ ${(user.pendingPowerLevel || 0).toLocaleString()} PL) 🎉`,
+            ? `อนุมัติสเตตัสใหม่ของ ${user.inGameName} สำเร็จ (⚡ ${user.pendingPowerLevel?.toLocaleString()} PL) 🎉`
+            : `Approved ${user.inGameName}'s stat update (⚡ ${user.pendingPowerLevel?.toLocaleString()} PL) 🎉`,
           'success'
         );
       }
     } catch (err: any) {
-      if (showToast) showToast(err?.message || (lang === 'th' ? 'การอนุมัติล้มเหลว' : 'Approval failed'), 'error');
+      if (showToast) showToast(err?.message || 'Approval failed', 'error');
     } finally {
       setIsProcessing(false);
       setProcessingUserId(null);
@@ -305,22 +304,20 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
                         )}
                         {displayClasses.length > 0 && (() => {
                           const primaryClass = displayClasses[0];
-                          const meta = (primaryClass && typeof primaryClass === 'string')
-                            ? classMap.get(primaryClass.trim().toLowerCase())
-                            : undefined;
+                          const meta = classMap.get(primaryClass.toLowerCase());
                           return (
                             <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-lg bg-purple-500/20 text-purple-200 border border-purple-500/40 shadow-sm">
                               {meta?.icon && (
                                 <img
                                   src={meta.icon}
-                                  alt={typeof primaryClass === 'string' ? primaryClass : ''}
+                                  alt={primaryClass}
                                   className="size-4 object-contain shrink-0"
                                   onError={(e) => {
                                     (e.target as HTMLElement).style.display = 'none';
                                   }}
                                 />
                               )}
-                              <span>{typeof primaryClass === 'string' ? primaryClass : ''}</span>
+                              <span>{primaryClass}</span>
                             </span>
                           );
                         })()}
@@ -346,15 +343,15 @@ export const StatApprovalView: React.FC<StatApprovalViewProps> = ({
                   {/* Power Level Comparison Badge */}
                   <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-slate-950 border border-slate-750 shadow-inner">
                     <span className="text-xs text-slate-400 font-mono">
-                      {(prevPL || 0).toLocaleString()} PL
+                      {prevPL.toLocaleString()} PL
                     </span>
                     <ArrowRight className="size-4 text-slate-500" />
                     <span className="text-lg font-black text-amber-400 font-mono">
-                      ⚡ {(nextPL || 0).toLocaleString()} PL
+                      ⚡ {nextPL.toLocaleString()} PL
                     </span>
                     {diffPL > 0 && (
                       <span className="text-xs font-bold text-emerald-400 font-mono bg-emerald-500/15 px-2 py-0.5 rounded-md border border-emerald-500/30">
-                        (+{(diffPL || 0).toLocaleString()})
+                        (+{diffPL.toLocaleString()})
                       </span>
                     )}
                   </div>

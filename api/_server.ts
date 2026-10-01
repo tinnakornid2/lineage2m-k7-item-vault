@@ -1,5 +1,4 @@
 import express from "express";
-import { authorizedCron, runImageRetention } from './_imageRetention.ts';
 import { FirestoreRelayStore, publicRelayData, withRelayTimeout } from "./_relayStore.ts";
 import { mergeRelayData, sanitizeAndDeduplicateUsers } from "./_relayMerge.ts";
 import { scopeRelayInput, type RelayActor } from "./_relayAccess.ts";
@@ -22,7 +21,6 @@ import {
   saveStoredDiscordWebhookUrls,
   saveStoredDiscordWebhookUrl,
   uploadBackgroundImage,
-  uploadAppImage,
   verifyRoleToken,
   purgeOrphanAuthUsers,
   claimOrphanAuthUser
@@ -85,21 +83,6 @@ async function generateWithModelFallback(ai: GoogleGenAI, request: { contents: a
 
 export async function createApp(options: { serveFrontend?: boolean; dataDir?: string; relayStore?: FirestoreRelayStore; isolatedTest?: boolean; testActor?: RelayActor } = {}) {
   const app = express();
-
-  app.get('/api/cron/image-retention', async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    if (!authorizedCron(req.headers.authorization, process.env.CRON_SECRET)) return res.status(401).json({ error: 'UNAUTHORIZED' });
-    if (process.env.STORAGE_CLEANUP_ENABLED !== 'true') return res.json({ skipped: 'DISABLED', retentionDays: 60 });
-    try {
-      const sdk = await getAdminSdk();
-      if (!sdk) throw new Error('STORAGE_UNAVAILABLE');
-      const result = await runImageRetention(sdk, process.env.FIREBASE_STORAGE_BUCKET || 'clan-hub-7645f.firebasestorage.app');
-      return res.json({ success: true, ...result });
-    } catch (error) {
-      console.error('Image retention aborted safely:', error);
-      return res.status(503).json({ error: 'RETENTION_CHECK_FAILED', message: 'ตรวจรูปไม่ครบ ยกเลิกการตรวจรอบนี้ / Incomplete image check; this pass was aborted' });
-    }
-  });
 
   const getGeminiApiKey = async () => {
     const environmentKey = process.env.GEMINI_API_KEY?.trim();
@@ -195,43 +178,31 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
 
   let storePromise: Promise<FirestoreRelayStore | null> | null = null;
   const getRelayStore = () => {
-    if (!storePromise) storePromise = (options.relayStore
+    if (!storePromise) storePromise = options.relayStore
       ? Promise.resolve(options.relayStore)
       : options.isolatedTest ? Promise.resolve(null)
-      : getAdminSdk().then(sdk => sdk?.db ? new FirestoreRelayStore(sdk.db) : null)
-    ).then(store => {
-      if (store && liveHubState.data && liveHubState.version > 0) {
-        store.setCachedSnapshot(liveHubState);
-      }
-      return store;
-    });
+      : getAdminSdk().then(sdk => sdk?.db ? new FirestoreRelayStore(sdk.db) : null);
     return storePromise;
   };
   const acceptSnapshot = (snapshot: typeof liveHubState) => {
     liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
-    if (storePromise) {
-      storePromise.then(s => { if (s) s.setCachedSnapshot(liveHubState); }).catch(() => {});
-    }
     // The disk copy is an extra cache, never the production source of truth.
     if (!process.env.VERCEL) fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), 'utf-8');
     liveStateEmitter.emit('update');
   };
   let localCommit: Promise<any> = Promise.resolve();
-  const commitRelay = async (incoming: any, mutate?: (current: any, version: number) => any) => {
+  const commitRelay = async (incoming: any, mutate?: (current: any) => any) => {
     const store = await getRelayStore();
     if (store) {
-      const snapshot = await withRelayTimeout(store.commit(incoming, mutate), 15000);
+      const snapshot = await withRelayTimeout(store.commit(incoming, mutate));
       if (snapshot.version >= liveHubState.version) acceptSnapshot(snapshot);
       return snapshot;
     }
     if (process.env.VERCEL || process.env.NODE_ENV === 'production') throw new Error('CENTRAL_STORE_UNAVAILABLE');
     const next = localCommit.catch(() => {}).then(() => {
-      const version = Math.max(Number(liveHubState.version || 0) + 1, Date.now());
-      const currentData = structuredClone(liveHubState.data || {});
-      currentData.version = version;
-      const data = publicRelayData(mutate ? mutate(currentData, version)
+      const data = publicRelayData(mutate ? mutate(structuredClone(liveHubState.data || {}))
         : mergeRelayData(liveHubState.data || {}, incoming));
-      const snapshot = { data, version, updatedAt: Date.now() };
+      const snapshot = { data, version: Math.max(liveHubState.version + 1, Date.now()), updatedAt: Date.now() };
       acceptSnapshot(snapshot);
       return snapshot;
     });
@@ -692,27 +663,16 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
   app.get("/api/live-state", async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try {
-      const clientVersion = Number(req.query.v) || 0;
       const store = await getRelayStore();
       if (store) {
         try {
-          const result = await withRelayTimeout(store.readConditional(clientVersion), 8000);
-          if (result) {
-            if (result.notModified) {
-              return res.json({
-                modified: false,
-                version: result.version,
-                updatedAt: result.updatedAt
-              });
-            }
-            if (result.version >= liveHubState.version) {
-              acceptSnapshot(result);
-            }
-          }
+          const snapshot = await withRelayTimeout(store.read(), 10000);
+          if (snapshot) liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
         } catch (readErr: any) {
           console.warn('Central store read notice (serving in-memory state):', readErr?.message || readErr);
         }
       }
+      const clientVersion = Number(req.query.v) || 0;
       const modified = clientVersion !== liveHubState.version || clientVersion === 0;
       return res.json({
         modified, version: liveHubState.version, updatedAt: liveHubState.updatedAt,
@@ -757,88 +717,13 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
     /NOT_FOUND|DISTRIBUTED|INVALID/.test(error?.message || '') ? 400 : 503
   ).json({ success: false, persisted: false, error: error?.message || 'CENTRAL_WRITE_FAILED' });
 
-  // Persistent Transaction-Level Idempotency Store (Atomic inside commitRelay)
-  const processedClientOps = new Map<string, { result: any; timestamp: number }>();
-  const idempotencyInterval = setInterval(() => {
-    const cutoff = Date.now() - 2 * 60 * 60 * 1000;
-    for (const [opKey, data] of processedClientOps.entries()) {
-      if (data.timestamp < cutoff) processedClientOps.delete(opKey);
-    }
-  }, 60000);
-  idempotencyInterval.unref?.();
-
-  const getScopedOpKey = (req: express.Request, actor: RelayActor): string => {
-    const opId = (req.headers['x-client-op-id'] as string) || req.body?.clientOpId;
-    if (!opId || !actor?.uid) return '';
-    return `${actor.uid}:::${req.path}:::${opId}`;
-  };
-
-  const checkPreFlightIdempotency = (req: express.Request, res: express.Response, actor: RelayActor): boolean => {
-    const opKey = getScopedOpKey(req, actor);
-    if (!opKey) return false;
-
-    // Fast in-memory check
-    if (processedClientOps.has(opKey)) {
-      const cached = processedClientOps.get(opKey)!;
-      res.json({ ...cached.result, deduplicated: true });
-      return true;
-    }
-
-    // Persistent live hub check
-    const persistentOp = liveHubState.data?.syncMeta?.processedOps?.[opKey];
-    if (persistentOp?.result) {
-      processedClientOps.set(opKey, persistentOp);
-      res.json({ ...persistentOp.result, deduplicated: true });
-      return true;
-    }
-
-    return false;
-  };
-
-  const recordPersistentIdempotency = (
-    current: any,
-    opKey: string,
-    responsePayload: any
-  ) => {
-    if (!opKey) return;
-    current.syncMeta ||= {};
-    current.syncMeta.processedOps ||= {};
-    current.syncMeta.processedOps[opKey] = {
-      result: responsePayload,
-      timestamp: Date.now()
-    };
-
-    // Prune entries older than 2 hours to keep size optimal
-    const cutoff = Date.now() - 2 * 60 * 60 * 1000;
-    for (const [k, v] of Object.entries(current.syncMeta.processedOps)) {
-      if ((v as any)?.timestamp < cutoff) delete current.syncMeta.processedOps[k];
-    }
-  };
-
-  // Only update in-memory RAM cache after cloud commit transaction successfully resolves!
-  const commitSuccessToRamCache = (opKey: string, responsePayload: any) => {
-    if (!opKey) return;
-    processedClientOps.set(opKey, { result: responsePayload, timestamp: Date.now() });
-  };
-
   app.post("/api/claim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
-      const actor: RelayActor = res.locals.actor;
-      if (checkPreFlightIdempotency(req, res, actor)) return;
-
       const { itemId, claimant } = req.body;
       if (!itemId || !claimant?.userId) throw new Error('INVALID_CLAIM_PAYLOAD');
+      const actor: RelayActor = res.locals.actor;
       if (!['owner', 'admin'].includes(actor.role) && claimant.userId !== actor.uid) throw new Error('FORBIDDEN');
-
-      const opKey = getScopedOpKey(req, actor);
-      let duplicateResult: any = null;
-
-      const snapshot = await commitRelay(null, (current, targetVersion) => {
-        if (opKey && current.syncMeta?.processedOps?.[opKey]) {
-          duplicateResult = current.syncMeta.processedOps[opKey].result;
-          return current;
-        }
-
+      const snapshot = await commitRelay(null, current => {
         const member = (current.users || []).find((u: any) => u.id === claimant.userId);
         if (!member || member.status !== 'active') throw new Error('NOT_ACTIVE');
         const item = (current.vaultItems || []).find((i: any) => i.id === itemId);
@@ -846,12 +731,7 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
         if (item.status === 'distributed' || item.distributedTo) throw new Error('ITEM_DISTRIBUTED');
         if (!['owner', 'admin'].includes(actor.role) && Number(member.powerLevel || 0) < Number(item.minPowerLevel || 0)) throw new Error('POWER_REQUIRED');
         const previous = (item.claimants || []).find((c: any) => c.userId === member.id);
-        if (previous) {
-          const resObj = { success: true, persisted: true, version: targetVersion, itemId };
-          recordPersistentIdempotency(current, opKey, resObj);
-          return current;
-        }
-
+        if (previous) return current;
         item.claimants = [...(item.claimants || []), {
           userId: member.id, inGameName: member.inGameName, clan: member.clan,
           powerLevel: member.powerLevel || 0, claimedAt: Date.now()
@@ -861,40 +741,19 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
         current.syncMeta.cancelledClaims ||= {};
         delete current.syncMeta.cancelledClaims[itemId + ':::' + member.id.toLowerCase()];
         delete current.syncMeta.cancelledClaims[itemId + ':::' + member.inGameName.toLowerCase()];
-
-        const responsePayload = { success: true, persisted: true, version: targetVersion, itemId };
-        recordPersistentIdempotency(current, opKey, responsePayload);
         return current;
       });
-
-      if (duplicateResult) {
-        commitSuccessToRamCache(opKey, duplicateResult);
-        return res.json({ ...duplicateResult, deduplicated: true });
-      }
-      const finalPayload = { success: true, persisted: true, version: snapshot.version, itemId };
-      commitSuccessToRamCache(opKey, finalPayload);
-      res.json(finalPayload);
+      res.json({ success: true, persisted: true, version: snapshot.version, itemId });
     } catch (error) { failWrite(res, error); }
   });
 
   app.post("/api/unclaim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
-      const actor: RelayActor = res.locals.actor;
-      if (checkPreFlightIdempotency(req, res, actor)) return;
-
       const { itemId, userId, inGameName } = req.body;
       if (!itemId || (!userId && !inGameName)) throw new Error('INVALID_UNCLAIM_PAYLOAD');
+      const actor: RelayActor = res.locals.actor;
       if (!['owner', 'admin'].includes(actor.role) && userId !== actor.uid) throw new Error('FORBIDDEN');
-
-      const opKey = getScopedOpKey(req, actor);
-      let duplicateResult: any = null;
-
-      const snapshot = await commitRelay(null, (current, targetVersion) => {
-        if (opKey && current.syncMeta?.processedOps?.[opKey]) {
-          duplicateResult = current.syncMeta.processedOps[opKey].result;
-          return current;
-        }
-
+      const snapshot = await commitRelay(null, current => {
         const item = (current.vaultItems || []).find((i: any) => i.id === itemId);
         if (!item) throw new Error('ITEM_NOT_FOUND');
         const now = Date.now();
@@ -906,19 +765,9 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
         for (const c of removed) for (const identity of [c.userId, c.inGameName]) {
           if (identity) current.syncMeta.cancelledClaims[itemId + ':::' + identity.toLowerCase()] = now;
         }
-
-        const responsePayload = { success: true, persisted: true, version: targetVersion, itemId };
-        recordPersistentIdempotency(current, opKey, responsePayload);
         return current;
       });
-
-      if (duplicateResult) {
-        commitSuccessToRamCache(opKey, duplicateResult);
-        return res.json({ ...duplicateResult, deduplicated: true });
-      }
-      const finalPayload = { success: true, persisted: true, version: snapshot.version, itemId };
-      commitSuccessToRamCache(opKey, finalPayload);
-      res.json(finalPayload);
+      res.json({ success: true, persisted: true, version: snapshot.version, itemId });
     } catch (error) { failWrite(res, error); }
   });
 
@@ -928,39 +777,16 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
   ]) {
     app.post(route, requireRoles(writeRoles), async (req, res) => {
       try {
-        const actor: RelayActor = res.locals.actor;
-        if (checkPreFlightIdempotency(req, res, actor)) return;
-
         const id = req.body[idField];
         if (!id || !Array.isArray(req.body.queueList)) throw new Error('INVALID_PAYLOAD');
-
-        const opKey = getScopedOpKey(req, actor);
-        let duplicateResult: any = null;
-
-        const snapshot = await commitRelay(null, (current, targetVersion) => {
-          if (opKey && current.syncMeta?.processedOps?.[opKey]) {
-            duplicateResult = current.syncMeta.processedOps[opKey].result;
-            return current;
-          }
-
+        const snapshot = await commitRelay(null, current => {
           const item = (current[field] || []).find((i: any) => i.id === id);
           if (!item) throw new Error('ITEM_NOT_FOUND');
-          const merged = mergeRelayData(current, scopeRelayInput(current, {
+          return mergeRelayData(current, scopeRelayInput(current, {
             [field]: [{ ...item, queueList: req.body.queueList, updatedAt: Date.now() }]
-          }, actor));
-
-          const responsePayload = { success: true, persisted: true, version: targetVersion };
-          recordPersistentIdempotency(merged, opKey, responsePayload);
-          return merged;
+          }, res.locals.actor));
         });
-
-        if (duplicateResult) {
-          commitSuccessToRamCache(opKey, duplicateResult);
-          return res.json({ ...duplicateResult, deduplicated: true });
-        }
-        const finalPayload = { success: true, persisted: true, version: snapshot.version };
-        commitSuccessToRamCache(opKey, finalPayload);
-        res.json(finalPayload);
+        res.json({ success: true, persisted: true, version: snapshot.version });
       } catch (error) { failWrite(res, error); }
     });
   }
@@ -968,40 +794,18 @@ export async function createApp(options: { serveFrontend?: boolean; dataDir?: st
   for (const route of ['/api/request-stat-update', '/api/update-user-stats']) {
     app.post(route, requireRoles(writeRoles), async (req, res) => {
       try {
-        const actor: RelayActor = res.locals.actor;
-        if (checkPreFlightIdempotency(req, res, actor)) return;
-
         const { userId, updates } = req.body;
+        const actor: RelayActor = res.locals.actor;
         if (!userId || !updates || typeof updates !== 'object') throw new Error('INVALID_PAYLOAD');
         if (!['owner', 'admin'].includes(actor.role) && userId !== actor.uid) throw new Error('FORBIDDEN');
-
-        const opKey = getScopedOpKey(req, actor);
-        let duplicateResult: any = null;
-
-        const snapshot = await commitRelay(null, (current, targetVersion) => {
-          if (opKey && current.syncMeta?.processedOps?.[opKey]) {
-            duplicateResult = current.syncMeta.processedOps[opKey].result;
-            return current;
-          }
-
+        const snapshot = await commitRelay(null, current => {
           const user = (current.users || []).find((u: any) => u.id === userId);
           if (!user) throw new Error('USER_NOT_FOUND');
-          const merged = mergeRelayData(current, scopeRelayInput(current, {
+          return mergeRelayData(current, scopeRelayInput(current, {
             users: [{ ...user, ...updates, id: user.id, updatedAt: Date.now() }]
           }, actor));
-
-          const responsePayload = { success: true, persisted: true, version: targetVersion, userId };
-          recordPersistentIdempotency(merged, opKey, responsePayload);
-          return merged;
         });
-
-        if (duplicateResult) {
-          commitSuccessToRamCache(opKey, duplicateResult);
-          return res.json({ ...duplicateResult, deduplicated: true });
-        }
-        const finalPayload = { success: true, persisted: true, version: snapshot.version, userId };
-        commitSuccessToRamCache(opKey, finalPayload);
-        res.json(finalPayload);
+        res.json({ success: true, persisted: true, version: snapshot.version, userId });
       } catch (error) { failWrite(res, error); }
     });
   }
@@ -1241,31 +1045,7 @@ Do not include markdown or explanations. Return pure JSON only.`;
   // Serve static assets in public folder (including fantasy-original.png and wallpapers)
   app.use(express.static(path.join(process.cwd(), "public")));
 
-  const imageRateLimits = new Map<string, { count: number; resetAt: number }>();
-  app.post('/api/upload-image', requireRoles(['owner', 'admin', 'manager', 'party_leader', 'member']), async (req, res) => {
-    if (!consumeRateLimit(imageRateLimits, res.locals.actor.uid, 60, 60_000)) {
-      return res.status(429).json({ error: 'IMAGE_RATE_LIMIT', message: 'กรุณารอสักครู่ / Please wait a moment' });
-    }
-    const data = req.body?.imageBase64;
-    const match = typeof data === 'string' && data.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/);
-    if (!match) return res.status(400).json({ error: 'INVALID_IMAGE', message: 'รูปภาพไม่ถูกต้อง / Invalid image' });
-    const buffer = Buffer.from(match[2], 'base64');
-    const valid = match[1] === 'image/jpeg' ? buffer.subarray(0, 3).equals(Buffer.from([255,216,255]))
-      : match[1] === 'image/png' ? buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
-      : buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
-    if (!valid || buffer.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'INVALID_IMAGE', message: 'รูปภาพไม่ถูกต้องหรือใหญ่เกินไป / Invalid or oversized image' });
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const url = await Promise.race([uploadAppImage(buffer, match[1], res.locals.actor.uid),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('STORAGE_TIMEOUT')), 12000); })]);
-      return res.json({ success: true, url });
-    } catch (error) {
-      console.error('Image upload failed', error);
-      return res.status(503).json({ error: 'STORAGE_UNAVAILABLE', message: 'อัปโหลดรูปไม่ได้ กรุณาลองใหม่ / Image upload unavailable, please retry' });
-    } finally { if (timer) clearTimeout(timer); }
-  });
-
-  // Background upload endpoint
+  // Background upload endpoint - saves to public/fantasy-original.png
   app.post("/api/save-background", requireRoles(['owner']), async (req, res) => {
     try {
       const { imageBase64 } = req.body;

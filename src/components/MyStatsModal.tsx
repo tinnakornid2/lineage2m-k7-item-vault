@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { User, StatDefinition, FormulaSettings, OFFICIAL_CLASSES, ClassMeta, isUserStatsPending } from '../types';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
-import { prepareImageFile as compressImageFile } from '../services/imageUpload';
+import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
 import { ScreenshotGuideModal, ScreenshotGuideTrigger } from './ScreenshotGuideModal';
 
@@ -183,7 +183,12 @@ export const MyStatsModal: React.FC<MyStatsModalProps> = ({
         );
       }
     } catch {
-      showToast?.(lang === 'th' ? 'อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่' : 'Image upload failed. Please retry.', 'error');
+      const reader = new FileReader();
+      reader.onload = () => {
+        setScreenshotUrl(reader.result as string);
+        sounds.playClick();
+      };
+      reader.readAsDataURL(file);
     }
   };
 

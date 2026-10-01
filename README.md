@@ -1,6 +1,6 @@
-# ⚔️ Lineage 2M Clan Hub & Boss Item Vault (v2.10.80)
+# ⚔️ Lineage 2M Clan Hub & Boss Item Vault (v2.10.50)
 
-[![Version](https://img.shields.io/badge/version-v2.10.80-amber.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-v2.10.50-amber.svg)](package.json)
 [![Architecture](https://img.shields.io/badge/architecture-5--Tier%20Zero--Downtime-emerald.svg)](ARCHITECTURE.md)
 [![Bilingual](https://img.shields.io/badge/i18n-100%25%20TH%20%7C%20EN-blue.svg)](AGENTS.md)
 [![License](https://img.shields.io/badge/license-Private-red.svg)]()

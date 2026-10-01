@@ -142,7 +142,9 @@ service cloud.firestore {
     match /items/{itemId} {
       allow read: if true;
       allow create, delete: if isAdminOrOwner();
-      allow update: if isAdminOrOwner();
+      allow update: if isAdminOrOwner()
+        || ((!('status' in resource.data) || resource.data.status == 'available')
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimants', 'updatedAt']));
     }
 
     match /item_claims/{claimId} {
@@ -170,7 +172,8 @@ service cloud.firestore {
     match /item_queues/{queueId} {
       allow read: if true;
       allow create, delete: if isAdminOrOwner();
-      allow update: if isAdminOrOwner();
+      allow update: if isAdminOrOwner()
+        || (isActiveUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt']));
     }
 
     match /quick_items/{itemId} {
@@ -206,7 +209,9 @@ service cloud.firestore {
       allow delete: if isAdminOrOwner();
       allow update: if validGeneralItem(request.resource.data)
         && request.resource.data.id == resource.data.id
-        && isAdminOrOwner();
+        && (isAdminOrOwner()
+        || (isActiveUser()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['queueList', 'updatedAt'])));
     }
 
     match /clans/{clanId} {

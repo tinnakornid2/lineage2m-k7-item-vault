@@ -1,9 +1,6 @@
 // api/_server.ts
 import express from "express";
 
-// api/_imageRetention.ts
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-
 // api/_relayStore.ts
 import { gzipSync, gunzipSync } from "node:zlib";
 
@@ -66,6 +63,19 @@ var sanitizeAndDeduplicateUsers = (users, deletedUsers) => {
     } else {
       if (!seen.has(u.id)) {
         seen.add(u.id);
+        if (!u.statApprovalAt && u.powerLevel && u.powerLevel > 0) {
+          u = {
+            ...u,
+            powerLevel: 0,
+            stats: {},
+            statHistory: [],
+            statApprovalAt: null,
+            statRejectionAt: null,
+            pendingPowerLevel: null,
+            pendingPowerLevelRequestedAt: null,
+            pendingStats: null
+          };
+        }
         cleanUsers.push(u);
       }
     }
@@ -142,21 +152,13 @@ function mergeRelayData(previousData, incoming) {
     }
     return merged;
   };
-  const mergedProcessedOps = {};
-  const opCutoff = Date.now() - 2 * 60 * 60 * 1e3;
-  for (const [key, val] of Object.entries(previousData.syncMeta?.processedOps || {})) {
-    if (val && typeof val === "object" && Number(val.timestamp || 0) > opCutoff) {
-      mergedProcessedOps[key] = val;
-    }
-  }
   const syncMeta = {
     deletedVaultItems: mergeTimestampMaps(previousData.syncMeta?.deletedVaultItems, data.syncMeta?.deletedVaultItems),
     deletedQueueItems: mergeTimestampMaps(previousData.syncMeta?.deletedQueueItems, data.syncMeta?.deletedQueueItems),
     deletedGeneralItems: mergeTimestampMaps(previousData.syncMeta?.deletedGeneralItems, data.syncMeta?.deletedGeneralItems),
     deletedUsers: mergeTimestampMaps(previousData.syncMeta?.deletedUsers, data.syncMeta?.deletedUsers),
     cancelledClaims: mergeTimestampMaps(previousData.syncMeta?.cancelledClaims, data.syncMeta?.cancelledClaims),
-    removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers),
-    processedOps: mergedProcessedOps
+    removedQueueMembers: mergeTimestampMaps(previousData.syncMeta?.removedQueueMembers, data.syncMeta?.removedQueueMembers)
   };
   const mergeVersionedRecords = (previous, incoming2, deleted, mergeClaims = false, mergeQueue = false) => {
     const records = /* @__PURE__ */ new Map();
@@ -444,7 +446,7 @@ function publicRelayData(value) {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).filter(([key, val]) => val !== void 0 && !["apiKey", "webhookUrl", "distributeWebhookUrl"].includes(key)).map(([key, val]) => [key, publicRelayData(val)]));
 }
-async function withRelayTimeout(operation, ms = 15e3) {
+async function withRelayTimeout(operation, ms = 8e3) {
   let timer;
   try {
     return await Promise.race([operation, new Promise((_, reject) => {
@@ -466,118 +468,28 @@ function decodeSnapshot(parts) {
 var FirestoreRelayStore = class {
   constructor(db) {
     this.db = db;
-    this.cachedSnapshot = null;
-    this.inFlightManifest = null;
-    this.inFlightFullRead = null;
-  }
-  setCachedSnapshot(snapshot) {
-    if (snapshot && (!this.cachedSnapshot || snapshot.version >= this.cachedSnapshot.version)) {
-      this.cachedSnapshot = {
-        version: snapshot.version,
-        updatedAt: snapshot.updatedAt,
-        data: publicRelayData(snapshot.data)
-      };
-    }
-  }
-  getCachedSnapshot() {
-    return this.cachedSnapshot;
-  }
-  // Single-flight manifest reader: 1 single document read from system_meta/live_state
-  async readManifest() {
-    if (this.inFlightManifest) return this.inFlightManifest;
-    this.inFlightManifest = (async () => {
-      const ref = this.db.collection("system_meta").doc("live_state");
-      const snap = await ref.get();
-      if (!snap.exists) return null;
-      const manifest = snap.data();
-      return {
-        format: manifest.format || "unknown",
-        parts: Number(manifest.parts || 0),
-        version: Number(manifest.version || 0),
-        updatedAt: Number(manifest.updatedAt || 0)
-      };
-    })().finally(() => {
-      this.inFlightManifest = null;
-    });
-    return this.inFlightManifest;
-  }
-  // Single-flight full reader with decode & safe cache update
-  async readFull() {
-    if (this.inFlightFullRead) return this.inFlightFullRead;
-    this.inFlightFullRead = (async () => {
-      const ref = this.db.collection("system_meta").doc("live_state");
-      const snap = await ref.get();
-      if (!snap.exists) {
-        const data = {};
-        await Promise.all(Object.entries(COLLECTIONS).map(async ([key, collection]) => {
-          try {
-            const rows = await this.db.collection(collection).get();
-            data[key] = rows.docs.map((row) => ({ ...row.data(), id: row.id }));
-          } catch {
-            data[key] = [];
-          }
-        }));
-        await Promise.all(Object.entries(SETTINGS).map(async ([key, id]) => {
-          try {
-            const row = await this.db.collection("app_settings").doc(id).get();
-            if (row.exists) data[key] = row.data();
-          } catch {
-          }
-        }));
-        const initial = { data: publicRelayData(data), version: 0, updatedAt: 0 };
-        this.setCachedSnapshot(initial);
-        return initial;
-      }
-      const manifest = snap.data();
-      if (manifest.format !== "gzip-parts-v1") {
-        const legacy = manifest.data ? { ...manifest, data: publicRelayData(manifest.data) } : null;
-        if (legacy) this.setCachedSnapshot(legacy);
-        return legacy;
-      }
-      if (!Number.isInteger(manifest.parts) || manifest.parts < 1 || manifest.parts > 64) {
-        throw new Error("INVALID_CENTRAL_MANIFEST");
-      }
-      const chunks = await Promise.all(Array.from({ length: manifest.parts }, (_, i) => this.db.collection("system_live_parts").doc(String(i)).get()));
-      if (chunks.some((chunk) => !chunk.exists)) throw new Error("INCOMPLETE_CENTRAL_STATE");
-      const decoded = {
-        version: Number(manifest.version || 0),
-        updatedAt: Number(manifest.updatedAt || 0),
-        data: decodeSnapshot(chunks.map((chunk) => chunk.data().payload))
-      };
-      this.setCachedSnapshot(decoded);
-      return decoded;
-    })().finally(() => {
-      this.inFlightFullRead = null;
-    });
-    return this.inFlightFullRead;
-  }
-  // Fast-path conditional read: avoids downloading snapshot chunks when client is already updated
-  async readConditional(clientVersion) {
-    const manifest = await this.readManifest();
-    if (!manifest) {
-      return this.readFull();
-    }
-    if (clientVersion && clientVersion !== 0 && clientVersion === manifest.version) {
-      return {
-        notModified: true,
-        version: manifest.version,
-        updatedAt: manifest.updatedAt,
-        data: null
-      };
-    }
-    if (this.cachedSnapshot && this.cachedSnapshot.version === manifest.version && this.cachedSnapshot.data) {
-      return this.cachedSnapshot;
-    }
-    return this.readFull();
-  }
-  async read() {
-    return this.readFull();
   }
   async readTransaction(tx) {
     const ref = this.db.collection("system_meta").doc("live_state");
     const snap = await tx.get(ref);
     if (!snap.exists) {
-      return this.readFull();
+      const data = {};
+      await Promise.all(Object.entries(COLLECTIONS).map(async ([key, collection]) => {
+        try {
+          const rows = await this.db.collection(collection).get();
+          data[key] = rows.docs.map((row) => ({ ...row.data(), id: row.id }));
+        } catch {
+          data[key] = [];
+        }
+      }));
+      await Promise.all(Object.entries(SETTINGS).map(async ([key, id]) => {
+        try {
+          const row = await this.db.collection("app_settings").doc(id).get();
+          if (row.exists) data[key] = row.data();
+        } catch {
+        }
+      }));
+      return { data: publicRelayData(data), version: 0, updatedAt: 0 };
     }
     const manifest = snap.data();
     if (manifest.format !== "gzip-parts-v1") {
@@ -586,26 +498,57 @@ var FirestoreRelayStore = class {
     if (!Number.isInteger(manifest.parts) || manifest.parts < 1 || manifest.parts > 64) {
       throw new Error("INVALID_CENTRAL_MANIFEST");
     }
-    if (this.cachedSnapshot && this.cachedSnapshot.version === Number(manifest.version) && this.cachedSnapshot.data) {
-      return this.cachedSnapshot;
-    }
     const chunks = await Promise.all(Array.from({ length: manifest.parts }, (_, i) => tx.get(this.db.collection("system_live_parts").doc(String(i)))));
     if (chunks.some((chunk) => !chunk.exists)) throw new Error("INCOMPLETE_CENTRAL_STATE");
-    const decoded = {
-      version: Number(manifest.version || 0),
-      updatedAt: Number(manifest.updatedAt || 0),
+    return {
+      version: manifest.version,
+      updatedAt: manifest.updatedAt,
       data: decodeSnapshot(chunks.map((chunk) => chunk.data().payload))
     };
-    this.setCachedSnapshot(decoded);
-    return decoded;
+  }
+  async read() {
+    const ref = this.db.collection("system_meta").doc("live_state");
+    const snap = await ref.get();
+    if (!snap.exists) {
+      const data = {};
+      await Promise.all(Object.entries(COLLECTIONS).map(async ([key, collection]) => {
+        try {
+          const rows = await this.db.collection(collection).get();
+          data[key] = rows.docs.map((row) => ({ ...row.data(), id: row.id }));
+        } catch {
+          data[key] = [];
+        }
+      }));
+      await Promise.all(Object.entries(SETTINGS).map(async ([key, id]) => {
+        try {
+          const row = await this.db.collection("app_settings").doc(id).get();
+          if (row.exists) data[key] = row.data();
+        } catch {
+        }
+      }));
+      return { data: publicRelayData(data), version: 0, updatedAt: 0 };
+    }
+    const manifest = snap.data();
+    if (manifest.format !== "gzip-parts-v1") {
+      return manifest.data ? { ...manifest, data: publicRelayData(manifest.data) } : null;
+    }
+    if (!Number.isInteger(manifest.parts) || manifest.parts < 1 || manifest.parts > 64) {
+      throw new Error("INVALID_CENTRAL_MANIFEST");
+    }
+    const chunks = await Promise.all(Array.from({ length: manifest.parts }, (_, i) => this.db.collection("system_live_parts").doc(String(i)).get()));
+    if (chunks.some((chunk) => !chunk.exists)) throw new Error("INCOMPLETE_CENTRAL_STATE");
+    return {
+      version: manifest.version,
+      updatedAt: manifest.updatedAt,
+      data: decodeSnapshot(chunks.map((chunk) => chunk.data().payload))
+    };
   }
   async commit(incoming, mutate) {
     return this.db.runTransaction(async (tx) => {
       const previous = await this.readTransaction(tx);
       const base = previous?.data || {};
+      const data = publicRelayData(mutate ? mutate(structuredClone(base)) : mergeRelayData(base, incoming));
       const version = Math.max(Number(previous?.version || 0) + 1, Date.now());
-      base.version = version;
-      const data = publicRelayData(mutate ? mutate(structuredClone(base), version) : mergeRelayData(base, incoming));
       const updatedAt = Date.now();
       const parts = encodeSnapshot(data);
       const writes = [];
@@ -656,169 +599,10 @@ var FirestoreRelayStore = class {
         lastUpdatedAt: updatedAt,
         lastChangeType: "liveState"
       }, { merge: true });
-      const result = { data, version, updatedAt };
-      this.setCachedSnapshot(result);
-      return result;
+      return { data, version, updatedAt };
     });
   }
 };
-
-// api/_imageRetention.ts
-var IMAGE_RETENTION_MS = 60 * 24 * 60 * 60 * 1e3;
-var MANAGED_IMAGE_PREFIXES = ["app-images/", "app-backgrounds/"];
-function managedImage(name) {
-  return MANAGED_IMAGE_PREFIXES.some((prefix) => name.startsWith(prefix)) && !name.includes("..");
-}
-function collectImageReferences(value, bucket, result = /* @__PURE__ */ new Set()) {
-  if (typeof value === "string") {
-    for (const match of value.matchAll(/(?:https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[^\s"<>]+|gs:\/\/[^\s"<>]+)/g)) {
-      try {
-        const url = new URL(match[0]);
-        if (url.protocol === "gs:" && url.hostname === bucket) result.add(decodeURIComponent(url.pathname.slice(1)));
-        if (url.hostname === "firebasestorage.googleapis.com") {
-          const parts = url.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
-          if (parts && decodeURIComponent(parts[1]) === bucket) result.add(decodeURIComponent(parts[2]));
-        }
-      } catch {
-      }
-    }
-  } else if (Array.isArray(value)) {
-    for (const entry of value) collectImageReferences(entry, bucket, result);
-  } else if (value && typeof value === "object") {
-    for (const entry of Object.values(value)) collectImageReferences(entry, bucket, result);
-  }
-  return result;
-}
-function retentionDecision(referenced, generation, previous, now) {
-  if (referenced) return { orphanSince: null, deleteEligible: false };
-  const existing = previous?.generation === generation && Number.isFinite(previous?.orphanSince) && previous.orphanSince > 0 && previous.orphanSince <= now && (!previous.lastUsedAt || previous.lastUsedAt <= previous.orphanSince);
-  const orphanSince = existing ? previous.orphanSince : now;
-  return { orphanSince, deleteEligible: now - orphanSince >= IMAGE_RETENTION_MS };
-}
-function authorizedCron(header, secret) {
-  if (!secret || !header) return false;
-  const expected = Buffer.from(`Bearer ${secret}`), actual = Buffer.from(header);
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
-}
-async function readAllImageReferences(db, bucket, deadline) {
-  const refs = /* @__PURE__ */ new Set();
-  let count = 0;
-  const assertBudget = () => {
-    if (Date.now() > deadline || count > 1e4) throw new Error("REFERENCE_SCAN_INCOMPLETE");
-  };
-  const manifest = await db.collection("system_meta").doc("live_state").get();
-  if (!manifest.exists) throw new Error("REFERENCE_MANIFEST_MISSING");
-  const state = manifest.data();
-  if (state.format === "gzip-parts-v1") {
-    if (!Number.isInteger(state.parts) || state.parts < 1 || state.parts > 64) throw new Error("REFERENCE_MANIFEST_INVALID");
-    const chunks = await Promise.all(Array.from({ length: state.parts }, (_, i) => db.collection("system_live_parts").doc(String(i)).get()));
-    if (chunks.some((chunk) => !chunk.exists)) throw new Error("REFERENCE_SCAN_INCOMPLETE");
-    collectImageReferences(decodeSnapshot(chunks.map((chunk) => chunk.data().payload)), bucket, refs);
-  } else {
-    if (!state.data || typeof state.data !== "object") throw new Error("REFERENCE_MANIFEST_INVALID");
-    collectImageReferences(state.data, bucket, refs);
-  }
-  async function scan(collection) {
-    assertBudget();
-    const rows = await collection.limit(10001).get();
-    count += rows.size;
-    assertBudget();
-    for (const doc of rows.docs) {
-      collectImageReferences(doc.data(), bucket, refs);
-      const nested = await doc.ref.listCollections();
-      for (const child of nested) await scan(child);
-      assertBudget();
-    }
-  }
-  for (const collection of await db.listCollections()) {
-    if (["system_live_parts", "image_retention"].includes(collection.id)) continue;
-    await scan(collection);
-  }
-  assertBudget();
-  return refs;
-}
-async function runImageRetention(sdk, bucketName, now = Date.now()) {
-  const deadline = Date.now() + 2e4;
-  const control = sdk.db.collection("system_meta").doc("image_retention_control");
-  const lease = randomUUID();
-  const acquired = await sdk.db.runTransaction(async (tx) => {
-    const snap = await tx.get(control), previous = snap.data() || {};
-    if (previous.leaseUntil > Date.now()) return null;
-    tx.set(control, { lease, leaseUntil: Date.now() + 12e4 }, { merge: true });
-    return { cursor: previous.cursor || void 0, prefixIndex: Number(previous.prefixIndex || 0) };
-  });
-  if (!acquired) return { skipped: "LOCKED" };
-  let checked = 0, marked = 0, cleared = 0, deleted = 0;
-  try {
-    const refs = await readAllImageReferences(sdk.db, bucketName, deadline);
-    const bucket = sdk.storage.bucket(bucketName);
-    const prefixIndex = acquired.prefixIndex % MANAGED_IMAGE_PREFIXES.length;
-    const [files, next] = await bucket.getFiles({
-      prefix: MANAGED_IMAGE_PREFIXES[prefixIndex],
-      maxResults: 100,
-      autoPaginate: false,
-      pageToken: acquired.cursor
-    });
-    for (const file of files) {
-      if (Date.now() > deadline) throw new Error("RETENTION_PASS_TIMEOUT");
-      if (!managedImage(file.name)) continue;
-      const [metadata] = await file.getMetadata();
-      const generation = String(metadata.generation);
-      if (!generation || generation === "undefined") throw new Error("IMAGE_GENERATION_MISSING");
-      const record = sdk.db.collection("image_retention").doc(createHash("sha256").update(`${bucketName}/${file.name}`).digest("hex"));
-      const previous = (await record.get()).data();
-      const decision = retentionDecision(refs.has(file.name), generation, previous, now);
-      checked++;
-      if (decision.orphanSince === null) {
-        if (previous?.orphanSince != null) {
-          await record.set({ generation, orphanSince: null, lastCheckedAt: now }, { merge: true });
-          cleared++;
-        }
-      } else if (decision.deleteEligible) {
-        const freshRefs = await readAllImageReferences(sdk.db, bucketName, deadline);
-        if (freshRefs.has(file.name)) {
-          await record.set({ generation, orphanSince: null, lastCheckedAt: now }, { merge: true });
-          cleared++;
-          continue;
-        }
-        if (Date.now() > deadline) throw new Error("RETENTION_PASS_TIMEOUT");
-        const reserved = await sdk.db.runTransaction(async (tx) => {
-          const latest = (await tx.get(record)).data();
-          if (!retentionDecision(false, generation, latest, now).deleteEligible || latest?.deletingUntil > Date.now()) return false;
-          tx.set(record, { deletingUntil: Date.now() + 12e4 }, { merge: true });
-          return true;
-        });
-        if (!reserved) continue;
-        if (Date.now() > deadline) throw new Error("RETENTION_PASS_TIMEOUT");
-        await file.delete({ ifGenerationMatch: generation });
-        await record.set({ generation, orphanSince: decision.orphanSince, deletedAt: now, lastCheckedAt: now, deletingUntil: 0 }, { merge: true });
-        deleted++;
-      } else {
-        await sdk.db.runTransaction(async (tx) => {
-          const latest = (await tx.get(record)).data();
-          const freshDecision = retentionDecision(false, generation, latest, now);
-          tx.set(record, { generation, orphanSince: freshDecision.orphanSince, lastCheckedAt: now }, { merge: true });
-        });
-        marked++;
-      }
-    }
-    await control.set({
-      cursor: next?.pageToken || null,
-      prefixIndex: next?.pageToken ? prefixIndex : (prefixIndex + 1) % MANAGED_IMAGE_PREFIXES.length,
-      lastCompletedAt: now,
-      checked,
-      marked,
-      cleared,
-      deleted
-    }, { merge: true });
-    return { checked, marked, cleared, deleted, retentionDays: 60 };
-  } finally {
-    await sdk.db.runTransaction(async (tx) => {
-      const snap = await tx.get(control);
-      if (snap.data()?.lease === lease) tx.set(control, { leaseUntil: 0, lease: null }, { merge: true });
-    });
-  }
-}
 
 // api/_relayAccess.ts
 var ADMIN = ["owner", "admin"];
@@ -926,7 +710,7 @@ import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 
 // api/_firebaseAdmin.ts
-import { randomUUID as randomUUID2, createHash as createHash2 } from "node:crypto";
+import { randomUUID } from "node:crypto";
 var PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "clan-hub-7645f";
 var DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || "(default)";
 function hasAdminCredentials() {
@@ -1070,10 +854,10 @@ async function uploadBackgroundImage(buffer, contentType) {
   if (!sdk) {
     throw new Error("Firebase Admin credentials not configured for image upload.");
   }
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "clan-hub-7645f.firebasestorage.app";
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "k7-item.firebasestorage.app";
   const bucket = sdk.storage.bucket(bucketName);
   const objectName = `app-backgrounds/current-${Date.now()}.${contentType === "image/png" ? "png" : "jpg"}`;
-  const downloadToken = randomUUID2();
+  const downloadToken = randomUUID();
   const file = bucket.file(objectName);
   await file.save(buffer, {
     resumable: false,
@@ -1084,43 +868,6 @@ async function uploadBackgroundImage(buffer, contentType) {
     }
   });
   return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(objectName)}?alt=media&token=${downloadToken}`;
-}
-async function uploadAppImage(buffer, contentType, uid) {
-  const sdk = await getAdminSdk();
-  if (!sdk) throw new Error("STORAGE_UNAVAILABLE");
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "clan-hub-7645f.firebasestorage.app";
-  const hash = createHash2("sha256").update(buffer).digest("hex");
-  const name = `app-images/${encodeURIComponent(uid)}/${hash}`;
-  const file = sdk.storage.bucket(bucketName).file(name);
-  let metadata;
-  try {
-    [metadata] = await file.getMetadata();
-  } catch (error) {
-    if (Number(error.code) !== 404) throw error;
-  }
-  if (!metadata) {
-    try {
-      await file.save(buffer, {
-        resumable: false,
-        contentType,
-        preconditionOpts: { ifGenerationMatch: 0 },
-        metadata: { metadata: { firebaseStorageDownloadTokens: randomUUID2() } }
-      });
-    } catch (error) {
-      if (Number(error.code) !== 412) throw error;
-    }
-    [metadata] = await file.getMetadata();
-  }
-  const token = metadata?.metadata?.firebaseStorageDownloadTokens?.split(",")[0];
-  if (!token) throw new Error("STORAGE_TOKEN_MISSING");
-  const retentionRef = sdk.db.collection("image_retention").doc(createHash2("sha256").update(`${bucketName}/${name}`).digest("hex"));
-  await sdk.db.runTransaction(async (tx) => {
-    const current = (await tx.get(retentionRef)).data();
-    if (current?.deletingUntil > Date.now()) throw new Error("IMAGE_RETIRING_RETRY");
-    if (current?.deletedAt && current.generation === String(metadata.generation)) throw new Error("IMAGE_REUPLOAD_REQUIRED");
-    tx.set(retentionRef, { generation: String(metadata.generation), orphanSince: null, deletedAt: null, lastUsedAt: Date.now() }, { merge: true });
-  });
-  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(name)}?alt=media&token=${encodeURIComponent(token)}`;
 }
 async function verifyRoleToken(authorization, allowedRoles) {
   const token = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
@@ -1449,20 +1196,6 @@ async function generateWithModelFallback(ai, request) {
 }
 async function createApp(options = {}) {
   const app = express();
-  app.get("/api/cron/image-retention", async (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    if (!authorizedCron(req.headers.authorization, process.env.CRON_SECRET)) return res.status(401).json({ error: "UNAUTHORIZED" });
-    if (process.env.STORAGE_CLEANUP_ENABLED !== "true") return res.json({ skipped: "DISABLED", retentionDays: 60 });
-    try {
-      const sdk = await getAdminSdk();
-      if (!sdk) throw new Error("STORAGE_UNAVAILABLE");
-      const result = await runImageRetention(sdk, process.env.FIREBASE_STORAGE_BUCKET || "clan-hub-7645f.firebasestorage.app");
-      return res.json({ success: true, ...result });
-    } catch (error) {
-      console.error("Image retention aborted safely:", error);
-      return res.status(503).json({ error: "RETENTION_CHECK_FAILED", message: "\u0E15\u0E23\u0E27\u0E08\u0E23\u0E39\u0E1B\u0E44\u0E21\u0E48\u0E04\u0E23\u0E1A \u0E22\u0E01\u0E40\u0E25\u0E34\u0E01\u0E01\u0E32\u0E23\u0E15\u0E23\u0E27\u0E08\u0E23\u0E2D\u0E1A\u0E19\u0E35\u0E49 / Incomplete image check; this pass was aborted" });
-    }
-  });
   const getGeminiApiKey = async () => {
     const environmentKey = process.env.GEMINI_API_KEY?.trim();
     if (environmentKey) return environmentKey;
@@ -1540,22 +1273,11 @@ async function createApp(options = {}) {
   }
   let storePromise = null;
   const getRelayStore = () => {
-    if (!storePromise) storePromise = (options.relayStore ? Promise.resolve(options.relayStore) : options.isolatedTest ? Promise.resolve(null) : getAdminSdk().then((sdk) => sdk?.db ? new FirestoreRelayStore(sdk.db) : null)).then((store) => {
-      if (store && liveHubState.data && liveHubState.version > 0) {
-        store.setCachedSnapshot(liveHubState);
-      }
-      return store;
-    });
+    if (!storePromise) storePromise = options.relayStore ? Promise.resolve(options.relayStore) : options.isolatedTest ? Promise.resolve(null) : getAdminSdk().then((sdk) => sdk?.db ? new FirestoreRelayStore(sdk.db) : null);
     return storePromise;
   };
   const acceptSnapshot = (snapshot) => {
     liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
-    if (storePromise) {
-      storePromise.then((s) => {
-        if (s) s.setCachedSnapshot(liveHubState);
-      }).catch(() => {
-      });
-    }
     if (!process.env.VERCEL) fs.writeFileSync(LIVE_STATE_FILE, JSON.stringify(liveHubState), "utf-8");
     liveStateEmitter.emit("update");
   };
@@ -1563,18 +1285,15 @@ async function createApp(options = {}) {
   const commitRelay = async (incoming, mutate) => {
     const store = await getRelayStore();
     if (store) {
-      const snapshot = await withRelayTimeout(store.commit(incoming, mutate), 15e3);
+      const snapshot = await withRelayTimeout(store.commit(incoming, mutate));
       if (snapshot.version >= liveHubState.version) acceptSnapshot(snapshot);
       return snapshot;
     }
     if (process.env.VERCEL || process.env.NODE_ENV === "production") throw new Error("CENTRAL_STORE_UNAVAILABLE");
     const next = localCommit.catch(() => {
     }).then(() => {
-      const version = Math.max(Number(liveHubState.version || 0) + 1, Date.now());
-      const currentData = structuredClone(liveHubState.data || {});
-      currentData.version = version;
-      const data = publicRelayData(mutate ? mutate(currentData, version) : mergeRelayData(liveHubState.data || {}, incoming));
-      const snapshot = { data, version, updatedAt: Date.now() };
+      const data = publicRelayData(mutate ? mutate(structuredClone(liveHubState.data || {})) : mergeRelayData(liveHubState.data || {}, incoming));
+      const snapshot = { data, version: Math.max(liveHubState.version + 1, Date.now()), updatedAt: Date.now() };
       acceptSnapshot(snapshot);
       return snapshot;
     });
@@ -1970,27 +1689,16 @@ async function createApp(options = {}) {
   app.get("/api/live-state", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     try {
-      const clientVersion = Number(req.query.v) || 0;
       const store = await getRelayStore();
       if (store) {
         try {
-          const result = await withRelayTimeout(store.readConditional(clientVersion), 8e3);
-          if (result) {
-            if (result.notModified) {
-              return res.json({
-                modified: false,
-                version: result.version,
-                updatedAt: result.updatedAt
-              });
-            }
-            if (result.version >= liveHubState.version) {
-              acceptSnapshot(result);
-            }
-          }
+          const snapshot = await withRelayTimeout(store.read(), 1e4);
+          if (snapshot) liveHubState = { ...snapshot, data: publicRelayData(snapshot.data) };
         } catch (readErr) {
           console.warn("Central store read notice (serving in-memory state):", readErr?.message || readErr);
         }
       }
+      const clientVersion = Number(req.query.v) || 0;
       const modified = clientVersion !== liveHubState.version || clientVersion === 0;
       return res.json({
         modified,
@@ -2034,66 +1742,13 @@ async function createApp(options = {}) {
   const failWrite = (res, error) => res.status(
     /FORBIDDEN|NOT_ACTIVE|POWER_REQUIRED/.test(error?.message || "") ? 403 : /NOT_FOUND|DISTRIBUTED|INVALID/.test(error?.message || "") ? 400 : 503
   ).json({ success: false, persisted: false, error: error?.message || "CENTRAL_WRITE_FAILED" });
-  const processedClientOps = /* @__PURE__ */ new Map();
-  const idempotencyInterval = setInterval(() => {
-    const cutoff = Date.now() - 2 * 60 * 60 * 1e3;
-    for (const [opKey, data] of processedClientOps.entries()) {
-      if (data.timestamp < cutoff) processedClientOps.delete(opKey);
-    }
-  }, 6e4);
-  idempotencyInterval.unref?.();
-  const getScopedOpKey = (req, actor) => {
-    const opId = req.headers["x-client-op-id"] || req.body?.clientOpId;
-    if (!opId || !actor?.uid) return "";
-    return `${actor.uid}:::${req.path}:::${opId}`;
-  };
-  const checkPreFlightIdempotency = (req, res, actor) => {
-    const opKey = getScopedOpKey(req, actor);
-    if (!opKey) return false;
-    if (processedClientOps.has(opKey)) {
-      const cached = processedClientOps.get(opKey);
-      res.json({ ...cached.result, deduplicated: true });
-      return true;
-    }
-    const persistentOp = liveHubState.data?.syncMeta?.processedOps?.[opKey];
-    if (persistentOp?.result) {
-      processedClientOps.set(opKey, persistentOp);
-      res.json({ ...persistentOp.result, deduplicated: true });
-      return true;
-    }
-    return false;
-  };
-  const recordPersistentIdempotency = (current, opKey, responsePayload) => {
-    if (!opKey) return;
-    current.syncMeta ||= {};
-    current.syncMeta.processedOps ||= {};
-    current.syncMeta.processedOps[opKey] = {
-      result: responsePayload,
-      timestamp: Date.now()
-    };
-    const cutoff = Date.now() - 2 * 60 * 60 * 1e3;
-    for (const [k, v] of Object.entries(current.syncMeta.processedOps)) {
-      if (v?.timestamp < cutoff) delete current.syncMeta.processedOps[k];
-    }
-  };
-  const commitSuccessToRamCache = (opKey, responsePayload) => {
-    if (!opKey) return;
-    processedClientOps.set(opKey, { result: responsePayload, timestamp: Date.now() });
-  };
   app.post("/api/claim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
-      const actor = res.locals.actor;
-      if (checkPreFlightIdempotency(req, res, actor)) return;
       const { itemId, claimant } = req.body;
       if (!itemId || !claimant?.userId) throw new Error("INVALID_CLAIM_PAYLOAD");
+      const actor = res.locals.actor;
       if (!["owner", "admin"].includes(actor.role) && claimant.userId !== actor.uid) throw new Error("FORBIDDEN");
-      const opKey = getScopedOpKey(req, actor);
-      let duplicateResult = null;
-      const snapshot = await commitRelay(null, (current, targetVersion) => {
-        if (opKey && current.syncMeta?.processedOps?.[opKey]) {
-          duplicateResult = current.syncMeta.processedOps[opKey].result;
-          return current;
-        }
+      const snapshot = await commitRelay(null, (current) => {
         const member = (current.users || []).find((u) => u.id === claimant.userId);
         if (!member || member.status !== "active") throw new Error("NOT_ACTIVE");
         const item = (current.vaultItems || []).find((i) => i.id === itemId);
@@ -2101,11 +1756,7 @@ async function createApp(options = {}) {
         if (item.status === "distributed" || item.distributedTo) throw new Error("ITEM_DISTRIBUTED");
         if (!["owner", "admin"].includes(actor.role) && Number(member.powerLevel || 0) < Number(item.minPowerLevel || 0)) throw new Error("POWER_REQUIRED");
         const previous = (item.claimants || []).find((c) => c.userId === member.id);
-        if (previous) {
-          const resObj = { success: true, persisted: true, version: targetVersion, itemId };
-          recordPersistentIdempotency(current, opKey, resObj);
-          return current;
-        }
+        if (previous) return current;
         item.claimants = [...item.claimants || [], {
           userId: member.id,
           inGameName: member.inGameName,
@@ -2118,35 +1769,20 @@ async function createApp(options = {}) {
         current.syncMeta.cancelledClaims ||= {};
         delete current.syncMeta.cancelledClaims[itemId + ":::" + member.id.toLowerCase()];
         delete current.syncMeta.cancelledClaims[itemId + ":::" + member.inGameName.toLowerCase()];
-        const responsePayload = { success: true, persisted: true, version: targetVersion, itemId };
-        recordPersistentIdempotency(current, opKey, responsePayload);
         return current;
       });
-      if (duplicateResult) {
-        commitSuccessToRamCache(opKey, duplicateResult);
-        return res.json({ ...duplicateResult, deduplicated: true });
-      }
-      const finalPayload = { success: true, persisted: true, version: snapshot.version, itemId };
-      commitSuccessToRamCache(opKey, finalPayload);
-      res.json(finalPayload);
+      res.json({ success: true, persisted: true, version: snapshot.version, itemId });
     } catch (error) {
       failWrite(res, error);
     }
   });
   app.post("/api/unclaim-vault-item", requireRoles(writeRoles), async (req, res) => {
     try {
-      const actor = res.locals.actor;
-      if (checkPreFlightIdempotency(req, res, actor)) return;
       const { itemId, userId, inGameName } = req.body;
       if (!itemId || !userId && !inGameName) throw new Error("INVALID_UNCLAIM_PAYLOAD");
+      const actor = res.locals.actor;
       if (!["owner", "admin"].includes(actor.role) && userId !== actor.uid) throw new Error("FORBIDDEN");
-      const opKey = getScopedOpKey(req, actor);
-      let duplicateResult = null;
-      const snapshot = await commitRelay(null, (current, targetVersion) => {
-        if (opKey && current.syncMeta?.processedOps?.[opKey]) {
-          duplicateResult = current.syncMeta.processedOps[opKey].result;
-          return current;
-        }
+      const snapshot = await commitRelay(null, (current) => {
         const item = (current.vaultItems || []).find((i) => i.id === itemId);
         if (!item) throw new Error("ITEM_NOT_FOUND");
         const now = Date.now();
@@ -2158,17 +1794,9 @@ async function createApp(options = {}) {
         for (const c of removed) for (const identity of [c.userId, c.inGameName]) {
           if (identity) current.syncMeta.cancelledClaims[itemId + ":::" + identity.toLowerCase()] = now;
         }
-        const responsePayload = { success: true, persisted: true, version: targetVersion, itemId };
-        recordPersistentIdempotency(current, opKey, responsePayload);
         return current;
       });
-      if (duplicateResult) {
-        commitSuccessToRamCache(opKey, duplicateResult);
-        return res.json({ ...duplicateResult, deduplicated: true });
-      }
-      const finalPayload = { success: true, persisted: true, version: snapshot.version, itemId };
-      commitSuccessToRamCache(opKey, finalPayload);
-      res.json(finalPayload);
+      res.json({ success: true, persisted: true, version: snapshot.version, itemId });
     } catch (error) {
       failWrite(res, error);
     }
@@ -2179,33 +1807,16 @@ async function createApp(options = {}) {
   ]) {
     app.post(route, requireRoles(writeRoles), async (req, res) => {
       try {
-        const actor = res.locals.actor;
-        if (checkPreFlightIdempotency(req, res, actor)) return;
         const id = req.body[idField];
         if (!id || !Array.isArray(req.body.queueList)) throw new Error("INVALID_PAYLOAD");
-        const opKey = getScopedOpKey(req, actor);
-        let duplicateResult = null;
-        const snapshot = await commitRelay(null, (current, targetVersion) => {
-          if (opKey && current.syncMeta?.processedOps?.[opKey]) {
-            duplicateResult = current.syncMeta.processedOps[opKey].result;
-            return current;
-          }
+        const snapshot = await commitRelay(null, (current) => {
           const item = (current[field] || []).find((i) => i.id === id);
           if (!item) throw new Error("ITEM_NOT_FOUND");
-          const merged = mergeRelayData(current, scopeRelayInput(current, {
+          return mergeRelayData(current, scopeRelayInput(current, {
             [field]: [{ ...item, queueList: req.body.queueList, updatedAt: Date.now() }]
-          }, actor));
-          const responsePayload = { success: true, persisted: true, version: targetVersion };
-          recordPersistentIdempotency(merged, opKey, responsePayload);
-          return merged;
+          }, res.locals.actor));
         });
-        if (duplicateResult) {
-          commitSuccessToRamCache(opKey, duplicateResult);
-          return res.json({ ...duplicateResult, deduplicated: true });
-        }
-        const finalPayload = { success: true, persisted: true, version: snapshot.version };
-        commitSuccessToRamCache(opKey, finalPayload);
-        res.json(finalPayload);
+        res.json({ success: true, persisted: true, version: snapshot.version });
       } catch (error) {
         failWrite(res, error);
       }
@@ -2214,34 +1825,18 @@ async function createApp(options = {}) {
   for (const route of ["/api/request-stat-update", "/api/update-user-stats"]) {
     app.post(route, requireRoles(writeRoles), async (req, res) => {
       try {
-        const actor = res.locals.actor;
-        if (checkPreFlightIdempotency(req, res, actor)) return;
         const { userId, updates } = req.body;
+        const actor = res.locals.actor;
         if (!userId || !updates || typeof updates !== "object") throw new Error("INVALID_PAYLOAD");
         if (!["owner", "admin"].includes(actor.role) && userId !== actor.uid) throw new Error("FORBIDDEN");
-        const opKey = getScopedOpKey(req, actor);
-        let duplicateResult = null;
-        const snapshot = await commitRelay(null, (current, targetVersion) => {
-          if (opKey && current.syncMeta?.processedOps?.[opKey]) {
-            duplicateResult = current.syncMeta.processedOps[opKey].result;
-            return current;
-          }
+        const snapshot = await commitRelay(null, (current) => {
           const user = (current.users || []).find((u) => u.id === userId);
           if (!user) throw new Error("USER_NOT_FOUND");
-          const merged = mergeRelayData(current, scopeRelayInput(current, {
+          return mergeRelayData(current, scopeRelayInput(current, {
             users: [{ ...user, ...updates, id: user.id, updatedAt: Date.now() }]
           }, actor));
-          const responsePayload = { success: true, persisted: true, version: targetVersion, userId };
-          recordPersistentIdempotency(merged, opKey, responsePayload);
-          return merged;
         });
-        if (duplicateResult) {
-          commitSuccessToRamCache(opKey, duplicateResult);
-          return res.json({ ...duplicateResult, deduplicated: true });
-        }
-        const finalPayload = { success: true, persisted: true, version: snapshot.version, userId };
-        commitSuccessToRamCache(opKey, finalPayload);
-        res.json(finalPayload);
+        res.json({ success: true, persisted: true, version: snapshot.version, userId });
       } catch (error) {
         failWrite(res, error);
       }
@@ -2453,33 +2048,6 @@ Do not include markdown or explanations. Return pure JSON only.`;
     }
   });
   app.use(express.static(path.join(process.cwd(), "public")));
-  const imageRateLimits = /* @__PURE__ */ new Map();
-  app.post("/api/upload-image", requireRoles(["owner", "admin", "manager", "party_leader", "member"]), async (req, res) => {
-    if (!consumeRateLimit(imageRateLimits, res.locals.actor.uid, 60, 6e4)) {
-      return res.status(429).json({ error: "IMAGE_RATE_LIMIT", message: "\u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E2D\u0E2A\u0E31\u0E01\u0E04\u0E23\u0E39\u0E48 / Please wait a moment" });
-    }
-    const data = req.body?.imageBase64;
-    const match = typeof data === "string" && data.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/);
-    if (!match) return res.status(400).json({ error: "INVALID_IMAGE", message: "\u0E23\u0E39\u0E1B\u0E20\u0E32\u0E1E\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 / Invalid image" });
-    const buffer = Buffer.from(match[2], "base64");
-    const valid = match[1] === "image/jpeg" ? buffer.subarray(0, 3).equals(Buffer.from([255, 216, 255])) : match[1] === "image/png" ? buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) : buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP";
-    if (!valid || buffer.length > 2 * 1024 * 1024) return res.status(400).json({ error: "INVALID_IMAGE", message: "\u0E23\u0E39\u0E1B\u0E20\u0E32\u0E1E\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07\u0E2B\u0E23\u0E37\u0E2D\u0E43\u0E2B\u0E0D\u0E48\u0E40\u0E01\u0E34\u0E19\u0E44\u0E1B / Invalid or oversized image" });
-    let timer;
-    try {
-      const url = await Promise.race([
-        uploadAppImage(buffer, match[1], res.locals.actor.uid),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error("STORAGE_TIMEOUT")), 12e3);
-        })
-      ]);
-      return res.json({ success: true, url });
-    } catch (error) {
-      console.error("Image upload failed", error);
-      return res.status(503).json({ error: "STORAGE_UNAVAILABLE", message: "\u0E2D\u0E31\u0E1B\u0E42\u0E2B\u0E25\u0E14\u0E23\u0E39\u0E1B\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48 / Image upload unavailable, please retry" });
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  });
   app.post("/api/save-background", requireRoles(["owner"]), async (req, res) => {
     try {
       const { imageBase64 } = req.body;

@@ -29,7 +29,7 @@ import {
 import { User, FormulaSettings, OFFICIAL_CLASSES, ClassMeta, ClanGroup, ActiveTab, StatHistoryPoint, StatUpdateSettings, isUserStatsPending } from '../types';
 import { translations } from '../translations';
 import { getFormulaSettings, calculatePowerLevel } from '../services/powerFormulaService';
-import { prepareImageFile as compressImageFile } from '../services/imageUpload';
+import { compressImageFile } from '../utils/imageCompressor';
 import { sounds } from '../utils/sound';
 import { ScreenshotGuideModal } from './ScreenshotGuideModal';
 import { GrowthTimelineChart } from './GrowthTimelineChart';
@@ -277,7 +277,13 @@ export const MyStatsView: React.FC<MyStatsViewProps> = ({
         );
       }
     } catch {
-      showToast?.(lang === 'th' ? 'อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่' : 'Image upload failed. Please retry.', 'error');
+      const reader = new FileReader();
+      reader.onload = () => {
+        markAsEdited();
+        setScreenshotUrl(reader.result as string);
+        sounds.playClick();
+      };
+      reader.readAsDataURL(file);
     }
   };
 

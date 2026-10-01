@@ -401,7 +401,7 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
               })}
             </span>
             <span className="font-bold text-amber-400">
-              ⚡ {(activePoint.point.powerLevel || 0).toLocaleString()} PL
+              ⚡ {activePoint.point.powerLevel.toLocaleString()} PL
             </span>
           </div>
         )}
@@ -524,7 +524,7 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
                 month: 'short'
               })}
             </span>
-            <span className="font-bold text-amber-400">⚡ {(activePoint.point.powerLevel || 0).toLocaleString()} PL</span>
+            <span className="font-bold text-amber-400">⚡ {activePoint.point.powerLevel.toLocaleString()} PL</span>
           </div>
         )}
       </div>
@@ -661,7 +661,7 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
                       </div>
                     </td>
                     <td className="px-2.5 py-1.5 text-right font-mono font-bold text-zinc-100">
-                      ⚡ {(point.powerLevel || 0).toLocaleString()}
+                      ⚡ {point.powerLevel.toLocaleString()}
                     </td>
                     <td className="px-2 py-1.5 text-center">
                       <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
@@ -768,7 +768,7 @@ export const GrowthTimelineChart: React.FC<GrowthTimelineChartProps> = ({
 
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="font-mono font-bold text-amber-400 text-xs">
-                        ⚡ {(point.powerLevel || 0).toLocaleString()} PL
+                        ⚡ {point.powerLevel.toLocaleString()} PL
                       </span>
                       {/* Delete button (Only available to Owner!) */}
                       {isOwner && (
