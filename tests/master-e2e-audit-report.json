@@ -1,0 +1,112 @@
+{
+  "timestamp": "2026-10-01T03:42:43.121Z",
+  "targetUrl": "http://localhost:3000",
+  "systemVersion": "v2.10.70",
+  "summary": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0
+  },
+  "acts": [
+    {
+      "actNumber": 1,
+      "title": "Member Registration & Zero-Timeout Dispatch",
+      "actor": "Member",
+      "status": "PASS",
+      "details": "Registration for KainMaster_3123 submitted | Success notice verified | No CENTRAL_STORE_TIMEOUT",
+      "screenshot": "master-01-member-registered.png",
+      "timestamp": "2026-10-01T03:43:01.590Z"
+    },
+    {
+      "actNumber": 2,
+      "title": "Admin Alert Badge & Member Approval Reaction",
+      "actor": "Admin/Owner",
+      "status": "PASS",
+      "details": "Notification card rendered (true) | Approved button clicked: true",
+      "screenshot": "master-02-admin-notification-and-approval.png",
+      "timestamp": "2026-10-01T03:43:20.010Z"
+    },
+    {
+      "actNumber": 3,
+      "title": "New Member First Login & Initial Dashboard",
+      "actor": "Member",
+      "status": "PASS",
+      "details": "Member KainMaster_3123 authenticated | Status: active | Initial PL: 0 PL",
+      "screenshot": "master-03-member-dashboard-initial.png",
+      "timestamp": "2026-10-01T03:43:27.985Z"
+    },
+    {
+      "actNumber": 4,
+      "title": "Member Stat Submission & Rule 3 Pending Lock",
+      "actor": "Member",
+      "status": "PASS",
+      "details": "Stats submitted (Damage 240, Defense 360) | Rule 3 locked: verified Combat Power awaits Admin approval",
+      "screenshot": "master-04-member-stat-submitted-locked.png",
+      "timestamp": "2026-10-01T03:43:35.704Z"
+    },
+    {
+      "actNumber": 5,
+      "title": "Admin Stat Review & Live Approval Reaction",
+      "actor": "Admin/Owner",
+      "status": "PASS",
+      "details": "Admin reviewed pending stat console | Approved request triggered (Action: true)",
+      "screenshot": "master-05-admin-approved-stat-request.png",
+      "timestamp": "2026-10-01T03:43:49.486Z"
+    },
+    {
+      "actNumber": 6,
+      "title": "Member Verified Power Live Upgrade & Growth Timeline",
+      "actor": "Member",
+      "status": "PASS",
+      "details": "Combat Power upgraded to ⚡ 4,890 PL (พลังยืนยันแล้ว) | Timeline chart live updated",
+      "screenshot": "master-06-member-verified-power-unlocked.png",
+      "timestamp": "2026-10-01T03:43:56.964Z"
+    },
+    {
+      "actNumber": 7,
+      "title": "Admin Vault Item Publication Flow",
+      "actor": "Admin/Owner",
+      "status": "PASS",
+      "details": "Item created: \"👑 Master Crown of Kain (E2E Master Audit)\" | Price: 2,500 Diamonds | Mode: Open for claim",
+      "screenshot": "master-07-admin-vault-item-published.png",
+      "timestamp": "2026-10-01T03:44:08.311Z"
+    },
+    {
+      "actNumber": 8,
+      "title": "Member Claim & Personal Item Queue Live Reaction",
+      "actor": "Member",
+      "status": "PASS",
+      "details": "Member submitted claim (Clicked: true) | Item claimed and reflected on dashboard",
+      "screenshot": "master-08-member-claimed-and-in-queue.png",
+      "timestamp": "2026-10-01T03:44:19.262Z"
+    },
+    {
+      "actNumber": 9,
+      "title": "Admin Distribution & Member Receipt History Reaction",
+      "actor": "Admin -> Member",
+      "status": "PASS",
+      "details": "Item distributed | Distribution history and recipient reflected across the system",
+      "screenshot": "master-09-member-distribution-received.png",
+      "timestamp": "2026-10-01T03:44:38.777Z"
+    },
+    {
+      "actNumber": 10,
+      "title": "Mandatory Bilingual 100% & Role Security Audit (Rule 1 & 3)",
+      "actor": "System",
+      "status": "PASS",
+      "details": "Bilingual switch verified TH/EN 100% | Owner account eloni protected | Gemini OCR access restricted",
+      "screenshot": "master-10-bilingual-and-security-verified.png",
+      "timestamp": "2026-10-01T03:44:48.035Z"
+    },
+    {
+      "actNumber": 11,
+      "title": "Clean Slate & Production Database Purge",
+      "actor": "System",
+      "status": "PASS",
+      "details": "Test records purged | Database clean, consistent, and ready for handover",
+      "screenshot": "master-11-clean-slate-verified.png",
+      "timestamp": "2026-10-01T03:44:52.073Z"
+    }
+  ],
+  "completedAt": "2026-10-01T03:44:52.073Z"
+}
